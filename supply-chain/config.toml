@@ -442,6 +442,14 @@ criteria = "safe-to-deploy"
 version = "0.6.14"
 criteria = "safe-to-deploy"
 
+[[exemptions.fallible-iterator]]
+version = "0.3.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.fallible-streaming-iterator]]
+version = "0.1.9"
+criteria = "safe-to-deploy"
+
 [[exemptions.fancy-regex]]
 version = "0.11.0"
 criteria = "safe-to-deploy"
@@ -754,6 +762,10 @@ criteria = "safe-to-deploy"
 version = "0.11.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.hashlink]]
+version = "0.12.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.heapless]]
 version = "0.8.0"
 criteria = "safe-to-deploy"
@@ -892,6 +904,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.libredox]]
 version = "0.1.23"
+criteria = "safe-to-deploy"
+
+[[exemptions.libsqlite3-sys]]
+version = "0.38.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.line-clipping]]
@@ -1218,6 +1234,18 @@ criteria = "safe-to-deploy"
 version = "0.12.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.rsqlite-vfs]]
+version = "0.1.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.rusqlite]]
+version = "0.40.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.rusqlite_migration]]
+version = "2.6.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.rust-ini]]
 version = "0.21.3"
 criteria = "safe-to-deploy"
@@ -1364,6 +1392,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.sponge-cursor]]
 version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.sqlite-wasm-rs]]
+version = "0.5.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.stable_deref_trait]]
@@ -1548,6 +1580,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.valuable]]
 version = "0.1.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.vcpkg]]
+version = "0.2.15"
 criteria = "safe-to-deploy"
 
 [[exemptions.vergen]]

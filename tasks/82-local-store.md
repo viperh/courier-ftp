@@ -322,29 +322,29 @@ database path appears in `Corrupt` messages (it is the user's own file, not a re
 
 ## Acceptance criteria
 
-- [ ] AC1 A fresh file gets every table in `TABLES`, `user_version = SCHEMA_VERSION`, WAL mode,
+- [x] AC1 A fresh file gets every table in `TABLES`, `user_version = SCHEMA_VERSION`, WAL mode,
   `foreign_keys = 1`, `temp_store = 2`, `busy_timeout = 5000` on every connection.
-- [ ] AC2 A file with `user_version = SCHEMA_VERSION + 1` returns `NewerSchema` and its bytes
+- [x] AC2 A file with `user_version = SCHEMA_VERSION + 1` returns `NewerSchema` and its bytes
   (and absence of `-wal`/`-shm`) are unchanged afterwards.
-- [ ] AC3 A failing extra migration leaves `user_version` and the schema at the previous version.
-- [ ] AC4 `put_item(mark_dirty = true)` writes the item row and the outbox row atomically: an
+- [x] AC3 A failing extra migration leaves `user_version` and the schema at the previous version.
+- [x] AC4 `put_item(mark_dirty = true)` writes the item row and the outbox row atomically: an
   injected error after the item upsert leaves neither; 10 consecutive edits leave one outbox
   row with the first `base_revision`.
-- [ ] AC5 `apply_remote` with an invalid envelope in the middle of a page leaves all rows and
+- [x] AC5 `apply_remote` with an invalid envelope in the middle of a page leaves all rows and
   the cursor unchanged.
-- [ ] AC6 Two `Store` instances on the same file (simulating two processes) each perform 500
+- [x] AC6 Two `Store` instances on the same file (simulating two processes) each perform 500
   interleaved write transactions concurrently: all 1 000 commits are present, no `Busy` error
   surfaces with `busy_timeout = 5000`, `PRAGMA integrity_check` returns `ok`.
-- [ ] AC7 After writing envelopes of bodies containing `CANARY-SITE-9d2e` and checkpointing,
+- [x] AC7 After writing envelopes of bodies containing `CANARY-SITE-9d2e` and checkpointing,
   the bytes `CANARY-SITE-9d2e` occur in none of `courier-ftp.db`, `-wal`, `-shm`; handing a
   plaintext body to `put_item` returns `InvalidEnvelope`.
-- [ ] AC8 On Unix the database, `-wal` and `-shm` are mode `0600` and the directory `0700`.
-- [ ] AC9 A random non-SQLite file at the path returns `Corrupt` with the path in the message.
-- [ ] AC10 `data_version()` changes after a commit from another `Store` instance and not after
+- [x] AC8 On Unix the database, `-wal` and `-shm` are mode `0600` and the directory `0700`.
+- [x] AC9 A random non-SQLite file at the path returns `Corrupt` with the path in the message.
+- [x] AC10 `data_version()` changes after a commit from another `Store` instance and not after
   a commit from the same instance.
-- [ ] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `layering`
+- [x] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `layering`
   (`courier-ftp-store` does not depend on `courier-ftp-core`, ratatui, crossterm or clap) pass.
-- [ ] AC12 `pinned_keys` (sverb's full table): `observe_pin` of a new key pins it unverified;
+- [x] AC12 `pinned_keys` (sverb's full table): `observe_pin` of a new key pins it unverified;
   `set_verified` sets `verified`/`verified_at`; a different key for a pinned user is stored in
   the `changed_*` columns (pending) without replacing the pin, and `accept_key_change` moves it
   over and clears `verified`; partially set `changed_*` columns read as `Corrupt`.
@@ -398,3 +398,39 @@ Not applicable (covered through T30 and T88).
 ## Open questions
 
 None.
+
+## Implementation notes
+
+- **Pins API names.** The spec's `observe_pin(PinObservation) -> PinState` and
+  `set_verified(user_id, SetVerified)` reuse sverb's type names with new roles:
+  `PinObservation` is the input struct (`user_id`, `label`, `x25519_pub`, `ed25519_pub`,
+  `is_self`), `PinState` is the observation result (`FirstSeen` / `Unchanged` /
+  `Changed { pinned, seen }`), sverb's trust state became `PinTrust`
+  (`PinnedKey::trust()`: `Pinned` / `Verified` / `KeyChanged`), `SetVerified` is the input
+  flag (`Verified` / `Unverified`) and the result is `VerifyOutcome` (`Set` / `NoPin` /
+  `KeyChangePending`). `accept_key_change(user_id) -> bool` moves the pending key over and
+  leaves the pin unverified (AC12); sverb's `accept_new_key(user, verified)` flag is gone, the
+  user verifies with `set_verified` afterwards. `find_pin` / `parse_user_id` were ported too.
+- **Plaintext guard.** "Unknown format bytes are accepted" would let any plaintext of 45+
+  bytes through, so only `items::FUTURE_FORMATS = 0x02..=0x1F` are accepted as unknown
+  formats; `0x00` and `0x20..=0xFF` (text, JSON, CBOR maps) return
+  `InvalidEnvelope("unknown format byte")`.
+- **Wrapped values** (`vaults.wrapped_key`, `sync_state.tokens_enc`) shorter than 40 bytes
+  return `InvalidEnvelope("too short to be a wrapped key")`.
+- **device_local readers.** `list_device_local()` returns only rows whose item exists;
+  `get_device_local(id)` returns a row even before its item exists (rows may precede the
+  item, e.g. `touch_connected` during the first connect).
+- **Device blobs.** `MAX_DEVICE_BLOB_LEN = 256 MiB` of sealed bytes; `delete_device_blob`
+  returns whether a row existed. `put_device_blob` also requires the T80 `BLOB_V1` byte and
+  `device_blob::MIN_LEN` (41) bytes.
+- `reset_sync` refreshes `queued_at` of the rows it queues and wakes `outbox_changes`.
+- The async one-shot methods on `Store` take owned values (`Vec<u8>`) where the `WriteTx`
+  methods borrow; `Store::put_item(PutItem<'_>)` copies the envelope into the blocking task.
+- The `0700` directory mode is applied after `create_dir_all`; on a pre-existing directory the
+  process does not own, failing to tighten it is logged at `debug` instead of failing the open.
+- Workspace: added `parking_lot = "0.12.5"` to `[workspace.dependencies]` and `cargo vet`
+  exemptions for the new SQLite crates (`rusqlite`, `libsqlite3-sys`, `rusqlite_migration`,
+  `hashlink 0.12.2`, `fallible-iterator`, `fallible-streaming-iterator`, `rsqlite-vfs`,
+  `sqlite-wasm-rs`, `vcpkg`). `cargo deny` licenses/bans/sources pass.
+- AC11: the `courier-ftp-e2e` `workspace_metadata` test does not exist yet (T76);
+  `scripts/check-layering.py` passes with the new dependencies.
