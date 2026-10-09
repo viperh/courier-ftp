@@ -12,9 +12,12 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
   finished. **Related** lists tasks it integrates with later; they don't block it.
   The dependency graph has no cycles, and every milestone only depends on itself and earlier
   milestones (checked when this list was last updated).
-- Each task has: **Goal**, **Depends on**, **Related**, **Crate(s)**, **FEATURES.md refs**,
-  **Scope** (step by step), **Design notes**, **Acceptance criteria**, **Tests**
-  and **Out of scope**.
+- Each task has the same structure: header (**Milestone**, **Depends on**, **Related**,
+  crates, decisions, FEATURES.md refs), **Goal**, **Context**, **Technical specification**
+  (types and APIs, behaviour, data formats and configuration, errors, security and logging),
+  **Implementation steps** (one commit each), numbered **Acceptance criteria** (AC1…),
+  **Tests** (unit, property/fuzz, snapshot, integration, end-to-end — each mapped to ACs),
+  **Out of scope** and **Open questions** for the owner.
 - Tick acceptance-criteria boxes in the file as they are met. A task is done when
   every box is ticked and the required CI checks from T00 pass.
 - Tasks can run in parallel once their hard dependencies are done.
@@ -231,7 +234,8 @@ Notes:
 
 ## Project-wide rules
 
-- `courier-ftp-core`, the protocol crates, crypto, store, proto, sync and server crates never depend on `ratatui`, `crossterm` or `clap`.
+- `courier-ftp-core`, the protocol crates, crypto, store, proto and sync crates never depend on `ratatui`, `crossterm` or `clap`. The server crate may use `clap` for its admin CLI, never `ratatui`/`crossterm`.
+- Crate layering: core → store → crypto (the store does not depend on core); T00 checks it.
 - The client must work fully without a sync server; sync is an optional cargo feature (`sync`, default on).
 - No `unwrap()`/`expect()` on anything that can fail at runtime (network, files, user input). Tests are exempt.
 - Secrets (`Password`, key passphrases, the vault key) are wrapped in `secrecy::SecretString`/`zeroize` types and never logged, even at debug level. Log lines that would contain `PASS` must be masked (`PASS ****`).
