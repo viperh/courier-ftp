@@ -1625,6 +1625,17 @@ Path and string handling looks plausibly correct.
 """
 aggregated-from = "https://raw.githubusercontent.com/zcash/librustzcash/main/supply-chain/audits.toml"
 
+[[audits.zcash.audits.dyn-clone]]
+who = "Jack Grigg <jack@electriccoin.co>"
+criteria = "safe-to-deploy"
+delta = "1.0.19 -> 1.0.20"
+notes = """
+Changes to `unsafe` code:
+- Migrating to `core::ptr::addr_of_mut!()` with MSRV bump.
+- Gating a function that uses `unsafe` behind `target_has_atomic = "ptr"`.
+"""
+aggregated-from = "https://raw.githubusercontent.com/zcash/wallet/main/supply-chain/audits.toml"
+
 [[audits.zcash.audits.ed25519]]
 who = "Jack Grigg <jack@electriccoin.co>"
 criteria = "safe-to-deploy"
