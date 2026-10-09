@@ -352,28 +352,28 @@ Status warning ("Could not parse N lines of the directory listing") and logs the
 
 ## Acceptance criteria
 
-- [ ] AC1 Fixture corpus with `insta` snapshots: at least 5 fixture files per format
+- [x] AC1 Fixture corpus with `insta` snapshots: at least 5 fixture files per format
   (Unix, MLSD, DOS/IIS, EPLF, VMS, MVS dataset, MVS member, IBM i) and every example line
   in this document appears in a fixture.
-- [ ] AC2 Year inference is correct around New Year and Feb 29 (injected `now`:
+- [x] AC2 Year inference is correct around New Year and Feb 29 (injected `now`:
   2024-01-01T00:30Z, 2024-12-31T23:30Z, 2025-03-01, with offsets −720/0/+840).
-- [ ] AC3 Site offset applied to LIST times with a time of day only; MLSD and EPLF times
+- [x] AC3 Site offset applied to LIST times with a time of day only; MLSD and EPLF times
   and Day-precision dates (Unix `YYYY`, MVS `Referred`) are unchanged by any offset
   (e.g. `Jan 31 2024` with offset +840 stays 2024-01-31).
-- [ ] AC4 Symlinks: `name -> target` split at the first `" -> "`; a regular file named
+- [x] AC4 Symlinks: `name -> target` split at the first `" -> "`; a regular file named
   `a -> b` stays intact; MLSD `OS.unix=slink:` targets parsed.
-- [ ] AC5 MLSD names with leading/trailing spaces and `;` are preserved byte-exact; Unix
+- [x] AC5 MLSD names with leading/trailing spaces and `;` are preserved byte-exact; Unix
   names with leading spaces preserved.
-- [ ] AC6 `.`, `..`, names with `/` or NUL never appear in `entries`.
-- [ ] AC7 Localised month names for all listed languages parse (one fixture per language).
-- [ ] AC8 Precision set per the summary table (snapshot shows it).
+- [x] AC6 `.`, `..`, names with `/` or NUL never appear in `entries`.
+- [x] AC7 Localised month names for all listed languages parse (one fixture per language).
+- [x] AC8 Precision set per the summary table (snapshot shows it).
 - [ ] AC9 Parsers never panic: property test (≥ 10 000 cases) and the `ftp_listing` fuzz
   target (30 s in CI) find nothing.
-- [ ] AC10 Throughput: parsing a 100 000-line Unix listing takes < 150 ms in release mode
+- [x] AC10 Throughput: parsing a 100 000-line Unix listing takes < 150 ms in release mode
   (criterion bench `listing_unix_100k`, gated by T00 `bench-gate`).
-- [ ] AC11 `TextDecoder::Utf8OrFallback` reports the fallback and decodes windows-1252
+- [x] AC11 `TextDecoder::Utf8OrFallback` reports the fallback and decodes windows-1252
   names correctly.
-- [ ] AC12 CI gates (T00) pass; `courier-ftp-core` gains no new heavy dependency (only
+- [x] AC12 CI gates (T00) pass; `courier-ftp-core` gains no new heavy dependency (only
   `encoding_rs`, `time`, `regex` already in the workspace).
 
 ## Tests
@@ -434,3 +434,63 @@ from the fake server.
 
 None. (Resolved: T31 defines `timezone_offset_minutes` as the server's UTC offset with
 this sign convention, and T32 converts FileZilla's value on import.)
+
+## Implementation notes
+
+- **Where things live.** Core: `courier_ftp_core::listing` (`ListingContext::new`,
+  `TextDecoder` + `TextDecoder::for_charset(Charset)`, `parse_month`, `infer_year`,
+  `local_to_utc`) and `listing::unix` (`parse_line`, `is_header`, plus
+  `try_parse_line(line, ctx) -> Result<Entry, LineError { Header, NotUnix, BadNumber }>`,
+  which the FTP pipeline uses to tell headers and overflowing sizes apart).
+  proto-ftp: `courier_ftp_proto_ftp::listing` (`parse_mlsd`, `parse_list`,
+  `parse_mlst_line`, `fuzz_listing` (`#[doc(hidden)]`), `ListFormat`, `ParseOptions`,
+  `ParsedListing`, `SkippedLine`, `SkipReason`, constants `MAX_LINE_LEN`, `MAX_ENTRIES`,
+  `MAX_SKIPPED_KEPT`); `ListingContext`/`TextDecoder` are re-exported there.
+- **Deviations (small):**
+  - `SkipReason` has one extra variant, `TooManyEntries`, for lines past the
+    1 000 000-entry limit (the spec said "skipped and counted" without naming a reason).
+    `SkipReason` and `ListFormat` derive `Serialize` (kebab-case) for snapshots/logs.
+  - `SkippedLine.text` is truncated to 4 KiB (a 64 KiB line × 1 000 kept would be 64 MiB).
+  - Unix `parse_line` returns `.`/`..`/hostile names unchanged (SFTP T22 applies its own
+    rules); the FTP pipeline drops them. Unix lines with a size that overflows `u64` are
+    `BadNumber`.
+  - MLSD: `unix.uid`/`unix.gid` (pure-ftpd) are accepted as aliases of
+    `unix.owner`/`unix.group`. `unix.mode` must be 3–4 octal digits after stripping extra
+    leading zeros (`00` is rejected and falls back to `perm`). Leap second `60` clamps to 59.
+    MLST `cdir`/`pdir` count as a directory (`parse_mlst_line` on `/` returns name `/`).
+  - DOS also accepts `MM/DD/YYYY` (Windows `dir` output), a separate `AM`/`PM` token, and
+    skips `Volume in drive`, `Directory of`, `File(s)`, `Dir(s)` summary lines.
+  - VMS: also `Grand total of …` headers; any `%FAC-S-IDENT` message (not only `-E-`) goes
+    to `skipped` as `Unrecognised`; a date without a time is `Precision::Day`.
+  - MVS: `**NONE**` Referred dates give no `modified`; quoted dsnames are unquoted;
+    load-library member rows (`NAME 0001A0 …`) after a member header are files. Lines such
+    as `ARCIVE Not Direct Access Device` are not recognised (skipped, see fixture).
+  - IBM i: `*DDIR` is a directory too; `MM/DD/YYYY` years accepted; owner kept.
+  - Format order per line: the format that parsed the previous line, then the hint, then
+    the fixed order (spec wording "hint first" applies to the first line).
+- **Performance (AC10).** `listing_parse/listing_unix_100k` ≈ 100 ms locally (release,
+  shared 4-CPU machine under load); gate added to `scripts/bench-gates.toml`
+  (150 ms local / 300 ms CI). `parse_month` has an allocation-free 3-letter prefix filter
+  because owner/group tokens are tried as month names on every line. Benches
+  `listing_parse/{unix,mlsd}_10k_lines` exist for the planned regression tracking.
+- **Fixtures.** Unix: `crates/courier-ftp-core/tests/listings/unix/` (snapshot test
+  `tests/unix_listing.rs::unix_fixtures_snapshot`, per-line outcomes). Others:
+  `crates/courier-ftp-proto-ftp/tests/listings/{mlsd,dos,eplf,vms,mvs,ibmi,mixed}/`
+  (`tests/listing.rs::listing_fixtures_snapshot`); the `mvs` directory holds
+  `dataset-*` and `member-*` cases (≥ 5 each, checked by `fixture_counts_per_format`).
+  `.opts.json` `hint` uses the kebab-case `ListFormat` names (`vms`, `ibm-i`, …).
+  `.gitattributes` marks `crates/*/tests/listings/**` as `-text` so CRLF/legacy-charset
+  fixtures stay byte-exact on Windows checkouts.
+- **Property tests.** `prop_parsers_never_panic` runs 10 000 random-byte cases through
+  `fuzz_listing` (every hint, MLSD and LIST, three decoders); listing-shaped inputs run
+  1 000 cases (`prop_parsers_never_panic_listing_like`, slow strategy) and 64 KiB inputs
+  16 cases × 9 hints. Roundtrip/CRLF props as named.
+- **Fuzz.** `fuzz/fuzz_targets/ftp_listing.rs` + `[[bin]]` in `fuzz/Cargo.toml`;
+  `fuzz/seed-corpus.sh` seeds every fixture prefixed with the selector byte (0 = MLSD,
+  1 = LIST without hint). AC9 is left unticked only because the 30 s libFuzzer run needs
+  nightly, which is not installed here (the target compiles on stable with `cargo check`);
+  the CI `fuzz` job runs it.
+- New dev-dependencies: `insta` (core, proto-ftp), `criterion`, `proptest`, `serde_json`
+  (proto-ftp); runtime deps of proto-ftp: `encoding_rs`, `serde`, `time` (all workspace).
+  cargo-vet exemption added for `globset 0.4.20` (insta `glob` feature, safe-to-run).
+
