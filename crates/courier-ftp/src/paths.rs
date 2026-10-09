@@ -224,6 +224,12 @@ mod tests {
         ])
     }
 
+    /// Values from variables and flags go through `std::path::absolute`, which on
+    /// Windows turns `/h` into `<current drive>:\h`.
+    fn abs(p: &str) -> PathBuf {
+        std::path::absolute(p).unwrap()
+    }
+
     fn resolve(vars: &[(&str, &str)]) -> AppPaths {
         AppPaths::resolve_with(None, None, &env(vars), platform).unwrap()
     }
@@ -231,21 +237,21 @@ mod tests {
     #[test]
     fn paths_home_sets_both() {
         let paths = resolve(&[(HOME_ENV, "/h")]);
-        assert_eq!(paths.config_dir, Path::new("/h/config"));
-        assert_eq!(paths.data_dir, Path::new("/h/data"));
-        assert_eq!(paths.cache_dir, Path::new("/h/cache"));
+        assert_eq!(paths.config_dir, abs("/h/config"));
+        assert_eq!(paths.data_dir, abs("/h/data"));
+        assert_eq!(paths.cache_dir, abs("/h/cache"));
     }
 
     #[test]
     fn paths_env_wins_over_home() {
         let paths = resolve(&[(HOME_ENV, "/h"), (CONFIG_ENV, "/c")]);
-        assert_eq!(paths.config_dir, Path::new("/c"));
-        assert_eq!(paths.data_dir, Path::new("/h/data"));
-        assert_eq!(paths.cache_dir, Path::new("/h/cache"));
+        assert_eq!(paths.config_dir, abs("/c"));
+        assert_eq!(paths.data_dir, abs("/h/data"));
+        assert_eq!(paths.cache_dir, abs("/h/cache"));
 
         let paths = resolve(&[(HOME_ENV, "/h"), (DATA_ENV, "/d")]);
-        assert_eq!(paths.config_dir, Path::new("/h/config"));
-        assert_eq!(paths.data_dir, Path::new("/d"));
+        assert_eq!(paths.config_dir, abs("/h/config"));
+        assert_eq!(paths.data_dir, abs("/d"));
     }
 
     #[test]
@@ -257,8 +263,8 @@ mod tests {
             platform,
         )
         .unwrap();
-        assert_eq!(paths.config_dir, Path::new("/flag-c"));
-        assert_eq!(paths.data_dir, Path::new("/flag-d"));
+        assert_eq!(paths.config_dir, abs("/flag-c"));
+        assert_eq!(paths.data_dir, abs("/flag-d"));
         assert_eq!(paths.cache_dir, Path::new("/platform/cache"));
     }
 
