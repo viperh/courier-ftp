@@ -1,9 +1,9 @@
 #![allow(dead_code)] // Remove this once you start using the code
 
-use std::{collections::HashMap, env, path::PathBuf, sync::LazyLock};
+use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
 
+use courier_ftp_core::paths::AppPaths;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use directories::ProjectDirs;
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, de::Deserializer};
 use tracing::error;
@@ -13,11 +13,6 @@ use crate::{action::Action, app::Mode};
 /// The default config, baked into the binary at compile time. User config
 /// files found in [`get_config_dir`] are layered on top of it.
 const CONFIG: &str = include_str!("../../../.config/config.json");
-
-/// Reverse-domain qualifier and organisation used to locate the per-user
-/// config and data directories. Change these when you rename the project.
-const APP_QUALIFIER: &str = "com";
-const APP_ORGANIZATION: &str = "viperh";
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub(crate) struct AppConfig {
@@ -41,16 +36,9 @@ pub(crate) struct Config {
 /// and `*_LOG_LEVEL` environment variables (see `.envrc`).
 pub(crate) static PROJECT_NAME: LazyLock<String> =
     LazyLock::new(|| env!("CARGO_CRATE_NAME").to_uppercase().to_string());
-pub(crate) static DATA_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    env::var(format!("{}_DATA", PROJECT_NAME.clone()))
-        .ok()
-        .map(PathBuf::from)
-});
-pub(crate) static CONFIG_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    env::var(format!("{}_CONFIG", PROJECT_NAME.clone()))
-        .ok()
-        .map(PathBuf::from)
-});
+/// The config and data directories, resolved once from `COURIER_FTP_CONFIG`,
+/// `COURIER_FTP_DATA`, `COURIER_FTP_HOME` and the platform defaults.
+pub(crate) static PATHS: LazyLock<AppPaths> = LazyLock::new(AppPaths::from_env);
 
 impl Config {
     pub(crate) fn new() -> color_eyre::Result<Self, config::ConfigError> {
@@ -105,27 +93,11 @@ impl Config {
 }
 
 pub(crate) fn get_data_dir() -> PathBuf {
-    if let Some(s) = DATA_FOLDER.clone() {
-        s
-    } else if let Some(proj_dirs) = project_directory() {
-        proj_dirs.data_local_dir().to_path_buf()
-    } else {
-        PathBuf::from(".").join(".data")
-    }
+    PATHS.data_dir().to_path_buf()
 }
 
 pub(crate) fn get_config_dir() -> PathBuf {
-    if let Some(s) = CONFIG_FOLDER.clone() {
-        s
-    } else if let Some(proj_dirs) = project_directory() {
-        proj_dirs.config_local_dir().to_path_buf()
-    } else {
-        PathBuf::from(".").join(".config")
-    }
-}
-
-fn project_directory() -> Option<ProjectDirs> {
-    ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, env!("CARGO_PKG_NAME"))
+    PATHS.config_dir().to_path_buf()
 }
 
 #[derive(Clone, Debug, Default)]

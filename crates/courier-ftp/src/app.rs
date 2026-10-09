@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use courier_ftp_core::Core;
-
 use crate::{
     action::Action,
     components::{Component, home::Home},
@@ -14,8 +12,6 @@ use crate::{
 };
 
 pub(crate) struct App {
-    /// UI-agnostic domain state, owned by the `courier-ftp-core` crate.
-    core: Core,
     config: Config,
     tick_rate: f64,
     frame_rate: f64,
@@ -40,7 +36,6 @@ impl App {
     pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Ok(Self {
-            core: Core::new()?,
             tick_rate,
             frame_rate,
             components: vec![Box::new(Home::new())],
@@ -143,7 +138,6 @@ impl App {
             }
             match action {
                 Action::Tick => {
-                    self.core.tick();
                     self.last_tick_key_events.drain(..);
                 }
                 Action::Quit => self.should_quit = true,

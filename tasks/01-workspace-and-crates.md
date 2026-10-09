@@ -344,3 +344,39 @@ None. Resolved by the coordinator:
 - ~~T30 vs T82 layering~~ — layering is core → store → crypto: `courier-ftp-core` (vault engine) depends on `courier-ftp-store`, and the store does not depend on core.
 - ~~Server crate and `clap`~~ — the server crate may use `clap` (admin CLI); the README rule is updated.
 - ~~Alignment with T70~~ — T70 adopts `AppPaths::resolve -> Result<Self>` with `cache_dir` as specified here.
+
+## Implementation notes
+
+- **CI (scope 4) not done here.** T00 is implemented concurrently in its own lane, so this
+  task wrote no workflows or scripts; the "T00 CI jobs exist" criterion stays open until
+  T00 lands.
+- **`[workspace.lints]`** was added to the root `Cargo.toml` (the T00 set, copied from sverb)
+  so the new crates can use `[lints] workspace = true`. The existing `courier-ftp` and
+  `courier-ftp-core` crates do not opt in yet (T00 does that and fixes the template's
+  `unwrap()`s); the new core code is clean under those lints.
+- **`AppPaths`** lives in a new `courier_ftp_core::paths` module (not in the scope's module
+  list): `AppPaths::from_env()` / `AppPaths::resolve(env_fn, DefaultDirs)`, with
+  `config_dir()` / `data_dir()`. Order: `COURIER_FTP_CONFIG`/`COURIER_FTP_DATA`, then
+  `COURIER_FTP_HOME/{config,data}`, then the platform dirs, then `./.config`/`./.data`;
+  empty variables count as unset. The binary's `config::get_config_dir`/`get_data_dir`
+  delegate to it (`config::PATHS`), and the binary no longer depends on `directories`.
+- The placeholder `Error`/`Result` in core stay until T02 replaces them.
+- **New crates are skeletons** (crate doc only). Internal path deps follow the layering:
+  proto-ftp/proto-sftp -> core; store, proto -> crypto; sync -> core, crypto, proto, store;
+  server -> crypto, proto (no client crates). The binary depends on both protocol crates
+  and optionally on `courier-ftp-sync` (`sync` feature, default on).
+- **Dependency versions:** crypto, storage, sync-client and server deps use sverb's
+  versions (a known-compatible set: rustls 0.23 with `ring`, reqwest 0.12, tokio-tungstenite
+  0.29, sqlx 0.8.6, tower-http 0.6, totp-rs 5.7) rather than newest majors; the rest are
+  the latest stable releases from `cargo search`. `time` was picked over `chrono`, so the
+  sqlx features use `time` instead of sverb's `chrono`. `ssh-key` has `ppk` and
+  `encryption`. The whole set was checked to resolve together (`cargo metadata` with a
+  throwaway crate depending on all of them). `russh` keeps its default features
+  (`aws-lc-rs`, like sverb); switch to `default-features = false, features = ["ring", ...]`
+  in T20 if the C build of aws-lc becomes a problem.
+- **MSRV:** several pinned deps need a newer Rust than the current `rust-version = "1.85"`
+  (`encoding_rs` 0.8.42 and `keyring` 4.2 need 1.88, `uuid` 1.27 needs 1.89). Unused
+  workspace deps are not resolved, so nothing breaks yet; the first task that uses them must
+  raise `rust-version` (sverb uses 1.95).
+- Fixed the template's `config::tests::test_config`, which looked up `<q>` while the
+  default config binds `<Ctrl-q>` (it failed on the base commit too).

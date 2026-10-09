@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/viperh/courier-ftp/workflows/CI/badge.svg)](https://github.com/viperh/courier-ftp/actions)
 
-A starting point for terminal user interfaces in Rust, built on
-[ratatui](https://ratatui.rs) with an async [tokio](https://tokio.rs) event
-loop, layered configuration, file logging and cross-platform release builds.
+A terminal FTP, FTPS and SFTP client: a TUI replacement for the FileZilla
+client, built on [ratatui](https://ratatui.rs) and [tokio](https://tokio.rs).
+Work in progress; see [`FEATURES.md`](FEATURES.md) and [`tasks/`](tasks/).
 
 ## Layout
 
@@ -29,13 +29,22 @@ crates/
       errors.rs         panic hooks, color-eyre, human-panic
       logging.rs        tracing subscriber writing to a log file
       tui.rs            terminal setup/teardown and the crossterm event stream
-  courier-ftp-core/     domain logic, no terminal dependencies
-    src/lib.rs
+  courier-ftp-core/     domain logic: model, Backend trait, settings, vault, sites,
+                        queue and transfer engine, filters, compare, search, paths
+  courier-ftp-proto-ftp/  own FTP/FTPS client on tokio + rustls (Backend impl)
+  courier-ftp-proto-sftp/ SFTP client on russh + russh-sftp (Backend impl)
+  courier-ftp-crypto/   key hierarchy, item envelopes, HPKE, OPAQUE; pure, no I/O
+  courier-ftp-store/    local SQLite store of individually encrypted items
+  courier-ftp-proto/    sync wire types shared by the sync client and server
+  courier-ftp-sync/     sync client: account, devices, pull/push, live updates
+                        (optional: the binary's `sync` feature, on by default)
+  courier-ftp-server/   self-hosted, end-to-end encrypted sync server (binary)
 ```
 
-`courier-ftp-core` must never depend on `ratatui`, `crossterm` or `clap`. Keeping the
-domain there means it can be unit tested without a TTY, and it stays reusable
-if you later add a second front end (a CLI, a daemon, a web UI).
+`courier-ftp-core`, the protocol crates, crypto, store, proto, sync and server
+never depend on `ratatui`, `crossterm` or `clap`. Keeping the domain there means
+it can be unit tested without a TTY. The server never depends on the client
+crates, so its heavy dependencies stay out of the client build.
 
 ## Running
 
@@ -58,6 +67,10 @@ looks in the per-user config directory (printed by `--version`) for
 `config.json5`, `config.json`, `config.yaml`, `config.toml` or `config.ini`,
 and layers whatever it finds on top. Set `COURIER_FTP_CONFIG` to override that
 directory outright.
+
+`COURIER_FTP_HOME=P` moves everything under one root: the config directory
+becomes `P/config` and the data directory `P/data` (tests and CI use this).
+`COURIER_FTP_CONFIG` and `COURIER_FTP_DATA` still win over it.
 
 Keybindings are keyed by mode, then by key sequence: `"<Ctrl-a>"` for a single
 chord, `"<g><g>"` for a sequence. Every value must name an `Action` variant.
