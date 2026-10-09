@@ -320,14 +320,14 @@ mod tests {
             .exit_code(),
             2
         );
-        assert_eq!(ServeError::Config(ConfigError::MissingSecret).exit_code(), 2);
+        assert_eq!(
+            ServeError::Config(ConfigError::MissingSecret).exit_code(),
+            2
+        );
         assert_eq!(ServeError::PendingMigrations(vec![1]).exit_code(), 3);
         assert_eq!(ServeError::SchemaTooNew(9).exit_code(), 3);
         assert_eq!(ServeError::Database("x".into()).exit_code(), 3);
-        assert_eq!(
-            ServeError::Tls(std::io::Error::other("x")).exit_code(),
-            4
-        );
+        assert_eq!(ServeError::Tls(std::io::Error::other("x")).exit_code(), 4);
         assert!(
             ServeError::SchemaTooNew(9)
                 .to_string()

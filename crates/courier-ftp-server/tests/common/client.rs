@@ -130,8 +130,15 @@ pub async fn try_register(
     canary_b64(h, &private);
     canary_b64(h, &rbundle);
     let vk = random_key32(&mut rng);
-    let grant =
-        self_grant(&vk, vault_id.as_bytes(), 1, user_id.as_bytes(), &keys, &mut rng).unwrap();
+    let grant = self_grant(
+        &vk,
+        vault_id.as_bytes(),
+        1,
+        user_id.as_bytes(),
+        &keys,
+        &mut rng,
+    )
+    .unwrap();
     let pubk = keys.public();
     let finish = RegisterFinishRequest {
         email: email.into(),
@@ -237,7 +244,12 @@ pub async fn login_start(
 /// A full login; `(status, body)` of `login/finish` (or of `login/start` when
 /// that failed). On a client-side OPAQUE failure (wrong password) a garbage KE3
 /// is sent, like a client that cannot finish would.
-pub async fn login(h: &Harness, email: &str, password: &str, opts: LoginOpts) -> (StatusCode, Value) {
+pub async fn login(
+    h: &Harness,
+    email: &str,
+    password: &str,
+    opts: LoginOpts,
+) -> (StatusCode, Value) {
     let (s, v, state) = login_start(h, email, password).await;
     if s != StatusCode::OK {
         return (s, v);
@@ -295,7 +307,12 @@ pub async fn login(h: &Harness, email: &str, password: &str, opts: LoginOpts) ->
 }
 
 /// A successful session login.
-pub async fn login_ok(h: &Harness, email: &str, password: &str, opts: LoginOpts) -> SessionResponse {
+pub async fn login_ok(
+    h: &Harness,
+    email: &str,
+    password: &str,
+    opts: LoginOpts,
+) -> SessionResponse {
     let (s, v) = login(h, email, password, opts).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     serde_json::from_value(v).unwrap()
@@ -507,8 +524,12 @@ pub async fn prepare_recovery(
     }
     let start: RecoveryStartResponse = serde_json::from_value(v).unwrap();
     assert_eq!(start.user_id, a.user_id);
-    let keys = open_recovery_bundle(&a.recovery, a.user_id.as_bytes(), &start.recovery_bundle_enc)
-        .expect("recovery bundle opens with the recovery key");
+    let keys = open_recovery_bundle(
+        &a.recovery,
+        a.user_id.as_bytes(),
+        &start.recovery_bundle_enc,
+    )
+    .expect("recovery bundle opens with the recovery key");
     let fin = st
         .finish(
             &mut rng,

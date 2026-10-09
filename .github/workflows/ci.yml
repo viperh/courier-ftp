@@ -117,12 +117,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # Includes the e2e crate's Docker-free harness self-tests (its container tests are
-      # `#[ignore]`d); server DB tests skip without DATABASE_URL (they run in `server-db`).
+      # `#[ignore]`d). The server crate runs in `server-db` (its PostgreSQL tests fail
+      # without DATABASE_URL when CI=true, T84).
       - name: Run tests
         env:
           COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home # `runner` is only available at step level
           COURIER_FTP_KEYRING: "off"
-        run: cargo test --workspace --all-features --locked
+        run: cargo test --workspace --all-features --locked --exclude courier-ftp-server
 
   # Our addition (sverb has no such job): the local backend, paths, keyring and
   # terminal suspend are OS-specific.
@@ -297,7 +298,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run server tests
-        run: cargo test -p courier-ftp-server --locked
+        run: cargo test -p courier-ftp-server --all-features --locked
 
   # Build the server image, bring up the compose stack, wait for /healthz and check
   # that the container does not run as root (T86).

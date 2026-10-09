@@ -58,7 +58,10 @@ async fn t03_error_envelope_for_every_code() {
             ErrorCode::Invalid,
             ApiError::Invalid("x25519_pub must be 32 bytes".into()),
         ),
-        (ErrorCode::Gone, ApiError::Gone("cursor below gc floor".into())),
+        (
+            ErrorCode::Gone,
+            ApiError::Gone("cursor below gc floor".into()),
+        ),
         (
             ErrorCode::Rotating,
             ApiError::Rotating("vault key rotation in progress".into()),
@@ -82,7 +85,11 @@ async fn t03_error_envelope_for_every_code() {
     let unavailable = render(ApiError::Unavailable).await;
     assert_eq!(unavailable["status"], 503);
     all.insert("unavailable".into(), unavailable);
-    assert!(!Value::Object(all.clone()).to_string().contains("secret detail"));
+    assert!(
+        !Value::Object(all.clone())
+            .to_string()
+            .contains("secret detail")
+    );
     insta::assert_json_snapshot!("error_envelopes", all);
 }
 
@@ -92,7 +99,9 @@ async fn bare_router_errors_become_envelopes() {
     let (s, _, v) = h.call(Method::GET, "/v1/nope", None, None).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
     assert_eq!(code(&v), "not_found");
-    let (s, _, v) = h.call(Method::GET, "/v1/auth/login/start", None, None).await;
+    let (s, _, v) = h
+        .call(Method::GET, "/v1/auth/login/start", None, None)
+        .await;
     assert_eq!(s, StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(code(&v), "invalid");
     // Wrong content type and malformed JSON.
@@ -130,8 +139,14 @@ async fn t04_request_id_echo_generate_replace() {
     let (_, headers, _) = h.send(req).await;
     assert_eq!(headers[REQUEST_ID_HEADER], "client-id-123");
     // None: a fresh UUIDv7.
-    let (_, headers, _) = h.send(get("/v1/devices").body(Body::empty()).unwrap()).await;
-    let id: uuid::Uuid = headers[REQUEST_ID_HEADER].to_str().unwrap().parse().unwrap();
+    let (_, headers, _) = h
+        .send(get("/v1/devices").body(Body::empty()).unwrap())
+        .await;
+    let id: uuid::Uuid = headers[REQUEST_ID_HEADER]
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     assert_eq!(id.get_version_num(), 7);
     // Invalid (characters, length): replaced.
     let long = "a".repeat(129);
@@ -192,9 +207,8 @@ async fn t14_body_limit_maps_to_invalid() {
     assert_eq!(code(&v), "invalid");
     assert_eq!(message(&v), "request body too large (limit 12 MiB)");
     // Without a content length (streamed) the limit applies too.
-    let chunks = futures::stream::iter(
-        (0..13).map(|_| Ok::<_, std::io::Error>(bytes_chunk(1024 * 1024))),
-    );
+    let chunks =
+        futures::stream::iter((0..13).map(|_| Ok::<_, std::io::Error>(bytes_chunk(1024 * 1024))));
     let req = Request::builder()
         .method(Method::POST)
         .uri("/v1/auth/login/start")
@@ -202,7 +216,12 @@ async fn t14_body_limit_maps_to_invalid() {
         .body(Body::from_stream(chunks))
         .unwrap();
     let (s, _, b) = h.send(req).await;
-    assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE, "{}", String::from_utf8_lossy(&b));
+    assert_eq!(
+        s,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "{}",
+        String::from_utf8_lossy(&b)
+    );
     assert_eq!(code(&json(&b)), "invalid");
 }
 
@@ -273,7 +292,11 @@ async fn client_ip_trusted_proxies_and_rate_limit() {
     let status = |req| async { h.send(req).await.0 };
     // Behind the trusted proxy: keyed by the forwarded client.
     for i in 0..2 {
-        let r = from_peer("10.1.1.1:4000", Some("203.0.113.5"), &format!("a{i}@x.test"));
+        let r = from_peer(
+            "10.1.1.1:4000",
+            Some("203.0.113.5"),
+            &format!("a{i}@x.test"),
+        );
         assert_eq!(status(r).await, StatusCode::ACCEPTED);
     }
     let r = from_peer("10.1.1.1:4000", Some("203.0.113.5"), "a9@x.test");

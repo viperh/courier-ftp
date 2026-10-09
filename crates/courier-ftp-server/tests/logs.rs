@@ -19,8 +19,14 @@ async fn run_all(h: &Harness) {
 }
 
 fn check(h: &Harness, logs: &str) {
-    assert!(logs.contains("login"), "the subscriber captured nothing: {logs}");
-    assert!(logs.contains("TRACE") || logs.contains("DEBUG"), "not at trace level");
+    assert!(
+        logs.contains("login"),
+        "the subscriber captured nothing: {logs}"
+    );
+    assert!(
+        logs.contains("TRACE") || logs.contains("DEBUG"),
+        "not at trace level"
+    );
     let canaries = h.canaries.lock().unwrap();
     assert!(canaries.len() > 50, "too few canaries: {}", canaries.len());
     for c in canaries.iter() {

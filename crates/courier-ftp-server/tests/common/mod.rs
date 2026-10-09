@@ -71,10 +71,7 @@ pub fn config(extra: &[(&str, &str)]) -> Config {
 /// `DATABASE_URL`, or `None` after printing the skip notice. Panics when `CI=true`
 /// and the variable is missing.
 pub fn database_url() -> Option<String> {
-    if let Some(url) = std::env::var("DATABASE_URL")
-        .ok()
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) {
         return Some(url);
     }
     assert!(
@@ -378,8 +375,13 @@ impl Harness {
     pub async fn token_count(&self, device_id: Uuid) -> i64 {
         match self.store() {
             Store::Mem(m) => m.with_data(|d| {
-                i64::try_from(d.tokens.values().filter(|t| t.device_id == device_id).count())
-                    .unwrap()
+                i64::try_from(
+                    d.tokens
+                        .values()
+                        .filter(|t| t.device_id == device_id)
+                        .count(),
+                )
+                .unwrap()
             }),
             Store::Pg(_) => {
                 self.pg_count(

@@ -180,8 +180,10 @@ mod tests {
     #[test]
     fn burst_then_refill() {
         let clock = FakeRelativeClock::default();
-        let l: KeyedLimiter<&str, FakeRelativeClock> =
-            KeyedLimiter::with_clock(Quota::per_minute(NonZeroU32::new(5).unwrap()), clock.clone());
+        let l: KeyedLimiter<&str, FakeRelativeClock> = KeyedLimiter::with_clock(
+            Quota::per_minute(NonZeroU32::new(5).unwrap()),
+            clock.clone(),
+        );
         // The full burst at once…
         for _ in 0..5 {
             assert!(l.check(&"a@example.test").is_ok());

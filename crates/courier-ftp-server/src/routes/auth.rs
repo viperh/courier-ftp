@@ -47,7 +47,8 @@ use crate::state::AppState;
 /// Message of the 401 for an unknown, expired, used or revoked refresh token.
 pub const REFRESH_INVALID_MESSAGE: &str = "invalid or expired refresh token";
 /// Message of the 401 when a used refresh token is presented again.
-pub const REFRESH_REUSE_MESSAGE: &str = "refresh token reuse detected; this device must log in again";
+pub const REFRESH_REUSE_MESSAGE: &str =
+    "refresh token reuse detected; this device must log in again";
 
 /// `/auth/...` routes (nested under `/v1`).
 pub fn router() -> Router<AppState> {
@@ -427,7 +428,9 @@ mod tests {
     use courier_ftp_crypto::opaque::{CourierKsf, ServerSetup, client_registration_start};
     use courier_ftp_crypto::random::random_key32;
     use courier_ftp_crypto::recovery::{recovery_key_generate, seal_recovery_bundle};
-    use courier_ftp_proto::auth::{AccountKeysUpload, DeviceInfo, GrantUpload, PersonalVaultUpload};
+    use courier_ftp_proto::auth::{
+        AccountKeysUpload, DeviceInfo, GrantUpload, PersonalVaultUpload,
+    };
 
     use super::*;
 
@@ -441,7 +444,12 @@ mod tests {
             .registration_start(&request, &credential_identifier(email))
             .unwrap();
         let fin = state
-            .finish(&mut rng, b"pw", &response, &CourierKsf::insecure_for_tests())
+            .finish(
+                &mut rng,
+                b"pw",
+                &response,
+                &CourierKsf::insecure_for_tests(),
+            )
             .unwrap();
         let user_id = Uuid::now_v7();
         let vault_id = Uuid::now_v7();
@@ -451,8 +459,15 @@ mod tests {
         let (recovery, _) = recovery_key_generate(&mut rng);
         let rbundle = seal_recovery_bundle(&recovery, user_id.as_bytes(), &keys, &mut rng).unwrap();
         let vk = random_key32(&mut rng);
-        let grant = self_grant(&vk, vault_id.as_bytes(), 1, user_id.as_bytes(), &keys, &mut rng)
-            .unwrap();
+        let grant = self_grant(
+            &vk,
+            vault_id.as_bytes(),
+            1,
+            user_id.as_bytes(),
+            &keys,
+            &mut rng,
+        )
+        .unwrap();
         let pubk = keys.public();
         RegisterFinishRequest {
             email: email.into(),

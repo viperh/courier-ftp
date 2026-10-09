@@ -13,8 +13,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    AccountKeysRow, DeviceChoice, DeviceRow, KEY_VERSION_CHANGED_MESSAGE, LoginStateRow,
-    LoginUser, NewAccount, NewCredentials, NewDevice, NewInvite, REAUTH_REQUIRED_MESSAGE,
+    AccountKeysRow, DeviceChoice, DeviceRow, KEY_VERSION_CHANGED_MESSAGE, LoginStateRow, LoginUser,
+    NewAccount, NewCredentials, NewDevice, NewInvite, REAUTH_REQUIRED_MESSAGE,
     RECOVERY_CODE_INVALID_MESSAGE, RecoveryInfo, RefreshOutcome, RegisterOutcome,
     RegistrationCredential, TotpState,
 };
@@ -353,7 +353,8 @@ impl MemData {
     fn active_user(&self, device_id: Uuid) -> Option<(Uuid, bool)> {
         let dev = self.devices.get(&device_id)?;
         let user = self.users.get(&dev.user_id)?;
-        (dev.revoked_at.is_none() && !user.disabled).then_some((dev.user_id, user.is_instance_admin))
+        (dev.revoked_at.is_none() && !user.disabled)
+            .then_some((dev.user_id, user.is_instance_admin))
     }
 
     fn check_reauth(&self, user_id: Uuid, hash: &TokenHash, now: OffsetDateTime) -> Res<()> {
@@ -705,7 +706,7 @@ impl MemDb {
                 revoked_at: dev.revoked_at,
             })
             .collect();
-        rows.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
+        rows.sort_by_key(|r| std::cmp::Reverse((r.created_at, r.id)));
         Ok(rows)
     }
 

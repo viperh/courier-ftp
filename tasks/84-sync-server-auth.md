@@ -554,36 +554,36 @@ the documentation; environment always wins, empty = unset):
 
 ## Acceptance criteria
 
-- [ ] AC1 Register → login on a second device → refresh → logout works over HTTP against
+- [x] AC1 Register → login on a second device → refresh → logout works over HTTP against
   the in-memory store and against Postgres (same test body, `Harness` per backend).
-- [ ] AC2 Presenting a used refresh token returns 401 and deletes every token of that family
+- [x] AC2 Presenting a used refresh token returns 401 and deletes every token of that family
   (the device's access token stops working on the next request).
-- [ ] AC3 `login/start` for an unknown email returns 200 with the same JSON keys and value
+- [x] AC3 `login/start` for an unknown email returns 200 with the same JSON keys and value
   lengths as for a known email and stores a login state; `login/finish` with a wrong
   password and with an unknown email return identical status and body.
-- [ ] AC4 Starting `serve` against a database initialised with a different
+- [x] AC4 Starting `serve` against a database initialised with a different
   `COURIER_SERVER_SECRET` exits with code 2 and the documented message.
-- [ ] AC5 The 6th `login/start` for one email within a minute returns 429 with `Retry-After`
+- [x] AC5 The 6th `login/start` for one email within a minute returns 429 with `Retry-After`
   ≥ 1 and `retry_after_s` in the body; the 51st from one IP likewise.
-- [ ] AC6 With no users, `serve` logs exactly one warn line containing `setup_token=`; the first
+- [x] AC6 With no users, `serve` logs exactly one warn line containing `setup_token=`; the first
   registration with it becomes instance admin; a second use returns 403.
-- [ ] AC7 `invite-only` rejects registration without an invite (403), `closed` rejects with an
+- [x] AC7 `invite-only` rejects registration without an invite (403), `closed` rejects with an
   invite (403), `open` accepts without one.
-- [ ] AC8 Access tokens expire after 15 min, reauth tokens after 5 min, login states after
+- [x] AC8 Access tokens expire after 15 min, reauth tokens after 5 min, login states after
   60 s (paused-clock tests); refresh tokens after 30 days.
-- [ ] AC9 Password change bumps `account_keys.version`, makes the old password fail and the
+- [x] AC9 Password change bumps `account_keys.version`, makes the old password fail and the
   new one succeed, deletes the other devices' tokens and publishes `AccountChanged` +
   `DevicesRevoked` (recorded by a test `EventSink`).
-- [ ] AC10 Recovery with a valid code and signature replaces the record, revokes all devices;
+- [x] AC10 Recovery with a valid code and signature replaces the record, revokes all devices;
   5 wrong codes delete the code; an invalid signature returns 403 and changes nothing.
-- [ ] AC11 TOTP: enable → login without code 401 `totp_required` → with code 200 → same code
+- [x] AC11 TOTP: enable → login without code 401 `totp_required` → with code 200 → same code
   again 401 `totp_invalid`.
-- [ ] AC12 No token, OPAQUE message, TOTP secret, recovery code or email appears in the log
+- [x] AC12 No token, OPAQUE message, TOTP secret, recovery code or email appears in the log
   output of the full test suite at `trace` (canary test; T91 §5 `canary` job).
-- [ ] AC13 `cargo tree -p courier-ftp-server -e normal` contains no `libsqlite3-sys`,
+- [x] AC13 `cargo tree -p courier-ftp-server -e normal` contains no `libsqlite3-sys`,
   `rusqlite`, `ratatui`, `crossterm`, `courier-ftp-core`, `courier-ftp-store`,
   `courier-ftp-sync` (`layering` job).
-- [ ] AC14 CI `server-db` job (Postgres 16) passes; `fmt`, `clippy`, `docs`, `deny` pass.
+- [x] AC14 CI `server-db` job (Postgres 16) passes; `fmt`, `clippy`, `docs`, `deny` pass.
 
 ## Tests
 
@@ -660,3 +660,34 @@ backends by a `both!` macro (`tNN_name_mem`, `tNN_name_pg`). Clients use
 
 Resolved (reconciliation): the server crate may use `clap` for its admin CLI (README rule
 and T00 layering updated).
+
+## Implementation notes
+
+- **Store locking (Mem):** `MemDb` uses one `std::sync::Mutex` held for the whole body of
+  each (synchronous) store method instead of per-scope `tokio::sync::Mutex`es. Each
+  method validates first and writes last, so the all-or-nothing semantics are the same;
+  no lock is held across an `.await`.
+- **Store API additions** beyond the spec list: `Store::totp_state`, `all_secrets`
+  (for `verify_or_init`), `insert_invite` (T86 `admin invite`, tests), `as_mem`/`as_pg`;
+  `confirm_totp` takes the re-sealed secret (`confirm_totp(user, secret_enc, step)`);
+  `delete_account` returns the devices it revoked (for `DevicesRevoked`).
+- **Events:** `events::RecordingSink` (public) records published events for tests;
+  `publish_devices_revoked` splits at 200 ids.
+- **Setup-token log line:** the production format is JSON (`"setup_token":"…"`); the
+  `setup_token=` form of AC6 is what the plain-text test subscriber prints
+  (`db::t10_bootstrap_setup_token_once_{mem,pg}`).
+- **CORS origins:** `COURIER_CORS_ORIGINS` (comma list, default empty = deny) is read
+  already so `cors_denies_by_default` can also check the allow path; T86 documents it.
+- **CI:** the `test` job now runs with `--exclude courier-ftp-server` (with `CI=true`
+  the PostgreSQL variants fail without `DATABASE_URL`); `server-db` runs the crate with
+  `--all-features`. The `canary` job already has PostgreSQL.
+- **Postgres tests** were run locally against PostgreSQL 16 (`DATABASE_URL` set); no
+  testcontainers dependency was added (the spec's harness uses `DATABASE_URL`).
+- **`docs/threat-model.md`** does not exist yet; the accepted email-enumeration via
+  `409 email already registered` is documented in `routes/auth.rs` module docs and must be
+  carried into the threat model when that document is written.
+- **`tests/version.rs`** (T01): the "not implemented yet (T84)" check was replaced by
+  "no command prints usage (exit 2)" and "`serve` without a secret is a config error
+  (exit 2)".
+- Rate-limit IP test (`t17`) runs on the real governor clock; GCRA refills one IP slot
+  every 1.2 s, so the test allows the refills that elapsed during the run.

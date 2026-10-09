@@ -45,7 +45,10 @@ async fn migrations_apply_and_are_recorded() {
         db::migration_status(&db.pool).await.unwrap(),
         MigrationStatus::Current
     );
-    assert!(db::migrate(&db.pool).await.unwrap().is_empty(), "idempotent");
+    assert!(
+        db::migrate(&db.pool).await.unwrap().is_empty(),
+        "idempotent"
+    );
     let mode: String =
         sqlx_core::query_scalar::query_scalar("SELECT value FROM settings WHERE key = $1")
             .bind(settings_kv::REGISTRATION_MODE)
@@ -280,11 +283,7 @@ async fn t10_bootstrap_setup_token_once_pg() {
     let Some(db) = TestDb::migrated().await else {
         return;
     };
-    let state = AppState::new(
-        config(&[]),
-        Store::Pg(db.pool.clone()),
-        Arc::new(NoopSink),
-    );
+    let state = AppState::new(config(&[]), Store::Pg(db.pool.clone()), Arc::new(NoopSink));
     let pool = db.pool.clone();
     bootstrap_scenario(&state, || {
         AppState::new(config(&[]), Store::Pg(pool.clone()), Arc::new(NoopSink))

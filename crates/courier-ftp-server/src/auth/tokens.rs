@@ -304,7 +304,10 @@ mod tests {
         let ok = b64(&[0xfb; 32]);
         assert!(hash_presented(&ok).is_some());
         assert_eq!(hash_presented(&format!("{ok}=")), None);
-        assert_eq!(hash_presented(&ok.replace('-', "+").replace('_', "/")), None);
+        assert_eq!(
+            hash_presented(&ok.replace('-', "+").replace('_', "/")),
+            None
+        );
         assert_eq!(hash_presented(&format!(" {}", &ok[1..])), None);
     }
 
@@ -330,7 +333,12 @@ mod tests {
             want.copy_from_slice(&decode_recovery_code("0000111111110000").unwrap()[..]);
             want
         });
-        for bad in ["", "0000-0000-0000-000", "0000-0000-0000-00000", "UUUU-0000-0000-0000"] {
+        for bad in [
+            "",
+            "0000-0000-0000-000",
+            "0000-0000-0000-00000",
+            "UUUU-0000-0000-0000",
+        ] {
             assert!(decode_recovery_code(bad).is_none(), "{bad}");
         }
         assert_ne!(hash_recovery_code("garbage"), hash_recovery_code(&zero));

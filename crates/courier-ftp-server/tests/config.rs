@@ -24,7 +24,10 @@ const SECRET: (&str, &str) = (
 fn missing_or_short_secret_is_a_startup_error() {
     let err = load(None, &[URL]).unwrap_err();
     assert!(matches!(err, ConfigError::MissingSecret), "{err:?}");
-    assert!(err.to_string().contains("COURIER_SERVER_SECRET is required"));
+    assert!(
+        err.to_string()
+            .contains("COURIER_SERVER_SECRET is required")
+    );
     // Empty counts as unset.
     let err = load(None, &[URL, ("COURIER_SERVER_SECRET", "  ")]).unwrap_err();
     assert!(matches!(err, ConfigError::MissingSecret), "{err:?}");
@@ -34,7 +37,11 @@ fn missing_or_short_secret_is_a_startup_error() {
         matches!(err, ConfigError::SecretTooShort { len: 31 }),
         "{err:?}"
     );
-    let err = load(None, &[URL, ("COURIER_SERVER_SECRET", "!!not-an-encoding!!")]).unwrap_err();
+    let err = load(
+        None,
+        &[URL, ("COURIER_SERVER_SECRET", "!!not-an-encoding!!")],
+    )
+    .unwrap_err();
     assert!(matches!(err, ConfigError::SecretEncoding), "{err:?}");
     // 32 bytes as base64 are fine.
     let b64 = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
@@ -84,11 +91,20 @@ fn public_url_is_required_and_https() {
         load(None, &[SECRET]).unwrap_err(),
         ConfigError::Missing("COURIER_PUBLIC_URL")
     ));
-    for bad in ["http://sync.example.test", "ftp://x", "https://", "https://a b"] {
+    for bad in [
+        "http://sync.example.test",
+        "ftp://x",
+        "https://",
+        "https://a b",
+    ] {
         let err = load(None, &[SECRET, ("COURIER_PUBLIC_URL", bad)]).unwrap_err();
         assert!(matches!(err, ConfigError::Invalid { .. }), "{bad}: {err:?}");
     }
-    let local = load(None, &[SECRET, ("COURIER_PUBLIC_URL", "http://localhost:8080")]).unwrap();
+    let local = load(
+        None,
+        &[SECRET, ("COURIER_PUBLIC_URL", "http://localhost:8080")],
+    )
+    .unwrap();
     assert_eq!(local.public_url, "http://localhost:8080");
 }
 
@@ -142,7 +158,19 @@ fn smtp_settings() {
     .unwrap();
     let smtp = cfg.smtp.unwrap();
     assert_eq!((smtp.port, smtp.starttls), (465, false));
-    assert!(load(None, &[URL, SECRET, ("SMTP_HOST", "h"), ("SMTP_FROM", "f"), ("SMTP_PORT", "x")]).is_err());
+    assert!(
+        load(
+            None,
+            &[
+                URL,
+                SECRET,
+                ("SMTP_HOST", "h"),
+                ("SMTP_FROM", "f"),
+                ("SMTP_PORT", "x")
+            ]
+        )
+        .is_err()
+    );
 }
 
 #[test]

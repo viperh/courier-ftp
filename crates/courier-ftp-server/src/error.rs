@@ -182,7 +182,10 @@ mod tests {
         for e in all {
             assert_eq!(e.status().as_u16(), e.code().default_status(), "{e:?}");
         }
-        assert_eq!(ApiError::Unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            ApiError::Unavailable.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
         assert!(matches!(
             ApiError::from(sqlx_core::Error::PoolTimedOut),
             ApiError::Unavailable

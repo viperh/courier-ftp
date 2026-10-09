@@ -14,8 +14,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    AccountKeysRow, DeviceChoice, DeviceRow, KEY_VERSION_CHANGED_MESSAGE, LoginStateRow,
-    LoginUser, NewAccount, NewCredentials, NewDevice, NewInvite, REAUTH_REQUIRED_MESSAGE,
+    AccountKeysRow, DeviceChoice, DeviceRow, KEY_VERSION_CHANGED_MESSAGE, LoginStateRow, LoginUser,
+    NewAccount, NewCredentials, NewDevice, NewInvite, REAUTH_REQUIRED_MESSAGE,
     RECOVERY_CODE_INVALID_MESSAGE, RecoveryInfo, RefreshOutcome, RegisterOutcome,
     RegistrationCredential, TotpState,
 };
@@ -135,15 +135,21 @@ async fn policy_facts(
     };
     let invite = match cred {
         RegistrationCredential::InviteToken(t) => {
-            let row: Option<(Uuid, Option<Uuid>, Option<String>, Vec<u8>, OffsetDateTime, bool)> =
-                query_as(&format!(
-                    "SELECT id, org_id, lower(email::text), token_hash, expires_at, \
+            let row: Option<(
+                Uuid,
+                Option<Uuid>,
+                Option<String>,
+                Vec<u8>,
+                OffsetDateTime,
+                bool,
+            )> = query_as(&format!(
+                "SELECT id, org_id, lower(email::text), token_hash, expires_at, \
                             accepted_at IS NOT NULL \
                      FROM invites WHERE token_hash = $1{for_update}"
-                ))
-                .bind(&registration::hash_token(t)[..])
-                .fetch_optional(&mut *conn)
-                .await?;
+            ))
+            .bind(&registration::hash_token(t)[..])
+            .fetch_optional(&mut *conn)
+            .await?;
             row.map(
                 |(id, org_id, email, token_hash, expires_at, accepted)| InviteFacts {
                     id,
@@ -635,11 +641,7 @@ async fn consume_reauth(
     }
 }
 
-async fn replace_credentials(
-    conn: &mut PgConnection,
-    user: Uuid,
-    new: &NewCredentials,
-) -> Res<()> {
+async fn replace_credentials(conn: &mut PgConnection, user: Uuid, new: &NewCredentials) -> Res<()> {
     let current: Option<i32> =
         query_scalar("SELECT version FROM account_keys WHERE user_id = $1 FOR UPDATE")
             .bind(user)
@@ -877,11 +879,12 @@ pub(super) async fn delete_account(
 ) -> Res<Vec<Uuid>> {
     let mut tx = pool.begin().await?;
     consume_reauth(&mut tx, user, reauth, now).await?;
-    let active: Vec<Uuid> =
-        query_scalar("SELECT id FROM devices WHERE user_id = $1 AND revoked_at IS NULL ORDER BY id")
-            .bind(user)
-            .fetch_all(&mut *tx)
-            .await?;
+    let active: Vec<Uuid> = query_scalar(
+        "SELECT id FROM devices WHERE user_id = $1 AND revoked_at IS NULL ORDER BY id",
+    )
+    .bind(user)
+    .fetch_all(&mut *tx)
+    .await?;
     let personal = "SELECT id FROM vaults WHERE kind = 'personal' AND owner_user_id = $1";
     for stmt in [
         format!("DELETE FROM items WHERE vault_id IN ({personal})"),

@@ -146,9 +146,7 @@ mod tests {
     #[test]
     fn uri_shape() {
         let uri = otpauth_uri(&[0; 20], "a b@example.com");
-        assert!(uri.starts_with(
-            "otpauth://totp/courier-ftp:a%20b@example.com?secret=AAAAAAAA"
-        ));
+        assert!(uri.starts_with("otpauth://totp/courier-ftp:a%20b@example.com?secret=AAAAAAAA"));
         assert!(uri.contains("issuer=courier-ftp"));
         assert!(!base32(&[0; 20]).contains('='));
         assert_eq!(from_base32(&base32(&[9; 20])).unwrap(), vec![9; 20]);

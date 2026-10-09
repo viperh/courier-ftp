@@ -47,7 +47,12 @@ fn transport(cfg: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, Mai
 ///
 /// # Errors
 /// [`MailError`].
-pub async fn send(cfg: &SmtpConfig, to: &str, subject: &str, body: String) -> Result<(), MailError> {
+pub async fn send(
+    cfg: &SmtpConfig,
+    to: &str,
+    subject: &str,
+    body: String,
+) -> Result<(), MailError> {
     let msg = Message::builder()
         .from(cfg.from.parse::<Mailbox>()?)
         .to(to.parse::<Mailbox>()?)

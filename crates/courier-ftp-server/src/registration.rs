@@ -178,9 +178,10 @@ pub fn authorize(
     match cred {
         RegistrationCredential::SetupToken(token) => {
             let presented = hex::encode(hash_token(token));
-            let matches = facts.setup_token_hash.as_deref().is_some_and(|stored| {
-                bool::from(stored.as_bytes().ct_eq(presented.as_bytes()))
-            });
+            let matches = facts
+                .setup_token_hash
+                .as_deref()
+                .is_some_and(|stored| bool::from(stored.as_bytes().ct_eq(presented.as_bytes())));
             if facts.no_users && matches {
                 Ok(Decision {
                     consume_setup_token: true,
@@ -315,23 +316,46 @@ mod tests {
             RegistrationMode::InviteOnly,
             RegistrationMode::Closed,
         ] {
-            let d = authorize(&facts(mode), e, RegistrationCredential::SetupToken("setup"), now)
-                .unwrap();
+            let d = authorize(
+                &facts(mode),
+                e,
+                RegistrationCredential::SetupToken("setup"),
+                now,
+            )
+            .unwrap();
             assert!(d.consume_setup_token);
         }
         let mut f = facts(RegistrationMode::InviteOnly);
         assert_eq!(
-            code(authorize(&f, e, RegistrationCredential::SetupToken("nope"), now)),
+            code(authorize(
+                &f,
+                e,
+                RegistrationCredential::SetupToken("nope"),
+                now
+            )),
             Err(INVALID_SETUP_TOKEN_MESSAGE.into())
         );
         f.no_users = false;
         assert_eq!(
-            code(authorize(&f, e, RegistrationCredential::SetupToken("setup"), now)),
+            code(authorize(
+                &f,
+                e,
+                RegistrationCredential::SetupToken("setup"),
+                now
+            )),
             Err(INVALID_SETUP_TOKEN_MESSAGE.into())
         );
 
         // Nothing presented: only `open`.
-        assert!(authorize(&facts(RegistrationMode::Open), e, RegistrationCredential::None, now).is_ok());
+        assert!(
+            authorize(
+                &facts(RegistrationMode::Open),
+                e,
+                RegistrationCredential::None,
+                now
+            )
+            .is_ok()
+        );
         assert_eq!(
             code(authorize(
                 &facts(RegistrationMode::InviteOnly),
@@ -342,7 +366,12 @@ mod tests {
             Err(INVITE_REQUIRED_MESSAGE.into())
         );
         assert_eq!(
-            code(authorize(&facts(RegistrationMode::Closed), e, RegistrationCredential::None, now)),
+            code(authorize(
+                &facts(RegistrationMode::Closed),
+                e,
+                RegistrationCredential::None,
+                now
+            )),
             Err(CLOSED_MESSAGE.into())
         );
 
@@ -354,11 +383,21 @@ mod tests {
         assert_eq!(d.org_invite, None);
         assert!(!d.consume_setup_token);
         assert_eq!(
-            code(authorize(&f, "b@example.test", RegistrationCredential::InviteToken("inv"), now)),
+            code(authorize(
+                &f,
+                "b@example.test",
+                RegistrationCredential::InviteToken("inv"),
+                now
+            )),
             Err(INVALID_INVITE_MESSAGE.into())
         );
         assert_eq!(
-            code(authorize(&f, e, RegistrationCredential::InviteToken("other"), now)),
+            code(authorize(
+                &f,
+                e,
+                RegistrationCredential::InviteToken("other"),
+                now
+            )),
             Err(INVALID_INVITE_MESSAGE.into())
         );
         let later = now + time::Duration::days(8);
@@ -370,7 +409,12 @@ mod tests {
         let mut f = facts(RegistrationMode::Closed);
         f.invite = Some(invite("inv", None));
         assert_eq!(
-            code(authorize(&f, e, RegistrationCredential::InviteToken("inv"), now)),
+            code(authorize(
+                &f,
+                e,
+                RegistrationCredential::InviteToken("inv"),
+                now
+            )),
             Err(CLOSED_MESSAGE.into())
         );
         // An org invite is reported for T89.

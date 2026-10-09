@@ -25,7 +25,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, post};
 use axum::{Json, Router};
-use courier_ftp_crypto::opaque::{credential_identifier, recovery_proof_message, registration_finish};
+use courier_ftp_crypto::opaque::{
+    credential_identifier, recovery_proof_message, registration_finish,
+};
 use courier_ftp_crypto::sign;
 use courier_ftp_proto::auth::{
     AccountDeleteRequest, KeyVersionResponse, PasswordChangeRequest, PasswordStartRequest,
@@ -343,9 +345,8 @@ async fn recovery_finish(
         &req.registration_upload,
         &req.private_bundle_enc,
     );
-    sign::verify(&ed_pub, &msg, &sig).map_err(|_| {
-        ApiError::Forbidden("recovery proof signature does not verify".into())
-    })?;
+    sign::verify(&ed_pub, &msg, &sig)
+        .map_err(|_| ApiError::Forbidden("recovery proof signature does not verify".into()))?;
     let revoked = state
         .store()
         .finish_recovery(info.user_id, &hash, &new, state.auth().now())

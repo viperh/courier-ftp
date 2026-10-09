@@ -66,7 +66,10 @@ pub async fn t01_register_login_refresh_logout(h: &Harness) {
     assert_eq!(s2.user_id, a.user_id);
     assert_ne!(s2.device_id, a.device_id);
     assert_eq!(s2.account_keys.version, 1);
-    assert_eq!(s2.account_keys.ed25519_pub, a.keys.public().ed25519.to_vec());
+    assert_eq!(
+        s2.account_keys.ed25519_pub,
+        a.keys.public().ed25519.to_vec()
+    );
     let list = devices(h, &s2.tokens.access_token).await;
     assert_eq!(
         list.iter().map(|d| d.id).collect::<Vec<_>>(),
@@ -103,7 +106,10 @@ pub async fn t01_register_login_refresh_logout(h: &Harness) {
     assert_eq!(message(&v), REFRESH_INVALID);
     // The first device is unaffected.
     let list = devices(h, &a.access).await;
-    assert!(list.iter().any(|d| d.id == s2.device_id && d.revoked_at.is_some()));
+    assert!(
+        list.iter()
+            .any(|d| d.id == s2.device_id && d.revoked_at.is_some())
+    );
     assert!(h.events.events().contains(&BusEvent::DevicesRevoked {
         device_ids: vec![s2.device_id]
     }));
@@ -127,9 +133,19 @@ pub async fn t02_unknown_email_indistinguishable(h: &Harness) {
         keys
     };
     assert_eq!(shape(&known), shape(&unknown));
-    assert_eq!(h.login_state_count().await, before + 2, "both stored a state");
+    assert_eq!(
+        h.login_state_count().await,
+        before + 2,
+        "both stored a state"
+    );
 
-    let (s_wrong, v_wrong) = login(h, "known@example.test", "wrong password", LoginOpts::default()).await;
+    let (s_wrong, v_wrong) = login(
+        h,
+        "known@example.test",
+        "wrong password",
+        LoginOpts::default(),
+    )
+    .await;
     let (s_unknown, v_unknown) = login(h, "nobody@example.test", PW, LoginOpts::default()).await;
     assert_eq!(s_wrong, StatusCode::UNAUTHORIZED);
     assert_eq!((s_wrong, &v_wrong), (s_unknown, &v_unknown));
@@ -167,8 +183,7 @@ pub async fn t03_register_is_atomic(h: &Harness) {
         },
     )
     .await
-    .err()
-    .expect("duplicate vault id");
+    .expect_err("duplicate vault id");
     assert_eq!(err.0, StatusCode::CONFLICT);
     assert_eq!(message(&err.1), "vault id already exists");
     assert!(!h.email_exists("second@example.test").await);
@@ -211,12 +226,15 @@ pub async fn t04_registration_modes_and_invites(h: &Harness) {
         .await
     };
     let forbidden = |r: Result<_, (StatusCode, Value)>, msg: &str| {
-        let (s, v) = r.err().expect("refused");
+        let (s, v) = r.expect_err("refused");
         assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
         assert_eq!(message(&v), msg);
     };
     // invite-only is the default after the migration.
-    forbidden(reg("a@example.test", None).await, "registration requires an invite");
+    forbidden(
+        reg("a@example.test", None).await,
+        "registration requires an invite",
+    );
     let bound = h.invite(Some("b@example.test")).await;
     forbidden(
         reg("c@example.test", Some(bound.clone())).await,
@@ -236,12 +254,18 @@ pub async fn t04_registration_modes_and_invites(h: &Harness) {
     assert!(reg("d@example.test", Some(any)).await.is_ok());
     let late = h.invite(None).await;
     h.clock.advance(Duration::days(1) + Duration::seconds(1));
-    forbidden(reg("e@example.test", Some(late)).await, "invalid or expired invite");
+    forbidden(
+        reg("e@example.test", Some(late)).await,
+        "invalid or expired invite",
+    );
 
     // closed: even a valid invite is refused.
     let inv = h.invite(None).await;
     h.set_mode("closed").await;
-    forbidden(reg("f@example.test", Some(inv.clone())).await, "registration is closed");
+    forbidden(
+        reg("f@example.test", Some(inv.clone())).await,
+        "registration is closed",
+    );
     forbidden(reg("f@example.test", None).await, "registration is closed");
     // A setup token only works while there are no users.
     h.set_setup_token("setup-token-value").await;
@@ -266,7 +290,8 @@ pub async fn t04_registration_modes_and_invites(h: &Harness) {
 /// Token lifetimes: access 15 min, reauth 5 min, refresh 30 days (AC8).
 pub async fn t05_access_token_expiry(h: &Harness) {
     let a = register(h, "exp@example.test", PW).await;
-    h.clock.advance(Duration::minutes(15) - Duration::seconds(1));
+    h.clock
+        .advance(Duration::minutes(15) - Duration::seconds(1));
     assert_eq!(devices_status(h, &a.access).await, StatusCode::OK);
     h.clock.advance(Duration::seconds(1));
     let (s, v) = h.get("/v1/devices", Some(&a.access)).await;
@@ -447,7 +472,11 @@ pub async fn t09_devices_list_and_revoke(h: &Harness) {
 
     h.events.clear();
     let (s, _) = h
-        .delete(&format!("/v1/devices/{}", a2.device_id), Some(&a.access), None)
+        .delete(
+            &format!("/v1/devices/{}", a2.device_id),
+            Some(&a.access),
+            None,
+        )
         .await;
     assert_eq!(s, StatusCode::NO_CONTENT);
     assert_eq!(
@@ -465,12 +494,19 @@ pub async fn t09_devices_list_and_revoke(h: &Harness) {
         }]
     );
     let (s, _) = h
-        .delete(&format!("/v1/devices/{}", a2.device_id), Some(&a.access), None)
+        .delete(
+            &format!("/v1/devices/{}", a2.device_id),
+            Some(&a.access),
+            None,
+        )
         .await;
     assert_eq!(s, StatusCode::NOT_FOUND, "already revoked");
     let list = devices(h, &a.access).await;
     assert_eq!(list.len(), 2);
-    assert!(list.iter().any(|d| d.id == a2.device_id && d.revoked_at.is_some()));
+    assert!(
+        list.iter()
+            .any(|d| d.id == a2.device_id && d.revoked_at.is_some())
+    );
 
     // Resuming an active device keeps its id and replaces its tokens.
     let again = login_ok(
@@ -522,7 +558,11 @@ pub async fn t09_devices_list_and_revoke(h: &Harness) {
 pub async fn t10_totp_enable_login_replay_disable(h: &Harness) {
     let a = register(h, "totp@example.test", PW).await;
     let (s, v) = h
-        .post("/v1/account/totp", Some(&a.access), json!({ "code": "123456" }))
+        .post(
+            "/v1/account/totp",
+            Some(&a.access),
+            json!({ "code": "123456" }),
+        )
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
     assert_eq!(message(&v), "no pending totp setup");
@@ -553,7 +593,10 @@ pub async fn t10_totp_enable_login_replay_disable(h: &Harness) {
     // The same code again.
     let (s, v) = login(h, &a.email, PW, opts).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
-    assert_eq!(message(&v), "totp_invalid: invalid or already used TOTP code");
+    assert_eq!(
+        message(&v),
+        "totp_invalid: invalid or already used TOTP code"
+    );
     // An older step than the last accepted one is a replay too.
     let (s, _) = login(
         h,
@@ -829,7 +872,9 @@ pub async fn t14_delete_account_removes_everything(h: &Harness) {
     let _ = login_start(h, &a.email, PW).await;
     assert!(leftovers(h, a.user_id, a.vault_id).await > 0);
 
-    let (s, v) = h.delete("/v1/account", Some(&a.access), Some(json!({}))).await;
+    let (s, v) = h
+        .delete("/v1/account", Some(&a.access), Some(json!({})))
+        .await;
     assert!(s.is_client_error(), "{v}");
     let (s, v) = h
         .delete(
@@ -925,7 +970,15 @@ pub async fn t15_recovery_flow(h: &Harness) {
     wrong_version.version = 5;
     let (s, _) = finish_recovery(h, &wrong_version).await;
     assert_eq!(s, StatusCode::CONFLICT);
-    assert_eq!(h.store().account_keys(a.user_id).await.unwrap().unwrap().version, 1);
+    assert_eq!(
+        h.store()
+            .account_keys(a.user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .version,
+        1
+    );
     assert_eq!(devices_status(h, &a.access).await, StatusCode::OK);
 
     // The valid attempt.
@@ -1052,9 +1105,11 @@ pub async fn t16_login_state_ttl_and_single_use(h: &Harness) {
 /// Rate limits per email and per IP (AC5). Needs the default quotas.
 pub async fn t17_rate_limits_email_and_ip(h: &Harness) {
     let start = |email: String| async move {
-        let (state_unused, ke1) =
-            courier_ftp_crypto::opaque::client_login_start(&mut courier_ftp_crypto::random::os_rng(), b"pw")
-                .unwrap();
+        let (state_unused, ke1) = courier_ftp_crypto::opaque::client_login_start(
+            &mut courier_ftp_crypto::random::os_rng(),
+            b"pw",
+        )
+        .unwrap();
         drop(state_unused);
         h.call(
             Method::POST,
@@ -1071,7 +1126,11 @@ pub async fn t17_rate_limits_email_and_ip(h: &Harness) {
         assert_eq!(s, StatusCode::TOO_MANY_REQUESTS, "{v}");
         assert_eq!(code(v), "rate_limited");
         assert_eq!(message(v), "too many attempts");
-        let retry: u64 = headers[header::RETRY_AFTER].to_str().unwrap().parse().unwrap();
+        let retry: u64 = headers[header::RETRY_AFTER]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
         assert!(retry >= 1);
         assert_eq!(v["error"]["retry_after_s"].as_u64(), Some(retry));
     };
@@ -1102,7 +1161,11 @@ pub async fn t17_rate_limits_email_and_ip(h: &Harness) {
     );
     // Registration and recovery share the limiters.
     let (s, v) = h
-        .post("/v1/account/recovery/code", None, json!({ "email": "z@example.test" }))
+        .post(
+            "/v1/account/recovery/code",
+            None,
+            json!({ "email": "z@example.test" }),
+        )
         .await;
     assert_eq!(s, StatusCode::TOO_MANY_REQUESTS, "{v}");
 }
