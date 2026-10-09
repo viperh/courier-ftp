@@ -52,7 +52,7 @@ trace), `sqlx-core` + `sqlx-postgres` (runtime-tokio, tls-rustls, `time`, `uuid`
 bundled `rusqlite` in the same `Cargo.lock`), `governor`, `ipnet`, `lettre` (tokio,
 rustls, smtp-transport, builder), `totp-rs`, `sha2`, `subtle`, `hex`, `base64`, `uuid`
 (v7), `time`, `serde`, `serde_json`, `thiserror`, `tracing`, `tracing-subscriber` (`json`,
-`env-filter`), `zeroize`, `clap` (derive; see Open questions), `toml`. Dev: `tower`
+`env-filter`), `zeroize`, `clap` (derive; allowed in the server crate, README rule), `toml`. Dev: `tower`
 (`util`), `http-body-util`, `courier-ftp-crypto` with `insecure-test-ksf`, `tokio`
 (`test-util`).
 
@@ -655,10 +655,8 @@ backends by a `both!` macro (`tNN_name_mem`, `tNN_name_pg`). Clients use
 
 ## Open questions
 
-- **`clap` in the server crate.** `tasks/README.md` says the server crate never depends on
-  `clap`, but the server needs a CLI (`serve`, `migrate`, `admin …`, `healthcheck`) and sverb
-  uses `clap` there. Proposal: allow `clap` in `courier-ftp-server` (it is a binary, not a
-  library used by the client) and change the README rule to "core, protocol, crypto, store,
-  proto and sync crates". Until decided, this task uses `clap`.
 - **Registration reveals existing emails** (409 `email already registered`) in `open` mode.
   Accept (as sverb does) or answer `register/start` identically and fail only at `finish`?
+
+Resolved (reconciliation): the server crate may use `clap` for its admin CLI (README rule
+and T00 layering updated).

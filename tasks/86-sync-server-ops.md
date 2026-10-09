@@ -421,5 +421,7 @@ table. `/readyz` failures are logged at warn once per state change.
 
 ## Open questions
 
-- The `clap` dependency of the server conflicts with the project rule in `tasks/README.md`
-  (see T84 Open questions).
+None.
+
+Resolved (reconciliation): the server crate may use `clap` for its CLI (README rule and T00
+layering updated), so `cli.rs` uses clap derive.

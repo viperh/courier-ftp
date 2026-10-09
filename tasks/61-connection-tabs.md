@@ -11,9 +11,11 @@ transfer queue stays global. Optionally, tabs are restored at the next start.
 
 ## Context
 
-**Before this task:** T50 has one implicit tab (`TabId(0)`) holding the panes; T53
+**Before this task:** T50 has one implicit tab (`TabId(0)`) holding the panes and owns
+`crate::tabs::TabId(u32)`, `ui::text::sanitize` and `ui::symbols::Symbols`; T53
 provides `FileListState`, `PaneId { tab, side }`; T55 the `LogStore`
-with per-tab rings (`set_tab_route`, `remove_tab`) and creates `crate::tabs::TabId`;
+with per-tab rings (`set_tab_route`, `remove_tab`); T05 provides
+`interface.connect_target` (`settings::enums::ConnectTarget { Ask, NewTab, Replace }`);
 T58 connects the current tab from quickconnect (with "replace current connection"
 confirm) and implements `BackendFactory`; T59 connects from the Site Manager;
 T03 provides `ConnectInfo`, `SessionHandle`; T04 `SessionId`, `CoreEvent::Connected` /
@@ -28,9 +30,9 @@ bookmark to the active tab), T45 (Disconnect action disconnects every tab), T70
 ### Types and APIs
 
 ```rust
-// crates/courier-ftp/src/tabs.rs
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TabId(pub u32);                     // created in T55; ids never reused in a run
+// crates/courier-ftp/src/tabs.rs (module and `TabId(pub u32)` created by T50; ids are
+// never reused in a run)
+pub use courier_ftp_core::settings::enums::ConnectTarget;   // T05: Ask | NewTab | Replace
 
 /// Connection state of a tab's browsing session.
 #[derive(Debug)]
@@ -96,11 +98,6 @@ pub enum NewTab { Empty { local_dir: LocalPath }, Duplicate(TabId), Restored(Tab
 #[derive(Debug)]
 pub struct ClosedTab { pub id: TabId, pub session: Option<SessionId>, pub replaced_last: bool }
 
-/// Where a connect request should open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectTarget { Ask, NewTab, Replace }
-
 /// A connect request from quickconnect (T58), Site Manager (T59), bookmarks (T64),
 /// history/recent servers (T33) or the command line (T70).
 #[derive(Debug, Clone)]
@@ -114,10 +111,12 @@ pub struct ConnectRequest {
 ```
 
 Component `TabBar` (implements `Component`, draws one row; no focus of its own).
-Actions (T51 names): `NewTab` (`Ctrl-t`), `CloseTab` (`Ctrl-w`), `NextTab` (`gt`,
-`Ctrl-PageDown`), `PrevTab` (`gT`, `Ctrl-PageUp`), `GoToTab(n)` (`Alt-1`…`Alt-9`),
-`RenameTab` (`Ctrl-x t`), `DuplicateTab` (`Ctrl-x T`), `MoveTabLeft` (`Ctrl-x <`),
-`MoveTabRight` (`Ctrl-x >`), `Disconnect` (`Ctrl-x d`), `Reconnect` (`Ctrl-x r`, T58).
+Actions (T51 names and default keys): `NewTab` (`ctrl-t`), `CloseTab` (`ctrl-w`),
+`NextTab` (`g t`, `ctrl-pagedown`), `PrevTab` (`g T`, `ctrl-pageup`), `GoToTab1` …
+`GoToTab9` (`alt-1` … `alt-9`, portable alternative `g 1` … `g 9`), `RenameTab`
+(`ctrl-x t`), `DuplicateTab` (`ctrl-x T`), `MoveTabLeft` (`ctrl-x <`), `MoveTabRight`
+(`ctrl-x >`), `Disconnect` (`ctrl-x d`), and T58's `ReconnectLast` (`ctrl-x r`), which
+reconnects the active tab when it has `connect_info`.
 Non-key: `Action::Connect(ConnectRequest)` (`#[serde(skip)]`, redacted `Debug`).
 
 ### Behaviour
@@ -126,15 +125,15 @@ Non-key: `Action::Connect(ConnectRequest)` (`#[serde(skip)]`, redacted `Debug`).
 
 | Operation | Rules |
 |---|---|
-| New (`Ctrl-t`) | new tab after the active one, disconnected, local dir = active tab's local dir, remote pane `NotConnected`; becomes active; `MAX_TABS` reached → Warning `Maximum of 32 tabs reached` |
-| Close (`Ctrl-w`) | connected or connecting → confirm dialog (default `Close tab`); disconnects only this tab's browsing session (`SessionHandle` dropped, `Backend::disconnect` with a 5 s timeout, then dropped); queued and running transfers continue on their own sessions (T41); `LogStore::remove_tab`; the next tab to the right (else left) becomes active |
+| New (`ctrl-t`) | new tab after the active one, disconnected, local dir = active tab's local dir, remote pane `NotConnected`; becomes active; `MAX_TABS` reached → Warning `Maximum of 32 tabs reached` |
+| Close (`ctrl-w`) | connected or connecting → confirm dialog (default `Close tab`); disconnects only this tab's browsing session (`SessionHandle` dropped, `Backend::disconnect` with a 5 s timeout, then dropped); queued and running transfers continue on their own sessions (T41); `LogStore::remove_tab`; the next tab to the right (else left) becomes active |
 | Close last tab | the tab is replaced by a new empty tab (same local dir); never zero tabs |
-| Switch | `GoToTab(n)` (1-based; beyond count → ignored), next/prev wrap around; restores the tab's focused region |
-| Rename (`Ctrl-x t`) | T52 `prompt_text` prefilled with the current title; empty → back to the automatic title; max 40 chars |
-| Duplicate (`Ctrl-x T`) | new tab after the source with the same local dir; if the source has `connect_info`, connects a **new** session with it and opens the source's current remote dir; else an empty tab |
-| Move (`Ctrl-x <`/`>`) | swaps with the neighbour; numbers follow the display order |
-| Disconnect (`Ctrl-x d`) | active tab's browsing session closed; remote pane `NotConnected`; tab stays |
-| Reconnect (`Ctrl-x r`) | active tab's `connect_info` (or T58's last-server logic when none) reconnects in the same tab |
+| Switch | `GoToTabN` (1-based; beyond count → ignored), next/prev wrap around; restores the tab's focused region |
+| Rename (`ctrl-x t`) | T52 `prompt_text` prefilled with the current title; empty → back to the automatic title; max 40 chars |
+| Duplicate (`ctrl-x T`) | new tab after the source with the same local dir; if the source has `connect_info`, connects a **new** session with it and opens the source's current remote dir; else an empty tab |
+| Move (`ctrl-x <`/`>`) | swaps with the neighbour; numbers follow the display order |
+| Disconnect (`ctrl-x d`) | active tab's browsing session closed; remote pane `NotConnected`; tab stays |
+| Reconnect (`ReconnectLast`, `ctrl-x r`) | active tab's `connect_info` (or T58's last-server logic when none) reconnects in the same tab |
 
 #### Connecting (adds the choice to T58 and T59)
 
@@ -149,12 +148,14 @@ Non-key: `Action::Connect(ConnectRequest)` (`#[serde(skip)]`, redacted `Debug`).
    side); `NewTab` opens a tab (limit applies).
 5. The tab becomes `Connecting` (marker `◌`), the `BackendFactory` (T58) builds the
    backend, `SessionHandle` connects with the tab's `SessionId`; T55 routing is set with
-   `set_tab_route`. `Esc` in the remote pane or `Ctrl-x d` cancels the connect.
+   `set_tab_route`. `Esc` in the remote pane or `ctrl-x d` cancels the connect.
 6. `CoreEvent::Connected` → `Connected`, remote pane lists `initial_remote_dir` or the
    home dir; site settings applied (default dirs, sync browsing, comparison — T59/T66).
 7. Failure → `Failed { message }` (marker `!`), remote pane shows the error (T53).
    A later `CoreEvent::Disconnected { reason }` (after T03's single reconnect attempt) →
    `None`, remote pane `NotConnected` with `Connection lost: <reason>. Ctrl-x r reconnects.`
+   A connect refused with `Error::ConnectionLimit` (T10/T20) shows `Server refused
+   another connection (connection limit)`.
 8. Events for background tabs update their state and panes; only the bar marker shows it.
 
 #### Titles
@@ -242,8 +243,8 @@ themselves (T46 cache shares `Arc<Listing>` between tabs on the same server).
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `interface.restore_tabs` | bool | `false` | added here (T05 §1c) |
-| `interface.connect_target` | `ask` \| `new_tab` \| `replace` | `ask` | added here |
+| `interface.restore_tabs` | bool | `false` | T05 |
+| `interface.connect_target` | `ask` \| `new_tab` \| `replace` | `ask` | T05 `ConnectTarget` (snake_case values) |
 | `device_blobs['tabs']` | CBOR, see above | — | T82 table |
 
 Style keys: `tabs.bar`, `tabs.active`, `tabs.inactive`, `tabs.marker_connected`
@@ -254,7 +255,7 @@ Style keys: `tabs.bar`, `tabs.active`, `tabs.inactive`, `tabs.marker_connected`
 
 | Situation | User sees |
 |---|---|
-| Connect failure (`Error::Connection`, `Auth`, `Tls`, `HostKey`, `Timeout`) | tab `!`, remote pane error text (T53 mapping), log lines (T55) |
+| Connect failure (`Error::Connection`, `Auth`, `Tls`, `HostKey`, `Timeout`, `ConnectionLimit`, `Proxy`) | tab `!`, remote pane error text (T53 mapping), log lines (T55) |
 | Tab limit | Warning message |
 | Restore blob unreadable (decrypt/CBOR error) | Warning `Saved tabs could not be restored`; blob replaced on next save |
 | Disconnect timeout (5 s) | session dropped anyway; `debug` log |
@@ -266,7 +267,7 @@ Style keys: `tabs.bar`, `tabs.active`, `tabs.inactive`, `tabs.marker_connected`
   serialised. The restore blob holds no passwords (quickconnect URLs without password).
 - Tab titles and hosts are user-facing; `tracing` at `info`+ logs only
   `tab=<id> state=<state>`, never hosts or titles.
-- Titles are sanitised (T55) — a site name or custom title cannot inject escapes.
+- Titles are sanitised (T50 `sanitize`) — a site name or custom title cannot inject escapes.
 
 ## Implementation steps
 
@@ -299,6 +300,8 @@ Style keys: `tabs.bar`, `tabs.active`, `tabs.inactive`, `tabs.marker_connected`
 - `fit_tab_bar_cut_steps_and_window` — the mock-up cases (AC5), `fit_tab_bar_tiny_width`.
 - `connect_target_rules` — table over (tab state × setting × request target) (AC4).
 - `move_left_right_renumbers`.
+- `tab_default_keys` — `AppHarness` with the default keymap: `alt-2` and `g 2` activate tab 2, `g t`/`g T` cycle, `ctrl-x t`/`ctrl-x T`/`ctrl-x <`/`ctrl-x >`/`ctrl-x d` reach `RenameTab`/`DuplicateTab`/`MoveTabLeft`/`MoveTabRight`/`Disconnect` (AC1).
+- `connect_target_setting_round_trip` — remembering "New tab" writes `"connect_target": "new_tab"` (AC4).
 - `restore_blob_roundtrip_without_secrets` (AC7), `restore_unknown_version_ignored`.
 
 ### Property / fuzz tests
@@ -317,7 +320,7 @@ Full-screen `TestBackend` at 80×24 and 160×48: `tabs_single`, `tabs_five_state
 - `background_tab_disconnect_updates_marker`.
 
 ### End-to-end tests
-- T76 PtyApp `two_tabs_two_servers` — `sshd` (password profile) and vsftpd (`plain`): connect each in its own tab, list, close one, the other still lists.
+- T76 PtyApp `two_tabs_two_servers` — `sshd` (password profile) and `vsftpd-plain`: connect each in its own tab, list, close one, the other still lists.
 
 ## Out of scope
 
@@ -327,5 +330,7 @@ Full-screen `TestBackend` at 80×24 and 160×48: `tabs_single`, `tabs_five_state
 
 ## Open questions
 
-1. T51 binds `Alt-1..9` to tabs, while T50 suggests `Alt-1..5` for focus regions. This task keeps `Alt-1..9` for tabs; T50/T51 need another binding for focus regions.
-2. Should tab state restore also reconnect automatically (current design), or open the tabs disconnected and let the user press `Ctrl-x r`? Automatic reconnects to many servers at startup may be unwanted.
+1. Should tab state restore also reconnect automatically (current design), or open the tabs disconnected and let the user press `Ctrl-x r`? Automatic reconnects to many servers at startup may be unwanted.
+
+(Resolved by the coordinator: tabs use `alt-1..9` and `g t`/`g T`; focus regions use
+`ctrl-x 1..7`; `ConnectTarget` comes from T05.)
