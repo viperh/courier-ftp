@@ -1238,6 +1238,10 @@ criteria = "safe-to-deploy"
 version = "0.7.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.secrecy]]
+version = "0.10.3"
+criteria = "safe-to-deploy"
+
 [[exemptions.serde]]
 version = "1.0.229"
 criteria = "safe-to-deploy"
@@ -1507,7 +1511,7 @@ version = "0.6.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
-version = "1.26.0"
+version = "1.27.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.valuable]]

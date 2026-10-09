@@ -9,6 +9,6 @@ fn core_modules_exist() {
     fn same(e: error::Error) -> Error {
         e
     }
-    let r: Result<()> = Err(same(error::Error::InvalidState("x".into())));
-    assert!(matches!(r, Err(Error::InvalidState(ref s)) if s == "x"));
+    let r: Result<()> = Err(same(error::Error::Internal("x".into())));
+    assert!(matches!(r, Err(Error::Internal(ref s)) if s == "x"));
 }

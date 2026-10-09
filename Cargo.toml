@@ -206,6 +206,8 @@ tower-http = { version = "0.6.11", features = [
 # --- text ---
 # Non-UTF-8 server charsets.
 encoding_rs = "0.8.42"
+# URL user/password/path escapes (T02).
+percent-encoding = "2.3.2"
 globset = "0.4.20"
 regex = "1.13.1"
 # The one date/time crate (no chrono).
