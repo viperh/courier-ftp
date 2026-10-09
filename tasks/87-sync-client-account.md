@@ -192,22 +192,23 @@ pub struct RegisterWizard; pub struct LoginWizard; pub struct RecoveryWizard;
 // each: fn handle(&mut self, input: WizardInput) -> Option<WizardEffect>; fn step(&self)
 ```
 
-Additions to `courier-ftp-core::vault` (T30's `VaultEngine`; added by this task, not
-behind a feature, no network code):
+Sync-facing `VaultEngine` methods used here. Their signatures are fixed in T30 (no
+network code, not behind a feature); this task implements their bodies in
+`courier-ftp-core::vault`:
 
 ```rust
 impl VaultEngine {
     /// Store handle, a clone of the LMK, the shared HLC, this DB's device id and the
-    /// personal vault id. Error::Vault(Locked) when locked.
-    pub fn sync_handles(&self) -> Result<SyncHandles, Error>;
+    /// personal vault id. `VaultError::Locked` (→ `Error::VaultLocked`) when locked.
+    pub fn sync_handles(&self) -> Result<SyncHandles, VaultError>;
     /// Runs Argon2 with meta.kdf and tries to unwrap the LMK; no state change, does not
-    /// touch the backoff counters.
-    pub async fn verify_password(&self, pw: &SecretString) -> Result<bool, Error>;
-    /// New salt + KEK for `pw`, returns the meta rows (`kdf`, `lmk_wrapped_pw`) to write
-    /// inside the caller's transaction. Keyring wrap unchanged.
-    pub async fn lmk_rewrap_rows(&self, pw: &SecretString) -> Result<Vec<(String, Vec<u8>)>, Error>;
+    /// touch the backoff counters. Mismatch → `VaultError::WrongPassword { .. }`.
+    pub async fn verify_password(&self, password: SecretString) -> Result<(), VaultError>;
+    /// New salt + KEK for `password`, returns the meta rows (`kdf`, `lmk_wrapped_pw`) to
+    /// write inside the caller's transaction. Keyring wrap unchanged.
+    pub async fn lmk_rewrap_rows(&self, password: &SecretString) -> Result<Vec<(String, Vec<u8>)>, VaultError>;
     /// Re-reads vaults and items after an external transaction (login commit, logout).
-    pub async fn reload(&self) -> Result<(), Error>;
+    pub async fn reload(&self) -> Result<(), VaultError>;
 }
 ```
 
@@ -262,7 +263,8 @@ Vault names (`name_enc`) are sealed with the T80 item envelope format using
 #### Register (local-only → new account, §11.2.1)
 
 1. `prepare_registration`: `ApiClient::new` + `probe`; `normalize_email`;
-   `vault.verify_password(password)` must be true (else `WrongLocalPassword`); generate
+   `vault.verify_password(password)` must return `Ok(())` (`VaultError::WrongPassword` →
+   `WrongLocalPassword`); generate
    account keys (X25519 + Ed25519) and the recovery key (T80). Holds everything in memory
    (zeroized on drop).
 2. UI shows the 24 words once with `RECOVERY_WARNING`, then `RecoveryConfirm` with 3 random
@@ -298,7 +300,8 @@ Vault names (`name_enc`) are sealed with the T80 item envelope format using
    whose signature verifies with the account's own Ed25519 key; open it (T80
    `verify_and_open_grant`). Team vault grants are handled by T89 (until T89 lands they are
    skipped with a debug log).
-4. `password_differs = !vault.verify_password(entered)` (only if a local vault exists and is
+4. `password_differs = vault.verify_password(entered)` returned `VaultError::WrongPassword`
+   (only if a local vault exists and is
    unlocked); `password_changed_elsewhere = server key_version > meta.account.key_version`.
 5. Case selection:
    - **(A) same personal vault id** (re-login after logout/password change/crashed
@@ -453,8 +456,8 @@ User-facing texts (T90 shows them; tests assert the variant):
 1. Crate skeleton, `error.rs`, `http.rs` (URL rules, headers, error mapping) with tests
    against an in-process server.
 2. `tokens.rs` with single-flight refresh and persistence; `local.rs`.
-3. `VaultEngine` additions in core (`sync_handles`, `verify_password`, `lmk_rewrap_rows`,
-   `reload`).
+3. Bodies of T30's sync-facing `VaultEngine` methods in core (`sync_handles`,
+   `verify_password`, `lmk_rewrap_rows`, `reload`).
 4. `account/register.rs` + `wizard.rs` (`RecoveryConfirm`, `RegisterWizard`).
 5. `account/login.rs` cases A/B/C + `merge_local.rs` (preview, dedupe keys, remap).
 6. `account/password.rs`, `account/recovery.rs` (+ `RecoveryWizard`).
@@ -559,5 +562,7 @@ and creates `TestDevice`s (temp data dir, vault initialised with `Argon2Cost::TE
   supported for servers without a public certificate?
 - **Headless sync commands** (`courier-ftp sync --now|--status`, `logout`) like sverb's
   CLI: wanted for T70, or UI only?
-- **`VaultEngine` additions:** this task adds `sync_handles`, `verify_password`,
-  `lmk_rewrap_rows` and `reload` to T30's engine; T30 should list them when it is revised.
+Resolved (reconciliation): T30 lists the sync-facing `VaultEngine` methods
+(`sync_handles`, `verify_password`, `lmk_rewrap_rows`, `reload`, plus T88/T89's
+`local_changes`, `apply_remote`, `vault_permission`, `vaults`, `transfer`) with fixed
+signatures; this task implements the first four.

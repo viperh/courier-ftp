@@ -273,12 +273,13 @@ policy handles it; keep-alive is off because idle connections close after 30 s).
   behaviour), so browsing stays responsive.
 
 **Connection-limit back-off.** `is_connection_limit(err, phase)` is true for:
-1. `Error::ConnectionLimit(_)` (T02: the protocol crates' mapping of FTP 421/"too many"
-   530, SSH "too many connections" disconnects; the mock's `set_max_connections`);
-2. at `Connecting` only: `Protocol { code: Some(421 | 530), .. }` (T10 currently reports
-   the FTP cases this way; T10 maps credential failures to `Auth`, so a remaining 530 at
-   login is a limit), and `Connection(message)` matching
+1. `Error::ConnectionLimit(_)` (T02: T10 maps FTP 421/530 "too many connections" at
+   greeting/login to it, T20 maps SSH disconnect reason 12 `TOO_MANY_CONNECTIONS`; the
+   mock's `set_max_connections`);
+2. at `Connecting` only, as a defensive fallback for servers with unusual texts:
+   `Connection(message)` matching
    `(?i)too many|maximum (number of )?(connections|clients|users|sessions)|connection limit`.
+   `Protocol { .. }` and `Auth` are never treated as a limit.
 
 When it happens and the group has `n ≥ 1` other connected slots: learned limit = `n`,
 the item returns to `Queued` **without** counting an attempt, a Status line is logged and
@@ -439,7 +440,7 @@ invariant violations (`debug_assert!`) only log at `warn` in release.
 
 ### Unit tests
 - `fn classify_table` — every `Error` variant × phase → expected `ErrorClass` (AC3, AC8, AC9).
-- `fn connection_limit_detection` — `ConnectionLimit(..)`, `Protocol{421}` and `Protocol{530}` at `Connecting`, `Connection("Maximum number of connections exceeded")` → true; `Auth("Login incorrect")`, `Protocol{421}` while `Transferring` → false (AC5).
+- `fn connection_limit_detection` — `ConnectionLimit(..)` in any phase and `Connection("Maximum number of connections exceeded")` at `Connecting` → true; `Auth("Login incorrect")`, `Protocol{421}`, `Protocol{530}` → false (AC5).
 - `fn speed_average_then_ema` and `fn eta_none_until_one_second_and_without_total` (AC7).
 - `fn overwrite_policy_create_or_truncate` (default policy).
 - `fn group_limit_is_min_of_site_learned_global`.
@@ -501,10 +502,8 @@ The test names are the ones T76 lists for `transfers.rs`; this task implements t
 
 ## Open questions
 
-1. Inconsistency between T02 and T10: T02 defines `Error::ConnectionLimit` for FTP
-   421/"too many" 530, but T10 returns `Error::Protocol { code: Some(421 | 530) }`. This
-   engine accepts both at connect time; T10 should switch to `ConnectionLimit`, and T20
-   should map SSH disconnect reason 12 (`TOO_MANY_CONNECTIONS`) to it as well.
+1. Resolved: T10 maps FTP "too many connections" 421/530 and T20 maps SSH disconnect
+   reason 12 to `Error::ConnectionLimit`.
 2. Product: should a learned connection limit be remembered across restarts (per site,
    device-local)? This spec keeps it for the process lifetime only, like FileZilla.
 3. Product: when connecting to a server fails (after T03's connect retries), this spec

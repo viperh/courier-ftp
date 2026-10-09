@@ -15,7 +15,7 @@ file. A 100 000-item queue stays fast to edit and to render.
 ## Context
 
 - Before: T02 gives `RemotePath`, `LocalPath`, `Entry`, `Timestamp`, `ServerAddress`,
-  `ServerIdentity`, `Direction`, `Credentials`, `core::Error`; T04 gives `TransferId` and
+  `ServerIdentity`, `Direction`, `core::Error` (incl. `VaultLocked`); T04 gives `TransferId` and
   `CoreEvent::QueueChanged`; T03 gives `ConnectInfo` and `WriteMode`; T05 gives
   `Settings` with `queue.persist`, `transfers.*`, and the enums `ExistsAction` and
   `TransferTypeChoice`, and `SharedSettings`; T30 gives `VaultEngine` (implements this
@@ -24,7 +24,8 @@ file. A 100 000-item queue stays fast to edit and to render.
 - After: T41 runs the queue (scheduler index, state transitions, `completed` ranges);
   T41b stores segment progress in `completed`; T42 reads `on_exists`; T43 expands
   directory placeholders in place; T41 reads `QueueCounts` for `EngineStats`; T56 renders
-  rows from `Queue::rows`; T62 builds items (`build_transfer_items`) and calls `Queue::add_batch`.
+  rows through the `QueueView` trait and groups by `QueueServerKey` (both defined here);
+  T62 builds items (kind from T43's `compute_mode`/`QueueItemKind`) (`build_transfer_items`) and calls `Queue::add_batch`.
 
 ## Technical specification
 
@@ -58,13 +59,13 @@ pub enum QueueServer {
 }
 impl QueueServer {
     /// Grouping and limit key (see Behaviour §Groups).
-    pub fn key(&self) -> GroupKey;
+    pub fn key(&self) -> QueueServerKey;
     /// Display label (`site path` or `sftp://alice@web01:22`). UI only, never logged at info+.
     pub fn label(&self) -> &str;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum GroupKey {
+pub enum QueueServerKey {
     Site(ItemId),
     /// `ServerAddress::identity()` (T02): protocol + lowercase host + port + user.
     Adhoc(ServerIdentity),
@@ -177,6 +178,28 @@ pub struct QueueCounts {
 }
 
 pub struct RemoveResult { pub removed: Vec<TransferId>, pub active: Vec<TransferId> }
+
+/// Read-only access used by the queue pane (T56) and the status bar (T57); the pane never
+/// mutates the queue directly. Implemented by `Queue`.
+pub trait QueueView {
+    /// Structural version: equals `Queue::generation()`; changes on add/remove/move/
+    /// priority/state-list changes (not on progress).
+    fn version(&self) -> u64;
+    /// Server groups that have items in `tab`, in display order (first item's position),
+    /// each with its item ids in display order.
+    fn groups(&self, tab: QueueTab) -> Vec<QueueGroupView>;
+    fn item(&self, id: TransferId) -> Option<&QueueItem>;
+    fn counts(&self) -> &QueueCounts;
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueueGroupView {
+    pub key: QueueServerKey,
+    pub label: String,            // QueueServer::label(), no password
+    pub files: u64, pub bytes: u64,
+    pub blocked: Option<String>,  // set_group_blocked reason
+    pub items: Vec<TransferId>,
+}
+impl QueueView for Queue { /* … */ }
 
 /// Not `Sync`-shared directly: wrap in `SharedQueue`. Emits no events itself; whoever
 /// mutates it (UI, engine) sends `CoreEvent::QueueChanged` (T04) afterwards.
@@ -456,7 +479,7 @@ The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`.
 
 1. `TransferId::UNASSIGNED`, `Priority`, `ItemState` and friends, `RangeSet` with unit and
    property tests.
-2. `QueueServer`, `GroupKey`, interning, `QueueItem` builders, hand-written `Debug`.
+2. `QueueServer`, `QueueServerKey`, `QueueView` + `QueueGroupView`, interning, `QueueItem` builders, hand-written `Debug`.
 3. `Queue` core: `add_batch`, `remove`, order keys with renumbering, `rows`/`row_count`,
    stats counters.
 4. Scheduling index and `next_runnable`; engine-side transitions (`set_state`, `finish`,
@@ -481,10 +504,14 @@ The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`.
 - [ ] AC8 Memory: 100 000 typical items (60-byte paths) use ≤ 64 MiB of heap (counting allocator test).
 - [ ] AC9 A newer-version snapshot is neither loaded nor overwritten.
 - [ ] AC10 `cargo clippy --workspace --all-targets -- -D warnings` and the T00 `test-local-only`, `test-os`, `bench-build` jobs pass.
+- [ ] AC11 `QueueView` on `Queue`: `version()` changes on every structural mutation and not
+  on `checkpoint`; `groups(tab)` returns each server group once with its ids in display order,
+  keyed by `QueueServerKey` (`Site(id)` / `Adhoc(identity)`).
 
 ## Tests
 
 ### Unit tests
+- `fn queue_view_groups_and_version` — two sites + one ad-hoc server, moves and checkpoints (AC11).
 - `fn range_set_insert_merges_overlaps_and_adjacent` — `[0,10)+[10,20)+[5,8)` → `[0,20)` (AC1).
 - `fn range_set_missing_lists_gaps` — gaps of `[0,5),[10,15)` in 20 → `[5,10),[15,20)` (AC1).
 - `fn add_batch_assigns_ids_and_appends_in_order` (AC1).
@@ -537,6 +564,6 @@ Covered by T41/T76 scenarios (queue survives an app restart in `PtyApp`: quit wi
 
 1. Should FileZilla's exported queue XML be importable (FEATURES §5 says "import and
    export"; our export is courier-ftp JSON only)?
-2. Inconsistency for T62's owner: T62 sets a field `is_dir_placeholder`; the item now has
-   `kind: QueueItemKind` with builder `QueueItem::dir_placeholder(..)` and method
-   `is_dir_placeholder()`. `delete_source_after` (T62 Open question 1) is added here.
+2. Resolved: T62 builds items with T43's `compute_mode` and `QueueItemKind` (no
+   `is_dir_placeholder` field; the method `is_dir_placeholder()` remains);
+   `delete_source_after` is defined here. `QueueView`/`QueueServerKey` are defined here (T56).
