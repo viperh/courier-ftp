@@ -1,6 +1,6 @@
 # T20 — SSH connection and authentication
 
-**Phase:** C SFTP · **Milestone:** M2 · **Depends on:** T02, T04, T07, T76 · **Crate(s):** `courier-ftp-proto-sftp` (`ssh`, `keys`, `agent` modules), small additions to `courier-ftp-core` (`backend::SftpConnectOptions`, `text::sanitize_server_text`) · **Decisions:** D2 (russh), D3, D13 · **FEATURES.md:** §1 (SFTP keys, Pageant / agent), §2 (logon types)
+**Phase:** C SFTP · **Milestone:** M2 · **Depends on:** T02, T04, T07, T76 · **Crate(s):** `courier-ftp-proto-sftp` (`ssh`, `keys`, `agent` modules), small addition to `courier-ftp-core` (`text::sanitize_server_text`) · **Decisions:** D2 (russh), D3, D13 · **FEATURES.md:** §1 (SFTP keys, Pageant / agent), §2 (logon types)
 **Related (integrates with, not blocking):** T21, T30, T59
 **Reference:** sverb `crates/sverb-conn/src/ssh/{connect,handler,auth,auth_stub,algorithms,errors,keepalive,testing,test_keys}.rs`, `crates/sverb-conn/src/agent_client.rs`, `crates/sverb-core/src/keychain/formats/{openssh,pem,pkcs8,ppk}.rs`, `tests/fixtures/putty/`, `tests/fixtures/sshd/` — copy and adapt (D13), never depend on sverb.
 
@@ -14,16 +14,21 @@ core prompt mechanism (T04); no secret is ever logged.
 
 ## Context
 
-- **Before:** T02 gives `ServerAddress`, `Credentials`/`LogonType`, `Charset`,
-  `courier_ftp_core::Error`; T04 gives `EventSender`, `LogMessage`/`LogKind`,
-  `CoreEvent`, `PromptRequest`/`PromptResponse`; T07 gives
-  `net::connect_tcp(&HostPort, &NetOpts, CancellationToken, &EventSender)` (DNS, IPv6
-  preference, HTTP/SOCKS proxies, connect timeout); T76 gives the `sshd` Docker fixture
+- **Before:** T02 gives `ServerAddress` (incl. `user`), `LogonType` (incl.
+  `KeyFile { key: KeySource, passphrase }`), `KeySource { Path, VaultItem, Inline }`,
+  `Charset`, `courier_ftp_core::Error` (incl. `ConnectionLimit`, `Proxy`); T03 gives
+  `ConnectInfo` (incl. `try_agent_first`); T04 gives `EventSender`, `SessionLog`,
+  `LogMessage`/`LogKind`, `CoreEvent::CredentialAccepted`, `PromptKind::{Password,
+  KeyPassphrase, KeyboardInteractive}` with `PasswordPrompt`, `PassphrasePrompt`,
+  `KbdInteractivePrompt`, `SecretCacheKey`, and `PromptResponse::{Secret, Answers}`; T07 gives
+  `net::connect_tcp(&HostPort, &NetOpts, CancellationToken, &SessionLog) -> Result<NetStream>`
+  (DNS, IPv6 preference, HTTP/SOCKS proxies, connect timeout); T76 gives the `sshd` Docker fixture
   with the profiles `password`, `key`, `kbd`, `maxauth2`, `legacy`.
 - **After:** T21 plugs a real `HostKeyVerifier` into the seam defined here (until then
   every key is rejected unless a test uses the insecure verifier). T22 builds
-  `SftpBackend` on `SshConnection`. T31 fills `SftpConnectOptions` from a site; T58
-  fills it from the quickconnect bar. T69 renders the password, passphrase and
+  `SftpBackend` on `SshConnection` and calls `SshConnectParams::from_connect_info`. T31
+  (saved site), T58 (quickconnect) and T70 (CLI) build the `ConnectInfo`, resolving
+  `KeySource::VaultItem` to `Inline` (T03 `ConnectInfo::validate`). T69 renders the password, passphrase and
   keyboard-interactive prompts emitted here. T91 adds the PPK fuzz target body from here.
 - sverb already solved this: the auth chain with its two seams (`AuthBackend` = server,
   `AuthIo` = user), RSA signature selection, the attempt cap, server-text sanitising, the
@@ -52,32 +57,11 @@ src/keys/{mod,openssh,pem,pkcs8,ppk}.rs   private-key loading
 src/agent/mod.rs      AgentConnector / Agent (Unix socket, Windows pipe, Pageant)
 ```
 
-Core additions (in `courier-ftp-core`):
+Core addition (in `courier-ftp-core`; key source, logon type and `try_agent_first` are
+T02/T03's `KeySource`, `LogonType::KeyFile { key, passphrase }` and
+`ConnectInfo.try_agent_first` — no SFTP-specific option struct):
 
 ```rust
-// courier_ftp_core::backend — added to ConnectInfo (T03) as `pub sftp: SftpConnectOptions`.
-/// SFTP-only connection options (ignored by FTP backends).
-#[derive(Debug, Default)]
-pub struct SftpConnectOptions {
-    /// Private key for `LogonType::KeyFile`; `None` for other logon types.
-    pub key: Option<KeySource>,
-    /// Stored passphrase for an encrypted key (from the vault, T31). Tried before prompting.
-    pub key_passphrase: Option<SecretString>,
-    /// Offer the SSH agent's identities before the logon type's own methods (FileZilla
-    /// "try agent first"; default false). Local-acting synced field: T91 §8 approval
-    /// happens in the binary before this is set to true.
-    pub try_agent_first: bool,
-}
-
-/// Where the private key comes from.
-#[derive(Debug)]
-pub enum KeySource {
-    /// A key file on this device.
-    File(LocalPath),
-    /// Key text stored in the vault (`ssh-key` item, T81), already decrypted by the vault.
-    Inline { label: String, text: SecretString },
-}
-
 // courier_ftp_core::text
 /// Make server-provided text safe to show: strips ANSI/C1 escape sequences, control
 /// characters (keeps `\n`, maps `\t` to a space) and bidi overrides; caps at `max_chars`
@@ -90,16 +74,30 @@ pub fn sanitize_server_text(text: &str, max_chars: usize) -> String;
 ```rust
 /// Everything needed to open one SSH connection. Built by T22 from `ConnectInfo` + `Settings`.
 pub struct SshConnectParams {
-    pub session: SessionId,                 // for log lines and prompts (T04)
     pub host: String,                       // as configured (not the resolved IP)
     pub port: u16,                          // default 22
-    pub user: String,
+    pub user: String,                       // ServerAddress.user (required for SFTP)
     pub logon: SshLogon,
-    pub password: Option<SecretString>,     // Normal: stored; AskForPassword: none
-    pub options: SftpConnectOptions,
+    pub password: Option<SecretString>,     // Normal { password }: stored; otherwise None
+    /// LogonType::KeyFile key: `Path` or `Inline` (a `VaultItem` here → InvalidInput).
+    pub key: Option<KeySource>,
+    /// LogonType::KeyFile passphrase (stored in the vault). Tried before prompting.
+    pub key_passphrase: Option<SecretString>,
+    /// Shown in passphrase prompts/log: the path, or "vault key of <ConnectInfo.label>".
+    pub key_label: String,
+    /// ConnectInfo.try_agent_first (FileZilla "try agent first"; T91 §8 approval already
+    /// done by the binary).
+    pub try_agent_first: bool,
+    /// T04 `can_save` for password/passphrase prompts (set by T22, see Behaviour).
+    pub can_save: bool,
     pub net: NetOpts,                       // T07: proxy, IPv6 preference, connect timeout
     pub timeout: Duration,                  // connection.timeout_secs (default 20 s)
     pub keepalive: Option<Duration>,        // connection.keepalive ? keepalive_interval_secs (30 s) : None
+}
+impl SshConnectParams {
+    /// Copies secrets with `LogonType::duplicate`. Errors: InvalidInput for Anonymous/
+    /// Account logons, missing user, or an unresolved `KeySource::VaultItem`.
+    pub fn from_connect_info(info: &ConnectInfo, settings: &Settings, can_save: bool) -> Result<Self, Error>;
 }
 
 /// The SFTP-relevant logon types (T02 `LogonType` minus Anonymous/Account).
@@ -107,7 +105,7 @@ pub enum SshLogon { Normal, AskForPassword, Interactive, KeyFile, Agent }
 
 impl SshLogon {
     /// `Err(Error::InvalidInput)` for `Anonymous` and `Account` (not valid for SFTP).
-    pub fn from_logon_type(t: &LogonType) -> Result<(Self, String /*user*/), Error>;
+    pub fn from_logon_type(t: &LogonType) -> Result<Self, Error>;
 }
 
 /// What was negotiated (shown by the server info dialog, T57).
@@ -128,12 +126,13 @@ pub struct SshConnection { /* russh client::Handle<ClientHandler>, Arc<Shared>, 
 
 impl SshConnection {
     /// TCP (through T07) → SSH handshake (host key via `verifier`) → authentication.
-    /// Prompts are sent through `events` (T04) and awaited; `cancel` aborts at any point.
+    /// Prompts are sent through `log.events` (T04) for session `log.session` and awaited;
+    /// `cancel` aborts at any point.
     pub async fn connect(
         params: SshConnectParams,
         verifier: Arc<dyn HostKeyVerifier>,
         agent: Option<Arc<dyn AgentConnector>>,
-        events: &EventSender,
+        log: &SessionLog,
         cancel: CancellationToken,
     ) -> Result<Self, courier_ftp_core::Error>;
 
@@ -303,9 +302,9 @@ step whose method the latest `USERAUTH_FAILURE` does not list. Every request aft
   `MAX_KBD_PROMPTS` prompts → this method fails with a logged error). Several rounds
   (password then OTP) are handled by the loop. Answers are `SecretString`s dropped
   right after `kbd_respond`. Cancel → `Error::Cancelled`.
-- **[F] key file:** read the file (`KeySource::File`) with a 64 KiB cap (larger →
+- **[F] key file:** read the file (`KeySource::Path`) with a 64 KiB cap (larger →
   `Error::InvalidInput("<path> is not a private key (larger than 64 KiB)")`), or take
-  `KeySource::Inline`. `keys::decode`: unencrypted → use. Encrypted → stored
+  `KeySource::Inline(text)`. `keys::decode`: unencrypted → use. Encrypted → stored
   `key_passphrase` first (silently), then up to `PASSPHRASE_TRIES` (3) `KeyPassphrase`
   prompts (`retry` set after a wrong one). After 3 wrong passphrases →
   `Error::Auth("Wrong passphrase for key <label> (3 attempts)")` and **no** publickey
@@ -323,22 +322,24 @@ step whose method the latest `USERAUTH_FAILURE` does not list. Every request aft
   (T69 saves a typed password/passphrase only after this, see T04 event below). All
   steps exhausted / cap hit / server lists no method we can use →
   `Error::Auth(msg)` with `msg = "Permission denied (tried: password, keyboard-interactive; server accepts: publickey)"`.
-- **Prompts** are `PromptRequest`s (T04) with `session` and the cancel token of the
-  connect; the wait has no timeout (T04) but `cancel` aborts it (`Error::Cancelled`).
+- **Prompts** are sent with `EventSender::prompt_tracked(session, kind, Some(&cancel))`
+  (T04) so the `PromptId` is known for `CredentialAccepted`; the wait has no timeout (T04) but `cancel` aborts it (`Error::Cancelled`).
   A server that drops the connection while the user is answering (LoginGraceTime,
   default 120 s on OpenSSH) ends the connect with
   `Error::Connection("The server closed the connection while waiting for your answer")`.
-- **Prompt payloads** (fields T69 needs; see Open questions for the T04 shape):
-  `Password { target: "alice@web01.example.com:22", retry, attempt, max_attempts: 3, cache_key, can_save }`,
-  `KeyPassphrase { key_label, retry, attempt, max_attempts: 3, cache_key, can_save }`,
-  `KeyboardInteractive { host: "web01.example.com:22", name, instructions, prompts: Vec<(String, echo: bool)> }`.
-  `cache_key` = `Password { protocol: Sftp, host (ASCII-lowercased), port, user }` or
-  `Passphrase { key: path or vault item label }` (lets T69 answer from its
+- **Prompt payloads** (T04 types):
+  `PromptKind::Password(PasswordPrompt { purpose: Login, target: "alice@web01.example.com:22", retry, attempt, max_attempts: 3, cache_key, can_save })`,
+  `PromptKind::KeyPassphrase(PassphrasePrompt { key_label, retry, attempt, max_attempts: 3, cache_key, can_save })`,
+  `PromptKind::KeyboardInteractive(KbdInteractivePrompt { host: "web01.example.com:22", name, instructions, prompts: Vec<KbdField { text, echo }> })`;
+  answers `PromptResponse::Secret { value, .. }` / `PromptResponse::Answers(Vec<SecretString>)`.
+  `cache_key` = `SecretCacheKey::Password { protocol: Sftp, host (ASCII-lowercased), port, user }` or
+  `SecretCacheKey::Passphrase { key: path or key_label }` (lets T69 answer from its
   "remember for this session" cache; T69 never uses the cache when `retry` is true).
-  `can_save` is set by the caller (T22) from `ConnectInfo` (connection comes from a
-  saved site and the vault is unlocked and `vault.store_passwords`).
-- **Accepted credentials**: after success the chain emits
-  `CoreEvent::CredentialAccepted { session, prompt_id }` for each accepted prompt (no
+  `can_save` = `SshConnectParams.can_save`, set by T22 (`ConnectInfo.site_id.is_some()`
+  and `vault.store_passwords`; T69 additionally disables saving while the vault is locked).
+- **Accepted credentials**: after success the chain calls
+  `EventSender::credential_accepted(session, prompt_id)` (→ `CoreEvent::CredentialAccepted`)
+  for each accepted prompt (no
   secret in the event: the UI still holds what the user typed and saves/caches it only
   now).
 - **Cancellation**: `cancel` is checked with `tokio::select!` around TCP connect,
@@ -388,7 +389,7 @@ maps to `courier_ftp_core::Error`:
 | Situation | `core::Error` | Message the user sees (log `Error:` line + dialog) |
 |---|---|---|
 | Anonymous/Account logon | `InvalidInput` | "Anonymous and Account logons are not available for SFTP" |
-| DNS / TCP / proxy failure | from T07 (`Connection`, `Timeout`) | T07's message |
+| DNS / TCP / proxy failure | from T07 (`Connection`, `Timeout`, `Proxy`) | T07's message |
 | Handshake not finished in `timeout` | `Timeout` | "Connection timed out during the SSH handshake" |
 | No common algorithm | `Connection` | "No common cipher: server offers aes128-cbc, 3des-cbc." |
 | Host key rejected (verifier or user) | `HostKey(reason)` | reason from T21, e.g. "Host key rejected by the user" |
@@ -397,11 +398,13 @@ maps to `courier_ftp_core::Error`:
 | Key unreadable / bad format / too large | `InvalidInput` | "Could not read key file <path>: …" / "Not a private key format courier-ftp can read (OpenSSH, PEM, PKCS#8, PuTTY)" |
 | Prompt cancelled / token cancelled | `Cancelled` | "Connection cancelled" (Status, not Error) |
 | Keepalive timeout | `Connection` | "Connection lost (no response for 90 s)" |
-| Server disconnect | `Connection` | "Server closed the connection: <sanitized reason>" |
+| Server disconnect with reason code 12 (`SSH_DISCONNECT_TOO_MANY_CONNECTIONS`), e.g. OpenSSH `MaxStartups`/`MaxSessions` | `ConnectionLimit` | "Too many connections: <sanitized reason>" (T41 lowers the per-server limit; T03 does not retry) |
+| Server disconnect (other reasons) | `Connection` | "Server closed the connection: <sanitized reason>" |
 | Other russh/IO error | `Connection` | "SSH connection failed: <error>" |
 
 `Connection` and `Timeout` are `is_transient()` (T02) so `SessionHandle` (T03) reconnects
-once; `Auth`, `HostKey`, `InvalidInput`, `Cancelled` are not.
+once; `Auth`, `HostKey`, `Proxy`, `InvalidInput`, `Cancelled` are not, and
+`ConnectionLimit` is transient for T41 but never retried by `SessionHandle::connect`.
 
 ### Security and logging
 
@@ -421,7 +424,7 @@ once; `Auth`, `HostKey`, `InvalidInput`, `Cancelled` are not.
 - Key files: read with a 64 KiB cap; PPK parser bounds memory and Argon2 cost (above) so
   a hostile file cannot hang or exhaust memory; PPK MAC checked before the private blob
   is parsed.
-- `try_agent_first` and `KeySource::File` from a synced site are local-acting fields
+- `try_agent_first` and `KeySource::Path` from a synced site are local-acting fields
   (T91 §8); the approval check happens in the binary before `ConnectInfo` is built —
   this crate trusts its input.
 - `InsecureAcceptAnyHostKey` exists only with `cfg(test)` or feature `test-util`; the
@@ -434,8 +437,9 @@ once; `Auth`, `HostKey`, `InvalidInput`, `Cancelled` are not.
    `base64`, `rsa`, `pkcs8`, `sec1`, `zeroize`) to `courier-ftp-proto-sftp`; module
    skeleton; `test-util` feature. Bump `rust-version` if russh requires it (see Open
    questions).
-2. `courier_ftp_core::text::sanitize_server_text` (copy + tests) and
-   `backend::SftpConnectOptions`/`KeySource` added to `ConnectInfo`.
+2. `courier_ftp_core::text::sanitize_server_text` (copy + tests);
+   `SshConnectParams::from_connect_info` (T02 `KeySource`/`LogonType::KeyFile`, T03
+   `ConnectInfo.try_agent_first`).
 3. `keys/`: copy sverb's OpenSSH, PEM, PKCS#8 and PPK parsers; fixtures; `detect`,
    `decode`; unit tests; PPK property test (fuzz twin).
 4. `agent/`: copy sverb `agent_client.rs` (Unix socket, Windows pipe, Pageant) with the
@@ -466,7 +470,10 @@ once; `Auth`, `HostKey`, `InvalidInput`, `Cancelled` are not.
 - [ ] AC9 Cancelling the token during TCP connect, handshake, an auth request or a pending prompt returns `Error::Cancelled` within 100 ms (paused-time and loopback tests).
 - [ ] AC10 A server that accepts TCP but never sends its version string fails with `Error::Timeout` after `timeout` (test with `timeout = 1 s`, asserts 1.0–1.5 s).
 - [ ] AC11 Host-key prompt time does not count against the handshake timeout (verifier that sleeps 3 s with `timeout = 1 s` still connects).
-- [ ] AC12 Anonymous/Account logon returns `Error::InvalidInput` without opening a socket.
+- [ ] AC12 Anonymous/Account logon, a missing user and an unresolved `KeySource::VaultItem`
+  return `Error::InvalidInput` without opening a socket.
+- [ ] AC18 A server that disconnects with reason 12 (too many connections) yields
+  `Error::ConnectionLimit`; other disconnect reasons yield `Error::Connection`.
 - [ ] AC13 Against the `legacy` profile (group14-sha1 + aes128-cbc only) the connect fails with `Error::Connection` whose message starts with "No common"; against default OpenSSH the negotiated cipher is `aes128-gcm@openssh.com` or `aes256-gcm@openssh.com` (asserted via `SshSessionInfo`).
 - [ ] AC14 Auth banner and kbd texts containing ESC sequences, C1 controls and bidi overrides reach the log/prompt without them, and are capped as specified.
 - [ ] AC15 `CredentialAccepted` is emitted only for prompts whose answers led to (partial) success; rejected answers produce none.
@@ -497,7 +504,9 @@ once; `Auth`, `HostKey`, `InvalidInput`, `Cancelled` are not.
 - `auth::tests::kbd_more_than_ten_prompts_fails_method`.
 - `errors::tests::mapping_table` — every row of the Errors table.
 - `algorithms::tests::known_key_types_move_to_front`, `compat_entries_are_last`, `unsupported_names_dropped`.
-- `logon::tests::anonymous_and_account_are_invalid_input` — AC12.
+- `logon::tests::anonymous_and_account_are_invalid_input`,
+  `params_reject_missing_user_and_unresolved_vault_key` — AC12.
+- `errors::tests::disconnect_reason_12_is_connection_limit` — AC18.
 
 ### Property / fuzz tests
 - `keys::ppk::props::parse_never_panics` (proptest, 10 000 cases; body shared with `fuzz/fuzz_targets/ppk_parse.rs`, T91) — AC17.
@@ -519,6 +528,7 @@ russh server on `127.0.0.1:0`):
 - `loopback_banner_sanitized` — AC14.
 - `loopback_no_secrets_in_logs` (trace subscriber + session-log capture, canary values) — AC16.
 - `loopback_server_disconnect_while_prompting` — "server closed the connection while waiting" message.
+- `loopback_too_many_connections_disconnect` (test server sends `DISCONNECT` code 12 after the handshake) — AC18.
 
 ### End-to-end tests
 In `crates/courier-ftp-e2e/tests/ssh_auth.rs`, `#[ignore]`, `require_docker!`, `COURIER_E2E=1` (T76):
@@ -543,17 +553,9 @@ an ed25519 key — AC7.
 
 1. **MSRV:** russh 0.64.1 declares `rust-version = 1.89`; the workspace says `1.85`
    (T01/T00 own `rust-version`). Raise the workspace MSRV to at least 1.89 (sverb uses 1.95)?
-2. **T04 prompt shapes:** T04 lists `Password { for_ }`, `KeyPassphrase { path }`,
-   `KeyboardInteractive { name, instructions, prompts }` but no `PromptResponse` variants,
-   no `retry`/`attempt`/`cache_key`/`can_save` fields, no `session`/origin on
-   `PromptRequest`, and no `CoreEvent::CredentialAccepted`. This task needs the fields
-   listed under Behaviour; the T04 owner should adopt them (or equivalent names).
-3. **T03 `ConnectInfo`:** T03 says "key file or vault key" without a type; this task adds
-   `ConnectInfo::sftp: SftpConnectOptions` (`key`, `key_passphrase`, `try_agent_first`).
-   Confirm with the T03/T31 owners.
-4. **Legacy servers:** should a site be able to opt into CBC ciphers, `ssh-dss` and
+2. **Legacy servers:** should a site be able to opt into CBC ciphers, `ssh-dss` and
    `diffie-hellman-group1-sha1` (very old embedded SFTP servers)? FileZilla still
    supports some of them; this task does not.
-5. **`ssh-rsa` (SHA-1) fallback** is used automatically for servers without
+3. **`ssh-rsa` (SHA-1) fallback** is used automatically for servers without
    `server-sig-algs` (OpenSSH < 7.2), with a warning line. Keep automatic, or require a
    per-site opt-in like sverb?

@@ -1,6 +1,6 @@
 # T56 — Queue pane
 
-**Phase:** F TUI · **Milestone:** M4 · **Depends on:** T40, T41, T50, T51, T52, T55, T57 · **Crate(s):** `courier-ftp` (`components/queue/`) · **Decisions:** D6, D7, D8, D11 · **FEATURES.md:** §5 (queue tabs, process/pause/stop, reorder, priority, reset and requeue, progress, file-exists action, action after completion)
+**Phase:** F TUI · **Milestone:** M4 · **Depends on:** T40, T41, T50, T51, T52 · **Crate(s):** `courier-ftp` (`components/queue/`) · **Decisions:** D6, D7, D8, D11 · **FEATURES.md:** §5 (queue tabs, process/pause/stop, reorder, priority, reset and requeue, progress, file-exists action, action after completion)
 **Related (integrates with, not blocking):** T45, T57
 
 ## Goal
@@ -15,14 +15,17 @@ menu, and the pane stays responsive with 100 000 queued items.
 **Before this task:** T40 provides `QueueItem` (`id: TransferId`, `server:
 QueueServer`, `direction: Direction`, `local: LocalPath`, `remote: RemotePath`,
 `size`, `transfer_type`, `priority: Priority`, `on_exists: Option<ExistsAction>`,
-`state: ItemState`, `attempts`, `added_at`, `is_dir_placeholder`), the three lists,
-all queue operations, the group-by-server helper, statistics and import/export.
-T41 provides `TransferEngine` with `Start`, `Stop`, `PauseAll`, `ResumeAll`,
-`Cancel(id)`, `SettingsChanged`, and `CoreEvent::TransferProgress` /
+`state: ItemState`, `attempts`, `added_at`, `kind: QueueItemKind` — directory
+placeholders are `QueueItemKind::DirPlaceholder`, there is no `is_dir_placeholder`
+field), the three lists, all queue operations, the read-only `QueueView` trait and the
+`QueueServerKey` grouping key (both defined in T40), statistics and import/export.
+T41 provides `TransferEngine` with the `EngineCommand`s `Start`, `Stop`, `PauseAll`,
+`ResumeAll`, `Pause(ids)`, `Resume(ids)`, `Cancel { ids, remove }`, `SettingsChanged`, and `CoreEvent::TransferProgress` /
 `TransferStateChanged` / `QueueFinished` (coalesced by T04). T50 provides focus
-(`FocusQueue`), layout and the queue toggle; T51 the `Queue` keymap mode; T52 the
-`ListView` popup menu, `confirm`, `prompt_text` and `RadioGroup`. T55 provides
-`sanitize`; T57 `Symbols` and `Action::StatusMessage`.
+(`FocusQueue`, `g q`, `ctrl-x 7`), layout and the queue toggle (`ToggleQueuePane`,
+`ctrl-x j`), `ui::text::sanitize`, `ui::symbols::Symbols` and `Action::StatusMessage`;
+T51 the `Queue` keymap mode; T52 the `ListView` popup menu, `confirm`, `prompt_text`
+and `RadioGroup`.
 
 **Later tasks need from it:** T45 (one-shot/always completion action chosen in the
 context menu), T62 (F5/Shift-F5 add items and show them here), T57 (shares the
@@ -36,12 +39,10 @@ Module `crates/courier-ftp/src/components/queue/` (`mod.rs`, `state.rs`, `rows.r
 `render.rs`, `menu.rs`).
 
 ```rust
-/// The three FileZilla tabs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum QueueTab { #[default] Queued, Failed, Successful }
-
-/// Server grouping key (`QueueServer` → stable key: `SiteId` or the inline address).
-pub type GroupKey = courier_ftp_core::queue::QueueServerKey;
+/// The three FileZilla tabs, the read-only view and the grouping key come from T40.
+pub use courier_ftp_core::queue::{QueueTab, QueueView, QueueServerKey};
+/// Server grouping key (`QueueServer` → stable key: site item id or the server identity).
+pub type GroupKey = QueueServerKey;
 
 /// One display row. Item details are looked up by id at draw time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,13 +114,9 @@ impl QueuePaneState {
     pub fn target_ids(&self, view: &dyn QueueView) -> Vec<TransferId>;
 }
 
-/// Read access to the queue the pane needs (implemented on T40's `Queue`).
-pub trait QueueView {
-    fn version(&self) -> u64;                      // bumped on structural change only
-    fn build_rows(&self, tab: QueueTab, collapsed: &HashSet<GroupKey>) -> QueueRows; // O(n)
-    fn item(&self, id: TransferId) -> Option<&QueueItem>;
-    fn stats(&self) -> QueueStats;                 // T40 §6
-}
+// `QueueView` (T40) is the pane's only read access to the queue: a structural
+// version counter, the rows of one tab with collapsed groups, item lookup by id and
+// statistics. This task does not define it.
 ```
 
 `QueueInput` = keymap commands (table below) plus `Progress(TransferId, ProgressInfo)`,
@@ -168,7 +165,7 @@ Direction: `→` upload (local → remote), `←` download (ASCII `->`, `<-`). P
 shortened **from the left** with `…` so the file name stays visible; destination is the
 remote dir for uploads and the local dir for downloads (`~` for home).
 
-Status texts: `Queued`, `Queued (dir)` (placeholder, T43), `Transferring`,
+Status texts: `Queued`, `Queued (dir)` (`QueueItemKind::DirPlaceholder`, T43), `Transferring`,
 `‖ Paused` (ASCII `|| Paused`), `Waiting` (connection limit), `Retrying 2/3`,
 `Ask: file exists` (waiting on a T42 prompt).
 
@@ -286,21 +283,23 @@ In the Classic layout at 80×24 (T50) the queue gets 5 inner rows; the same rule
 
 | Key | Command | Request | T40/T41 operation |
 |---|---|---|---|
-| `1` `2` `3` | switch tab | — | — |
-| `j` `k` `↓` `↑`, `Ctrl-d` `Ctrl-u`, `PageDown` `PageUp`, `gg` `G` | move | — | — |
-| `Insert` | toggle mark, cursor down | — | — |
-| `v` / `Ctrl-a` | visual range / mark all in tab | — | — |
-| `Enter` `o` | collapse/expand group | — | — |
-| `Space` | pause/resume targets | `Queue(PauseToggle)` | pause/resume items (active: engine `Cancel(id)` then item `Paused`, resumable from offset) |
-| `+` / `-` | priority up / down | `Queue(RaisePriority/LowerPriority)` | set priority (Lowest…Highest, clamped) |
-| `K` / `J` | move up / down | `Queue(MoveUp/MoveDown)` | reorder |
-| `t` / `b` | move to top / bottom | `Queue(MoveTop/MoveBottom)` | reorder |
-| `x` `Delete` | remove targets (Queued: confirm if any is active; Successful: clear selected) | `Queue(Remove)` + `Engine(Cancel(id))` for active | remove |
-| `X` | clear whole list (Failed/Successful tab, confirm) | `Queue(ClearFailed/ClearSuccessful)` | clear |
-| `r` | reset and requeue (Failed tab) | `Queue(ResetAndRequeue)` | reset attempts, move to queued |
-| `m` | context menu | — | — |
-| `Ctrl-p` (global) | process queue / stop | `Engine(Start)` / `Engine(Stop)` | start/stop |
-| `Esc` | cancel visual / close menu | — | — |
+| `1` `2` `3` | `QueueTabQueued` / `QueueTabFailed` / `QueueTabSuccessful` | — | — |
+| `j` `k` `↓` `↑`, `ctrl-d` `ctrl-u`, `PageDown` `PageUp`, `g g` `Home` `G` `End` | `CursorDown` … `Bottom` (move) | — | — |
+| `Insert` | `ToggleMark` (cursor down) | — | — |
+| `v` / `ctrl-a` | `VisualMode` / `MarkAll` (in tab) | — | — |
+| `Enter` `o` | `QueueToggleGroup` | — | — |
+| `Space` | `QueuePauseResume` | `Queue(PauseToggle)` | pause/resume items (active: engine `Cancel { ids, remove: false }`, item `Paused`, resumable from offset) |
+| `+` / `-` | `QueuePriorityUp` / `QueuePriorityDown` | `Queue(RaisePriority/LowerPriority)` | set priority (Lowest…Highest, clamped) |
+| `K` / `J` | `QueueMoveUp` / `QueueMoveDown` | `Queue(MoveUp/MoveDown)` | reorder |
+| `t` / `b` | `QueueMoveTop` / `QueueMoveBottom` | `Queue(MoveTop/MoveBottom)` | reorder |
+| `x` `Delete` | `QueueRemove` (Queued: confirm if any is active; Successful: clear selected) | `Queue(Remove)` + `Engine(Cancel { ids, remove: true })` for active | remove |
+| `X` | `QueueClearList` (Failed/Successful tab, confirm) | `Queue(ClearFailed/ClearSuccessful)` | clear |
+| `r` | `QueueResetRequeue` (Failed tab) | `Queue(ResetAndRequeue)` | reset attempts, move to queued |
+| `e` | `QueueSetExistsAction` — opens the "File exists action" sub-menu for the targets | `Queue(SetExistsAction)` | `set_on_exists` |
+| `a` | `QueueCompletionAction` — opens the "Action after queue completion" sub-menu | `SetCompletionAction` | T45 |
+| `m` | `QueueMenu` (context menu) | — | — |
+| `ctrl-p` (global) | `ProcessQueue` (start / stop) | `Engine(Start)` / `Engine(Stop)` | start/stop |
+| `Esc` | `Escape` (cancel visual / close menu) | — | — |
 
 Commands apply to `target_ids()`. Commands that do not apply to the current tab
 (e.g. `r` on Queued) show Info `Not available in this tab` instead of doing nothing.
@@ -340,8 +339,8 @@ Sub-menus open with `l`/`→`/`Enter`, close with `h`/`←`/`Esc`. Type-to-jump 
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `interface.show_queue` | bool | `true` | T05; toggled by `Ctrl-j` (T50/T51) |
-| `queue.on_complete` | enum | `None` | T05/T45; "Always" in the completion sub-menu writes it |
+| `interface.show_queue` | bool | `true` | T05; toggled by `ctrl-x j` (`ToggleQueuePane`, T50/T51) |
+| `queue.on_complete` | enum (`none`, `show_message`, `run_command`, `disconnect`, `close_app`) | `none` | T05/T45; "Always" in the completion sub-menu writes it |
 | `transfers.max_concurrent` | u8 | 4 | T05/T41b; bounds the progress map |
 
 Style keys: `queue.tab_active`, `queue.tab`, `queue.header`, `queue.group`,
@@ -386,7 +385,7 @@ sanitised and cut to the column.
 - [ ] AC1 Snapshot tests at 80×24 and 160×48 for each tab with sample data, including two active transfers with progress, a paused item, a placeholder dir item, a collapsed group and a failed item with reason; plus widths 50 and 35.
 - [ ] AC2 Each key in the keybinding table produces exactly the request listed, for cursor-only, marked and group-header targets (table-driven test).
 - [ ] AC3 Applying the requests to a real T40 `Queue` and a T41 engine with `MockBackend` gives the expected queue state (order, priorities, paused flags, failed→queued).
-- [ ] AC4 Removing an active item cancels it in the engine within 1 s (T41 AC) and asks for confirmation first.
+- [ ] AC4 Removing an active item asks for confirmation first, then sends `Cancel { ids, remove: true }` and the item is gone within 1 s (T41 AC); pausing an active item sends `Cancel { ids, remove: false }`.
 - [ ] AC5 Rendering with 100 000 items: draw ≤ 2 ms median, rebuild ≤ 50 ms (bench gates); progress events do not trigger a rebuild (counter test).
 - [ ] AC6 The completion sub-menu sets the one-shot action (`always = false`) or `queue.on_complete` (`always = true`).
 - [ ] AC7 `NO_COLOR` + ASCII snapshots: all cells ASCII, paused/failed/active distinguishable by text.
@@ -403,7 +402,9 @@ sanitised and cut to the column.
 - `cursor_follows_moved_item`.
 - `progress_updates_do_not_rebuild_rows` (AC5).
 - `stale_rebuild_result_dropped`.
-- `remove_active_asks_confirmation` (AC4).
+- `remove_active_asks_confirmation` — then `EngineCommand::Cancel { ids, remove: true }` (AC4).
+- `pause_active_sends_cancel_without_remove` (AC4).
+- `queue_default_keys` — `AppHarness` with the default keymap and the queue focused: `t`/`b` → `QueueMoveTop`/`QueueMoveBottom`, `e` → `QueueSetExistsAction`, `a` → `QueueCompletionAction`; `ctrl-x j` hides the pane; `ctrl-j` does nothing (AC2).
 - `completion_menu_once_vs_always` (AC6).
 - `column_rules_per_width_and_tab` — widths 35, 39, 40, 59, 60, 99, 100.
 
@@ -430,5 +431,5 @@ sanitised and cut to the column.
 
 ## Open questions
 
-1. T40 names its "group-by-server view helper" but not its API; this task specifies the `QueueView` trait (version counter, `build_rows`, `item`, `stats`) and `QueueServerKey`. Confirm with T40's owner.
-2. T51's `Ctrl-j` for "toggle queue pane" is the line-feed control code; it works in raw mode on Unix and Windows Terminal but some terminals map it to Enter. Keep, or move to `Ctrl-x q`?
+None. (Resolved by the coordinator: `QueueView` and `QueueServerKey` are defined in T40;
+the engine command is `Cancel { ids, remove }`; the queue toggle is `ctrl-x j`.)

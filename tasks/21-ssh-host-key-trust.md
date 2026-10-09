@@ -17,8 +17,9 @@ coming from `ssh` are not asked again.
 - **Before:** T20 defines the seam `HostKeyVerifier` (`verify(host, port, &ServerKey,
   &VerifyCtx) -> HostKeyVerdict`, `known_key_types`) and `ServerKey` (type, bits,
   base64 blob, SHA-256 and MD5 fingerprints); until now every key is rejected
-  (`UnverifiedHostKeys`). T04 gives `PromptRequest`/`PromptResponse`/`CoreEvent` and
-  `LogMessage`.
+  (`UnverifiedHostKeys`). T04 gives `PromptKind::TrustHostKey(HostKeyPrompt)`,
+  `OldKey`, `OldKeySource`, `HostKeyInfo`, `PromptResponse::HostKey(TrustAnswer)`
+  (`HostKeyAnswer` = alias of `TrustAnswer`), `prompt_with_cancel` and `LogMessage`.
 - **After:** T22 passes a `TrustVerifier` into `SshConnection::connect`. T58 builds it in
   the binary's `BackendFactory`. T30 implements `HostKeyStore` on `known-host` items
   (T81) and swaps it in after unlock through `SwitchableHostKeyStore`. T69 renders the
@@ -146,8 +147,9 @@ pub enum Decision {
     AskChanged { old: Vec<OldKey> },
 }
 pub enum AcceptedBy { Store, Session, OpenSshFile(PathBuf) }
-pub struct OldKey { pub fingerprint_sha256: String, pub source: OldKeySource }
-pub enum OldKeySource { Vault { id: KnownHostId, added_at: OffsetDateTime }, OpenSshFile { path: PathBuf, line: usize } }
+// OldKey { fingerprint_sha256, source } and OldKeySource { Vault { id: Uuid (= KnownHostId.0),
+// added_at }, OpenSshFile { path, line } } are T04's types (courier_ftp_core::events),
+// re-exported from `trust`; not redefined here.
 
 pub fn decide(input: &DecisionInput<'_>) -> Decision;
 
@@ -159,23 +161,12 @@ impl TrustVerifier {
 impl HostKeyVerifier for TrustVerifier { /* see Behaviour */ }
 ```
 
-Prompt payload sent with `PromptKind::TrustHostKey` (T04 variant; fields this task needs,
-see Open questions) and its answer:
-
-```rust
-pub struct HostKeyPrompt {
-    pub host: String, pub port: u16,
-    pub key_type: String, pub bits: u32,
-    pub fingerprint_sha256: String, pub fingerprint_md5: String,
-    /// `Some` → the key changed (T69 shows the red warning).
-    pub changed: Option<Vec<OldKey>>,
-    /// Unknown key, but other key types are trusted for this host (shown as a note).
-    pub other_known_types: Vec<String>,
-    /// `store.can_persist()`; false → "Always trust" disabled.
-    pub can_save: bool,
-}
-pub enum HostKeyAnswer { TrustOnce, AlwaysTrust, Reject }   // in PromptResponse::HostKey(..)
-```
+Prompt payload: T04's `PromptKind::TrustHostKey(HostKeyPrompt { host, port, key_type,
+bits, fingerprint_sha256, fingerprint_md5, changed: Option<Vec<OldKey>>,
+other_known_types, can_save })`, filled from `ServerKey` and the `Decision`
+(`can_save = store.can_persist()`). Answer: `PromptResponse::HostKey(TrustAnswer)` with
+`TrustAnswer { TrustOnce, AlwaysTrust, Reject }` (T04; `HostKeyAnswer` is its alias).
+`SftpBackend::security_info()` (T22) reports the accepted key as T04 `HostKeyInfo`.
 
 ### Behaviour
 
@@ -207,8 +198,8 @@ certificate host-key algorithms are offered by T20), logged at debug once per fi
 4. `AskUnknown`/`AskChanged` → **in-flight dedupe**: key `(h, port, fingerprint_sha256)`.
    If another `verify` for the same key is already asking, wait for its result instead
    of prompting (all parallel transfer connections share one prompt). Otherwise send
-   `PromptRequest { kind: TrustHostKey(HostKeyPrompt { …, can_save: store.can_persist() }) }`
-   and wait for the answer, racing `ctx.cancel`:
+   `ctx.events.prompt_with_cancel(ctx.session, PromptKind::TrustHostKey(HostKeyPrompt { …, can_save: store.can_persist() }), ctx.cancel)`
+   and wait for the answer:
    - `TrustOnce` → `session.insert`; Accept.
    - `AlwaysTrust` with `can_save` → build `KnownHost { id: new UUIDv7, host: h, port,
      key_type, public_key: blob, added_at: now, comment: None }`; `store.add(entry,
@@ -248,7 +239,7 @@ already given stay in `SessionTrust`.
 
 ### Data formats and configuration
 
-New setting (added to `Settings` by this task, shown in T68 under Connection → SFTP):
+Setting (registered in T05's `sftp` section, shown in T68 under Connection → SFTP):
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -314,7 +305,7 @@ transient, so `SessionHandle` (T03) does not reconnect.
 
 1. `courier_ftp_core::trust`: `KnownHostId`, `KnownHost`, `HostKeyStore`,
    `MemoryHostKeyStore`, `SwitchableHostKeyStore`, `SessionTrust`, `normalize_host` + tests.
-2. Add `sftp.use_openssh_known_hosts` to `Settings` (T05 structure) with docs.
+2. Read `sftp.use_openssh_known_hosts` (registered by T05) when building `OpenSshKnownHosts`.
 3. `known_hosts` module: copy sverb `parse`, `hashed`, `lookup`, `fingerprint`
    (+ MD5), `same_key_type`; port sverb's parser/lookup tests; proptest twin + fuzz target.
 4. `OpenSshKnownHosts` loader with mtime cache, size/line caps and OS paths.
@@ -400,12 +391,7 @@ and a scripted prompt responder on the `EventReceiver`:
 
 ## Open questions
 
-1. **T04 payload:** T04's `TrustHostKey { host, key_type, fingerprint_sha256, known:
-   Option<old fingerprint> }` lacks `port`, `bits`, the MD5 fingerprint, several old keys
-   with their source, `other_known_types` and `can_save`, and T04 has no
-   `PromptResponse::HostKey(TrustOnce | AlwaysTrust | Reject)`. This task needs
-   `HostKeyPrompt`/`HostKeyAnswer` as specified; the T04 owner should adopt them.
-2. Should keys found in `~/.ssh/known_hosts` be offered for one-click import into the
+1. Should keys found in `~/.ssh/known_hosts` be offered for one-click import into the
    vault (so they sync to devices without OpenSSH)? Not done in v1.
-3. Should "Always trust" be pre-checked in the prompt (T69 currently pre-checks it when
+2. Should "Always trust" be pre-checked in the prompt (T69 currently pre-checks it when
    the vault is unlocked, as in FileZilla's dialog sketch in the original task)?

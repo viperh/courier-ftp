@@ -16,7 +16,8 @@ is shared by every tab connected to the same server, and is bounded in size.
   `Listing { dir: RemotePath, entries: Vec<Entry>, fetched_at: Instant, raw: Option<String> }`
   and `SessionHandle`; T02 provides `ServerAddress`, `Protocol`, `RemotePath`, `Entry`,
   `Timestamp`, `Permissions`; T04 provides `EventSender` and `CoreEvent`; T05 provides
-  `Settings.cache.listing_cache` and `Settings.cache.listing_cache_ttl_secs`.
+  `Settings.cache.listing_cache`, `Settings.cache.listing_cache_ttl_secs` and
+  `Settings.cache.listing_cache_max_dirs`.
 - After: the file list (T53) and directory tree (T54) read through the cache; file
   operations (T62) and the transfer engine (T41) call the patch API after success;
   recursive delete (T43) drops subtrees; search (T49) reads and fills the cache.
@@ -43,7 +44,7 @@ pub enum ListMode {
     PreferCache,
     /// Only a fresh cached listing is used; stale or missing → fetch (search, T49).
     FreshOnly,
-    /// Always fetch and replace the cached listing (F5 / `Ctrl-r`, T62 refresh).
+    /// Always fetch and replace the cached listing (`Refresh`, `ctrl-r`, T62; tree `TreeRefresh`, T54).
     Refresh,
 }
 

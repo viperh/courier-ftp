@@ -15,15 +15,19 @@ testable `Cli` → `LaunchIntent` conversion that needs no terminal.
 ## Context
 
 - The template `cli.rs` has only `--tick-rate`/`--frame-rate` and a `--version` text that
-  prints the config and data directories resolved from env vars (`COURIER_FTP_CONFIG`,
-  `COURIER_FTP_DATA`, and `COURIER_FTP_HOME` from T01).
-- T02 provides `ServerAddress` URL parsing (`ftp://`, `ftps://`, `ftpes://`, `sftp://`),
-  `LogonType`, `RemotePath`, `LocalPath` and `courier_ftp_core::Error`.
+  prints the config and data directories. T01 adds `paths.rs` with
+  `AppPaths { config_dir, data_dir, cache_dir }` and `AppPaths::resolve(cli_config,
+  cli_data, env) -> Result<Self, PathsError>` (precedence: CLI flag >
+  `COURIER_FTP_CONFIG`/`COURIER_FTP_DATA` > `COURIER_FTP_HOME/{config,data,cache}` > OS
+  default), called with `None, None` until this task passes the flags.
+- T02 provides `ParsedUrl::parse` (`ftp://`, `ftps://`, `ftpes://`, `sftp://`; splits
+  address, `password: Option<SecretString>` and `path`), `ServerAddress`, `LogonType`,
+  `LogonKind`, `RemotePath`, `LocalPath` and `courier_ftp_core::Error`.
 - T31 provides site lookup by path string (`"Work/Production/web01"`).
 - T60 starts the TUI locked and runs command-line launch intents after unlock (or after
   "Continue without vault").
 - T61 provides tabs; a launch intent opens in a tab.
-- T00's `cd.yml` and `nix` job call `courier-ftp generate man` and
+- T00's `cd.yml` calls `courier-ftp generate man` and
   `courier-ftp generate completions <shell>`; T77 ships the man page.
 - Later in M9: T71 consumes `--debug`, `--debug-level`, `--log-file`; T74 consumes
   `--no-update-check`; T75 adds `--lang`.
@@ -39,8 +43,9 @@ crates/courier-ftp/src/cli/mod.rs        Cli, parse, version text, dispatch
 crates/courier-ftp/src/cli/exit.rs       exit codes, CliError, HELP text
 crates/courier-ftp/src/cli/intent.rs     LaunchIntent, LaunchTarget, conversion from Cli
 crates/courier-ftp/src/cli/generate.rs   `generate man | completions`
-crates/courier-ftp/src/paths.rs          AppPaths (config/data dir resolution)
 ```
+`crates/courier-ftp/src/paths.rs` (`AppPaths`) is T01's; this task only passes
+`--config-dir` / `--data-dir` into `AppPaths::resolve` and adds the path helpers below.
 
 ```rust
 /// courier-ftp: a terminal FTP, FTPS and SFTP client.
@@ -115,15 +120,11 @@ impl Cli {
     pub(crate) fn launches_tui(&self) -> bool;
 }
 
-/// The resolved directories. Built once in `main` and passed explicitly
-/// (replaces the template's `LazyLock` env statics in `config.rs`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AppPaths { pub config_dir: PathBuf, pub data_dir: PathBuf }
-
+// T01's AppPaths { config_dir, data_dir, cache_dir } and
+// AppPaths::resolve(cli_config, cli_data, env) -> Result<Self, PathsError>
+// (clap's `env = …` already folds COURIER_FTP_CONFIG/COURIER_FTP_DATA into the flags).
+// Helpers added by this task:
 impl AppPaths {
-    /// Precedence per directory: CLI flag > `COURIER_FTP_CONFIG`/`COURIER_FTP_DATA`
-    /// (clap already folds these into the flag) > `COURIER_FTP_HOME`/{config,data} > OS default.
-    pub(crate) fn resolve(cli_config: Option<&Path>, cli_data: Option<&Path>, env: &dyn Env) -> Self;
     pub(crate) fn vault_db(&self) -> PathBuf;   // <data>/courier-ftp.db (T30)
     pub(crate) fn log_dir(&self) -> PathBuf;    // <data>/logs (T71)
     pub(crate) fn crash_dir(&self) -> PathBuf;  // <data>/crash (T71)
@@ -160,7 +161,7 @@ pub struct RunOptions {
 /// Converts a parsed command line. Checks local paths on disk (through `fs`).
 pub(crate) fn launch_from_cli(cli: &Cli, fs: &dyn LocalFs) -> Result<(LaunchIntent, RunOptions, Vec<Warning>), CliError>;
 
-/// Splits a launch URL into address, password and path (wraps T02 `ServerAddress::from_str`).
+/// Splits a launch URL into address, password and path (wraps T02 `ParsedUrl::parse`).
 pub(crate) fn parse_launch_url(s: &str) -> Result<LaunchTarget, CliError>;
 
 /// Site lookup failure with suggestions (used by the TUI after unlock).
@@ -203,8 +204,11 @@ pub(crate) enum GenerateCmd {
 ### Behaviour
 
 **Startup order in `main`** (sverb order, adapted): install panic hook (T71) →
-`harden_process()` (T91) → parse CLI → resolve `AppPaths` → `--version` / `generate`
-(print, exit 0, no logging, no terminal) → logging init (T71, uses `--debug`) →
+`harden_process()` (T91) → parse CLI → `AppPaths::resolve(cli.config_dir,
+cli.data_dir, &SystemEnv)?` (a `PathsError` prints `error: …` and exits 1) →
+`--version` / `generate`
+(print, exit 0, no logging, no terminal, no directories created) → `ensure_dirs()` →
+logging init (T71, uses `--debug`) →
 load config (T05) and apply `RunOptions` → TTY check → build the tokio runtime →
 run the app with the `LaunchIntent`. The CLI is parsed **before** paths, because
 `--config-dir`/`--data-dir` change them; that is why clap's automatic version flag is
@@ -222,12 +226,12 @@ A bare `host` or `host:port` is **not** treated as a URL (ambiguous with a relat
 path); `--help` says to write `ftp://host`. A local directory literally named `generate`
 must be written `./generate` (subcommand names win).
 
-**URL parsing** (`parse_launch_url`): the password (`user:pass@`) is removed from the
-string and moved into a `SecretString` before the rest goes to T02's
-`ServerAddress::from_str`. The path part (percent-decoded) becomes `remote_dir`
-(`RemotePath`, normalised; empty or `/` → `None` = server's home dir). Port defaults
-follow T02 (21/990/22). Parse errors from T02 (`Error::InvalidInput`) become
-`CliError::Usage` (exit 2).
+**URL parsing** (`parse_launch_url`): T02's `ParsedUrl::parse` splits the URL; its
+`password` (`user:pass@`) is already a `SecretString`, its `address` becomes the
+`ServerAddress` (protocol + `FtpEncryption` from the scheme, `user`), and its `path`
+(percent-decoded, normalised) becomes `remote_dir` (`/` → `None` = server's home dir).
+Port defaults follow T02 (21/990/22). Parse errors from T02 (`Error::InvalidInput`)
+become `CliError::Usage` (exit 2).
 
 **Option combinations** (enforced by clap attributes, plus `launch_from_cli` for the
 path rules):
@@ -293,6 +297,7 @@ Authors: qviperh <…>
 
 Config directory: /home/alice/.config/courier-ftp
 Data directory:   /home/alice/.local/share/courier-ftp
+Cache directory:  /home/alice/.cache/courier-ftp
 Vault database:   /home/alice/.local/share/courier-ftp/courier-ftp.db
 Log directory:    /home/alice/.local/share/courier-ftp/logs
 COURIER_FTP_HOME: not set
@@ -310,7 +315,7 @@ Examples:
   courier-ftp --site "Work/Production/web01" --local ~/projects/web01
 
 Environment:
-  COURIER_FTP_HOME             base directory for config/ and data/ (tests, portable use)
+  COURIER_FTP_HOME             base directory for config/, data/ and cache/ (tests, portable use)
   COURIER_FTP_CONFIG           config directory (same as --config-dir)
   COURIER_FTP_DATA             data directory (same as --data-dir)
   COURIER_FTP_LOG_LEVEL        application log filter, e.g. "debug" or "courier_ftp_proto_ftp=trace"
@@ -345,6 +350,7 @@ No new settings keys. Flags override (in memory only): `logging.level` (`--debug
 | clap parse error, conflict, range | `clap::Error` | clap message + usage | 2 |
 | unsupported scheme, bad URL (T02 `Error::InvalidInput`) | `CliError::Usage` | `error: invalid URL: <reason>` (password masked) | 2 |
 | missing local path / `--log-file` parent | `CliError::NotFound` | `error: no such directory: <path>` | 4 |
+| home directory unknown / dir not absolute (T01 `PathsError`) | `CliError::Failure` | `error: <PathsError message>` | 1 |
 | stdout not a TTY | `CliError::NoTty` | message above | 1 |
 | `generate` write failure | `CliError::Failure` | `error: cannot write <file>: <io error>` | 1 |
 | site not found after unlock | (TUI) | error dialog with suggestions | n/a |
@@ -367,9 +373,9 @@ stderr is closed). Nothing is printed to stdout except `--help`, `--version` and
 
 ## Implementation steps
 
-1. Add `paths.rs` with `AppPaths::resolve` (flag > env > `COURIER_FTP_HOME` > OS default)
-   and switch `config.rs`, `logging.rs` and `version()` to take `AppPaths`; remove the
-   `LazyLock` env statics. Unit tests for precedence.
+1. Pass `--config-dir` / `--data-dir` into T01's `AppPaths::resolve` (map `PathsError`
+   to `CliError::Failure`), add `vault_db`/`log_dir`/`crash_dir`, and print all three
+   directories in `version()`. Unit tests for flag precedence.
 2. Replace `cli.rs` with the `cli/` module: `Cli` with all flags, `exit.rs`, manual
    `-V/--version`, `after_long_help`. Parse tests.
 3. `intent.rs`: `parse_launch_url`, `launch_from_cli` with the combination rules and
@@ -399,7 +405,7 @@ stderr is closed). Nothing is printed to stdout except `--help`, `--version` and
 - [ ] AC6 `courier-ftp generate man` and `generate completions <shell>` for all five shells
   exit 0, are byte-identical across two runs, and need no config/data dir
   (`COURIER_FTP_HOME` pointing to a non-existent dir is not created).
-- [ ] AC7 `--version` lists config dir, data dir, vault DB path, log dir and features, and
+- [ ] AC7 `--version` lists config dir, data dir, cache dir, vault DB path, log dir and features, and
   reflects `--config-dir`/`--data-dir` given on the same command line.
 - [ ] AC8 Exit codes 0, 1, 2, 4 occur exactly in the documented cases; piping stdout
   makes the TUI exit 1 without writing escape sequences.
@@ -411,7 +417,8 @@ stderr is closed). Nothing is printed to stdout except `--help`, `--version` and
 ## Tests
 
 ### Unit tests
-- `paths_flag_wins_over_env_and_home`, `paths_env_wins_over_home`, `paths_home_sets_both`, `paths_default_uses_project_dirs` — AppPaths precedence (AC7).
+- `paths_flag_wins_over_env_and_home`, `paths_env_flag_via_clap_env` — the CLI flags reach T01's `AppPaths::resolve` (T01 tests the rest of the precedence) (AC7).
+- `paths_error_maps_to_exit_1` — `PathsError::NoHome` → `CliError::Failure`, exit 1 (AC8).
 - `parse_no_args_is_plain_launch`, `parse_url_positional`, `parse_site_short_and_long`, `parse_local_short_and_long` — field mapping (AC2).
 - `parse_rejects_site_with_positional`, `parse_rejects_no_vault_with_site`, `parse_rejects_no_vault_with_no_keyring`, `parse_rejects_logontype_without_url` — clap conflicts return `ErrorKind::ArgumentConflict`/`MissingRequiredArgument`, exit code 2 (AC2, AC8).
 - `parse_debug_level_range` — `5` and `-1` rejected, `0..=4` accepted (AC2).

@@ -1,6 +1,6 @@
 # T53 — File list pane
 
-**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T02, T06, T46, T47, T50, T51, T52, T55, T57 · **Crate(s):** `courier-ftp` (`components/file_list/`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (local/remote pane, address bars, columns, sorting, size/date formats, hidden files, listing cache)
+**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T02, T06, T46, T47, T50, T51, T52 · **Crate(s):** `courier-ftp` (`components/file_list/`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (local/remote pane, address bars, columns, sorting, size/date formats, hidden files, listing cache)
 **Related (integrates with, not blocking):** T13, T62
 
 ## Goal
@@ -15,15 +15,18 @@ requests that other tasks (T62, T63, T66) carry out.
 
 **Before this task:** T02 defines `Entry`, `EntryKind`, `Timestamp`/`Precision`,
 `Permissions`, `RemotePath`, `LocalPath`. T03/T06 provide `Backend`, `Listing`,
-`SessionHandle` and `LocalBackend`. T46 provides `ListingCache` and the
-`CoreEvent::ListingUpdated { session, dir }` event. T47 provides `FilterEngine` and
+`SessionHandle` and `LocalBackend`. T46 provides `ListingCache`; T04 defines the
+`CoreEvent::ListingUpdated { server: Option<ServerIdentity>, dir: RemotePath }` event
+that T46 emits (`server: None` = local filesystem, sent by T62). T05 provides the
+settings types `Column`, `ColumnSpec`, `SortSpec`, `PaneColumns`, `PaneSort`,
+`SizeFormat`, `EnterOnFile` (`courier_ftp_core::settings`); this task uses them and
+defines none of its own. T47 provides `FilterEngine` and
 the quick-filter matchers (`StringOp::Contains`, glob). T50 provides the
 `MainScreen`, focus handling, the `Theme` (from the `styles` config, monochrome
-under `NO_COLOR`), the async-operation runner and `Mode`. T51 provides the
-`Action` names and keymap modes (this task uses mode `FileList` and `Filter`).
-T52 provides `PathInput`, `prompt_text` and `confirm`. T55 (same milestone, built
-before this task) provides `crate::ui::text::sanitize`. T57 provides `Symbols`
-(Unicode/ASCII glyph sets).
+under `NO_COLOR`), the async-operation runner, `Mode`, `crate::tabs::TabId`,
+`crate::ui::text::sanitize` and `crate::ui::symbols::Symbols` (Unicode/ASCII glyph
+sets). T51 provides the `Action` names and keymap modes (this task uses mode
+`FileList` and `Filter`). T52 provides `PathInput`, `prompt_text` and `confirm`.
 
 **Later tasks need from it:** T54 (tree follows the list's directory), T58/T59/T61
 (remote pane connects/disconnects), T62 (file operations take the `Selection` this
@@ -44,7 +47,7 @@ Module `crates/courier-ftp/src/components/file_list/` with files `mod.rs` (compo
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Side { Local, Remote }
 
-/// Identifies one pane. `TabId` (`crate::tabs::TabId(u32)`) is created by T55;
+/// Identifies one pane. `TabId` (`crate::tabs::TabId(u32)`) is owned by T50;
 /// before T61 the only tab is `TabId(0)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PaneId { pub tab: TabId, pub side: Side }
@@ -54,17 +57,11 @@ pub struct PaneId { pub tab: TabId, pub side: Side }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PaneDir { Local(LocalPath), Remote(RemotePath) }
 
-/// Columns (FileZilla order). `Name` is always visible.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Column { Name, Size, Type, Modified, Permissions, OwnerGroup }
-
-/// One configured column (`interface.columns.local` / `.remote`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ColumnSpec { pub column: Column, pub visible: bool }
-
-/// Sort order of a pane (persisted as `interface.sort.local` / `.remote`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SortSpec { pub column: Column, pub descending: bool }
+/// Columns, column config and sort order are the core types from T05
+/// (`Column { Name, Size, Type, Modified, Permissions, OwnerGroup }`,
+/// `ColumnSpec { column, visible }`, `SortSpec { column, descending }`), persisted as
+/// `interface.columns.{local,remote}` and `interface.sort.{local,remote}`.
+pub use courier_ftp_core::settings::{Column, ColumnSpec, SortSpec};
 
 /// What the pane is doing.
 #[derive(Debug, Clone, PartialEq)]
@@ -142,7 +139,7 @@ pub struct Selection { pub dir: PaneDir, pub entries: Arc<[Entry]> }
 /// File operations the pane can request (names match T51 actions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileOp { Transfer, QueueOnly, Move, Rename, Mkdir, MkdirEnter, NewFile,
-                  Delete, View, Edit, Chmod, CopyUrl, Refresh }
+                  Delete, View, Edit, Chmod, CopyUrl, CopyUrlOptions, CustomCommand, Refresh }
 
 impl FileListState {
     pub fn new(id: PaneId, settings: &Settings) -> Self;
@@ -369,7 +366,7 @@ Column menu (`C` in the pane): a T52 `ListView` with checkboxes for visibility a
   colour and monochrome); when the pane is not focused, the cursor row uses
   `file_list.cursor_inactive` (colour: dim reverse; monochrome: underline).
 - Every displayed name, target, owner and group goes through
-  `crate::ui::text::sanitize` (T55): control characters, ESC, DEL, C1 controls and
+  `crate::ui::text::sanitize` (T50): control characters, ESC, DEL, C1 controls and
   bidi overrides are shown as visible escapes (`^[`, `^?`, `<U+202E>`) in dim style and
   never written raw to the terminal (T91).
 - No information by colour alone: directories carry `/`, links `→`, marks `*`, errors
@@ -391,7 +388,7 @@ Column menu (`C` in the pane): a T52 `ListView` with checkboxes for visibility a
 
 - `NotConnected` (remote): centered lines `Not connected to any server` and
   `Ctrl-s Site Manager · Ctrl-k Quickconnect` (keys rendered from the active keymap,
-  T51). Address bar and header empty.
+  T51 `SiteManager` / `FocusQuickconnect`). Address bar and header empty.
 - `Loading` with no previous listing: centered `Loading…` with spinner after 150 ms.
 - `Error` with no previous listing (first listing failed): centered `Error: <message>`.
 - Empty view because everything is filtered: `All N entries are hidden by filters`.
@@ -401,15 +398,15 @@ Column menu (`C` in the pane): a T52 `ListView` with checkboxes for visibility a
 | Key(s) | `PaneCommand` / action | Behaviour |
 |---|---|---|
 | `j` `↓` / `k` `↑` | `CursorDown` / `CursorUp` | move 1 row, clamp (no wrap) |
-| `Ctrl-d` / `Ctrl-u` | `HalfPageDown` / `HalfPageUp` | ½ body height (T51 moves Disconnect to `Ctrl-x d`) |
+| `ctrl-d` / `ctrl-u` | `HalfPageDown` / `HalfPageUp` | ½ body height (Disconnect is `ctrl-x d`, T61) |
 | `PageDown` / `PageUp` | `PageDown` / `PageUp` | body height − 1 |
 | `gg` `Home` / `G` `End` | `Top` / `Bottom` | |
 | `l` `→` `Enter` | `Open` | dir/dir-link: navigate; file: `interface.enter_on_file` (`transfer` default, `view`, `edit`, `none`) |
 | `h` `←` `Backspace` | `Parent` | navigate up, cursor lands on the directory we came from |
-| `Alt-←` `[` / `Alt-→` `]` | `Back` / `Forward` | history (50 entries each way) |
+| `alt-left` `[` / `alt-right` `]` | `Back` / `Forward` | history (50 entries each way) |
 | `Space` `Insert` | `ToggleMark` | toggle mark on cursor entry, then cursor down |
 | `v` | `VisualMode` | anchor; moves extend the range; `v`/`Space` marks the range, `Esc` cancels |
-| `Ctrl-a` | `MarkAll` | mark all entries in the view |
+| `ctrl-a` | `MarkAll` | mark all entries in the view |
 | `*` | `InvertMarks` | invert marks in the view |
 | `+` / `-` | `MarkPattern` / `UnmarkPattern` | T52 `prompt_text` for a glob (`*.html`), case-insensitive |
 | `/` | `QuickFilter` | enter mode `Filter` |
@@ -418,16 +415,17 @@ Column menu (`C` in the pane): a T52 `ListView` with checkboxes for visibility a
 | `a` | `EditAddress` | address bar editing with completion (T52 `PathInput`) |
 | `=` | `MirrorOtherPane` | other pane to the equivalent path (best effort) |
 | `C` | `ColumnMenu` | column menu |
-| `Ctrl-r` | `Refresh` | relist bypassing the cache |
-| `F5` `Shift-F5` `F6` `F2` `F7` `Shift-F7` `F8`/`Delete` `F3`/`o` `F4`/`e` `c` `y u` `:` | file ops | emit `PaneRequest::FileOp` (T62/T63) |
+| `ctrl-r` (global, `Normal`) | `Refresh` | relist bypassing the cache (T62 owns the action; it reaches the pane as `FileOp::Refresh`) |
+| `f5`; `shift-f5`/`f15`/`Q`; `f6`; `f2`; `f7`; `shift-f7`/`f17`/`M`; `f8`/`delete`; `f3`/`o`; `f4`/`e`; `c`; `y u`/`y U`; `:` | `Transfer`, `QueueOnly`, `Move`, `Rename`, `Mkdir`, `MkdirEnter`, `Delete`, `View`, `Edit`, `Chmod`, `CopyUrl`/`CopyUrlOptions`, `CustomCommand` | emit `PaneRequest::FileOp` (T62/T63) |
+| `ctrl-x n` (global) | `NewFile` | delivered to the focused (else last focused) list, emits `PaneRequest::FileOp` |
 | `Tab` / `Shift-Tab` | handled by T50 | switch pane |
 
 Mode `Filter` (quick filter): printable chars append, `Backspace` deletes (empty +
 `Backspace` leaves the mode and clears), `Enter` keeps the filter and returns to
 `FileList`, `Esc` clears the filter and returns, `↑`/`↓` move the cursor while typing.
 
-`Ctrl-h` (T51 "toggle hidden files") is sent as `Backspace` by many terminals and
-cannot be distinguished from it; this pane binds hidden-toggle to `.` (see Open questions).
+Hidden files are toggled with `.` only; `ctrl-h` is not bound anywhere (it arrives as
+`Backspace` in many terminals, T51).
 
 #### Navigation
 
@@ -492,18 +490,18 @@ Benchmark `benches/file_list.rs` (`criterion`): `file_list_render_100k`,
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `interface.size_format` | `Bytes` \| `Iec` \| `Si` | `Iec` | T05 |
+| `interface.size_format` | `bytes` \| `iec` \| `si` | `iec` | T05 |
 | `interface.thousands_separator` | bool | `true` | T05; used by `Bytes` |
 | `interface.date_format` | string (strftime subset `%Y %m %d %b`) | `%Y-%m-%d` | T05 |
 | `interface.time_format` | string (`%H %M %S %I %p`) | `%H:%M` | T05 |
 | `interface.dirs_first` | bool | `true` | T05 |
 | `interface.sort_case_sensitive` | bool | `false` | T05 |
-| `interface.natural_sort` | bool | `true` | added here (listed in T05 §1c) |
+| `interface.natural_sort` | bool | `true` | T05 |
 | `interface.show_hidden_local` | bool | `false` | T05 |
 | `interface.force_show_hidden_remote` | bool | `false` | T05 |
-| `interface.columns.local` / `.remote` | list of `{column, visible}` | see above | added here |
-| `interface.sort.local` / `.remote` | `{column, descending}` | `{Name, false}` | added here; saved on quit |
-| `interface.enter_on_file` | `transfer` \| `view` \| `edit` \| `none` | `transfer` | added here (T51 "configurable") |
+| `interface.columns.local` / `.remote` | list of `{column, visible}` (`column` snake_case: `name`, `size`, `type`, `modified`, `permissions`, `owner_group`) | see above | T05 `PaneColumns` |
+| `interface.sort.local` / `.remote` | `{column, descending}` | `{"column": "name", "descending": false}` | T05 `PaneSort`; saved on quit |
+| `interface.enter_on_file` | `transfer` \| `view` \| `edit` \| `none` | `transfer` | T05 `EnterOnFile`; `none` = `Open` on a file does nothing |
 
 Invalid date/time format strings fall back to the default with a warning (T05 rule).
 Unknown column names in config are skipped with a warning; a missing `Name` is added.
@@ -548,7 +546,7 @@ No error panics or leaves the pane in an empty state when a previous listing exi
 5. `render.rs`: header, rows, footer, title, body states; `sanitize` usage; snapshot tests.
 6. Navigation requests and `ListingLoaded`/`ListingUpdated` handling; wire into T50's runner and `ListingCache`.
 7. Address bar editing with `PathInput`; history; cursor memory.
-8. Quick filter mode `Filter`; `.` hidden toggle; column menu; sort keys.
+8. Quick filter mode `Filter`; `.` hidden toggle; column menu; sort keys (`s n` … `s o`).
 9. File-op requests (`Selection`) and `=`; remove T50's placeholder pane.
 10. Benchmarks + bench gates; performance tests.
 
@@ -566,6 +564,7 @@ No error panics or leaves the pane in an empty state when a previous listing exi
 - [ ] AC10 A failed listing keeps the previous directory and shows the mapped error text.
 - [ ] AC11 Filters/quick filter that hide marked entries unmark them; footer counts match the view.
 - [ ] AC12 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check` and `cargo test --workspace` pass (T00 gates).
+- [ ] AC13 The pane reacts to exactly the T51 `FileList` keys: `.` toggles hidden files, `ctrl-d`/`ctrl-u` move half a page, `Q`/`shift-f5` request `QueueOnly`, `M`/`shift-f7` request `MkdirEnter`; `ctrl-h` does nothing.
 
 ## Tests
 
@@ -584,6 +583,8 @@ No error panics or leaves the pane in an empty state when a previous listing exi
 - `filter_hiding_marked_entries_unmarks_them`, `footer_counts_selected_files_and_dirs` (AC11).
 - `visual_mode_marks_range_both_directions`, `mark_pattern_glob_case_insensitive`, `invert_marks_skips_parent_row`.
 - `quick_filter_substring_and_glob`, `quick_filter_esc_clears_enter_keeps`.
+- `filelist_default_keys` — `AppHarness` with the default keymap: `.` toggles `show_hidden`, `ctrl-d` moves half a page, `Q` and `M` emit `FileOp` `QueueOnly` / `MkdirEnter`, `ctrl-h` changes nothing (AC13).
+- `listing_updated_matches_server_identity` — `ListingUpdated { server: Some(id), dir }` reloads only panes whose session has `id` and show `dir`; `server: None` reloads local panes showing `dir`.
 - `listing_updated_keeps_cursor_and_marks_by_name`.
 - `address_bar_expands_tilde_and_relative_paths`, `address_bar_error_reverts`.
 - `render_formats_only_visible_rows` — a counting formatter with 100 000 entries at 160×48 formats ≤ 46 rows (AC6).
@@ -609,7 +610,7 @@ the cursor cell is `REVERSED` and directories are bold.
 - Bench `file_list_render_100k`, `file_list_view_build_100k` (AC6, AC7).
 
 ### End-to-end tests
-- PtyApp (T76) `browse_local_dir_and_sort` — start the binary in a temp home, navigate, `s m`, verify the screen text. Remote browsing e2e lives in T22/T14 scenarios.
+- PtyApp (T76) `browse_local_dir_and_sort` — start the binary in a temp home, navigate, `s m`, `.`, verify the screen text (AC13). Remote browsing e2e lives in T22/T14 scenarios.
 
 ## Out of scope
 
@@ -619,5 +620,4 @@ the cursor cell is `REVERSED` and directories are bold.
 
 ## Open questions
 
-1. T51's `Ctrl-h` "toggle hidden files" is indistinguishable from `Backspace` in many terminals; this task uses `.` for the pane and suggests T51 drops `Ctrl-h` (or moves it to `Ctrl-x h`).
-2. FileZilla offers three folder placements (first / inline / always on top); T05 has only `dirs_first: bool`. This task maps `true` to "always on top". Should the three-way option be added?
+1. FileZilla offers three folder placements (first / inline / always on top); T05 has only `dirs_first: bool`. This task maps `true` to "always on top". Should the three-way option be added?

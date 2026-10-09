@@ -17,7 +17,9 @@ path (`PaneRequest::List` served by T50's runner through `ListingCache`), and
 `CoreEvent::ListingUpdated` after mkdir/rmdir/rename/delete patches. T06 provides
 the Windows drive list at the virtual root. T50 places the tree (above the list in
 Classic and Widescreen, beside it in Explorer) and owns `interface.show_tree`. T51
-provides `Ctrl-e` (toggle trees) and the keymap; T55 `sanitize`; T57 `Symbols`.
+provides `ctrl-e` (`ToggleTree`), the `Tree` keymap mode with this task's actions, and
+`ctrl-x 2` / `ctrl-x 4` (`FocusRegion2`/`FocusRegion4`: local / remote tree); T50
+`ui::text::sanitize` and `ui::symbols::Symbols`.
 
 **Later tasks need from it:** T66 (synchronized browsing moves the tree with the
 list), T64 (bookmark navigation shows in the tree), nothing else depends on it.
@@ -101,7 +103,7 @@ impl DirTreeState {
 }
 ```
 
-Keymap actions (mode `Tree`, new in T51): `TreeDown`, `TreeUp`, `TreeExpand`,
+Keymap actions (mode `Tree`, defined in T51's table with exactly these names): `TreeDown`, `TreeUp`, `TreeExpand`,
 `TreeCollapse`, `TreeToggle`, `TreeOpen`, `TreeTop`, `TreeBottom`, `TreeHalfPageDown`,
 `TreeHalfPageUp`, `TreeRefresh`, `TreeRevealCurrent`.
 
@@ -278,15 +280,15 @@ When the tree is enabled but hidden by size, the status bar shows once
 
 | Key | Action |
 |---|---|
-| `j` `↓` / `k` `↑` | cursor down / up |
-| `Ctrl-d` / `Ctrl-u` | half page |
-| `gg` `Home` / `G` `End` | first / last row |
-| `l` `→` | expand; if already expanded, move to the first child |
-| `h` `←` | collapse; if collapsed or a leaf, move to the parent |
-| `o` | toggle expand |
-| `Enter` | navigate the file list to the cursor dir |
-| `Ctrl-r` | relist the cursor dir (bypasses cache) |
-| `.` | reveal the file list's current dir |
+| `j` `↓` / `k` `↑` | `TreeDown` / `TreeUp` — cursor down / up |
+| `ctrl-d` / `ctrl-u` | `TreeHalfPageDown` / `TreeHalfPageUp` — half page |
+| `g g` `Home` / `G` `End` | `TreeTop` / `TreeBottom` — first / last row |
+| `l` `→` | `TreeExpand` — expand; if already expanded, move to the first child |
+| `h` `←` | `TreeCollapse` — collapse; if collapsed or a leaf, move to the parent |
+| `o` | `TreeToggle` — toggle expand |
+| `Enter` | `TreeOpen` — navigate the file list to the cursor dir |
+| `ctrl-r` | `TreeRefresh` — relist the cursor dir (bypasses cache; overrides the global `Refresh` in this mode) |
+| `.` | `TreeRevealCurrent` — reveal the file list's current dir |
 | `Tab` / `Shift-Tab` | T50 focus cycling (tree → list → other side) |
 
 #### Performance targets
@@ -302,7 +304,7 @@ When the tree is enabled but hidden by size, the status bar shows once
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `interface.show_tree` | bool | `false` | T05; toggled by `Ctrl-e` (T51), saved |
+| `interface.show_tree` | bool | `false` | T05; toggled by `ctrl-e` (T51 `ToggleTree`), saved |
 | `interface.show_hidden_local` / `force_show_hidden_remote` | bool | `false` | T05; shared with T53 |
 | `interface.natural_sort`, `interface.sort_case_sensitive` | bool | `true`, `false` | shared with T53 |
 
@@ -322,7 +324,7 @@ monochrome bold), `tree.border`, `tree.border_focused`.
 
 ### Security and logging
 
-- Directory names are untrusted: rendered through `sanitize` (T55); a name containing
+- Directory names are untrusted: rendered through `sanitize` (T50); a name containing
   `/` or NUL from a hostile server is shown escaped and never used to build a path
   (paths come from `RemotePath::join`, which rejects `/`, T02).
 - No paths in `tracing` at `info`+; `debug` may log `tree pane=<id> nodes=<n> request=<id>`.
@@ -360,6 +362,7 @@ monochrome bold), `tree.border`, `tree.border_focused`.
 - `in_flight_limit_queues_expansions` (AC6), `stale_result_ignored` (AC6).
 - `eviction_drops_collapsed_subtrees_lru` (AC7).
 - `horizontal_offset_keeps_cursor_name_visible`.
+- `tree_default_keys` — `AppHarness` with the default keymap and the tree focused: each key in the table produces its `Tree*` action; `ctrl-r` yields `TreeRefresh`, not `Refresh`.
 - `windows_pseudo_roots_order` (`#[cfg(windows)]` and a pure test with a fake drive list).
 
 ### Property / fuzz tests
@@ -386,4 +389,4 @@ monochrome bold), `tree.border`, `tree.border_focused`.
 
 ## Open questions
 
-1. T51 has no `Tree` keymap mode yet; this task adds it with the actions listed above.
+None. (Resolved: T51 has the `Tree` mode with the actions listed above.)

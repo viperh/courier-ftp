@@ -59,7 +59,10 @@ pub enum Condition {
     Size { op: NumOp, value: u64 },                 // bytes
     Attribute { attr: AttrFlag, set: bool },
     Permission { bit: PermBit, set: bool },
-    Date { op: DateOp, value: time::Date },         // calendar day, compared in the configured offset
+    /// Calendar day (`time::Date`, whole day, no time of day, no offset); `Equals` = the
+    /// entry was modified on that day. Serialised as `"YYYY-MM-DD"`. T65's `parse_date`
+    /// produces the same type.
+    Date { op: DateOp, value: time::Date },
 }
 
 pub enum StringOp { Contains, NotContains, Equals, NotEquals, BeginsWith, EndsWith, Regex, Glob }
@@ -189,7 +192,7 @@ skipped for that name with `UnknownFilter`.
 | `Attribute Hidden` | `entry.hidden` | `set` = expected value |
 | `Attribute ReadOnly` | permissions | read-only = `mode` is `Some(m)` with `m & 0o222 == 0`, or `raw` contains `R` (Windows local); unknown permissions → `false` |
 | `Permission` | `permissions.mode` (`Option<u32>`) bit (`UserRead` = 0o400 … `OtherExec` = 0o001) | unknown mode → `false` |
-| `Date` | `entry.modified` (`Timestamp.time`) converted with `local_offset` to a calendar date | `Before`/`After` strict; precision `Day` or finer all compare by date |
+| `Date` | the entry's calendar date: `Precision::Day` timestamps use `Timestamp.time.date()` unchanged (T13 attaches no time-zone meaning to day-only dates); finer precisions are converted with `local_offset` first, then `.date()` | compared as whole days: `Equals`/`NotEquals` same day or not, `Before`/`After` strictly earlier/later day |
 
 String operations (`ci` = `!case_sensitive`; case folding with `str::to_lowercase`
 computed once per entry and cached for all conditions of all filters):
@@ -306,7 +309,7 @@ variant except `NoConditions`.
 ### Unit tests
 - `string_ops_table` — rows: op × case mode × (value, name) → expected; covers all 8 ops. AC1.
 - `size_ops_table` — Equals/NotEquals/Greater/Less at boundaries (`0`, `u64::MAX`), dirs never match, `None` size false. AC1, AC5.
-- `date_ops_table` — Before/After/Equals/NotEquals around midnight with offsets `+00:00` and `+02:00`; day-precision timestamps. AC1, AC5.
+- `date_ops_table` — Before/After/Equals/NotEquals around midnight with offsets `+00:00` and `+02:00`; a `Precision::Day` timestamp `2026-10-08` equals `2026-10-08` under every offset (no shift). AC1, AC5.
 - `permission_bits_table` — every `PermBit` with modes `0o000`, `0o777`, `0o644`; unknown mode false. AC1, AC5.
 - `attribute_hidden_and_readonly` — `hidden` flag, mode `0o444`, Windows `raw = "R"`, unknown permissions. AC1, AC5.
 - `path_condition_uses_parent_not_name` — `Path Contains "www"` matches `/var/www/x` with parent `/var/www`. AC1.

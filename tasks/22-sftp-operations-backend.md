@@ -14,10 +14,12 @@ limited by round-trip time (D11, T41b §3).
 ## Context
 
 - **Before:** T03 defines `Backend`, `Capabilities`, `Listing`, `WriteMode`,
-  `TransferOpts`, `ConnectInfo`, `BackendFactory`, `SessionHandle`, `MockBackend`. T06
-  provides the reusable `backend_conformance_tests!` suite. T13 provides the Unix `ls -l`
+  `TransferOpts` (incl. `range_len`), `ConnectInfo`, `BackendContext`, `BackendFactory`,
+  `SessionHandle`, `SessionSecurityInfo`, `MockBackend` and the reusable conformance suite
+  (`courier_ftp_core::backend::conformance`, `backend_conformance_tests!`, feature
+  `test-util`); T06 is the local reference backend. T13 provides the Unix `ls -l`
   parser in `courier_ftp_core::listing::unix` (used for SFTP `longname`). T20 provides
-  `SshConnection::connect`/`open_subsystem`, `SshConnectParams`, `SftpConnectOptions`
+  `SshConnection::connect`/`open_subsystem`, `SshConnectParams::from_connect_info`
   and the in-process russh test server; T21 provides `TrustVerifier`. T76 provides the
   `sshd` Docker fixture (profiles `password`, `key`, `chroot-sftp`, `windows-like`).
 - **After:** T58 wires `SftpBackend` into the binary's `BackendFactory`. T41 opens one
@@ -31,26 +33,33 @@ limited by round-trip time (D11, T41b §3).
 
 ```rust
 // courier_ftp_proto_sftp::backend
-pub struct SftpBackend { /* ConnectInfo, SftpTuning, EventSender, SessionId,
+pub struct SftpBackend { /* Arc<ConnectInfo>, BackendContext, SftpTuning,
                              Arc<dyn HostKeyVerifier>, Option<Arc<dyn AgentConnector>>,
                              Option<Live>, Arc<Mutex<Option<Error>>> deferred_error */ }
 
 impl SftpBackend {
-    /// No I/O; `connect` does the work. `session` is the SessionId the factory assigns.
+    /// No I/O; `connect` does the work. `info` is shared with the other sessions to the
+    /// same server (T03); `ctx` carries the SessionId, EventSender and SharedSettings
+    /// (tuning read from `ctx.settings` at construction).
     pub fn new(
-        info: ConnectInfo,
-        settings: &Settings,
-        session: SessionId,
-        events: EventSender,
+        info: Arc<ConnectInfo>,
+        ctx: BackendContext,
         verifier: Arc<dyn HostKeyVerifier>,
         agent: Option<Arc<dyn AgentConnector>>,
     ) -> Self;
-    /// Negotiated SSH algorithms and SFTP extensions (server info dialog, T57).
+    /// Negotiated SSH algorithms and SFTP extensions (also summarised in security_info()).
     pub fn server_info(&self) -> Option<SftpServerInfo>;
 }
 
 #[async_trait]
-impl Backend for SftpBackend { /* every method, see Behaviour */ }
+impl Backend for SftpBackend {
+    /* every method, see Behaviour. `security_info()` → SessionSecurityInfo { encrypted: true,
+       summary: "SSH", peer_addr, server_software: SshSessionInfo.server_version,
+       tls: None, host_key: Some(HostKeyInfo { key_type, bits, fingerprint_sha256 }),
+       details: [("Key exchange", kex), ("Cipher", cipher), ("MAC", mac),
+                 ("Compression", compression), ("Authentication", auth_method),
+                 ("SFTP version", "3"), ("Extensions", names)] } */
+}
 
 /// Values taken from Settings at construction.
 #[derive(Debug, Clone, Copy)]
@@ -118,10 +127,11 @@ channel; that is the pipelining mechanism.
 
 **Connect** (`connect(cancel)`):
 
-1. Build `SshConnectParams` from `ConnectInfo` (host, port default 22, user, logon,
-   password, `sftp` options, `NetOpts` incl. bypass-proxy) and `Settings`; set
-   `can_save` for prompts = (connection is from a saved site) ∧ (vault unlocked) ∧
-   `vault.store_passwords` (all given by `ConnectInfo`, T03/T31).
+1. `SshConnectParams::from_connect_info(&info, &settings, can_save)` (T20: host, port
+   default 22, `address.user`, `LogonType` incl. `KeyFile { key, passphrase }`,
+   `try_agent_first`, `NetOpts` incl. bypass-proxy) with `can_save` for prompts =
+   `info.site_id.is_some()` ∧ `vault.store_passwords` (T69 also disables saving while
+   the vault is locked).
 2. `SshConnection::connect` (T20) with the `TrustVerifier` (T21).
 3. `open_subsystem("sftp")`; `RawSftpSession::new_with_config(stream, Config {
    request_timeout_secs: connection.timeout_secs, max_packet_len: 270_336 /* 264 KiB */,
@@ -141,8 +151,8 @@ channel; that is the pipelining mechanism.
 6. Charset: SFTP v3 names are bytes; `russh-sftp` decodes them as UTF-8 (lossy).
    `Charset::Custom` on an SFTP site → `Status` warning once: "Custom character sets are
    not supported for SFTP; using UTF-8".
-7. Emit `CoreEvent::Connected { session, address }`; log
-   `Status: Connected to <host>` (session log).
+7. Log `Status: Connected to <host>` (session log). The `Connected` event is emitted by
+   `SessionHandle` (T03), not by the backend.
 
 SFTP has no working directory: the caller picks the initial directory (site
 `default_remote_dir` if set, else `home_dir()`; T58/T59).
@@ -154,14 +164,14 @@ SFTP has no working directory: the caller picks the initial directory (site
 |---|---|---|
 | `home_dir` | none (cached from connect) | |
 | `list(dir)` | `OPENDIR dir` → `READDIR` until `STATUS EOF` → `CLOSE` | see Listing below |
-| `stat(path)` | `LSTAT path`; if symlink: `STAT path` (target kind) + `READLINK path` | `NotFound(path)` if `NO_SUCH_FILE` |
+| `stat(path)` | `LSTAT path`; if symlink: `STAT path` (target kind) + `READLINK path` | never follows a final symlink: a symlink returns `EntryKind::Symlink { target, target_kind }` with the link's own attributes (T03); `NotFound(path)` if `NO_SUCH_FILE` |
 | `mkdir(path)` | `MKDIR path` (empty attrs: server applies umask) | `FAILURE` and `LSTAT path` is a dir → `AlreadyExists` |
 | `rmdir(path)` | `RMDIR path` | non-empty dir → `Protocol { code: Some(4), message: <server text> }` |
 | `remove_file(path)` | `REMOVE path` | |
-| `rename(from, to)` | `posix-rename@openssh.com` (`EXTENDED`) if advertised, else `RENAME` | posix-rename replaces an existing target atomically. Plain `RENAME` with an existing target fails → `LSTAT to` exists → `AlreadyExists` (caller decides to delete first, T42/T62) |
+| `rename(from, to, replace)` | `replace = false`: `LSTAT to` (exists → `AlreadyExists`, nothing renamed) then `RENAME`. `replace = true`: `posix-rename@openssh.com` (`EXTENDED`) if advertised, else `RENAME` | posix-rename replaces an existing target atomically. Plain `RENAME` onto an existing target fails → `LSTAT to` exists → `AlreadyExists` (overwrite not supported by this server; caller decides to delete first, T42/T62). T14 uses the same contract |
 | `chmod(path, mode)` | `SETSTAT path {permissions: mode & 0o7777}` | only the permissions flag set |
 | `set_mtime(path, t)` | `SETSTAT path {atime: t, mtime: t}` | `t` outside `0..=u32::MAX` seconds → `InvalidInput("SFTP v3 cannot store dates before 1970 or after 2106")` |
-| `open_read(path, offset, opts)` | `OPEN path READ` → `FSTAT handle` (size) → pipelined `READ`s from `offset` | returns `SftpReader` |
+| `open_read(path, offset, opts)` | `OPEN path READ` → `FSTAT handle` (size) → pipelined `READ`s from `offset` | returns `SftpReader`; with `opts.range_len = Some(n)` no READ is issued at or beyond `offset + n` and the reader returns EOF after `n` bytes |
 | `open_write(path, mode, opts)` | `OPEN path <flags>` (+ `FSTAT` for Append/ResumeAt) → pipelined `WRITE`s | returns `SftpWriter`; flags below |
 | `finish_transfer` | none | returns (and clears) the deferred error of the last reader/writer `CLOSE`; `Ok(())` otherwise |
 | `raw_command` | — | `Err(Unsupported("Custom commands are not available over SFTP"))` |
@@ -176,7 +186,8 @@ SFTP has no working directory: the caller picks the initial directory (site
 | `Create` | `WRITE \| CREAT \| EXCL` | 0 | target exists → `FAILURE` → `LSTAT` → `AlreadyExists` |
 | `Truncate` | `WRITE \| CREAT \| TRUNC` | 0 | |
 | `Append` | `WRITE \| CREAT` | `FSTAT` size | explicit offsets instead of `APPEND` (servers differ in APPEND handling) |
-| `ResumeAt(n)` | `WRITE` | `n` | `FSTAT` size < n → `InvalidInput("Remote file is shorter than the resume offset")`; size > n is fine (bytes from n are overwritten; T42 decides n) |
+| `ResumeAt(n)` | `WRITE` | `n` | `FSTAT` size < n → `InvalidInput("Remote file is shorter than the resume offset")`; size > n → `SETSTAT size = n` first (T03: truncate to n, then write) |
+| `WriteAt(n)` | `WRITE \| CREAT` | `n` | no truncation, existing bytes outside the written range kept (segmented uploads, T41b) |
 
 `TransferOpts.transfer_type = Ascii` is ignored (`Capabilities.ascii_mode = false`; SFTP v3
 has no text mode); logged once per session at `Debug(2)`.
@@ -198,7 +209,8 @@ has no text mode); logged once per session at `Debug(2)`.
    - `permissions`: `Permissions::from_mode(perm & 0o7777)`.
    - `owner`/`group`: from `longname` via `courier_ftp_core::listing::unix` (T13) when
      it parses; else `attrs.uid`/`gid` as decimal strings; else `None`.
-   - `hidden`: name starts with `.`. `raw`: `Some(longname)` when non-empty.
+   - `hidden`: name starts with `.`. (No per-entry raw text; longnames go to
+     `Listing.raw` only.)
 3. **Symlinks**: for the first 1 000 symlinks of a listing, issue `STAT` (follows) and
    `READLINK` with at most 16 requests in flight; fill
    `EntryKind::Symlink { target: readlink text, target_kind: kind of STAT result }`;
@@ -237,18 +249,19 @@ has no text mode); logged once per session at `Debug(2)`.
   is spawned (best effort); nothing is reported.
 
 **Segmented transfers** (T41b): each segment uses its own `SftpBackend` (own SSH
-connection). Download segments call `open_read(path, segment_start, opts)` and stop
-reading at their end; if T03 adds a read limit to `TransferOpts` (see Open questions) the
-reader also stops issuing requests past it. Upload segments open the remote file with
-`ResumeAt(segment_start)` after the first segment created it with `Truncate`.
+connection). Download segments call `open_read(path, segment_start, TransferOpts {
+range_len: Some(segment_len), .. })`; the reader never requests past the segment end.
+Upload segments open the remote file with `WriteAt(segment_start)`
+(`Capabilities.positional_writes = true`).
 
 **Capabilities** (constant for SFTP):
 
 | Field | Value |
 |---|---|
 | `chmod`, `set_mtime`, `resume_download`, `resume_upload`, `append`, `symlinks` | true |
-| `server_side_rename_across_dirs`, `parallel_connections_allowed` | true |
-| `raw_commands`, `ascii_mode` | false |
+| `server_side_rename_across_dirs`, `parallel_connections_allowed`, `positional_writes` | true |
+| `raw_commands`, `ascii_mode`, `case_insensitive_names` | false |
+| `path_style` | `Unix` |
 
 **Connection loss**: any operation when `!ssh.is_open()` returns
 `Error::Connection(<T20 end cause>)` without sending a request; `SessionHandle` (T03)
@@ -262,7 +275,7 @@ Settings read (defaults from T05/T41b; T22 consumes them, T41b owns tuning/docs)
 | Key | Type | Default | Range | Use |
 |---|---|---|---|---|
 | `connection.timeout_secs` | u32 | 20 | 1–600 | per-request timeout, SSH (T20) |
-| `sftp.max_outstanding_requests` | u32 | 64 | 1–256 | pipelining depth per open file |
+| `sftp.max_outstanding_requests` | u16 | 64 | 1–256 | pipelining depth per open file |
 | `sftp.request_size` | u32 (bytes) | 32 768 | 4 096–261 120 | chunk size when the server has no `limits@openssh.com` |
 
 Constants: in-flight budget 8 MiB per open file; symlink resolution 1 000 per listing,
@@ -298,6 +311,7 @@ median MiB/s of each and the ratio.
 | `Error::Timeout` | `Timeout` | transient |
 | `Error::IO(_)`, `UnexpectedBehavior("session closed")` | `Connection(msg)` | transient |
 | `Error::Limited(_)`, `UnexpectedPacket`, other `UnexpectedBehavior` | `Protocol { code: None, message }` | a bug or hostile server |
+| connect errors from T20 (`Auth`, `HostKey`, `Proxy`, `ConnectionLimit` for SSH disconnect reason 12, …) | passed through unchanged | |
 | local `set_mtime` range | `InvalidInput` | |
 
 Server messages are passed through `sanitize_server_text` (T20) and capped at 512 chars.
@@ -322,14 +336,14 @@ create directory /var/www/new: Permission denied`).
 2. `testing::duplex_sftp_pair` and `SftpTestServer` (russh-sftp server handler over a
    temp dir, knobs, request stats).
 3. `SftpBackend::connect`/`disconnect`/`home_dir`/`keepalive`, extension and limits
-   parsing, I/O size computation, `server_info`.
+   parsing, I/O size computation, `server_info`, `security_info`.
 4. Metadata operations: `stat`, `mkdir`, `rmdir`, `remove_file`, `rename`, `chmod`,
    `set_mtime` with the `AlreadyExists` probes.
 5. `list` with symlink resolution, caps, cancellation.
 6. `SftpReader` (pipelined, short-read handling) + paused-time tests over the duplex pair.
 7. `SftpWriter` (pipelined, ordered acks, deferred close error) + tests;
    `open_read`/`open_write`/`finish_transfer`.
-8. Run `backend_conformance_tests!` (T06) against `SftpTestServer`; e2e conformance
+8. Run `backend_conformance_tests!` (T03) against `SftpTestServer`; e2e conformance
    against the Docker profiles; `scripts/bench-sftp.sh`; record numbers here.
 
 ## Acceptance criteria
@@ -338,7 +352,7 @@ create directory /var/www/new: Permission denied`).
 - [ ] AC2 A symlink to a directory lists as `Symlink { target: Some(..), target_kind: Some(Dir) }`, and `list(symlink path)` returns the target's entries; a broken symlink has `target_kind: None`.
 - [ ] AC3 Resumed download (`open_read` at offset) and resumed upload (`ResumeAt(n)`) produce byte-identical files (SHA-256), including at an offset above 4 GiB on a sparse test file.
 - [ ] AC4 Every row of the error mapping table is produced by the test server's fault injection and maps as specified.
-- [ ] AC5 `rename` sends `posix-rename@openssh.com` when advertised and replaces an existing target; without it, renaming onto an existing file returns `AlreadyExists` and leaves both files unchanged.
+- [ ] AC5 `rename(.., replace = true)` sends `posix-rename@openssh.com` when advertised and replaces an existing target; without it, renaming onto an existing file returns `AlreadyExists` and leaves both files unchanged; `rename(.., replace = false)` onto an existing file returns `AlreadyExists` without sending `RENAME`.
 - [ ] AC6 `mkdir` of an existing directory and `open_write(Create)` of an existing file return `AlreadyExists`.
 - [ ] AC7 Pipelining (paused time, duplex pair, 50 ms per-request latency, 64 MiB file): the server sees 64 READ requests in flight and the download takes ≤ 1.7 s of virtual time with defaults, versus ≥ 100 s with `max_outstanding_requests = 1`; the same for WRITE.
 - [ ] AC8 With short reads (server caps reads at 10 000 bytes) downloads are byte-identical and no byte range is requested twice after the chunk adapts.
@@ -348,9 +362,10 @@ create directory /var/www/new: Permission denied`).
 - [ ] AC12 Listing a directory of 100 000 files returns 100 000 entries with owner/group names parsed from longnames; a fake server streaming more than 1 000 000 names gets a `Protocol` error and the handle is closed.
 - [ ] AC13 Cancelling `list` returns `Error::Cancelled` within 100 ms and a `CLOSE` for the directory handle is sent.
 - [ ] AC14 Killing the server mid-download yields `Error::Connection` from the reader and `is_connected() == false`; `SessionHandle` (T03) reconnects once on the next call.
-- [ ] AC15 `raw_command` returns `Unsupported`; `capabilities()` equals the table; `set_mtime` with a 1960 date returns `InvalidInput`; `chmod` sends only the permissions attribute.
+- [ ] AC15 `raw_command` returns `Unsupported`; `capabilities()` equals the table (incl. `positional_writes = true`); `set_mtime` with a 1960 date returns `InvalidInput`; `chmod` sends only the permissions attribute; `security_info()` reports `encrypted`, "SSH", the host key and negotiated algorithms.
 - [ ] AC16 Throughput: `scripts/bench-sftp.sh` on localhost shows ≥ 80 % of OpenSSH `sftp` CLI throughput for a 1 GiB download and upload; numbers recorded in the table below.
 - [ ] AC17 T00 gates pass (`fmt`, `clippy -D warnings`, `docs`, `test`, `deny`); no `unwrap`/`expect` outside tests.
+- [ ] AC18 `stat` of a symlink returns `Symlink` (not the target's kind) with `target_kind` filled; `open_read` with `range_len = Some(n)` returns exactly `n` bytes and the server sees no READ at or past `offset + n`; `WriteAt(n)` keeps bytes before `n` and after the written range.
 
 Benchmark results (fill in when done):
 
@@ -362,14 +377,14 @@ Benchmark results (fill in when done):
 
 ### Unit tests
 - `convert::tests::kind_from_mode_all_types_and_longname_fallback`.
-- `convert::tests::entry_from_name_fields` (size, mtime precision Second, permissions, hidden, raw) — AC12.
+- `convert::tests::entry_from_name_fields` (size, mtime precision Second, permissions, hidden) — AC12.
 - `convert::tests::owner_group_from_longname_else_uid_gid` — AC12.
 - `convert::tests::invalid_names_skipped` — AC11.
 - `convert::tests::map_status_table` — AC4.
 - `backend::tests::io_sizes_from_limits_and_settings` (clamping, 0 = unlimited, 8 MiB budget) — AC9, AC10.
 - `backend::tests::write_mode_flags` — AC6, open_write table.
 - `backend::tests::set_mtime_range_check` and `chmod_sets_only_permissions` — AC15.
-- `backend::tests::capabilities_constant` — AC15.
+- `backend::tests::capabilities_constant`, `security_info_fields` — AC15.
 
 ### Property / fuzz tests
 - `io::props::reader_reassembles_any_short_read_pattern` (proptest: random per-request caps and EOF positions on the duplex server; output equals the file) — AC8.
@@ -381,7 +396,8 @@ Not applicable (no UI).
 
 ### Integration tests
 `crates/courier-ftp-proto-sftp/tests/`:
-- `conformance_against_test_server` (`backend_conformance_tests!` from T06) — AC1.
+- `conformance_against_test_server` (`backend_conformance_tests!` from T03) — AC1.
+- `stat_symlink_not_followed`, `range_len_stops_requests_at_segment_end`, `write_at_keeps_other_bytes` — AC18.
 - `symlink_to_dir_enterable_and_broken_link` — AC2.
 - `resume_download_and_upload_sha256`, `resume_above_4gib_sparse` — AC3.
 - `fault_injection_error_mapping` — AC4.
@@ -415,13 +431,6 @@ Manual: `scripts/bench-sftp.sh` — AC16.
    so names in legacy encodings show `U+FFFD` and cannot be opened, and a site's custom
    charset cannot be applied to SFTP. Accept this for v1 (FileZilla also assumes UTF-8 for
    SFTP), or budget a fork/upstream patch exposing raw name bytes?
-2. **T03 read limit:** segmented downloads (T41b) need `open_read` to stop *requesting*
-   past a segment end; T03's `TransferOpts` has no such field. Proposal for the T03 owner:
-   `TransferOpts.read_limit: Option<u64>`; until then a segment may prefetch up to
-   8 MiB beyond its end, which is discarded.
-3. **T03 `rename` semantics:** T03 doesn't say whether `rename` overwrites an existing
-   target. This task: replaces it when the server supports `posix-rename`, else returns
-   `AlreadyExists`. The FTP backend (T14) should document the same contract.
-4. **Settings key path:** T41b names the settings `sftp.max_outstanding_requests` /
-   `sftp.request_size`, while T05 lists them next to `transfers.segmented`. This task uses
-   `sftp.*` (top-level section, also holding T21's `sftp.use_openssh_known_hosts`).
+Resolved: T03 `TransferOpts.range_len` (read limit), T03 `rename(from, to, replace)`
+semantics (shared with T14), and the top-level `sftp.*` settings section with this task's
+ranges (T05).

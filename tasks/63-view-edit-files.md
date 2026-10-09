@@ -24,8 +24,10 @@ Before this task:
   `settings::decide_transfer_type` (used by T11 too); T44 provides the shared rate
   limiter used by T41; T46 provides the cache upload patch.
 - T05 has the `editing` section (`editor: EditorChoice`, `associations:
-  Vec<Association>` — both types defined here — `viewer`,
-  `watch_and_prompt_upload`, `max_size_mib`).
+  Vec<Association>`, `watch_and_prompt_upload`, `max_size_mib`) and creates the data
+  types `EditorChoice` and `Association` in `courier_ftp_core::edit` (fields and serde
+  as shown below) so the settings model compiles. This task adds the logic to that
+  module and does not redefine the types.
 
 Later tasks use from this task: T65 (open search results), T68 (editing settings
 section), T76 (PtyApp edit round-trip with a fake editor), T91 (edit temp dirs are
@@ -35,10 +37,13 @@ canary-scanned; temp files are an asset in the threat model).
 
 ### Types and APIs
 
-Pure helpers in `courier-ftp-core/src/edit.rs` (no process spawning, no UI):
+Pure helpers in `courier-ftp-core/src/edit.rs` (no process spawning, no UI). The two
+data types are created there by T05 and only referenced here (shown for the meaning
+of their fields); serde uses `rename_all = "snake_case"` like every settings enum:
 
 ```rust
-/// One entry of `editing.associations` (T05). First match wins.
+// ---- created by T05 (data only) ----
+/// One entry of `editing.associations`. First match wins.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Association {
     /// Glob (`globset` syntax). Without `/` it matches the file name only,
@@ -51,13 +56,16 @@ pub struct Association {
     pub terminal: bool,
 }
 
-/// `editing.editor` (T05). `Command.terminal` replaces a separate terminal flag.
+/// `editing.editor`. JSON `"auto"` or `{"command":{"command":"vim","terminal":true}}`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EditorChoice {
     /// $VISUAL, then $EDITOR, then the platform default.
     #[default] Auto,
     Command { command: String, terminal: bool },
 }
+
+// ---- added by this task ----
 
 pub fn match_association<'a>(assocs: &'a [Association], file_name: &str,
                              remote_path: &str) -> Option<(usize, &'a Association)>;
@@ -193,7 +201,8 @@ entries refused.
    again] [Cancel]". *Reopen* starts the program on the existing temp file;
    *Download again* asks for confirmation (`ConfirmOpts::danger("Download again")`)
    if the edit is `Modified`, then replaces the temp copy.
-2. **Size check**: if `entry.size > editing.max_size_mib × 1 MiB` (default 50) →
+2. **Size check**: if `editing.max_size_mib > 0` and `entry.size > editing.max_size_mib
+   × 1 MiB` (default 50; 0 = never ask) →
    `confirm("Large file", "index.log is 312 MiB. Download it to open it?",
    ConfirmOpts { default_yes: false, ..ConfirmOpts::new() })`.
    Unknown size → no check.
@@ -284,11 +293,9 @@ Edit (`EditMode::Edit`), first hit wins:
 
 View (`EditMode::View`):
 1. Association (same list; a match means "open with that program").
-2. `editing.viewer` (T05, String) when non-empty: split with `build_argv`;
-   `terminal = true` unless its basename is in `KNOWN_GUI_EDITORS`.
-3. Text file (`looks_like_text` on the first 8 KiB): `$PAGER` (terminal), then
+2. Text file (`looks_like_text` on the first 8 KiB): `$PAGER` (terminal), then
    `less` (Unix, in `PATH`, terminal), then `more.com` (Windows, terminal).
-4. Otherwise the platform opener (GUI): `xdg-open %f` (Linux/BSD), `open %f`
+3. Otherwise the platform opener (GUI): `xdg-open %f` (Linux/BSD), `open %f`
    (macOS), `cmd /C start "" %f` (Windows — the only case that goes through a
    shell; the path is passed as a separate argument after the empty title, and
    temp paths contain no shell metacharacters because names are sanitised).
@@ -429,11 +436,10 @@ failure the dialog returns with the remaining count.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `editing.editor` | `EditorChoice` | `"Auto"` | default editor when no association matches |
-| `editing.associations` | `Vec<Association>` | `[]` | first match wins |
-| `editing.viewer` | String | `""` | viewer command for View; `""` = `$PAGER`, `less`, platform opener |
+| `editing.editor` | `EditorChoice` | `"auto"` | default editor when no association matches |
+| `editing.associations` | `Vec<Association>` | `[]` | first match wins; ≤ 256 entries (T05) |
 | `editing.watch_and_prompt_upload` | bool | `true` | prompt to upload on change; false = only mark `Modified` in the list |
-| `editing.max_size_mib` | u32 | `50` | 1–10240 (T05); ask before downloading larger files |
+| `editing.max_size_mib` | u32 | `50` | 0–10240 (T05); ask before downloading larger files; `0` = never ask |
 | `file_types.default_type` | `TransferTypeChoice` | `Auto` | transfer type for edit downloads/uploads |
 | `transfers.invalid_char_replacement` | char | `'_'` | temp file name sanitising |
 | `connection.timeout_secs` | u32 | `20` | edit transfer timeout |
@@ -441,7 +447,7 @@ failure the dialog returns with the remaining count.
 Example (`config.json`):
 ```json
 "editing": {
-  "editor": { "Command": { "command": "nvim", "terminal": true } },
+  "editor": { "command": { "command": "nvim", "terminal": true } },
   "associations": [
     { "pattern": "*.{png,jpg,jpeg,gif}", "command": "xdg-open %f", "terminal": false },
     { "pattern": "*.md", "command": "code --wait %f", "terminal": false }
@@ -483,9 +489,8 @@ that `shell-words` can't split → warning, entry dropped (not the whole list).
 
 ## Implementation steps
 
-1. Core `edit` module: `Association`, `EditorChoice`, `match_association`,
-   `build_argv`, `Fingerprint`, `looks_like_text`, `KNOWN_GUI_EDITORS`; wire the types
-   into T05's `editing` section; unit tests.
+1. Core `edit` module (types from T05): `match_association`, `build_argv`,
+   `Fingerprint`, `looks_like_text`, `KNOWN_GUI_EDITORS`; unit tests.
 2. `resolve_program` with injectable env/`which`; unit tests per platform branch.
 3. `TempLayout`: creation with permissions and lock, sanitised names, removal,
    stale-instance detection; startup dialog.
@@ -507,11 +512,11 @@ that `shell-words` can't split → warning, entry dropped (not the whole list).
 - [ ] AC3 While a terminal program runs, courier-ftp reads no keys from stdin and Ctrl-C inside the program doesn't quit courier-ftp (e2e test sends Ctrl-C to a fake editor).
 - [ ] AC4 A save by a GUI program (simulated by writing the watched file, including write-to-temp-and-rename) produces exactly one prompt within 3 s; writes with identical content produce none.
 - [ ] AC5 Associations: first match wins, globs are case-insensitive, `%f` substitution and appending work (unit tests).
-- [ ] AC6 Resolution order association → `editing.editor` → `$VISUAL` → `$EDITOR` → platform default for Edit, and association → `editing.viewer` → `$PAGER`/`less` → platform opener for View, with GUI detection for known editors (unit tests).
+- [ ] AC6 Resolution order association → `editing.editor` → `$VISUAL` → `$EDITOR` → platform default for Edit, and association → `$PAGER`/`less` → platform opener for View, with GUI detection for known editors (unit tests).
 - [ ] AC7 Conflict check blocks a silent overwrite when the remote size or mtime changed since download.
 - [ ] AC8 Temp layout: dirs `0700`, files `0600` (View `0400`) on Unix; a pre-planted symlink at the edit dir is refused; temp dirs are removed on stop editing, on normal exit, and stale instances are found at startup.
 - [ ] AC9 Quit with unuploaded edits shows the guard dialog; "keep" leaves exactly those files.
-- [ ] AC10 Files above `editing.max_size_mib` ask before downloading.
+- [ ] AC10 Files above `editing.max_size_mib` ask before downloading; `0` never asks.
 - [ ] AC11 Snapshot tests for every dialog in this task at 80×24 and 160×48.
 - [ ] AC12 Canary scan (T91) finds no canary in edit temp dirs after the test suite; no paths/hostnames at `info`+ in logs.
 - [ ] AC13 CI gates pass: `fmt`, `clippy -D warnings`, `docs`, `test-local-only`, `test-os`, `e2e`, `canary`.
@@ -525,7 +530,8 @@ that `shell-words` can't split → warning, entry dropped (not the whole list).
 - `fn build_argv_appends_path_without_placeholder`; `fn build_argv_rejects_unbalanced_quotes` (AC5).
 - `fn resolve_edit_order_association_setting_visual_editor_default` — table with injected env and `which` (AC6).
 - `fn resolve_known_gui_editor_from_env_is_not_terminal` — `EDITOR="code --wait"` → GUI (AC6).
-- `fn resolve_view_text_uses_pager_then_less`, `fn resolve_view_binary_uses_platform_opener`, `fn resolve_view_uses_editing_viewer_before_pager` (AC6).
+- `fn resolve_view_text_uses_pager_then_less`, `fn resolve_view_binary_uses_platform_opener` (AC6).
+- `fn editor_choice_json_is_snake_case` — `"auto"` and `{"command":{"command":"nvim","terminal":true}}` deserialise (AC6).
 - `fn looks_like_text_cases` — UTF-8, NUL byte, cut multi-byte at 8 KiB boundary.
 - `fn fingerprint_detects_same_length_same_mtime_change` — content differs, len and mtime forced equal (AC4).
 - `fn temp_file_name_sanitised_and_capped_keeps_extension` (AC8).
@@ -557,7 +563,7 @@ calls and edits the file, and a real `notify` watcher on a temp dir:
 - `fn poll_watcher_fallback_detects_change` — forced fallback, paused time not usable with real FS, so a 10 s `timeout()` poll (AC4).
 - `fn upload_conflict_when_remote_size_changed` / `fn upload_when_remote_deleted_asks` (AC7).
 - `fn auto_upload_skips_prompt_on_second_change`.
-- `fn large_file_confirm_threshold` (AC10).
+- `fn large_file_confirm_threshold` — 51 MiB asks at 50, `max_size_mib = 0` never asks (AC10).
 - `fn quit_guard_keep_files_leaves_only_modified` (AC9).
 - `fn edit_of_closed_tab_reuploads_with_stored_connect_info`.
 - `fn local_file_edit_opens_directly_without_temp_copy`.
@@ -590,9 +596,8 @@ macOS (Terminal, iTerm2), Windows (Windows Terminal, conhost with `notepad.exe`,
 
 1. Should FileZilla-style default associations ship (e.g. images → platform opener),
    or stay empty as specified?
-2. With `editing.editor: EditorChoice` (its `Command` carries `terminal`), T05's
-   separate `editing.editor_terminal` key is redundant; T05's owner should drop it.
 
-Resolved (reconciliation): `Ctrl-x e` = `EditedFilesList` is in T51's table; T05 uses
-`EditorChoice` and `Association` from this task for `editing.editor` /
-`editing.associations`.
+Resolved (reconciliation): `Ctrl-x e` = `EditedFilesList` is in T51's table; T05
+creates `EditorChoice` and `Association` in `courier_ftp_core::edit` for
+`editing.editor` / `editing.associations` (snake_case JSON); `editing.max_size_mib` is
+0–10240 with 0 = never ask.

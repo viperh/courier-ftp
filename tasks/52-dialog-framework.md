@@ -18,11 +18,14 @@ awaited value (for core prompts) or as an `Action`. Widgets also work outside di
 
 - Before (T50): `ModalStack` slot in `MainScreen` with modal-first key routing, mode
   `Dialog`, `KeyChord`, `DrawCx` (theme, symbols, focus, time), `Runner`,
-  `Action::StatusMessage`, `ui::text::sanitize`/`truncate_to_width`, the minimal
+  `Action::StatusMessage`, `ui::text::sanitize`/`truncate_to_width` and `ui::symbols::Symbols`
+  (both owned by T50), the minimal
   `QuitConfirm` modal and `Config::problems`. T51 provides the `Dialog` key table
   (`enter` `DialogSubmit`, `esc` `DialogCancel`, `tab`/`backtab` `NextField`/`PrevField`,
   `ctrl-s` `DialogSave`, `ctrl-pagedown`/`ctrl-pageup` `NextFormTab`/`PrevFormTab`) and
-  the fixed text-editing keys. T04 provides `PromptRequest` (`respond`, `is_withdrawn`).
+  the fixed text-editing keys. Modals resolve keys in their `key_mode()` — `Dialog` for
+  every dialog of this task; only T59's Site Manager tree uses `SiteManager` (T50
+  routing step 1). T04 provides `PromptRequest` (`respond`, `is_withdrawn`).
 - After: T53 (`PathInput` address bar, `prompt_text`, `confirm`, `ListView` column menu),
   T55 (`TextInput` search row), T58 (quickconnect fields), T59 (`TabbedForm` site
   editor, `TextArea` comments), T60 (`SecretInput`, full-screen unlock view), T62
@@ -231,7 +234,7 @@ pub fn problems(lines: Vec<String>) -> impl Dialog<Output = ()>;
   horizontally and vertically (rounded down).
 - Background: every cell outside the top dialog gets `Modifier::DIM` added (colours
   kept), lower dialogs included; then `Clear` and the dialog block with `dialog_border`
-  style, title left-aligned, sanitised (T55 `sanitize`).
+  style, title left-aligned, sanitised (T50 `ui::text::sanitize`).
 - Content taller than the dialog: the body scrolls so the focused field (label, widget,
   error line) is fully visible; `▲`/`▼` (ASCII `^`/`v`) markers on the right border show
   hidden content.
@@ -456,10 +459,5 @@ At 80×24 and 160×48 each (`insta`, `TestBackend`, background = T50 Classic she
 
 ## Open questions
 
-- **Dependency order with T55 (not owned):** this task (M1, before T55) needs
-  `ui::text::sanitize`, which T55 specifies and lists as its first step. T50 now
-  implements `ui/text.rs` to T55's specification (see T50 Open questions); T55's owner
-  should treat it as existing. No change to T55's API is needed.
-- **T62 (not owned)** describes confirm calls as `confirm(title, text, default No)`;
-  this task's signature is `confirm(title, text, ConfirmOpts)` with
-  `ConfirmOpts::danger(..)` for "default No". T62/T63/T64 should use that form.
+None. (Resolved by the coordinator: T50 owns `ui::text::sanitize` and `Symbols`;
+T62/T63/T64 use `confirm(title, text, ConfirmOpts::danger(..))` for destructive confirms.)

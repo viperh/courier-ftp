@@ -15,11 +15,14 @@ recursive operations.
 
 ## Context
 
-- Before: T43 provides the async depth-first `Walker` over a `Backend` with bounded
-  memory, symlink-loop protection and per-directory error skipping; T46 provides
+- Before: T43 provides the async depth-first walker with bounded memory, symlink-loop
+  protection and per-directory error skipping; it takes a **caller-supplied directory
+  lister** (closure/trait object returning `Result<Listing>` for a directory), which
+  this task uses to list through the T46 cache; T46 provides
   `ListingCache::get_or_fetch` with `ListMode::FreshOnly` and `ServerIdentity` (T02); T47 provides
   `Condition`, `MatchMode`, `AppliesTo`, `Filter`, `CompiledFilter::matches`; T03
-  provides `BackendFactory`, `ConnectInfo`, `SessionHandle`; T06 `LocalBackend`.
+  provides `BackendFactory::create(Arc<ConnectInfo>, BackendContext)`, `ConnectInfo`,
+  `SessionHandle`, `Error::ConnectionLimit`; T06 `LocalBackend`.
 - After: T65 builds the query form, shows streamed results, and uses the plan helpers
   to create queue items (T40) or start recursive deletes (T43).
 
@@ -32,7 +35,7 @@ Module `courier_ftp_core::search`.
 ```rust
 pub enum SearchRoot {
     Local(LocalPath),
-    Remote { dir: RemotePath, server: ServerIdentity, connect: ConnectInfo },
+    Remote { dir: RemotePath, server: ServerIdentity, connect: Arc<ConnectInfo> },
 }
 
 #[derive(Debug, Clone)]
@@ -131,12 +134,17 @@ a hit.
 1. If the server's connection limit (`ConnectInfo` connection limit, T31) is `Some(1)`
    and `browsing` is given, use the browsing `SessionHandle` (its mutex interleaves
    search listings with browsing) and log a status line saying so.
-2. Otherwise create a new backend with `BackendFactory::create(&connect, events)`,
-   wrap it in a `SessionHandle`, connect with the search's cancel token, and disconnect
-   it when the search ends (any outcome). Connect failure → `Done(Failed)`.
+2. Otherwise create a new backend with `BackendFactory::create(connect.clone(), ctx)`
+   (`ctx` = a `BackendContext` with a new `SessionId`, the engine's `EventSender` and
+   settings), wrap it in a `SessionHandle`, connect with the search's cancel token, and
+   disconnect it when the search ends (any outcome).
+3. If that connect fails with `Error::ConnectionLimit` (server refused another
+   connection, T10/T20) and `browsing` is given, fall back to rule 1 with the status
+   line `Server allows no further connection; searching on the browsing connection`.
+   Any other connect failure → `Done(Failed)`.
 Local searches use a fresh `LocalBackend`.
 
-**Walk.** Use the T43 `Walker` (depth-first, bounded memory, `follow_symlinks` from
+**Walk.** Use the T43 walker (depth-first, bounded memory, `follow_symlinks` from
 `transfers.follow_symlinks` with loop detection) with its directory listing routed
 through the cache for remote roots: `cache.get_or_fetch(server, dir, ListMode::FreshOnly,
 || session.list(dir, cancel))`, which reuses fresh cached listings and stores new ones
@@ -169,7 +177,7 @@ disconnected in the background (bounded by `connection.timeout_secs`).
 - A hit lying inside another selected directory hit → `PlanSkip(NestedInSelectedDir)`
   (the directory transfer/delete already covers it).
 - `KeepStructure`: `target / relative path`; directories become `is_dir = true` items
-  (T65 queues them as dir placeholders, T43).
+  (T65 queues them as directory items with T43's `compute_mode` / `QueueItemKind`).
 - `Flatten`: `target / name`; on a name collision within the plan the later hit (in
   input order) gets `numbered_name(name, n)` with the smallest free `n >= 1`. Collisions
   with files already in `target` are not handled here (T42 file-exists policy decides).
@@ -219,7 +227,7 @@ paths).
 - [ ] AC2 `cancel()` during a slow listing produces `Done(Cancelled)` within 1 s (paused-time test and a real-time test with 5 s listing latency).
 - [ ] AC3 Conditions name/size/path/date combine correctly with All/Any/None/NotAll (table test over a fixed mock tree with expected hit sets).
 - [ ] AC4 `search_type` Files/Dirs/Both and `max_depth` 0/1/unlimited restrict hits as expected.
-- [ ] AC5 Remote search opens a second session (factory called once) and leaves the browsing session idle; with connection limit 1 it uses the browsing session instead and opens none.
+- [ ] AC5 Remote search opens a second session (factory called once) and leaves the browsing session idle; with connection limit 1 it uses the browsing session instead and opens none; a dedicated connect failing with `Error::ConnectionLimit` falls back to the browsing session.
 - [ ] AC6 Fresh cached directories are not listed again during a search, and listed directories are in the cache afterwards.
 - [ ] AC7 `plan_downloads` keeps relative structure, flattens with `name (1).ext` on collisions, skips nested hits and rejects `..`, `/`, `\`, NUL and control characters in names.
 - [ ] AC8 A directory that fails to list yields one `DirError` and the search still completes with the other hits.
@@ -254,6 +262,7 @@ Not applicable (UI in T65).
 - `condition_combinations_table` — fixed mock tree (≈ 40 entries over 3 levels). AC3.
 - `search_type_and_depth_limits`. AC4.
 - `remote_search_uses_dedicated_session` and `single_connection_server_uses_browsing_session` — counting `BackendFactory` stub. AC5.
+- `connection_limit_falls_back_to_browsing_session` — stub backend whose `connect` returns `Error::ConnectionLimit`; the search completes on the browsing session. AC5.
 - `uses_and_fills_listing_cache` — pre-populate fresh `/a`; mock list counter excludes `/a`; afterwards `/b` is cached. AC6.
 - `dir_error_skipped_and_reported`. AC8.
 - `backpressure_bounds_buffer` — 100 000 entries (1 000 dirs × 100), receiver not polled for 2 s; walker progress counter stops advancing. AC9.
@@ -262,7 +271,7 @@ Not applicable (UI in T65).
 - `local_search_in_tempdir` — `LocalBackend` on a `tempfile::TempDir` tree, including a symlink loop (Unix only) that terminates.
 
 ### End-to-end tests
-- `e2e_remote_search_sftp_and_ftp` (`courier-ftp-e2e`, `#[ignore]`, `COURIER_E2E=1`) — `Headless` search on the `sshd` `password` profile and the vsftpd `plain` profile over a seeded tree; hits equal the expected set; the browsing session remains usable (a `list` on it completes while the search runs). AC12.
+- `e2e_remote_search_sftp_and_ftp` (`courier-ftp-e2e`, `#[ignore]`, `COURIER_E2E=1`) — `Headless` search on the `sshd` `password` profile and the `vsftpd-plain` profile over a seeded tree; hits equal the expected set; the browsing session remains usable (a `list` on it completes while the search runs). AC12.
 - `e2e_hostile_names_never_escape_target` — hostile FTP fixture (T76) serves `../evil` and `a/b` names; `plan_downloads` skips them. AC7, AC12.
 
 ## Out of scope
@@ -274,16 +283,6 @@ Not applicable (UI in T65).
 
 ## Open questions
 
-- **Inconsistency with T65 (not owned):** T65 was written against the previous draft:
-  it expects `SearchEvent::Found(path, Entry)` (this task sends batches
-  `Found(Vec<SearchHit>)`, flushed every 100 ms, to keep UI updates cheap) and
-  `SearchEvent::Error` (here `DirError` plus `Done(SearchSummary)` with an outcome).
-  T65's `parse_date` produces a date-time with minute precision, while T47's
-  `Condition::Date` holds a calendar `time::Date` (FileZilla's filter and search dates
-  are day-granular). T65 should build `Condition::Date { value: Date }`; if minute
-  precision in search is wanted, T47 needs a `DateTime` variant (product decision).
-- **Dependency seam with T43 (not owned):** this task needs T43's `Walker` to list
-  directories through a caller-supplied lister (a `DirLister` trait or closure) so
-  listings can go through the T46 cache. T43 currently describes the walker "over any
-  `Backend`" only. T43's owner should expose that seam; otherwise T49 duplicates the
-  walk logic.
+None. (Resolved by the coordinator: T65 uses `Found(Vec<SearchHit>)` + `Done(SearchSummary)`
+and builds `Condition::Date` from a calendar `time::Date`; T43's walker takes a
+caller-supplied directory lister.)
