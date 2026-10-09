@@ -14,8 +14,9 @@ timestamps. The decision itself is a pure function with an exhaustive table test
 ## Context
 
 - Before: T41 gives the `ExistsPolicy` trait, `ExistsRequest`, `ExistsOutcome`,
-  `TargetPath`, `TargetProbe`, `LocalFs`/`LocalWriter`, the worker's `Preparing` and
-  `Finishing` phases and `OverwritePolicy` (replaced by this task's policy); T04 gives
+  `TargetPath`, `TargetProbe`, the worker's `Preparing` and `Finishing` phases and
+  `OverwritePolicy` (replaced by this task's policy); T03 gives `WriteMode` (`Create` is
+  exclusive on local/SFTP), `TransferOpts.preallocate_hint`, `Capabilities`; T04 gives
   `PromptKind::FileExists(Box<FileExistsPrompt>)`, `PromptResponse::FileExists { action,
   apply_to, new_name }`, `ApplyTo { Once, AllInQueue, AllForDirection }` and
   `EventSender::prompt_with_cancel`; T05 gives `ExistsAction`, `TransferTypeChoice`,
@@ -97,8 +98,6 @@ pub fn resolve_transfer_type(item: &QueueItem, caps: &Capabilities, s: &Settings
 pub fn local_target(item: &QueueItem, s: &TransferSettings) -> Result<(LocalPath, bool)>;
 ```
 
-`LocalWriter::allocate(len)` (declared in T41, implemented here) reserves real space: `fs4` `allocate` = `posix_fallocate` / `SetFileInformationByHandle
-(FileAllocationInfo)` / `F_PREALLOCATE`; `MemLocalFs` records the call.
 
 ### Behaviour
 
@@ -206,18 +205,18 @@ there `STOR` is used after the probe; the race window is documented.
   containing `/`, NUL, or `\` and a drive prefix on Windows (`LocalPath::join` rules).
 
 **Preallocate** (`transfers.preallocate`, default false): only for downloads with a known
-size, mode `Create`/`Truncate`, and size ≥ 1 MiB. Before writing: `writer.allocate(size)`.
-- `ENOSPC`/disk full → `LocalDiskFull` (T41 stops the queue before any byte is written).
-- Unsupported filesystem (`EOPNOTSUPP`, `ERROR_INVALID_FUNCTION`) → continue without, Debug
-  log once per run.
-- Because a preallocated file already has its full length, a failed or cancelled download
-  is truncated back to the checkpointed `completed.contiguous_prefix()` (`set_len`) before
-  closing, so a later resume by size starts at the right offset.
-- Before any download with known size ≥ 1 MiB, `available_space(parent)` (T06) <
-  remaining bytes → `LocalDiskFull` without starting (`None` = unknown → proceed).
+size ≥ 1 MiB and mode `Create`/`Truncate`/`ResumeAt`: the worker passes
+`TransferOpts.preallocate_hint = Some(size)` to the local `open_write`. T06 reserves the
+space **without changing the file length** (Linux `fallocate(KEEP_SIZE)`; skipped where
+unsupported), so a partial file never looks complete to the resume logic.
+- `ENOSPC` while reserving → `Io(StorageFull)` → `LocalDiskFull` (T41 stops the queue
+  before any byte is written).
+- Independently of preallocation, before any download with known size ≥ 1 MiB:
+  `available_space(parent)` (T06) < remaining bytes → `LocalDiskFull` without starting;
+  an error from `available_space` → proceed (Debug log).
 
 **Preserve timestamps** (`transfers.preserve_timestamps`, default false), in `Finishing`:
-- Download: if the source `modified` has precision ≥ `Minute` → `LocalFs::set_mtime`;
+- Download: if the source `modified` has precision ≥ `Minute` → local `set_mtime`;
   `Day` precision → not set (Debug log "server time too imprecise").
 - Upload: if `caps.set_mtime` → `Backend::set_mtime(path, local mtime)`; otherwise a
   Status line once per server group per run: "Server does not support setting file
@@ -264,7 +263,7 @@ target, can_resume }`; paths are display strings (remote `RemotePath::as_str`, l
 2. `rename_candidates`, `validate_new_name` + tests.
 3. `FileExistsPolicy` with run rules, `effective_action`, ask gate and prompt handling.
 4. `options.rs`: transfer type, local target sanitising, wiring into T41's `Preparing`.
-5. Preallocation (`LocalWriter::allocate`, truncate-on-failure), free-space check.
+5. Preallocation hint wiring and the free-space check.
 6. Preserve timestamps in `Finishing`.
 7. Large-file tests with sparse mock data; engine-level prompt tests.
 
@@ -274,10 +273,10 @@ target, can_resume }`; paths are display strings (remote `RemotePath::as_str`, l
 - [ ] AC2 With 4 slots and 20 conflicting downloads, answering the first prompt with `Overwrite` + `AllInQueue` shows exactly one prompt; the other 19 overwrite; the next run asks again.
 - [ ] AC3 `AllForDirection` given for a download does not apply to uploads in the same run.
 - [ ] AC4 Rename never overwrites: property test with random existing names and a racing creator; no existing file's content changes.
-- [ ] AC5 Resume of a 5 GiB sparse download at offset 4.5 GiB requests `open_read(offset = 4 831 838 208)` and the final content matches the source pattern (mock backend).
+- [ ] AC5 Resume of a 5 GiB sparse download at offset 4.5 GiB requests `open_read(offset = 4 831 838 208)` and the final local file has length 5 368 709 120 and matches the source (mock backends).
 - [ ] AC6 A dismissed prompt pauses only that item; other items continue.
 - [ ] AC7 With `replace_invalid_chars` on, `a:b?.txt` downloads to `a_b_.txt` on Windows and unchanged on Unix (`a:b?.txt` is valid there); `..` and `x/y` are always rejected.
-- [ ] AC8 With `preallocate`, a cancelled download at 30 % leaves a file of exactly the checkpointed length.
+- [ ] AC8 With `preallocate`, the local `open_write` receives `preallocate_hint = Some(size)` for files ≥ 1 MiB and `None` below; a cancelled download leaves a file whose length equals the bytes written (resume picks the right offset).
 - [ ] AC9 `preserve_timestamps` sets local mtime for Minute/Second precision sources and not for Day; on a server without `set_mtime` one Status line per run is logged.
 - [ ] AC10 T00 `test-local-only` and `test-os` (Windows/macOS sanitiser cases) pass.
 
@@ -295,22 +294,22 @@ target, can_resume }`; paths are display strings (remote `RemotePath::as_str`, l
 
 ### Property / fuzz tests
 - `proptest fn decide_never_resumes_beyond_source` — `ResumeAt(n)` only with `n < src.size` when the source size is known (AC1).
-- `proptest fn rename_never_overwrites` — random sets of existing names, concurrent `create_new` by another task in `MemLocalFs` (AC4).
+- `proptest fn rename_never_overwrites` — random sets of existing names on a local `MockServer`, plus a racing task that creates the chosen candidate first (exclusive `Create` → `AlreadyExists` → next candidate) (AC4).
 
 ### Snapshot tests
 Not applicable (prompt rendering is T69).
 
 ### Integration tests
-`#[tokio::test(start_paused = true)]`, `MockBackend` + `MemLocalFs`, a scripted prompt
+`#[tokio::test(start_paused = true)]`, a remote and a local `MockServer` (T03), a scripted prompt
 responder reading `CoreEvent::Prompt`:
 - `async fn one_prompt_apply_to_all_across_slots` (AC2).
 - `async fn apply_for_direction_scoped` and `async fn run_rules_cleared_after_run` (AC2, AC3).
 - `async fn dismissed_prompt_pauses_item_only` (AC6).
-- `async fn resume_5gib_sparse_at_4_5gib` — `MockBackend` pattern file (`byte = f(offset)`, no storage) and sparse `MemLocalFs` (AC5).
+- `async fn resume_5gib_sparse_at_4_5gib` — remote `MockServer::add_sparse_file` 5 GiB, local mock holding a 4.5 GiB sparse partial file (no memory cost, T03 sparse chunk map); asserts the offset and the final length/zero content (AC5).
 - `async fn resume_upload_uses_remote_size`.
-- `async fn preallocate_then_cancel_truncates_to_checkpoint` (AC8).
+- `async fn preallocate_hint_only_for_large_downloads` and `async fn cancelled_download_length_equals_written` (AC8).
 - `async fn preserve_timestamps_by_precision` and `async fn set_mtime_unsupported_logged_once` (AC9).
-- `async fn insufficient_space_stops_before_writing` (`available_space` fake).
+- `async fn insufficient_space_stops_before_writing` (`available_space` behind a test hook returning 1 MiB).
 
 ### End-to-end tests
 `crates/courier-ftp-e2e/tests/exists.rs` (`#[ignore]`, `require_docker!`, `Headless`):
@@ -332,6 +331,3 @@ responder reading `CoreEvent::Prompt`:
    offers run scope only and T69's "apply only to current queue" checkbox has no effect.
    Should a session scope be added (T04 `ApplyTo::Session`, T69 checkbox), or the
    checkbox removed from T69?
-2. Inconsistency for T03's owner: `WriteMode::Create` must be documented as exclusive
-   (fail with `AlreadyExists` when the file exists) where the protocol allows it (local,
-   SFTP); this task relies on it for "Rename never overwrites".
