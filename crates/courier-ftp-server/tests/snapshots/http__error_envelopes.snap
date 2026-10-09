@@ -1,0 +1,107 @@
+---
+source: crates/courier-ftp-server/tests/http.rs
+expression: all
+---
+{
+  "auth_required": {
+    "body": {
+      "error": {
+        "code": "auth_required",
+        "message": "invalid or expired token"
+      }
+    },
+    "retry_after": null,
+    "status": 401
+  },
+  "conflict": {
+    "body": {
+      "error": {
+        "code": "conflict",
+        "message": "email already registered"
+      }
+    },
+    "retry_after": null,
+    "status": 409
+  },
+  "forbidden": {
+    "body": {
+      "error": {
+        "code": "forbidden",
+        "message": "registration is closed"
+      }
+    },
+    "retry_after": null,
+    "status": 403
+  },
+  "gone": {
+    "body": {
+      "error": {
+        "code": "gone",
+        "message": "cursor below gc floor"
+      }
+    },
+    "retry_after": null,
+    "status": 410
+  },
+  "internal": {
+    "body": {
+      "error": {
+        "code": "internal",
+        "message": "internal error"
+      }
+    },
+    "retry_after": null,
+    "status": 500
+  },
+  "invalid": {
+    "body": {
+      "error": {
+        "code": "invalid",
+        "message": "x25519_pub must be 32 bytes"
+      }
+    },
+    "retry_after": null,
+    "status": 400
+  },
+  "not_found": {
+    "body": {
+      "error": {
+        "code": "not_found",
+        "message": "device not found"
+      }
+    },
+    "retry_after": null,
+    "status": 404
+  },
+  "rate_limited": {
+    "body": {
+      "error": {
+        "code": "rate_limited",
+        "message": "too many attempts",
+        "retry_after_s": 12
+      }
+    },
+    "retry_after": "12",
+    "status": 429
+  },
+  "rotating": {
+    "body": {
+      "error": {
+        "code": "rotating",
+        "message": "vault key rotation in progress"
+      }
+    },
+    "retry_after": null,
+    "status": 409
+  },
+  "unavailable": {
+    "body": {
+      "error": {
+        "code": "internal",
+        "message": "service unavailable"
+      }
+    },
+    "retry_after": null,
+    "status": 503
+  }
+}

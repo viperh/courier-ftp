@@ -239,6 +239,8 @@ vergen-gix = { version = "10.0.1", features = ["build", "cargo"] }
 # --- dev ---
 # Snapshot tests for listing parsers and UI rendering.
 insta = "1.49.0"
+# Router tests via tower::ServiceExt::oneshot (T84).
+http-body-util = "0.1.5"
 pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
 tokio-test = "0.4.6"
