@@ -627,6 +627,17 @@ mod tests {
         let paths = temp_paths(&tmp);
         let mut s = Settings::default();
         s.interface.show_tree = true;
+        // Arrays, nested objects, data-carrying enums and chars survive the `config`
+        // crate's own value model.
+        s.file_types.ascii_extensions = vec!["txt".to_owned(), "md".to_owned()];
+        s.ftp.active_port_range = Some(courier_ftp_core::settings::PortRange {
+            min: 50000,
+            max: 50100,
+        });
+        s.ftp.active_external_ip =
+            courier_ftp_core::settings::ActiveExternalIp::FromUrl("http://ip.example/".into());
+        s.transfers.invalid_char_replacement = '-';
+        s.transfers.max_concurrent = 8;
         s.save_user(&paths.config_dir)?;
         let c = Config::new(&paths)?;
         assert_eq!(c.settings, s);
