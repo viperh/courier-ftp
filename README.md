@@ -69,22 +69,32 @@ the filter, and `COURIER_FTP_DATA` to change the directory.
 
 ## Checks
 
-The same four gates CI runs:
+The main gates CI runs on every pull request (`.github/workflows/ci.yml`; the full job
+list with local commands is in [CONTRIBUTING.md](CONTRIBUTING.md#checks)):
 
 ```sh
-cargo test --locked --all-features --workspace
 cargo fmt --all --check
-cargo clippy --all-targets --all-features --workspace -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --workspace
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo clippy -p courier-ftp --all-targets --no-default-features --locked -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --workspace --locked
+cargo test --workspace --all-features --locked
+cargo deny --all-features --locked check advisories bans licenses sources
+cargo vet --locked
+python3 scripts/check-layering.py
+python3 scripts/check-unsafe.py
+scripts/canary-scan.sh --self-test
 ```
 
-`Cargo.lock` is committed on purpose — CI builds with `--locked`.
+`Cargo.lock` is committed on purpose — CI builds with `--locked`. The minimum
+supported Rust version is `rust-version` in `Cargo.toml` (1.95).
 
 ## Releases
 
-Pushing a tag matching `v1.2.3` or `1.2.3` builds the binary for macOS
-(x86_64/arm64), Linux (x86_64/arm64/i686) and Windows, then attaches tarballs
-and SHA-256 sums to the GitHub release.
+Pushing a tag `vX.Y.Z` that matches `workspace.package.version` runs
+`.github/workflows/cd.yml`: reproducible, static (musl) archives for Linux x86_64 and
+aarch64, a universal macOS archive and a Windows zip, plus `SHA256SUMS`, one `.sha256`
+per archive and a CycloneDX SBOM, attached to the GitHub release. Running the workflow
+by hand is a dry run that publishes nothing. See [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
 ## License
 
