@@ -1,113 +1,559 @@
 name: CD # Continuous Deployment
 
+# Release pipeline (T00, sverb parity; T77 adds `courier-ftp generate`, T86 the server
+# image). Push a tag `vX.Y.Z` (e.g. `git tag v1.0.0 && git push origin v1.0.0`); the tag
+# must match `workspace.package.version` in Cargo.toml. The tag builds and publishes:
+#   - courier-ftp-<v>-linux-{x86_64,aarch64}.tar.gz          static musl client
+#   - courier-ftp-<v>-macos-universal.tar.gz                  lipo of x86_64 + aarch64
+#   - courier-ftp-<v>-windows-x86_64.zip
+#   - courier-ftp-server-<v>-linux-{x86_64,aarch64}.tar.gz   static musl server
+#   - SHA256SUMS, one .sha256 per archive, an SBOM (CycloneDX)
+#   - ghcr.io/<owner>/courier-ftp-server:<v> and :latest (linux/amd64 + linux/arm64)
+#   - the AUR (courier-ftp, courier-ftp-bin), Homebrew tap and Scoop bucket updates
+# Every client archive holds the man page and shell completions (`courier-ftp generate`).
+#
+# Until T77 adds `courier-ftp generate` the `assets` job is skipped (dry runs package a
+# placeholder man page, tags fail in `meta`); until T86 adds deploy/ the `image` job is
+# skipped; until T01 adds courier-ftp-server only the client is built.
+#
+# `workflow_dispatch` (Actions tab, "Run workflow") is always a dry run: every build and
+# check (static binaries, universal macOS binary, reproducibility, image smoke test) runs
+# and the artifacts are uploaded to the run; nothing is published.
+#
+# Secrets (all optional except GITHUB_TOKEN; a missing one skips its channel):
+#   AUR_SSH_PRIVATE_KEY, HOMEBREW_TAP_TOKEN, SCOOP_BUCKET_TOKEN,
+#   APPLE_CERTIFICATE_P12 / APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY /
+#   APPLE_NOTARY_KEY / APPLE_NOTARY_KEY_ID / APPLE_NOTARY_ISSUER (macOS signing and
+#   notarization; without them the binary is unsigned).
+
 on:
   push:
     tags:
-      - '[v]?[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  # Manual runs are dry runs only (see `meta`): releases come from tags.
+  workflow_dispatch:
 
-# The binary published here is the `courier-ftp` crate. Rename BINARY_NAME (and the
-# crate) together when you adopt this template.
+permissions:
+  contents: read
+
 env:
-  BINARY_NAME: courier-ftp
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
-  publish:
-    name: Publishing for ${{ matrix.os-name }}-${{ matrix.architecture }}
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
+  meta:
+    name: Release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+      source-date-epoch: ${{ steps.meta.outputs.source-date-epoch }}
+      has-generate: ${{ steps.meta.outputs.has-generate }}
+      has-server: ${{ steps.meta.outputs.has-server }}
+      has-server-image: ${{ steps.meta.outputs.has-server-image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: meta
+        name: Version, publish flag, SOURCE_DATE_EPOCH
+        run: |
+          set -euo pipefail
+          has() { if test -f "$1"; then echo true; else echo false; fi; }
+          has_generate="$(has crates/courier-ftp/src/cli/generate.rs)"
+          cargo_version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"])')"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ "$version" != "$cargo_version" ]]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $cargo_version"
+              exit 1
+            fi
+            if [[ "$has_generate" != true ]]; then
+              echo "::error::releases need the man page and completions (courier-ftp generate, T77)"
+              exit 1
+            fi
+            publish=true
+          else
+            # Not a tag (a manual run): never publish.
+            version="$cargo_version"
+            publish=false
+          fi
+          {
+            echo "version=$version"
+            echo "publish=$publish"
+            echo "source-date-epoch=$(git log -1 --format=%ct)"
+            echo "has-generate=$has_generate"
+            echo "has-server=$(has crates/courier-ftp-server/Cargo.toml)"
+            echo "has-server-image=$(has deploy/Dockerfile.server.release)"
+          } >>"$GITHUB_OUTPUT"
+          echo "version $version, publish $publish"
 
+  assets:
+    name: Man page and completions
+    needs: meta
+    if: needs.meta.outputs.has-generate == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate the man page and completions (T77)
+        run: |
+          set -euo pipefail
+          export COURIER_FTP_HOME="$RUNNER_TEMP/h" COURIER_FTP_KEYRING=off
+          cargo build --locked -p courier-ftp
+          bin=target/debug/courier-ftp
+          mkdir -p assets/man assets/completions
+          "$bin" generate man --out-dir assets/man
+          "$bin" generate completions bash >assets/completions/courier-ftp.bash
+          "$bin" generate completions zsh >assets/completions/_courier-ftp
+          "$bin" generate completions fish >assets/completions/courier-ftp.fish
+          "$bin" generate completions powershell >assets/completions/_courier-ftp.ps1
+          "$bin" generate completions elvish >assets/completions/courier-ftp.elv
+          bash -n assets/completions/courier-ftp.bash
+          sudo apt-get install -y --no-install-recommends groff-base >/dev/null
+          groff -man -ww -z assets/man/courier-ftp.1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: courier-ftp-assets
+          path: assets
+
+
+  linux:
+    name: Linux ${{ matrix.arch }} (musl)
+    needs: [meta, assets]
+    # `assets` is skipped until T77; a skipped need would skip this job too.
+    if: ${{ !cancelled() && needs.meta.result == 'success' && needs.assets.result != 'failure' }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            os-name: macos
-            target: x86_64-apple-darwin
-            architecture: x86_64
-            binary-postfix: ""
-            use-cross: false
-          - os: macos-latest
-            os-name: macos
-            target: aarch64-apple-darwin
-            architecture: arm64
-            binary-postfix: ""
-            use-cross: false
-          - os: ubuntu-latest
-            os-name: linux
-            target: x86_64-unknown-linux-gnu
-            architecture: x86_64
-            binary-postfix: ""
-            use-cross: false
-          - os: windows-latest
-            os-name: windows
-            target: x86_64-pc-windows-msvc
-            architecture: x86_64
-            binary-postfix: ".exe"
-            use-cross: false
-          - os: ubuntu-latest
-            os-name: linux
-            target: aarch64-unknown-linux-gnu
-            architecture: arm64
-            binary-postfix: ""
-            use-cross: true
-          - os: ubuntu-latest
-            os-name: linux
-            target: i686-unknown-linux-gnu
-            architecture: i686
-            binary-postfix: ""
-            use-cross: true
-
+          - arch: x86_64
+            target: x86_64-unknown-linux-musl
+            cross: false
+          - arch: aarch64
+            target: aarch64-unknown-linux-musl
+            cross: true
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.meta.outputs.source-date-epoch }}
+      HAS_SERVER: ${{ needs.meta.outputs.has-server }}
+      TARGET: ${{ matrix.target }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          # vergen reads the git history to stamp the version string.
-          fetch-depth: 0
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+          fetch-depth: 0 # vergen stamps `git describe`
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-
+      - name: musl toolchain
+        if: ${{ !matrix.cross }}
+        run: sudo apt-get install -y --no-install-recommends musl-tools
       - name: Install cross
-        if: matrix.use-cross
+        if: matrix.cross
         uses: taiki-e/install-action@v2
         with:
           tool: cross
-
-      - name: Build
-        shell: bash
+      - name: Binaries to build
         run: |
-          if [[ "${{ matrix.use-cross }}" == "true" ]]; then
-            cross build --locked --release --package "$BINARY_NAME" --target ${{ matrix.target }}
-          else
-            cargo build --locked --release --package "$BINARY_NAME" --target ${{ matrix.target }}
-          fi
-
+          set -euo pipefail
+          bins="courier-ftp"
+          if [[ "$HAS_SERVER" == true ]]; then bins="$bins courier-ftp-server"; fi
+          echo "BINS=$bins" >> "$GITHUB_ENV"
+      - name: Build (reproducible flags)
+        run: |
+          set -euo pipefail
+          # --locked, SOURCE_DATE_EPOCH, stripped, paths remapped so the checkout
+          # location and the cargo home don't end up in the binary.
+          export RUSTFLAGS="-C target-feature=+crt-static -C strip=symbols --remap-path-prefix=$GITHUB_WORKSPACE=/build/courier-ftp --remap-path-prefix=$HOME/.cargo=/cargo"
+          tool=cargo
+          if [[ "${{ matrix.cross }}" == true ]]; then tool=cross; fi
+          pkgs=()
+          for b in $BINS; do pkgs+=(-p "$b"); done
+          "$tool" build --locked --release "${pkgs[@]}" --target "$TARGET"
+      - name: Static binaries
+        run: |
+          set -euo pipefail
+          for b in $BINS; do
+            f="target/$TARGET/release/$b"
+            file "$f"
+            file "$f" | grep -Eq 'statically linked|static-pie linked' || { echo "::error::$b is not static"; exit 1; }
+          done
+      - name: Reproducible
+        if: ${{ !matrix.cross }}
+        run: |
+          set -euo pipefail
+          # A second, independent build from another directory must be byte-identical.
+          other="$RUNNER_TEMP/rebuild"
+          git worktree add --detach "$other" HEAD
+          pkgs=()
+          for b in $BINS; do pkgs+=(-p "$b"); done
+          (
+            cd "$other"
+            export RUSTFLAGS="-C target-feature=+crt-static -C strip=symbols --remap-path-prefix=$other=/build/courier-ftp --remap-path-prefix=$HOME/.cargo=/cargo"
+            CARGO_TARGET_DIR="$RUNNER_TEMP/rebuild-target" cargo build --locked --release "${pkgs[@]}" --target "$TARGET"
+          )
+          for b in $BINS; do
+            a="target/$TARGET/release/$b"
+            b2="$RUNNER_TEMP/rebuild-target/$TARGET/release/$b"
+            sha256sum "$a" "$b2"
+            cmp "$a" "$b2" || { echo "::error::$b is not reproducible"; exit 1; }
+          done
+      - uses: actions/download-artifact@v4
+        if: needs.meta.outputs.has-generate == 'true'
+        with:
+          name: courier-ftp-assets
+          path: assets
+      - name: Placeholder assets (dry run before T77)
+        if: needs.meta.outputs.has-generate != 'true'
+        run: |
+          mkdir -p assets/man assets/completions
+          printf '.TH COURIER-FTP 1\n.SH NAME\ncourier-ftp \\- terminal FTP/SFTP client (placeholder until T77)\n' > assets/man/courier-ftp.1
+          echo "::warning::courier-ftp generate does not exist yet (T77); packaging a placeholder man page"
       - name: Package
-        shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
-
-          BINARY="${BINARY_NAME}${{ matrix.binary-postfix }}"
-          RELEASE_NAME="${BINARY_NAME}-${GITHUB_REF#refs/tags/}-${{ matrix.os-name }}-${{ matrix.architecture }}"
-
-          tar czvf "$RELEASE_NAME.tar.gz" "$BINARY"
-
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            certutil -hashfile "$RELEASE_NAME.tar.gz" sha256 | grep -E '[A-Fa-f0-9]{64}' > "$RELEASE_NAME.sha256"
-          else
-            shasum -a 256 "$RELEASE_NAME.tar.gz" > "$RELEASE_NAME.sha256"
+          set -euo pipefail
+          r="target/$TARGET/release"
+          scripts/release-package.sh courier-ftp "$VERSION" linux-${{ matrix.arch }} "$r/courier-ftp" dist assets
+          mkdir -p image
+          if [[ "$HAS_SERVER" == true ]]; then
+            scripts/release-package.sh courier-ftp-server "$VERSION" linux-${{ matrix.arch }} "$r/courier-ftp-server" dist
+            # The bare server binary for the image build.
+            arch=$([[ ${{ matrix.arch }} == x86_64 ]] && echo amd64 || echo arm64)
+            install -m 0755 "$r/courier-ftp-server" "image/courier-ftp-server-$arch"
           fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-${{ matrix.arch }}
+          path: dist
+      - uses: actions/upload-artifact@v4
+        if: needs.meta.outputs.has-server == 'true'
+        with:
+          name: image-linux-${{ matrix.arch }}
+          path: image
 
-      - name: Release assets
+  macos:
+    name: macOS universal
+    needs: [meta, assets]
+    if: ${{ !cancelled() && needs.meta.result == 'success' && needs.assets.result != 'failure' }}
+    runs-on: macos-14
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.meta.outputs.source-date-epoch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Build both architectures
+        run: |
+          set -euo pipefail
+          export RUSTFLAGS="-C strip=symbols --remap-path-prefix=$GITHUB_WORKSPACE=/build/courier-ftp --remap-path-prefix=$HOME/.cargo=/cargo"
+          for t in x86_64-apple-darwin aarch64-apple-darwin; do
+            cargo build --locked --release -p courier-ftp --target "$t"
+          done
+      - name: lipo
+        run: |
+          set -euo pipefail
+          mkdir -p universal
+          lipo -create -output universal/courier-ftp \
+            target/x86_64-apple-darwin/release/courier-ftp \
+            target/aarch64-apple-darwin/release/courier-ftp
+          lipo -info universal/courier-ftp
+          lipo -info universal/courier-ftp | grep -q x86_64
+          lipo -info universal/courier-ftp | grep -q arm64
+      - name: Sign and notarize (when the secrets exist)
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APPLE_CERTIFICATE_P12" || -z "$APPLE_SIGNING_IDENTITY" ]]; then
+            echo "::notice::no signing certificate; the macOS binary is unsigned"
+            exit 0
+          fi
+          kc="$RUNNER_TEMP/build.keychain"
+          security create-keychain -p ci "$kc"
+          security default-keychain -s "$kc"
+          security unlock-keychain -p ci "$kc"
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode >"$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$kc" >/dev/null
+          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" universal/courier-ftp
+          codesign --verify --verbose universal/courier-ftp
+          if [[ -n "$APPLE_NOTARY_KEY" ]]; then
+            echo "$APPLE_NOTARY_KEY" >"$RUNNER_TEMP/notary.p8"
+            ditto -c -k universal/courier-ftp "$RUNNER_TEMP/courier-ftp.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/courier-ftp.zip" --wait \
+              --key "$RUNNER_TEMP/notary.p8" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER"
+          fi
+      - uses: actions/download-artifact@v4
+        if: needs.meta.outputs.has-generate == 'true'
+        with:
+          name: courier-ftp-assets
+          path: assets
+      - name: Placeholder assets (dry run before T77)
+        if: needs.meta.outputs.has-generate != 'true'
+        run: |
+          mkdir -p assets/man assets/completions
+          printf '.TH COURIER-FTP 1\n.SH NAME\ncourier-ftp \\- terminal FTP/SFTP client (placeholder until T77)\n' > assets/man/courier-ftp.1
+      - name: Package
+        run: |
+          set -euo pipefail
+          brew list gnu-tar >/dev/null 2>&1 || brew install gnu-tar
+          scripts/release-package.sh courier-ftp "$VERSION" macos-universal universal/courier-ftp dist assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos-universal
+          path: dist
+
+  windows:
+    name: Windows x86_64
+    needs: [meta, assets]
+    if: ${{ !cancelled() && needs.meta.result == 'success' && needs.assets.result != 'failure' }}
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.meta.outputs.source-date-epoch }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Disable CRLF conversion
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Build
+        run: cargo build --locked --release -p courier-ftp --target x86_64-pc-windows-msvc
+      - uses: actions/download-artifact@v4
+        if: needs.meta.outputs.has-generate == 'true'
+        with:
+          name: courier-ftp-assets
+          path: assets
+      - name: Placeholder assets (dry run before T77)
+        if: needs.meta.outputs.has-generate != 'true'
+        run: |
+          mkdir -p assets/man assets/completions
+          printf '.TH COURIER-FTP 1\n.SH NAME\ncourier-ftp \\- terminal FTP/SFTP client (placeholder until T77)\n' > assets/man/courier-ftp.1
+      - name: Package
+        run: |
+          scripts/release-package.sh courier-ftp "$VERSION" windows-x86_64 \
+            target/x86_64-pc-windows-msvc/release/courier-ftp.exe dist assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows-x86_64
+          path: dist
+
+  image:
+    name: Server image (amd64 + arm64)
+    needs: [meta, linux]
+    if: ${{ !cancelled() && needs.linux.result == 'success' && needs.meta.outputs.has-server-image == 'true' && needs.meta.outputs.has-server == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/courier-ftp-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-linux-*
+          merge-multiple: true
+          path: ctx/dist
+      - name: Context
+        run: |
+          set -euo pipefail
+          chmod 0755 ctx/dist/*
+          ls -l ctx/dist
+          cp deploy/Dockerfile.server.release ctx/Dockerfile
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Smoke test each architecture
+        env:
+          # CI-only, public test value (hex, 32 bytes); protects nothing.
+          COURIER_SERVER_SECRET: c1c1c1c1000102030405060708090a0b0c0d0e0f101112131415161718191a1b
+          COURIER_PUBLIC_URL: http://localhost:8080
+        run: |
+          set -euo pipefail
+          compose=(docker compose -f deploy/docker-compose.yml)
+          for arch in amd64 arm64; do
+            docker buildx build --platform "linux/$arch" --load \
+              --build-arg VERSION="$VERSION" -t courier-ftp-server:local ctx
+            docker run --rm --platform "linux/$arch" courier-ftp-server:local --version | grep -F "$VERSION"
+            # The compose stack with this image must report healthy. Only the server runs
+            # as $arch (emulated for arm64); PostgreSQL stays native.
+            printf 'services:\n  courier-ftp-server:\n    platform: linux/%s\n' "$arch" > "$RUNNER_TEMP/platform.yml"
+            docker compose -f deploy/docker-compose.yml -f "$RUNNER_TEMP/platform.yml" up -d --no-build
+            ok=false
+            for i in $(seq 1 120); do
+              status="$(docker inspect --format '{{.State.Health.Status}}' "$("${compose[@]}" ps -q courier-ftp-server)" || true)"
+              if [[ "$status" == healthy ]]; then ok=true; break; fi
+              sleep 2
+            done
+            "${compose[@]}" logs courier-ftp-server | tail -20
+            if ! $ok; then
+              cid="$("${compose[@]}" ps -q courier-ftp-server)"
+              echo "::group::$arch health diagnostics"
+              docker inspect --format '{{json .State.Health}}' "$cid" || true
+              docker inspect --format '{{json .Config.Healthcheck}} env={{json .Config.Env}}' "$cid" || true
+              curl -sS -m 5 -i http://localhost:8080/healthz || true
+              echo "::endgroup::"
+            fi
+            "${compose[@]}" down -v
+            $ok || { echo "::error::$arch container never became healthy"; exit 1; }
+          done
+      - name: Log in to ghcr.io
+        if: needs.meta.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push
+        if: needs.meta.outputs.publish == 'true'
+        run: |
+          docker buildx build --platform linux/amd64,linux/arm64 --push \
+            --build-arg VERSION="$VERSION" \
+            --label org.opencontainers.image.source="https://github.com/${{ github.repository }}" \
+            -t "$IMAGE:$VERSION" -t "$IMAGE:latest" ctx
+
+  release:
+    name: GitHub release
+    needs: [meta, linux, macos, windows, image]
+    # `image` (and `assets` upstream) are skipped until T86/T77.
+    if: always() && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+      - name: SBOM (CycloneDX)
+        continue-on-error: true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-cyclonedx
+      - name: Write the SBOM and SHA256SUMS
+        run: |
+          set -euo pipefail
+          if command -v cargo-cyclonedx >/dev/null; then
+            cargo cyclonedx --format json --target all -p courier-ftp --override-filename "courier-ftp-$VERSION.cdx" || true
+            find crates/courier-ftp -name "courier-ftp-$VERSION.cdx.json" -exec mv {} dist/ \;
+          fi
+          cd dist
+          cat ./*.sha256 | sort -k2 >SHA256SUMS
+          sha256sum -c SHA256SUMS
+          ls -l
+      - name: Release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          if [[ -f CHANGELOG.md ]]; then
+            awk -v v="$VERSION" '
+              /^## \[/ { if (on) exit; on = index($0, "[" v "]") > 0; next }
+              on' CHANGELOG.md >notes.md
+          else
+            : >notes.md
+          fi
+          [[ -s notes.md ]] || echo "See CHANGELOG.md." >notes.md
+      - name: Upload to the release
+        if: needs.meta.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-*.tar.gz
-            target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-*.sha256
+          tag_name: v${{ env.VERSION }}
+          body_path: notes.md
+          files: dist/*
+      - name: Keep the artifacts of a dry run
+        if: needs.meta.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dry-run
+          path: |
+            dist
+            notes.md
+
+  channels:
+    name: Package channels
+    needs: [meta, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.meta.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      SCOOP_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checksums of the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "v$VERSION" --pattern SHA256SUMS --dir release
+          curl -fsSL "https://github.com/${{ github.repository }}/archive/refs/tags/v$VERSION.tar.gz" | sha256sum | cut -d' ' -f1 >release/source.sha256
+          python3 scripts/update-packaging.py "$VERSION" release/SHA256SUMS \
+            --source-sha256 "$(cat release/source.sha256)" --out out
+      - name: AUR courier-ftp
+        if: env.AUR_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v3
+        with:
+          pkgname: courier-ftp
+          pkgbuild: out/packaging/aur/courier-ftp/PKGBUILD
+          commit_username: courier-ftp-release
+          commit_email: release@users.noreply.github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: courier-ftp ${{ env.VERSION }}
+      - name: AUR courier-ftp-bin
+        if: env.AUR_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v3
+        with:
+          pkgname: courier-ftp-bin
+          pkgbuild: out/packaging/aur/courier-ftp-bin/PKGBUILD
+          commit_username: courier-ftp-release
+          commit_email: release@users.noreply.github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: courier-ftp-bin ${{ env.VERSION }}
+      - name: Homebrew tap
+        if: env.TAP_TOKEN != ''
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/${{ github.repository_owner }}/homebrew-courier-ftp.git" tap
+          mkdir -p tap/Formula
+          cp out/packaging/homebrew/courier-ftp.rb tap/Formula/courier-ftp.rb
+          cd tap
+          git config user.name courier-ftp-release
+          git config user.email release@users.noreply.github.com
+          git add Formula/courier-ftp.rb
+          git commit -m "courier-ftp $VERSION" && git push
+      - name: Scoop bucket
+        if: env.SCOOP_TOKEN != ''
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:$SCOOP_TOKEN@github.com/${{ github.repository_owner }}/scoop-courier-ftp.git" bucket
+          mkdir -p bucket/bucket
+          cp out/packaging/scoop/courier-ftp.json bucket/bucket/courier-ftp.json
+          cd bucket
+          git config user.name courier-ftp-release
+          git config user.email release@users.noreply.github.com
+          git add bucket/courier-ftp.json
+          git commit -m "courier-ftp $VERSION" && git push

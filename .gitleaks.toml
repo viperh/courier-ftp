@@ -1,0 +1,8 @@
+# Gitleaks / compatible scanners. The e2e fixtures (T76) contain TEST-ONLY private
+# keys, certificates and CAs; they protect nothing.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "test-only e2e fixture keys and certificates"
+paths = ['''^tests/fixtures/sshd/keys/''', '''^tests/fixtures/tls/''', '''^tests/fixtures/keys/''']
