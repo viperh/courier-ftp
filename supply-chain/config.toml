@@ -870,6 +870,10 @@ criteria = "safe-to-deploy"
 version = "31.0.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.proptest]]
+version = "1.11.0"
+criteria = "safe-to-run"
+
 [[exemptions.r-efi]]
 version = "5.3.0"
 criteria = "safe-to-deploy"
@@ -881,6 +885,10 @@ criteria = "safe-to-deploy"
 [[exemptions.rand]]
 version = "0.8.8"
 criteria = "safe-to-deploy"
+
+[[exemptions.rand]]
+version = "0.9.5"
+criteria = "safe-to-run"
 
 [[exemptions.ratatui]]
 version = "0.30.2"
@@ -958,6 +966,10 @@ criteria = "safe-to-deploy"
 version = "1.0.23"
 criteria = "safe-to-deploy"
 
+[[exemptions.rusty-fork]]
+version = "0.3.1"
+criteria = "safe-to-run"
+
 [[exemptions.ryu]]
 version = "1.0.23"
 criteria = "safe-to-deploy"
@@ -968,6 +980,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.scopeguard]]
 version = "1.2.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.secrecy]]
+version = "0.10.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde]]
@@ -1199,7 +1215,7 @@ version = "2.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
-version = "1.26.0"
+version = "1.27.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.valuable]]
@@ -1385,6 +1401,22 @@ criteria = "safe-to-deploy"
 [[exemptions.yansi]]
 version = "1.0.1"
 criteria = "safe-to-run"
+
+[[exemptions.zerocopy]]
+version = "0.8.62"
+criteria = "safe-to-run"
+
+[[exemptions.zerocopy-derive]]
+version = "0.8.62"
+criteria = "safe-to-run"
+
+[[exemptions.zeroize]]
+version = "1.9.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.zeroize_derive]]
+version = "1.5.0"
+criteria = "safe-to-deploy"
 
 [[exemptions.zlib-rs]]
 version = "0.6.7"

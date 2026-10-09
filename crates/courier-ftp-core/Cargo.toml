@@ -15,12 +15,23 @@ test-util = []
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
 # (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
+directories = { workspace = true }
+encoding_rs = { workspace = true }
+percent-encoding = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
+subtle = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true, features = ["serde-well-known"] }
 tracing = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true
