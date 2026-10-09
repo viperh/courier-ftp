@@ -616,4 +616,7 @@ UI-flow tests with a real `VaultEngine` (`Argon2Cost::TEST`) and a mock backend 
 1. Default local dir is device-local (T31 §4), so on a second device the field is empty. Should the editor show the value from the device that created the site as a hint?
 
 (Resolved by the coordinator: T31 stores `Protocol { Ftp, Sftp }` + `FtpEncryption` with the
-mapping above; Site Manager keys `m`/`p`/`C`/`M`/`o` as in T51.)
+mapping above; there is no `FtpsExplicit`/`FtpsImplicit` protocol value. The former question
+whether to drop one of the two protocol fields is **resolved — keep both**: T31 stores them
+consistently (`encryption` normalised to `ExplicitIfAvailable` for SFTP on `add_site`/
+`update_site`), so they can never disagree. Site Manager keys `m`/`p`/`C`/`M`/`o`/`L` as in T51.)

@@ -393,7 +393,7 @@ No new settings keys.
   unpinned granter; granter with pending change; personal grant not self; self-grant for
   another user; creator self-grant accepted (AC8).
 - `trust::tests::safety_number_symmetric_and_format` — `^\d{5}( \d{5}){11}$`.
-- `core::vault::tests::read_only_put_refused` (AC2), `cross_vault_reference_refused` (AC10).
+- `core::vault::tests::read_only_put_refused` — `vault_permission(v) == VaultPermission::Read`; `put`/`delete`/`transfer` out of `v` → `Err(VaultError::ReadOnlyVault(v))`; `vaults()?` lists `v` with `VaultPermission::Read` (AC2); `cross_vault_reference_refused` → `Err(VaultError::CrossVaultReference(_))` (AC10).
 - `core::sites::tests::effective_logon_override_fields` (AC9).
 - `server::sync::rotation::tests::commit_checks_table` — coverage, missing grant, extra
   non-member, wrong signature (AC7).

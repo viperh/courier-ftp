@@ -335,8 +335,9 @@ The message shown is `"<code> <server text>"` with control characters already re
 
 - [ ] AC1 `FtpBackend` passes `backend_conformance_tests!` (T03) against `MemFtpServer`
   (plain and explicit TLS, MLSD on and off) in the normal `cargo test` run.
-- [ ] AC2 Docker e2e: conformance suite passes against vsftpd (`plain`, `explicit-tls`),
-  proftpd (plain and mod_tls) and pure-ftpd (plain and TLS) — T76 profiles.
+- [ ] AC2 Docker e2e: conformance suite passes against the T76 profiles `vsftpd-plain`,
+  `vsftpd-explicit-tls`, `proftpd-plain`, `proftpd-explicit-tls` (mod_tls), `pureftpd-plain`
+  and `pureftpd-explicit-tls`.
 - [ ] AC3 Error mapping: missing file → `NotFound`, permission denied → `PermissionDenied`,
   existing directory on `mkdir` → `AlreadyExists`, verified on the fake server table and on
   each Docker server.
@@ -359,7 +360,7 @@ The message shown is `"<code> <server text>"` with control characters already re
   quickconnect URLs (`Protocol::Ftp` with each `FtpEncryption`; unit test on the factory),
   and `security_info()` reports `encrypted`, the TLS summary and `tls` for FTPS, `plain`
   without TLS.
-- [ ] AC12 `max-1-connection` profile: a second concurrent connect fails with
+- [ ] AC12 `vsftpd-maxconn1` profile (T76): a second concurrent connect fails with
   `Error::ConnectionLimit` (what T41 back-off detects).
 - [ ] AC13 CI gates (T00) pass, incl. `e2e` and `layering`.
 - [ ] AC14 `rename(from, to, false)` onto an existing file returns `AlreadyExists` and sends
@@ -410,13 +411,16 @@ Not applicable (no UI). Listing results are snapshotted in T13.
 
 ### End-to-end tests (`courier-ftp-e2e`, `#[ignore]` + `COURIER_E2E=1`, T76)
 - `ftp_conformance_vsftpd_plain`, `ftp_conformance_vsftpd_explicit_tls`,
-  `ftp_conformance_proftpd_plain`, `ftp_conformance_proftpd_tls`,
-  `ftp_conformance_pureftpd_plain`, `ftp_conformance_pureftpd_tls`. AC2.
+  `ftp_conformance_proftpd_plain`, `ftp_conformance_proftpd_explicit_tls`,
+  `ftp_conformance_pureftpd_plain`, `ftp_conformance_pureftpd_explicit_tls` — one per T76
+  profile `vsftpd-plain`, `vsftpd-explicit-tls`, `proftpd-plain`, `proftpd-explicit-tls`,
+  `pureftpd-plain`, `pureftpd-explicit-tls`. AC2.
 - `ftp_error_mapping_on_each_server` — missing file, read-only directory, existing dir. AC3.
-- `ftp_listing_matches_server_tree_mlsd_and_list` (proftpd, pure-ftpd with `use_mlsd`
-  on/off; vsftpd LIST). AC5.
-- `ftp_preserve_timestamps_proftpd_mfmt`, `ftp_preserve_timestamps_vsftpd_mdtm`. AC7.
-- `ftp_max_one_connection_second_connect_is_connection_limit`. AC12.
+- `ftp_listing_matches_server_tree_mlsd_and_list` (`proftpd-plain`, `pureftpd-plain` with
+  `use_mlsd` on/off; `vsftpd-plain` LIST). AC5.
+- `ftp_preserve_timestamps_proftpd_mfmt`, `ftp_preserve_timestamps_vsftpd_mdtm` (`proftpd-plain`,
+  `vsftpd-plain`). AC7.
+- `ftp_max_one_connection_second_connect_is_connection_limit` (`vsftpd-maxconn1`). AC12.
 
 ## Out of scope
 

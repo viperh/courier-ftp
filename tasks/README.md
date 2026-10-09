@@ -151,9 +151,9 @@ Within a milestone the tasks are listed in a valid order (each task after its ha
 1. [T46 Directory listing cache](46-listing-cache.md)
 1. [T51 Keybindings (hybrid)](51-keybindings.md)
 1. [T52 Dialog and form framework](52-dialog-framework.md)
-1. [T57 Status bar](57-status-bar.md)
 1. [T76 Test strategy and e2e harness (sverb parity)](76-integration-test-harness.md)
 1. [T55 Message log pane](55-message-log-pane.md)
+1. [T57 Status bar](57-status-bar.md)
 1. [T53 File list pane](53-file-list-pane.md)
 
 ### M2 — Vault and SFTP

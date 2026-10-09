@@ -210,7 +210,7 @@ and `ctrl-j` (is line feed; the queue toggle is `ctrl-x j`).
 | `ctrl-z` | `Suspend` | Suspend to the shell (Unix) | General | T50 |
 | `g r` | `Redraw` | Clear and redraw the screen | General | T50 |
 | `ctrl-c` | `Cancel` | Cancel the focused pane's running operation | General | T50 |
-| `f9` | `Settings` | Settings | General | T68 |
+| `f9` | `Settings` | Settings (unit action, opens at the first section; T68 additionally uses the internal message `OpenSettingsAt(SectionId)` to open at a given section — an internal `#[serde(skip)]` variant, not a key binding, not in `BINDABLE`) | General | T68 |
 | `tab` | `FocusOtherSide` | Switch between local and remote list | Focus | T50 |
 | `backtab` | `FocusNextRegion` | Focus next region (log, trees, lists, queue) | Focus | T50 |
 | `g l` | `FocusLog` | Focus message log | Focus | T50 |
@@ -399,6 +399,7 @@ table.
 | `m` / `p` | `SmMark` / `SmPaste` | Mark for move / move the marked item here | T59 |
 | `C` / `M` | `SmCopyToVault` / `SmMoveToVault` | Copy / move to another vault (team vaults, T89/T90 stage B; "not available yet" before) | T59 |
 | `/` | `SmFind` | Filter | T59 |
+| `L` | `SmCredentialOverride` | My login for this site (team vaults; "not available yet" before T90) | T90 |
 | `ctrl-s` | `SmSave` | Save the draft | T59 |
 | `i` / `E` | `SmImport` / `SmExport` | Import / export | T59 |
 | `[`, `ctrl-pageup` / `]`, `ctrl-pagedown` | `SmPrevTab` / `SmNextTab` | Editor tab | T59 |
@@ -572,9 +573,9 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 - `ctrl_h_and_ctrl_j_unbound_in_every_mode` — no default sequence in any mode contains `ctrl-h` or `ctrl-j`. AC5.
 - `ctrl_x_table_matches_spec` — `continuations(Normal, [ctrl-x])` equals the 36-entry table (key → action) exactly. AC12.
 - `tab_and_focus_region_defaults` — `alt-3`/`g 3` → `GoToTab3`, `g t`/`g T` → `NextTab`/`PrevTab`, `ctrl-x 6` → `FocusRegion6`, and `FocusRegion6` focuses `Log` in `AppHarness`. AC12.
-- `site_manager_mode_defaults` — `o`/`enter` → `SmConnect`, `m`/`p` → `SmMark`/`SmPaste`, `C`/`M` → `SmCopyToVault`/`SmMoveToVault`; chain `SiteManager → [SiteManager]`. AC12.
+- `site_manager_mode_defaults` — `o`/`enter` → `SmConnect`, `m`/`p` → `SmMark`/`SmPaste`, `C`/`M` → `SmCopyToVault`/`SmMoveToVault`, `L` → `SmCredentialOverride` (and `l` stays `TreeExpand`); chain `SiteManager → [SiteManager]`. AC12.
 - `every_bindable_action_has_portable_default` — AC1.
-- `registry_matches_enum` — every `Action` variant name (strum `VariantNames`) is in `BINDABLE` or in the internal list, and every `BINDABLE` name deserialises. AC9.
+- `registry_matches_enum` — every `Action` variant name (strum `VariantNames`) is in `BINDABLE` or in the internal list, and every `BINDABLE` name deserialises; `f9` → `Settings` in `Normal`, and `OpenSettingsAt` is internal (`meta()` is `None`, `"OpenSettingsAt"` in a user keymap → `UnknownAction`). AC9.
 - `display_problem_lines` — the four example lines in Errors. AC3.
 
 ### Property / fuzz tests

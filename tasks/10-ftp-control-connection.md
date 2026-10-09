@@ -571,8 +571,8 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 - [ ] AC14 Keep-alive: `noop` sends `NOOP`; `random` sends only `NOOP`, `PWD` or `TYPE`
   (restoring the current type), all three seen over 100 seeded calls; nothing is sent
   while a transfer is open.
-- [ ] AC15 Docker e2e: login + negotiate succeed against vsftpd `plain` and `anonymous`,
-  proftpd and pure-ftpd profiles (T76); FEAT of proftpd/pure-ftpd shows `mlsd = true`,
+- [ ] AC15 Docker e2e: login + negotiate succeed against the T76 profiles `vsftpd-plain`,
+  `vsftpd-anonymous`, `proftpd-plain` and `pureftpd-plain`; FEAT of proftpd/pure-ftpd shows `mlsd = true`,
   vsftpd `mlsd = false`.
 - [ ] AC16 CI gates (T00): `fmt`, `clippy -D warnings`, `docs`, `test-local-only`, `test-os`,
   `layering` (`cargo tree -p courier-ftp-proto-ftp -i ratatui` empty), `fuzz` pass.
@@ -637,10 +637,11 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 
 ### End-to-end tests (`courier-ftp-e2e`, `#[ignore]` + `COURIER_E2E=1`, T76)
 - `ftp_control_login_vsftpd_plain`, `ftp_control_login_vsftpd_anonymous`,
-  `ftp_control_login_proftpd`, `ftp_control_login_pureftpd` — connect, login, negotiate,
+  `ftp_control_login_proftpd`, `ftp_control_login_pureftpd` — T76 profiles `vsftpd-plain`,
+  `vsftpd-anonymous`, `proftpd-plain`, `pureftpd-plain`; connect, login, negotiate,
   `PWD`, `NOOP`, `QUIT`; assert `Features` per server (vsftpd: no MLSD; proftpd and
   pure-ftpd: MLSD + MFMT). AC15.
-- `ftp_control_wrong_password_is_auth_error` (vsftpd `plain`). AC5.
+- `ftp_control_wrong_password_is_auth_error` (`vsftpd-plain`). AC5.
 
 ## Out of scope
 

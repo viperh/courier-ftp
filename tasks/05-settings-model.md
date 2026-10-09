@@ -139,8 +139,8 @@ definitions (fields and serde exactly as T63 specifies) are created by this task
 ```rust
 /// One entry of `editing.associations`. First match wins (T63).
 pub struct Association { pub pattern: String /* globset glob */, pub command: String, pub terminal: bool }
-/// `editing.editor` (T63). JSON: `"Auto"` or `{"Command":{"command":"vim","terminal":true}}`.
-#[derive(Default)]
+/// `editing.editor` (T63). JSON (snake_case): `"auto"` or `{"command":{"command":"vim","terminal":true}}`.
+#[derive(Default)] #[serde(rename_all = "snake_case")]
 pub enum EditorChoice { #[default] Auto, Command { command: String, terminal: bool } }
 ```
 
@@ -171,8 +171,8 @@ the full table. Then `validate()`.
 **Validation rules** (`validate`): each failing field is reset to its default and a warning
 is added. Ranges are in the tables below; additionally:
 - `ftp.active_port_range`: `1024 ≤ min ≤ max ≤ 65535`.
-- `ftp.active_external_ip`: `from_url` needs a URL starting with `http://` or `https://`
-  (≤ 512 chars); `fixed` must be a valid IP (enforced by deserialisation); otherwise `auto`.
+- `ftp.active_external_ip`: `from_url` needs a URL starting with `http://` (≤ 512 chars;
+  `https://` is rejected because T07 `http_get_small` is http-only, used by T11/T72); `fixed` must be a valid IP (enforced by deserialisation); otherwise `auto`.
 - `proxy.generic` and `proxy.ftp_proxy` both not `none` → warning, `proxy.ftp_proxy.kind`
   reset to `none` (T15). A proxy with `kind ≠ none` needs a non-empty valid host
   (`ServerAddress` host rules) else its kind is reset to `none`.
@@ -353,7 +353,7 @@ referenced by `password_ref`; the binary resolves them when building `ConnectInf
 #### `editing`
 | Key | Type | Default | Rule | Owner |
 |---|---|---|---|---|
-| `editor` | EditorChoice | `"Auto"` | `Auto` = `$VISUAL`, `$EDITOR`, then the platform default; `Command { command, terminal }` | T63 |
+| `editor` | EditorChoice | `"auto"` | `Auto` = `$VISUAL`, `$EDITOR`, then the platform default; `Command { command, terminal }` | T63 |
 | `associations` | Vec\<Association\> | [] | first match wins; ≤ 256 entries | T63 |
 | `watch_and_prompt_upload` | bool | true | — | T63 |
 | `max_size_mib` | u32 | 50 | 0–10240; larger files need confirmation; 0 = never ask | T63 |
@@ -473,13 +473,13 @@ The server URL and tokens are not settings (T87 stores them in `sync_state`).
 - `default_settings_match_registry_tables` — spot-checks every key's default (one assert per key), including `ftp.active_no_external_ip_on_local = true`, `ftp.send_keepalive_command = noop`, `sftp.max_outstanding_requests = 64`, `sftp.request_size = 32768`, `sftp.use_openssh_known_hosts = true`, `interface.connect_target = ask`, `interface.unicode_symbols = auto`, `editing.editor = Auto`, `vault.argon2_cost = standard`, `vault.auto_lock_minutes = 15`, `proxy.ftp_proxy.custom_script = ""`; plus `settings_schema_lists_registry_keys` asserting every T05-owned key of AC11 appears in `Settings::json_schema()`. (AC1, AC11)
 - `keepalive_command_accepts_only_noop_and_random` — `"noop"`, `"random"` load; `"pwd"` → warning, default `noop`. (AC1, AC3)
 - `sftp_ranges_follow_t22` — `max_outstanding_requests` 0 and 257, `request_size` 4095 and 261121 → one warning each, default; 256 and 261120 accepted. (AC3, AC11)
-- `editor_choice_serde` — `"Auto"` and `{"Command":{"command":"vim","terminal":true}}` round-trip; empty command → `Auto` + warning. (AC1, AC3)
+- `editor_choice_serde` — `"auto"` and `{"command":{"command":"vim","terminal":true}}` round-trip (snake_case; `"Auto"` rejected → warning, default); empty command → `Auto` + warning. (AC1, AC3)
 - `connect_target_and_sort_keys` — `{"interface":{"connect_target":"new_tab","sort":{"remote":{"column":"size","descending":true}}}}` changes only those leaves. (AC2)
 - `vault_auto_lock_max_1440` — 1441 → warning, default 15. (AC3)
 - `empty_and_null_settings_give_defaults` — `{}`, `null`, missing key. (AC2)
 - `partial_override_changes_only_that_leaf` — `{"connection":{"timeout_secs":30}}`. (AC2)
 - `wrong_type_leaf_is_dropped_with_warning` — `{"transfers":{"max_concurrent":"many"}}` → default 4, warning path `transfers.max_concurrent`. (AC3)
-- `validation_table` — one row per rule: port range (6000,5000), max_concurrent 0 and 17, timeout 2, replacement `/`, active_external_ip `{"from-url":"ftp://x"}`, both proxies set, proxy kind without host, date format `%Q`, relative log_file. Each: one warning, field = default. (AC3)
+- `validation_table` — one row per rule: port range (6000,5000), max_concurrent 0 and 17, timeout 2, replacement `/`, active_external_ip `{"from_url":"ftp://x"}` and `{"from_url":"https://x"}`, both proxies set, proxy kind without host, date format `%Q`, relative log_file. Each: one warning, field = default. (AC3)
 - `unknown_key_warns` and `password_key_gets_vault_hint`. (AC4)
 - `ascii_extensions_are_normalised` — `[".PHP","php","a b"]` → `["php"]` + one warning. (AC3)
 - `decide_transfer_type_table` — `index.HTML`→Ascii, `photo.jpg`→Binary, `.bashrc`→Ascii, `Makefile`→Ascii, both flags off → Binary, choice Binary overrides, default_type Binary overrides Auto. (AC7)

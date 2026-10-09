@@ -61,7 +61,7 @@ pub enum SyncError {
     #[error("malformed server response: {0}")] Protocol(String),
     #[error("crypto: {0}")] Crypto(#[from] courier_ftp_crypto::Error),
     #[error("local database: {0}")] Store(#[from] courier_ftp_store::StoreError),
-    #[error("vault: {0}")] Vault(#[from] courier_ftp_core::Error),
+    #[error("vault: {0}")] Vault(#[from] courier_ftp_core::vault::VaultError),  // T30 sync-facing methods return VaultError
     #[error("cancelled")] Cancelled,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
