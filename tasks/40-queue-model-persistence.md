@@ -15,13 +15,14 @@ file. A 100 000-item queue stays fast to edit and to render.
 ## Context
 
 - Before: T02 gives `RemotePath`, `LocalPath`, `Entry`, `Timestamp`, `ServerAddress`,
-  `Credentials`, `core::Error`; T03 gives `ConnectInfo` and `WriteMode`; T05 gives
+  `ServerIdentity`, `Direction`, `Credentials`, `core::Error`; T04 gives `TransferId` and
+  `CoreEvent::QueueChanged`; T03 gives `ConnectInfo` and `WriteMode`; T05 gives
   `Settings` with `queue.persist`, `transfers.*`, and the enums `ExistsAction` and
   `TransferTypeChoice`; T30 gives `VaultEngine` and the LMK; T82 gives the
   `device_blobs(name, envelope)` table; T81 gives `ItemId` (site ids are item ids).
 - After: T41 runs the queue (scheduler index, state transitions, `completed` ranges);
   T41b stores segment progress in `completed`; T42 reads `on_exists`; T43 expands
-  directory placeholders in place; T45 uses `QueueStats`; T56 renders rows from
+  directory placeholders in place; T41 reads `QueueCounts` for `EngineStats`; T56 renders rows from
   `Queue::rows`; T62 builds items (`build_transfer_items`) and calls `Queue::add_batch`.
 
 ## Technical specification
@@ -33,16 +34,13 @@ Module `courier_ftp_core::queue` (`mod.rs`, `item.rs`, `ranges.rs`, `index.rs`,
 `persist.rs` and `export.rs`.
 
 ```rust
-/// Unique id of a queue item for the lifetime of the queue (survives restarts).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct TransferId(pub u64);
+// Reused, not redefined: `courier_ftp_core::events::TransferId` (T04) and
+// `courier_ftp_core::model::Direction` (T02). Ids are unique for the lifetime of the
+// queue and survive restarts (`next_id` is persisted).
 impl TransferId {
     /// Placeholder used by callers that build items; `Queue::add*` assigns the real id.
     pub const UNASSIGNED: TransferId = TransferId(0);
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Direction { Download, Upload }
 
 /// Ordered: `Lowest < … < Highest`. The scheduler starts higher priorities first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -67,7 +65,8 @@ impl QueueServer {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum GroupKey {
     Site(ItemId),
-    Adhoc { protocol: Protocol, host_lower: String, port: u16, user: String },
+    /// `ServerAddress::identity()` (T02): protocol + lowercase host + port + user.
+    Adhoc(ServerIdentity),
 }
 
 /// Opaque handle of a server group inside one `Queue` (index into a slab, not persisted).
@@ -166,7 +165,7 @@ pub enum QueueRow<'a> {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct QueueStats {
+pub struct QueueCounts {
     pub queued_files: u64, pub queued_dirs: u64,
     pub queued_bytes: u64, pub unknown_size_files: u64,
     pub active: u32, pub paused: u64, pub failed: u64, pub successful: u64,
@@ -174,6 +173,8 @@ pub struct QueueStats {
 
 pub struct RemoveResult { pub removed: Vec<TransferId>, pub active: Vec<TransferId> }
 
+/// Not `Sync`-shared directly: wrap in `SharedQueue`. Emits no events itself; whoever
+/// mutates it (UI, engine) sends `CoreEvent::QueueChanged` (T04) afterwards.
 pub struct Queue { /* see Behaviour */ }
 pub type SharedQueue = Arc<std::sync::Mutex<Queue>>;
 
@@ -198,7 +199,7 @@ impl Queue {
 
     // --- read side ---
     pub fn get(&self, id: TransferId) -> Option<&QueueItem>;
-    pub fn stats(&self) -> &QueueStats;
+    pub fn counts(&self) -> &QueueCounts;
     pub fn row_count(&self, tab: QueueTab, collapsed: &HashSet<GroupId>) -> usize;
     pub fn rows(&self, tab: QueueTab, collapsed: &HashSet<GroupId>, range: Range<usize>) -> Vec<QueueRow<'_>>;
     pub fn groups(&self) -> impl Iterator<Item = (GroupId, &QueueServer)>;
@@ -219,7 +220,7 @@ Persistence (`queue::persist`):
 
 ```rust
 /// Device-local encrypted blob storage. Implemented by `VaultEngine` (T30) on top of
-/// `device_blobs` (T82), sealed with the LMK. Returns `Error::Vault(Locked)` when locked.
+/// `device_blobs` (T82), sealed with the LMK. Returns `Error::VaultLocked` when locked.
 #[async_trait]
 pub trait DeviceBlobStore: Send + Sync {
     async fn put_blob(&self, name: &str, plaintext: Zeroizing<Vec<u8>>) -> Result<()>;
@@ -289,7 +290,7 @@ host are two groups (documented limitation).
   each allowed set and returns the best: O(G · log n), G = number of groups × 2.
 - `failed: VecDeque<TransferId>` (newest last, unbounded); `successful:
   VecDeque<TransferId>` capped at `queue.max_successful` (oldest dropped from memory).
-- `QueueStats` counters adjusted incrementally (never recomputed by a scan).
+- `QueueCounts` counters adjusted incrementally (never recomputed by a scan).
 
 **State transitions** (any other transition is a bug: `debug_assert!` + `tracing::warn!`,
 ignored in release):
@@ -320,7 +321,7 @@ the placeholder, then removes the placeholder. Returns the new ids.
 **Successful list cap.** `queue.max_successful` (default 1000; 0 = keep none). Skipped
 items (`DoneOutcome::Skipped`) go to the successful list too, so the user sees them.
 
-**Statistics.** `queued_bytes` sums known sizes of `File` items that are Queued,
+**Counts.** `queued_bytes` sums known sizes of `File` items that are Queued,
 Waiting, Paused or Active (`size − completed.covered()` for partial ones);
 `unknown_size_files` counts files without a size. The ETA shown in the status bar and
 queue header is computed by T41 (`EngineStats`) from this and the engine speed.
@@ -336,7 +337,7 @@ queue header is computed by T41 (`EngineStats`) from this and the engine speed.
    `Waiting` → `Queued`. `Paused`, `Failed`, `Done` kept as is.
 4. On startup (`load_queue`, after vault unlock) the queue is loaded **but not started**.
 5. Vault locked or "continue without vault" (T30): `put_blob` fails with
-   `Error::Vault(Locked)`; the persister keeps the dirty flag and retries every 10 s;
+   `Error::VaultLocked`; the persister keeps the dirty flag and retries every 10 s;
    `has_unsaved_changes()` is true so the UI warns on quit (T50/T60: "The transfer queue
    can't be saved while the vault is locked. Quit anyway?").
 6. Quick-connect (`Adhoc`) items store their password inside the encrypted snapshot when
@@ -365,7 +366,7 @@ length 4096 bytes per path (longer items rejected by T62/T43 before adding).
 
 ### Data formats and configuration
 
-Settings (T05; this task adds `queue.max_successful`):
+Settings (both already listed in T05 with this task as owner):
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
@@ -422,7 +423,7 @@ The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output
 | Situation | Error | User sees |
 |---|---|---|
 | Queue full | `Error::InvalidInput` | status message "Queue is full (1 000 000 items)" |
-| Vault locked on save | `Error::Vault(Locked)` | quit warning (above); no error popup |
+| Vault locked on save | `Error::VaultLocked` | quit warning (above); no error popup |
 | Snapshot can't be decoded / decompressed too large | `Error::InvalidInput("saved queue is corrupt")` | message dialog once; blob renamed to `transfer-queue.corrupt-<unix>` via `put_blob` + `delete_blob`; empty queue |
 | Newer snapshot version | none (warning) | message once (above) |
 | Import file invalid JSON / wrong format / too large | `Error::InvalidInput("not a courier-ftp queue file: …")` | error dialog |
@@ -488,11 +489,11 @@ The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output
 - `fn successful_list_capped_oldest_dropped` — cap 3, finish 5 (AC1).
 - `fn replace_placeholder_inserts_children_in_place_and_inherits_options` (AC1).
 - `fn remove_source_dir_runnable_only_after_children_leave` (AC1).
-- `fn stats_track_bytes_with_partial_completion` (AC1).
+- `fn counts_track_bytes_with_partial_completion` (AC1).
 - `fn debug_output_has_no_password` — ad-hoc item with canary password (AC5).
 
 ### Property / fuzz tests
-- `proptest fn queue_matches_reference_model` — random sequences of add/insert/move/priority/pause/resume/remove/start/finish/fail/requeue applied to `Queue` and to a naive `Vec`-based model; after each op `rows`, `stats` and `next_runnable` agree (AC1, AC2).
+- `proptest fn queue_matches_reference_model` — random sequences of add/insert/move/priority/pause/resume/remove/start/finish/fail/requeue applied to `Queue` and to a naive `Vec`-based model; after each op `rows`, `counts` and `next_runnable` agree (AC1, AC2).
 - `proptest fn range_set_invariants` — sorted, disjoint, non-adjacent; `covered + Σmissing == total` (AC1).
 - `proptest fn snapshot_roundtrip` — random queues encode/decode to equal values (AC3).
 - `proptest fn import_never_panics` — arbitrary bytes and mutated valid exports (AC7); same body as fuzz target `queue_import_json` (T91).
