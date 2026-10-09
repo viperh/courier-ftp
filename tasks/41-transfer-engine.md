@@ -181,6 +181,7 @@ pub trait LocalFs: Send + Sync {
 pub trait LocalWriter: Send {
     async fn write_all(&mut self, buf: &[u8]) -> Result<()>;            // buffered (1 MiB)
     async fn set_len(&mut self, len: u64) -> Result<()>;
+    async fn allocate(&mut self, len: u64) -> Result<()>;                // T42 preallocation
     async fn sync_data(&mut self) -> Result<()>;
     async fn finish(self: Box<Self>) -> Result<()>;                      // flush + close
 }

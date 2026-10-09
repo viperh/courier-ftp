@@ -294,9 +294,10 @@ the key file content as imported, ≤ 64 KiB); `format` text (`openssh`, `pem`, 
 derived from an encrypted key without a `.pub` file); `passphrase` text (secret, optional);
 `comment` text (optional); `added_at` UnixMillis.
 
-**`proxy-credential`** (view `ProxyCredentialItem`, this task; referenced from settings by id,
-T05/T07/T15): `label` text; `scope` text `generic`/`ftp-proxy`; `user` text; `password` text
-(secret, optional).
+**`proxy-credential`** (view `ProxyCredentialItem`, this task; referenced by T05
+`proxy.generic.credential_id` / `proxy.ftp_proxy.credential_id`, used by T07/T15): `label`
+text; `scope` text `generic`/`ftp-proxy`; `password` text (secret). The proxy user name stays
+in settings (T05).
 
 **`credential-override`** (view `CredentialOverride`, T31; personal vault only, T89):
 `shared_site_id` id (required, points into a team vault); `user` text (optional);
