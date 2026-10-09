@@ -1,0 +1,5 @@
+QSYS           12288 01/30/24 08:00:00 *LIB       PRODLIB.LIB
+QPGMR          77824 01/30/24 08:00:00 *FILE      PRODLIB.LIB/QRPGSRC.FILE
+                                       *MEM       PRODLIB.LIB/QRPGSRC.FILE/PGM1.MBR
+                                       *MEM       PRODLIB.LIB/QRPGSRC.FILE/PGM2.MBR
+QPGMR          65536 01/30/24 08:00:00 *PGM       PRODLIB.LIB/PGM1.PGM

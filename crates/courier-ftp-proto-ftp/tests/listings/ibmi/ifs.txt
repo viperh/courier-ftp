@@ -1,0 +1,5 @@
+BOB             8192 02/01/24 09:00:00 *DIR       home/
+BOB              512 02/01/24 09:01:30 *STMF      .profile
+BOB          1048576 02/01/24 09:02:00 *STMF      data file.csv
+QSYS            4096 02/01/24 09:03:00 *DDIR      dev/
+QDOC            8192 02/01/24 09:04:00 *FLR       QDLS/

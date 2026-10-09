@@ -1,0 +1,73 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/months-german.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: datei.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: hans
+      group: users
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: maerz.txt
+      kind: file
+      size: 100
+      modified: "2023-03-03T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: hans
+      group: users
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: mai.txt
+      kind: file
+      size: 100
+      modified: "2024-05-12T08:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: hans
+      group: users
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: oktober.txt
+      kind: file
+      size: 100
+      modified: "2023-10-01T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: hans
+      group: users
+      hidden: false
+  - line: 5
+    outcome: entry
+    entry:
+      name: dezember.txt
+      kind: file
+      size: 100
+      modified: "2023-12-24T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: hans
+      group: users
+      hidden: false
+  - line: 6
+    outcome: entry
+    entry:
+      name: mrz.txt
+      kind: file
+      size: 100
+      modified: "2023-03-03T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: hans
+      group: users
+      hidden: false

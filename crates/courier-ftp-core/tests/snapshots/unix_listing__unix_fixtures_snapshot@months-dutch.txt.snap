@@ -1,0 +1,40 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/months-dutch.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: maart.txt
+      kind: file
+      size: 100
+      modified: "2024-03-03T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: jan
+      group: users
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: mei.txt
+      kind: file
+      size: 100
+      modified: "2023-05-05T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: jan
+      group: users
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: oktober.txt
+      kind: file
+      size: 100
+      modified: "2023-10-31T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: jan
+      group: users
+      hidden: false

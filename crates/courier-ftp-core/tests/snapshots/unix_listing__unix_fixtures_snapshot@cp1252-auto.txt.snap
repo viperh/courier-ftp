@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/cp1252-auto.txt
+---
+used_fallback_encoding: true
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: café €.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: utf8-ü.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false

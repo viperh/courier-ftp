@@ -1,0 +1,6 @@
+type=dir; .
+type=dir; ..
+type=file; ../../etc/passwd
+type=file; sub/dir
+type=file; 
+type=file;size=1; ok.txt

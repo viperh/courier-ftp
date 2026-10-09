@@ -1,0 +1,4 @@
+-rw-r--r--    1 juan     users        100 ene 31 12:00 enero.txt
+-rw-r--r--    1 juan     users        100 abr  2 2023 abril.txt
+-rw-r--r--    1 juan     users        100 ago 15 2023 agosto.txt
+-rw-r--r--    1 juan     users        100 dic 24 2023 diciembre.txt

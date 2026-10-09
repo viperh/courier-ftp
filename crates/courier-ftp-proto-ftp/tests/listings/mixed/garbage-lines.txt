@@ -1,0 +1,6 @@
+this is not a listing
+drwxr-xr-x    2 alice    staff        4096 Jan 31 12:00 ok
+-rw-r--r--    1 alice    staff     99999999999999999999999 Jan 31 12:00 overflow
+
+-rw-r--r--    1 alice    staff          10 Jan 31 12:00 x/y
+?

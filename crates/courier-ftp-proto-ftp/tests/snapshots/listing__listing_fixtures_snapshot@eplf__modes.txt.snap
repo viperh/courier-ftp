@@ -1,0 +1,50 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/eplf/modes.txt
+---
+format: eplf
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: bin
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: rwxr-xr-x (755)
+    owner: ~
+    group: ~
+    hidden: false
+  - name: secret
+    kind: file
+    size: 1
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: rw------- (600)
+    owner: ~
+    group: ~
+    hidden: false
+  - name: setuid
+    kind: file
+    size: 2
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: rwsr-xr-x (4755)
+    owner: ~
+    group: ~
+    hidden: false
+  - name: bad-mode
+    kind: file
+    size: 3
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: no-mode
+    kind: file
+    size: 4
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

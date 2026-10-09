@@ -1,0 +1,18 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mixed/windows-1252-fixed.txt
+---
+format: unix
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: €uro.txt
+    kind: file
+    size: 10
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: rw-r--r-- (644)
+    owner: alice
+    group: staff
+    hidden: false
+skipped: []

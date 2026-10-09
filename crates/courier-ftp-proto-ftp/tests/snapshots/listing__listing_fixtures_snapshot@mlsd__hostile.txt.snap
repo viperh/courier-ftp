@@ -1,0 +1,27 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mlsd/hostile.txt
+---
+format: mlsd
+used_fallback_encoding: false
+skipped_count: 3
+entries:
+  - name: ok.txt
+    kind: file
+    size: 1
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped:
+  - line: 3
+    reason: HostileName
+    text: type=file; ../../etc/passwd
+  - line: 4
+    reason: HostileName
+    text: type=file; sub/dir
+  - line: 5
+    reason: HostileName
+    text: "type=file; "

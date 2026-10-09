@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/months-korean.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: 일월.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: kim
+      group: users
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: 성탄절.txt
+      kind: file
+      size: 100
+      modified: "2023-12-25T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: kim
+      group: users
+      hidden: false

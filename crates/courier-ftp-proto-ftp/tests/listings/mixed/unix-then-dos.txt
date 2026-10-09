@@ -1,0 +1,5 @@
+total 8
+drwxr-xr-x    2 alice    staff        4096 Jan 31 12:00 public_html
+01-31-24  12:00PM       <DIR>          wwwroot
+-rw-r--r--    1 alice    staff          10 Jan 31 12:00 back-to-unix.txt
++m1706702400,r,s1,	epl.txt

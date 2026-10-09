@@ -1,0 +1,133 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/gnu-ls.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: header
+  - line: 2
+    outcome: entry
+    entry:
+      name: "."
+      kind: dir
+      size: 4096
+      modified: "2024-06-14T18:22:00Z (Minute)"
+      permissions: rwxr-xr-x (755)
+      owner: alice
+      group: alice
+      hidden: true
+  - line: 3
+    outcome: entry
+    entry:
+      name: ".."
+      kind: dir
+      size: 4096
+      modified: "2023-02-01T00:00:00Z (Day)"
+      permissions: rwxr-xr-x (755)
+      owner: root
+      group: root
+      hidden: true
+  - line: 4
+    outcome: entry
+    entry:
+      name: ".bash_logout"
+      kind: file
+      size: 220
+      modified: "2022-01-06T00:00:00Z (Day)"
+      permissions: rw------- (600)
+      owner: alice
+      group: alice
+      hidden: true
+  - line: 5
+    outcome: entry
+    entry:
+      name: ".bashrc"
+      kind: file
+      size: 3771
+      modified: "2022-01-06T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: alice
+      hidden: true
+  - line: 6
+    outcome: entry
+    entry:
+      name: ".cache"
+      kind: dir
+      size: 4096
+      modified: "2023-12-24T10:01:00Z (Minute)"
+      permissions: rwx------ (700)
+      owner: alice
+      group: alice
+      hidden: true
+  - line: 7
+    outcome: entry
+    entry:
+      name: shared
+      kind: dir
+      size: 4096
+      modified: "2024-05-02T07:45:00Z (Minute)"
+      permissions: rwxrwsr-x (2775)
+      owner: alice
+      group: www
+      hidden: false
+  - line: 8
+    outcome: entry
+    entry:
+      name: tmp
+      kind: dir
+      size: 4096
+      modified: "2024-06-15T11:59:00Z (Minute)"
+      permissions: rwxrwxrwt (1777)
+      owner: root
+      group: root
+      hidden: false
+  - line: 9
+    outcome: entry
+    entry:
+      name: passwd
+      kind: file
+      size: 59976
+      modified: "2022-11-29T00:00:00Z (Day)"
+      permissions: rwsr-xr-x (4755)
+      owner: root
+      group: root
+      hidden: false
+  - line: 10
+    outcome: entry
+    entry:
+      name: tomorrow-skew.txt
+      kind: file
+      size: 0
+      modified: "2024-06-16T01:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: alice
+      hidden: false
+  - line: 11
+    outcome: entry
+    entry:
+      name: future-is-last-year.txt
+      kind: file
+      size: 1337
+      modified: "2023-06-17T01:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: alice
+      hidden: false
+  - line: 12
+    outcome: entry
+    entry:
+      name: max-u64.bin
+      kind: file
+      size: 18446744073709551615
+      modified: "2024-01-01T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: alice
+      hidden: false
+  - line: 13
+    outcome: bad-number
+    text: "-rw-r--r--  1 alice alice 18446744073709551616 Jan  1  2024 overflow.bin"

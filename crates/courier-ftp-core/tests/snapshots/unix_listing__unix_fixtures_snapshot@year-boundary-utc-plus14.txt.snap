@@ -1,0 +1,51 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/year-boundary-utc-plus14.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: dec31.txt
+      kind: file
+      size: 1
+      modified: "2024-12-30T22:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: a
+      group: b
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: jan1.txt
+      kind: file
+      size: 1
+      modified: "2024-12-31T10:15:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: a
+      group: b
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: feb29.txt
+      kind: file
+      size: 1
+      modified: "2024-02-28T22:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: a
+      group: b
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: date-only.txt
+      kind: file
+      size: 1
+      modified: "2024-01-31T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: a
+      group: b
+      hidden: false

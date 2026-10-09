@@ -1,0 +1,35 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mlsd/spec-examples.txt
+---
+format: mlsd
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: public_html
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: rwxr-xr-x (755)
+    owner: "1000"
+    group: "1000"
+    hidden: false
+  - name: a; tricky name.txt
+    kind: file
+    size: 1048576
+    modified: "2024-01-31T12:00:00.123Z (Millis)"
+    permissions: raw adfrw
+    owner: alice
+    group: ~
+    hidden: false
+  - name: www
+    kind: symlink
+    target: /var/www
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: rwxrwxrwx (777)
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

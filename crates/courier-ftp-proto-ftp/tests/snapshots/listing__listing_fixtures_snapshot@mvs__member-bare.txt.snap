@@ -1,0 +1,50 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mvs/member-bare.txt
+---
+format: mvs-member
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: ALPHA
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: BETA
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: GAMMA
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: "@DELTA"
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: "#EPS"
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

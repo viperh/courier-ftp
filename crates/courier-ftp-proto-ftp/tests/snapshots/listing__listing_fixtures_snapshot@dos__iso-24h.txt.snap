@@ -1,0 +1,50 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/dos/iso-24h.txt
+---
+format: dos
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: midnight
+    kind: dir
+    size: ~
+    modified: "2024-01-31T00:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: late.txt
+    kind: file
+    size: 42
+    modified: "2024-01-31T23:59:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: new-years-eve.txt
+    kind: file
+    size: 1024
+    modified: "2023-12-31T12:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: leap.txt
+    kind: file
+    size: 7
+    modified: "2024-02-29T06:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: big.iso
+    kind: file
+    size: 5368709120
+    modified: "2024-06-15T13:37:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

@@ -1,0 +1,64 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/iso-dates.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: header
+  - line: 2
+    outcome: entry
+    entry:
+      name: long-iso.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: iso-seconds.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:05Z (Second)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: iso-fraction.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:05.5Z (Millis)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 5
+    outcome: entry
+    entry:
+      name: zone-minus.txt
+      kind: file
+      size: 100
+      modified: "2024-02-01T04:30:00Z (Millis)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 6
+    outcome: entry
+    entry:
+      name: zone-plus
+      kind: dir
+      size: 4096
+      modified: "2023-12-30T10:00:00.999Z (Millis)"
+      permissions: rwxr-xr-x (755)
+      owner: alice
+      group: staff
+      hidden: false

@@ -1,0 +1,8 @@
+Directory SYS$SYSDEVICE:[USERS.BOB]
+
+NOTES.TXT;5               4/6        02-FEB-2024 10:00:00.00  [BOB]   (RWED,RWED,RE,)
+NOTES.TXT;4               3/6        01-FEB-2024 10:00:00.00  [BOB]   (RWED,RWED,RE,)
+NOTES.TXT;3               2/6        31-JAN-2024 10:00:00.00  [BOB]   (RWED,RWED,RE,)
+BUILD.COM;1               1/3        31-JAN-2024 09:00:00.00  [BOB]   (RWED,RWED,RE,)
+
+Total of 4 files, 10/18 blocks.

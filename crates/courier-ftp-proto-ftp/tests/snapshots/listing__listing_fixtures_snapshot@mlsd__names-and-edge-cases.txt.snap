@@ -1,0 +1,115 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mlsd/names-and-edge-cases.txt
+---
+format: mlsd
+used_fallback_encoding: false
+skipped_count: 3
+entries:
+  - name: leading space
+    kind: file
+    size: 1
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: "trailing space  "
+    kind: file
+    size: 2
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: semi;colon; and = equals
+    kind: file
+    size: 3
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: " double leading"
+    kind: file
+    size: 4
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: no-facts-at-all
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: ignored-facts.txt
+    kind: file
+    size: 5
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: upper-case-facts
+    kind: file
+    size: 6
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: bad-modify
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: month-13
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: ünïcødé 名前.txt
+    kind: file
+    size: 7
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: "null"
+    kind: other
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: pipe
+    kind: other
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped:
+  - line: 8
+    reason: BadNumber
+    text: type=file;size=99999999999999999999999; overflow
+  - line: 14
+    reason: Unrecognised
+    text: garbage line without separator
+  - line: 16
+    reason: HostileName
+    text: type=file; a/b
