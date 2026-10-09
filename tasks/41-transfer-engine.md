@@ -91,8 +91,10 @@ pub enum EngineCommand {
     QueueChanged,
     /// Settings were updated (T57 speed-limit toggle, T68): re-read `SharedSettings` now.
     SettingsChanged,
-    /// One-shot completion action for the current run (T45). `None` clears it.
+    /// One-shot completion action for the next finished run (T45). `None` clears it.
     SetCompletionOverride(Option<OnComplete>),
+    /// Disconnect every idle pooled connection now (T45 "Disconnect" action).
+    DisconnectIdle,
     /// Cancel everything, close all connections, end the task.
     Shutdown { done: oneshot::Sender<()> },
 }
