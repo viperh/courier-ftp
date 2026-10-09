@@ -1,0 +1,34 @@
+{
+  "description": "Key wrapping (aad = courier-ftp-lmk-wrap-v1 || purpose)",
+  "vectors": [
+    {
+      "kek": "7c5b4e3e97465ab7d49582831786f047f42d86864cff15299bd8a6ff323d2083",
+      "nonce": "ac25dd10a677c75ca624e92a64e428f9d0400e3bdb2a5c27",
+      "purpose": "lmk",
+      "secret": "eb0dbe16f597c131115bdb401a45b3362cf5a991ce0cc717b2237e037bfcf256",
+      "wrapped": "ac25dd10a677c75ca624e92a64e428f9d0400e3bdb2a5c27543a9fed921a6342c59d4e76823bda070bfa8303469160c6f436f3bf96c8be2fa4d52d98b6a5cd9242eb24fc170bd0ca"
+    },
+    {
+      "kek": "ef3ad450750f80158696edbc2d1a5ef546bb30f5aad00d4e359c3a9a77ecfcce",
+      "nonce": "24f3b85d55e996c6a1fa548d697eff65475fd9132d0033e8",
+      "purpose": "vault-key",
+      "purpose_vault_id": "a98f36be4fb323993fcb9564e274f1f4",
+      "secret": "3fe67f9321b7db88209b1affb297b82886469921fc167e1767a51fcccec17858",
+      "wrapped": "24f3b85d55e996c6a1fa548d697eff65475fd9132d0033e89bd9130055ce163cdad270a9aecd0305cc80e971a5d3810cef62929fd97bf70047c08c7fb329877147d8ee4d37fe9e96"
+    },
+    {
+      "kek": "1a863142ded870b81d78b04643ac761b237c5500670bd4e1d0aa1c27ca4fe091",
+      "nonce": "72e40eda5bd28bf74f4e0babec90603c7878f6a8e7f29b7d",
+      "purpose": "sync-tokens",
+      "secret": "f83eaa8a001843de18ee60072ba39901c5a39defea0c127e2fa6204bca5bda08909655563fff19891af0fcb3dfeb762c20008e272875e7332022b473508ec1baf0a2aa95a6a5",
+      "wrapped": "72e40eda5bd28bf74f4e0babec90603c7878f6a8e7f29b7d9c5b292918f6521b6d6d23df328e30de1c374580dbe292358cdc2625df325e907c510d270e379d8da64004f9df10bf3e5a5a39cf484a16addf6b1ce380e9554cc66b4788310d03210d0157e8bf2c38616fbd89e65cd0"
+    },
+    {
+      "kek": "69830ccb3542cb8c19902992dc14d4e262c35905b7a5cb4d24811b27742a8ce4",
+      "nonce": "3ccf93a1afb1f2a42266610a29d90324c042a5be75dfcd85",
+      "purpose": "device-key",
+      "secret": "5c31d83aada2dcbd2fb54814d8c9626111dff29bbcc5403c96147b38dee5dc52",
+      "wrapped": "3ccf93a1afb1f2a42266610a29d90324c042a5be75dfcd85c876e5cc5cf524c8efc7404349c6fee08d816128fd3ab33f07431316e57ea26eac4d64fbc8147da3cd2fea263d72632a"
+    }
+  ]
+}

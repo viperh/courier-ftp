@@ -1,0 +1,103 @@
+{
+  "description": "Canonical AAD / info builders",
+  "vectors": [
+    {
+      "item_id": "76680c86ff113c814d94757b27b318e2",
+      "key_version": 7,
+      "kind": "aad_item",
+      "output": "636f75726965722d6674702d6974656d2d763137fbb6b2a80434b4703cc7e024e0d86076680c86ff113c814d94757b27b318e200000007",
+      "vault_id": "37fbb6b2a80434b4703cc7e024e0d860"
+    },
+    {
+      "item_id": "76680c86ff113c814d94757b27b318e2",
+      "key_version": 3735928559,
+      "kind": "aad_item",
+      "output": "636f75726965722d6674702d6974656d2d763137fbb6b2a80434b4703cc7e024e0d86076680c86ff113c814d94757b27b318e2deadbeef",
+      "vault_id": "37fbb6b2a80434b4703cc7e024e0d860"
+    },
+    {
+      "kind": "info_item_key",
+      "output": "636f75726965722d6674702f6974656d2f7631"
+    },
+    {
+      "kind": "info_akek",
+      "output": "636f75726965722d6674702f616b656b2f7631"
+    },
+    {
+      "kind": "info_recovery_key",
+      "output": "636f75726965722d6674702f7265636f766572792f7631"
+    },
+    {
+      "key_version": 3,
+      "kind": "info_vk",
+      "output": "636f75726965722d6674702f766b2f763137fbb6b2a80434b4703cc7e024e0d86000000003",
+      "vault_id": "37fbb6b2a80434b4703cc7e024e0d860"
+    },
+    {
+      "kind": "aad_wrap",
+      "output": "636f75726965722d6674702d6c6d6b2d777261702d7631000000036c6d6b",
+      "purpose": "lmk"
+    },
+    {
+      "kind": "aad_wrap",
+      "output": "636f75726965722d6674702d6c6d6b2d777261702d7631000000097661756c742d6b657937fbb6b2a80434b4703cc7e024e0d860",
+      "purpose": "vault-key",
+      "purpose_vault_id": "37fbb6b2a80434b4703cc7e024e0d860"
+    },
+    {
+      "kind": "aad_wrap",
+      "output": "636f75726965722d6674702d6c6d6b2d777261702d76310000000b73796e632d746f6b656e73",
+      "purpose": "sync-tokens"
+    },
+    {
+      "kind": "aad_wrap",
+      "output": "636f75726965722d6674702d6c6d6b2d777261702d76310000000a6465766963652d6b6579",
+      "purpose": "device-key"
+    },
+    {
+      "kind": "aad_private_bundle",
+      "output": "636f75726965722d6674702f62756e646c652f763176680c86ff113c814d94757b27b318e201020304",
+      "user_id": "76680c86ff113c814d94757b27b318e2",
+      "version": 16909060
+    },
+    {
+      "kind": "aad_recovery_bundle",
+      "output": "636f75726965722d6674702f7265636f766572792d62756e646c652f763176680c86ff113c814d94757b27b318e2",
+      "user_id": "76680c86ff113c814d94757b27b318e2"
+    },
+    {
+      "key_version": 9,
+      "kind": "sig_grant",
+      "member_id": "76680c86ff113c814d94757b27b318e2",
+      "output": "636f75726965722d6674702f6772616e742f763137fbb6b2a80434b4703cc7e024e0d86076680c86ff113c814d94757b27b318e20000000900000058db11c5fc94890fe3a17eaec2df42b4b03aafe0168bcb44ebe325b7ef85379573e5505f6fd5beef8d8709bde8f04f87c6420c56bb5381f482d0e8b0f0f5102486a6391941cb68b8ea3035fc9b7785b10c82caf60894f8394c",
+      "vault_id": "37fbb6b2a80434b4703cc7e024e0d860",
+      "wrapped": "db11c5fc94890fe3a17eaec2df42b4b03aafe0168bcb44ebe325b7ef85379573e5505f6fd5beef8d8709bde8f04f87c6420c56bb5381f482d0e8b0f0f5102486a6391941cb68b8ea3035fc9b7785b10c82caf60894f8394c"
+    },
+    {
+      "ed25519_pub": "592260f896dd4a29045327f28f57a95772542d1d0b0fb9c081bc9ab41457fc62",
+      "kind": "fpr_input",
+      "output": "636f75726965722d6674702f6670722f7631325f2a6f708565cc33bfa69479628f24cc34367cd70bf02b044cd12bf5b7ee05592260f896dd4a29045327f28f57a95772542d1d0b0fb9c081bc9ab41457fc62",
+      "x25519_pub": "325f2a6f708565cc33bfa69479628f24cc34367cd70bf02b044cd12bf5b7ee05"
+    },
+    {
+      "kind": "aad_device_blob",
+      "name": "transfer-queue",
+      "output": "636f75726965722d6674702d6465766963652d626c6f622d76310000000e7472616e736665722d7175657565"
+    },
+    {
+      "kind": "aad_device_blob",
+      "name": "tabs",
+      "output": "636f75726965722d6674702d6465766963652d626c6f622d76310000000474616273"
+    },
+    {
+      "input": "616263",
+      "kind": "len_prefixed",
+      "output": "00000003616263"
+    },
+    {
+      "input": "",
+      "kind": "len_prefixed",
+      "output": "00000000"
+    }
+  ]
+}
