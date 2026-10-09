@@ -9,7 +9,7 @@ Move a whole courier-ftp setup to another machine.
 ## Scope
 
 1. **Export** dialog with checkboxes: *Settings* (config incl. keybindings, styles, filters), *Sites & bookmarks* (T32 export, with/without passwords), *Queue* (T40 export), *Trusted host keys and certificates*.
-2. Output: one archive file (`.cftp-backup`) — a JSON envelope; sections containing secrets are encrypted with a user passphrase (T30 container format). Without secrets → plain JSON readable by humans.
+2. Output: one archive file (`.cftp-backup`) in the backup format from T30 §10 (Argon2id + XChaCha20-Poly1305 over `zstd(cbor)`), encrypted with a passphrase the user enters. An optional plain-JSON export without secrets is offered for settings only. Restoring a backup is also offered on the first-run screen (T60).
 3. **Import**: choose file → shows contained sections → choose which to import → for settings: *replace* or *merge*; for sites: into a new folder; conflicts reported.
 4. Version field and forward-compat: unknown sections skipped with a warning.
 

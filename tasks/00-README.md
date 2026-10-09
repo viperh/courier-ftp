@@ -20,14 +20,18 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 |---|-------|----------|
 | D1 | FTP / FTPS | **Own FTP client** written from scratch on tokio (no `suppaftp`). |
 | D2 | SFTP | **`russh` + `russh-sftp`** (pure Rust, async). |
-| D3 | Secrets | **Vault** file encrypted with a key derived by **Argon2id**. The vault is unlocked automatically through the **OS keyring** when one is available; otherwise (or if the user prefers) with a **master password**. |
-| D4 | Site storage | **Sites live in the vault** (encrypted), not in a plain config file. Bookmarks, quickconnect history, trusted host keys/certificates and the persisted queue are encrypted with the same vault key. |
+| D3 | Secrets | Encrypted **vault** (Argon2id + XChaCha20-Poly1305), design copied from sverb. The **master password is asked at every TUI start**. **No OS keyring.** |
+| D4 | Site storage | **Sites live in the vault, passwords included.** Storage is a SQLite DB of individually encrypted items (sverb design), so items can sync and merge. Bookmarks, history, trusted host keys/certificates and SSH keys are items too; the transfer queue is encrypted but device-local. |
 | D5 | Crate layout | **Separate protocol crates**: `courier-ftp-proto-ftp`, `courier-ftp-proto-sftp`, both implementing a `Backend` trait from `courier-ftp-core`. |
 | D6 | Keybindings | **Hybrid**: Midnight Commander F-keys (F5 copy, F6 move, F7 mkdir, F8 delete, Tab switch pane) plus vim motions (`j/k/h/l`, `gg/G`, `/`). All rebindable. |
 | D7 | Mouse | **Keyboard only** for v1. Mouse capture stays off. |
 | D8 | Dropped features | Kerberos/GSS auth, OS drag and drop, sound / sleep / shutdown on queue completion. No tasks exist for these. |
 | D9 | TLS | `rustls` (with `rustls-platform-verifier` for OS trust roots). No OpenSSL. *(Default chosen by Claude — say so if you want it changed.)* |
 | D10 | App settings | Non-secret settings stay in the existing layered config (`.config/config.json` defaults + user `config.*`). |
+| D11 | Speed | Transfers run in parallel (4 by default) and large files are split into ranges over several connections, with SFTP request pipelining (T41b). |
+| D12 | Sync | Device sync through **courier-ftp's own self-hosted server** (`courier-ftp-server`: axum + PostgreSQL), end-to-end encrypted, OPAQUE login with the master password, based on sverb's design. Sync is optional; everything works offline without an account. |
+| D13 | sverb code | sverb's vault, crypto, store, protocol and sync code is **copied and adapted** into courier-ftp crates (no dependency on sverb). |
+| D14 | Teams | **Team/shared vaults are included** (orgs, invites, grants, safety numbers, key rotation). |
 
 ## Phases and tasks
 
@@ -62,6 +66,7 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 ### E. Transfers and file logic (core)
 - [40 Queue model and persistence](40-queue-model-persistence.md)
 - [41 Transfer engine](41-transfer-engine.md)
+- [41b Fast transfers: parallelism, segmented files, pipelining](41b-fast-transfers.md)
 - [42 File-exists policy, resume, transfer options](42-file-exists-and-resume.md)
 - [43 Recursive operations](43-recursive-operations.md)
 - [44 Speed limits](44-speed-limits.md)
@@ -103,19 +108,36 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 - [76 Integration test harness](76-integration-test-harness.md)
 - [77 Documentation and release](77-docs-and-release.md)
 
+### H. Sync, accounts and teams (sverb-based)
+T80–T82 are also needed by the local vault (T30), so they come early.
+- [80 Crypto crate](80-crypto-crate.md)
+- [81 Item model, HLC and merge](81-item-model-hlc-merge.md)
+- [82 Local store (SQLite)](82-local-store.md)
+- [83 Sync protocol types](83-sync-protocol-types.md)
+- [84 Sync server: accounts, login and devices](84-sync-server-auth.md)
+- [85 Sync server: vaults, pull/push and live updates](85-sync-server-vaults.md)
+- [86 Sync server: configuration, admin CLI and deployment](86-sync-server-ops.md)
+- [87 Sync client: account, devices and recovery](87-sync-client-account.md)
+- [88 Sync engine: pull, push and live updates](88-sync-engine.md)
+- [89 Teams and shared vaults](89-team-vaults.md)
+- [90 Sync and teams UI](90-sync-ui.md)
+
 ## Suggested order / milestones
 
 1. **M1 – Browse locally:** 01–06, 50–53, 55, 57.
-2. **M2 – Browse remotely (SFTP first, it's simpler):** 07, 20–22, 69, 58, 30, 60.
+2. **M2 – Vault and SFTP:** 80–82, 30, 60, 07, 20–22, 69, 58.
 3. **M3 – FTP/FTPS:** 10–14, 76.
-4. **M4 – Transfers:** 40–46, 56, 62.
+4. **M4 – Transfers:** 40–46, 41b, 56, 62.
 5. **M5 – Sites:** 31–33, 59, 61, 64.
 6. **M6 – Power features:** 47–49, 54, 63, 65–68, 15.
-7. **M7 – Polish:** 70–75, 77.
+7. **M7 – Sync:** 83–88, 90 (personal sync between your devices).
+8. **M8 – Teams:** 89 and the team parts of 90.
+9. **M9 – Polish:** 70–75, 77.
 
 ## Project-wide rules
 
-- `courier-ftp-core` and the protocol crates never depend on `ratatui`, `crossterm` or `clap`.
+- `courier-ftp-core`, the protocol crates, crypto, store, proto, sync and server crates never depend on `ratatui`, `crossterm` or `clap`.
+- The client must work fully without a sync server; sync is an optional cargo feature (`sync`, default on).
 - No `unwrap()`/`expect()` on anything that can fail at runtime (network, files, user input). Tests are exempt.
 - Secrets (`Password`, key passphrases, the vault key) are wrapped in `secrecy::SecretString`/`zeroize` types and never logged, even at debug level. Log lines that would contain `PASS` must be masked (`PASS ****`).
 - Every network operation has a timeout and is cancellable via `tokio_util::sync::CancellationToken`.

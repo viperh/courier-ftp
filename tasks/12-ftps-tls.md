@@ -23,7 +23,7 @@ connections.
    - Base verifier: `rustls-platform-verifier` (OS trust store).
    - If verification fails *or* the cert is valid but not yet seen for this host, decide:
      - Valid chain + matching hostname → accept silently (optionally record fingerprint).
-     - Invalid (self-signed, expired, wrong host, unknown CA) → look up the vault's trusted-cert store (T30/T31) by host:port + SHA-256 fingerprint. If trusted → accept. Else → `Prompt(TrustCertificate)` (T04) with full details; user answers *Trust once* / *Always trust* / *Reject*.
+     - Invalid (self-signed, expired, wrong host, unknown CA) → look up the vault's `trusted-cert` items (T30/T81, synced between devices) by host:port + SHA-256 fingerprint. If trusted → accept. Else → `Prompt(TrustCertificate)` (T04) with full details; user answers *Trust once* / *Always trust* / *Reject*.
      - Changed certificate for a host that had an "always trusted" one → prompt with a prominent warning showing old and new fingerprints.
    - Certificate details for the prompt (via `x509-parser`): subject, issuer, validity dates, serial, SHA-256 + SHA-1 fingerprints, SANs, key algorithm/size, signature algorithm, TLS version, cipher suite, and the full chain.
 6. **Session info**: expose negotiated protocol version + cipher on the backend for the status bar lock tooltip / "Server → Show certificate" action (T57).

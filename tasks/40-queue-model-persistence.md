@@ -1,6 +1,6 @@
 # T40 — Queue model and persistence
 
-**Phase:** E Transfers · **Depends on:** T02, T30 · **Crate:** `courier-ftp-core` (`queue` module) · **FEATURES.md:** §5
+**Phase:** E Transfers · **Depends on:** T02, T30, T82 · **Crate:** `courier-ftp-core` (`queue` module) · **FEATURES.md:** §5
 
 ## Goal
 
@@ -13,7 +13,7 @@ three lists (queued / failed / successful) and persistence across restarts.
    ```rust
    pub struct QueueItem {
        pub id: TransferId,
-       pub server: QueueServer,          // SiteId or inline quickconnect ServerAddress (+ SecretId)
+       pub server: QueueServer,          // SiteId or inline quickconnect ServerAddress (+ password, kept encrypted)
        pub direction: Direction,         // Download | Upload
        pub local: LocalPath,
        pub remote: RemotePath,
@@ -35,7 +35,7 @@ three lists (queued / failed / successful) and persistence across restarts.
    - Pause/resume individual items (excluded from scheduling while paused).
    - Group-by-server view helper (FileZilla groups queue rows under a server header).
 4. **Persistence** (setting `queue.persist`):
-   - Written to `queue.cfq`, encrypted with the vault DEK (T30) — contains hosts and paths.
+   - Written to the `device_blobs` table (T82) as a blob encrypted with the LMK (T30) — it contains hosts and paths. The queue is device-local and never syncs.
    - Debounced writes (≤ 2 s) on change; final write on quit.
    - On startup, load the queue but **don't start** it automatically; items that were `Active` become `Queued` (resume will use REST/offset).
    - Vault locked → queue not persisted; UI warns on quit if items would be lost.

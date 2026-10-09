@@ -26,7 +26,8 @@ Settings dialog, saving to the user config file.
    - **Editing**: default editor, associations list editor (pattern, command, terminal flag), watch & prompt upload, max size.
    - **Queue**: on complete action + command, notify method, persist queue, refresh after queue.
    - **Logging**: debug level, show timestamps, raw listing, log to file + path + size + keep count.
-   - **Security / Vault**: flows from T60 (change master password, keyring toggle, lock now, auto-lock, store passwords).
+   - **Security / Vault**: flows from T60 (change master password, lock now, auto-lock, store passwords, Argon2 cost).
+   - **Sync & teams**: T90 screens (account, devices, teams, sync status, `sync.history`).
    - **Import/Export settings** buttons (T73).
 2. **Apply semantics**: changes apply live where possible (speed limits, formats, layout, log level); network settings apply to new connections (note shown).
 3. **Save**: `Settings::save_user` writes only non-default values; **Reset section to defaults** button; **Cancel** reverts unsaved edits.

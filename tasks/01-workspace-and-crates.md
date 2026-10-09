@@ -24,16 +24,22 @@ crates/courier-ftp-core/   placeholder Core { ticks } + Error::InvalidState
 1. **Create crates**
    - `crates/courier-ftp-proto-ftp` (lib) — own FTP/FTPS client (T10–T15).
    - `crates/courier-ftp-proto-sftp` (lib) — russh-based SFTP client (T20–T22).
-   - Both use `version.workspace = true` etc., like the existing crates.
-   - Both depend on `courier-ftp-core` (for the `Backend` trait and domain types) and **must not** depend on `ratatui`, `crossterm` or `clap`. Put the same comment the core crate has in their `Cargo.toml`.
+   - `crates/courier-ftp-crypto` (lib, pure) — T80.
+   - `crates/courier-ftp-store` (lib, SQLite) — T82.
+   - `crates/courier-ftp-proto` (lib, sync wire types) — T83.
+   - `crates/courier-ftp-sync` (lib, sync client) — T87/T88, optional via the binary's `sync` feature (default on).
+   - `crates/courier-ftp-server` (bin) — T84–T86. Must not depend on ratatui/crossterm; its heavy deps must not leak into the client build.
+   - All new crates use `version.workspace = true` etc., like the existing crates.
+   - The two protocol crates depend on `courier-ftp-core` (for the `Backend` trait and domain types) and **must not** depend on `ratatui`, `crossterm` or `clap`. Put the same comment the core crate has in their `Cargo.toml`.
    - Add each to `[workspace.dependencies]` as path deps.
 2. **Add workspace dependencies** (pin to current latest versions at the time of implementation, check with `cargo search`):
    - Async: `async-trait` (only if native `async fn` in traits is not enough for `dyn Backend` — see T03), `bytes`, `pin-project-lite`.
    - TLS: `rustls`, `tokio-rustls`, `rustls-platform-verifier`, `rustls-pki-types`, `x509-parser` (cert details for trust prompt).
    - SSH: `russh`, `russh-sftp`, `ssh-key` (with `ppk`/`encryption` features if available; verify).
-   - Crypto / vault: `argon2`, `chacha20poly1305`, `rand`, `zeroize`, `secrecy`, `keyring`.
+   - Crypto / vault / sync: see T80–T82 and T87 (copied from sverb's versions): `argon2`, `chacha20poly1305`, `hkdf`, `hpke`, `ed25519-dalek`, `x25519-dalek`, `opaque-ke`, `bip39`, `zxcvbn`, `rand`, `zeroize`, `secrecy`, `uhlc`, `ciborium`, `zstd`, `rusqlite` (bundled), `rusqlite_migration`, `reqwest` (rustls), `tokio-tungstenite`. **No `keyring`** (D3).
+   - Server only (T84–T86): `axum`, `axum-server`, `tower-http`, `sqlx-core` + `sqlx-postgres`, `governor`, `lettre`, `totp-rs`, `metrics`.
    - Text: `encoding_rs` (non-UTF-8 server charsets), `chrono` or `time` (pick **one**, prefer `time` with `macros`, `parsing`, `formatting`, `local-offset`), `regex`, `globset`.
-   - Misc: `uuid` (`v4`, `serde`), `serde_json`, `quick-xml` (FileZilla import), `notify` (watch edited files, T63), `bytesize`.
+   - Misc: `uuid` (`v4`, `v7`, `serde`), `serde_json`, `quick-xml` (FileZilla import), `notify` (watch edited files, T63), `bytesize`.
    - Dev: `tempfile`, `tokio-test`, `insta` (snapshot tests for listing parsers and UI rendering).
 3. **Remove template placeholders**
    - Replace `Core { ticks }` in `courier-ftp-core/src/lib.rs` with module declarations (empty modules are fine): `model`, `backend`, `events`, `settings`, `local`, `net`, `queue`, `transfer`, `filters`, `compare`, `search`, `cache`, `vault`, `sites`. Keep the crate-level doc comment but rewrite it for courier-ftp.

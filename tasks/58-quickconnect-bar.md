@@ -15,7 +15,7 @@ connect button and a history dropdown.
 4. **History dropdown**: last 10 entries (T33) — selecting fills fields and connects; "Clear history" item at the bottom; hidden when vault is locked.
 5. **Reconnect**: action "Reconnect to last server" (bound in T51, e.g. `Ctrl-x r`).
 6. Password not stored in history unless `vault.store_passwords` and vault unlocked; else prompt on reconnect.
-7. "Save as site" action from the current quickconnect connection → opens Site Manager with prefilled new site (T33 helper).
+7. "Save as site" action from the current quickconnect connection → opens Site Manager with a prefilled new site **including the password** that was typed (T33 helper); a checkbox "Save password" (default on, follows `vault.store_passwords`).
 8. Bar can be hidden (`interface.show_quickconnect`).
 
 ## Acceptance criteria

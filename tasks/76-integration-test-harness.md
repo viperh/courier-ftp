@@ -20,7 +20,8 @@ Run every backend against real servers in Docker, locally and in CI.
 3. **Backend conformance suite** (from T06) run against: LocalBackend, FTP (plain, FTPES, FTPS implicit) × each FTP server, SFTP × each auth method.
 4. **Scenario tests**: queue of 50 mixed-size files up/down with checksum verification; resume after killing the connection mid-transfer (use `toxiproxy` or close socket from server side); speed limit; recursive delete; listing parsers against real server output (snapshot).
 5. **CI**: a separate GitHub Actions job (`integration`) on `ubuntu-latest` that runs `docker compose up -d`, waits for health checks, runs the tests with `COURIER_FTP_IT=1`. Allowed to be slower; required to pass before merge.
-6. `scripts/it.sh` to run the same locally.
+6. **Sync**: the sync server (T84–T86) with `postgres:16` in the same compose file; tests with two or three client data dirs syncing through it (register, login, offline edits, conflicts, team invite, key rotation, `410` resync).
+7. `scripts/it.sh` to run the same locally.
 
 ## Acceptance criteria
 
