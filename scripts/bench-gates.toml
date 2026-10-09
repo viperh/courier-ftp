@@ -29,3 +29,8 @@
 bench = "listing_parse/listing_unix_100k"   # T13 AC10
 max_ms = 150
 ci_max_ms = 300
+
+[[gate]]
+bench = "filters/filters_10k_10_regex"      # T47 AC8
+max_ms = 10
+ci_max_ms = 20

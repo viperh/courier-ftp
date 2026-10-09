@@ -645,6 +645,56 @@ mod tests {
         Ok(())
     }
 
+    // T47 AC10: filter settings survive `save_user` and a reload through `Config::new`.
+    #[test]
+    fn filter_settings_save_user_roundtrip() -> color_eyre::Result<()> {
+        use courier_ftp_core::filters::{
+            AppliesTo, Condition, Filter, FilterScope, FilterSet, MatchMode, NumOp, StringOp,
+        };
+        let tmp = tempfile::TempDir::new()?;
+        let paths = temp_paths(&tmp);
+        let mut s = Settings::default();
+        let f = &mut s.filters;
+        f.filters[1].conditions.push(Condition::Name {
+            op: StringOp::Regex,
+            value: r"^\.git(modules)?$".to_owned(),
+        });
+        f.filters.push(Filter {
+            name: "Big old logs".to_owned(),
+            applies_to: AppliesTo::Files,
+            match_mode: MatchMode::All,
+            case_sensitive: false,
+            scope: FilterScope::RemoteOnly,
+            conditions: vec![
+                Condition::Name {
+                    op: StringOp::Glob,
+                    value: "*.LOG".to_owned(),
+                },
+                Condition::Size {
+                    op: NumOp::Greater,
+                    value: 1 << 20,
+                },
+                serde_json::from_value(serde_json::json!(
+                    {"type": "date", "op": "before", "value": "2026-01-31"}
+                ))?,
+            ],
+            builtin: false,
+        });
+        f.sets[0].remote = vec!["Git directories".to_owned(), "Big old logs".to_owned()];
+        f.sets.push(FilterSet {
+            name: "web".to_owned(),
+            local: vec!["Configuration files".to_owned()],
+            remote: vec![],
+        });
+        f.active_set = "web".to_owned();
+        f.apply_to_transfers = false;
+        s.save_user(&paths.config_dir)?;
+        let c = Config::new(&paths)?;
+        assert!(c.settings_warnings.is_empty(), "{:?}", c.settings_warnings);
+        assert_eq!(c.settings, s);
+        Ok(())
+    }
+
     #[test]
     fn save_refused_when_toml_shadows_settings() -> color_eyre::Result<()> {
         let tmp = tempfile::TempDir::new()?;
