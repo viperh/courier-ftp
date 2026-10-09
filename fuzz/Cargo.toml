@@ -28,6 +28,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4.13"
 courier-ftp-crypto = { path = "../crates/courier-ftp-crypto" }
 courier-ftp-proto = { path = "../crates/courier-ftp-proto" }
+courier-ftp-proto-ftp = { path = "../crates/courier-ftp-proto-ftp" }
 
 # Not part of the root workspace.
 [workspace]
@@ -69,6 +70,13 @@ bench = false
 [[bin]]
 name = "sync_dto_decode"
 path = "fuzz_targets/sync_dto_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ftp_listing"
+path = "fuzz_targets/ftp_listing.rs"
 test = false
 doc = false
 bench = false
