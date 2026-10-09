@@ -552,6 +552,9 @@ Deviations and things later tasks must know (T00 implementation, 2026-10-09):
     exit 1; core as a dependency of store → exit 1; a crate without a rule → exit 1.
   - A crate with `rust-version = "1.90"` makes the `msrv` jq expression fail with
     `workspace crates disagree on rust-version: ["1.90","1.95"]`.
+- Reproducibility checked locally (glibc host target, the `cd.yml` release flags minus
+  `crt-static`): two release builds of `courier-ftp` from two worktrees with different
+  remap prefixes are byte-identical (vergen honours `SOURCE_DATE_EPOCH`).
 - Not verifiable from the sandbox (left unticked): AC1, AC2, AC10, AC11, AC12 need GitHub
   runs (PR #2 was already merged, so these pushes ran no PR CI; a new PR against
   `master` is needed), AC14 needs the owner to apply branch protection (command in
