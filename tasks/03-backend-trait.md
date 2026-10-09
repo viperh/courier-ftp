@@ -489,25 +489,25 @@ No files or wire formats. New dependencies: `async-trait`, `tokio-util` (Cancell
 
 ## Acceptance criteria
 
-- [ ] AC1 Trait, `Capabilities`, `Listing`, `WriteMode`, `TransferOpts`, `TransferEnd`,
+- [x] AC1 Trait, `Capabilities`, `Listing`, `WriteMode`, `TransferOpts`, `TransferEnd`,
   `SessionSecurityInfo`, `ConnectInfo`, `BackendContext`, `BackendFactory`, `SessionHandle`,
   `SessionState`, `MockServer`, `MockBackend`, conformance module exist with rustdoc; the
   module docs state the async-trait choice and the cancellation convention.
-- [ ] AC2 `Box<dyn Backend>` compiles and `MockBackend` passes every conformance case
+- [x] AC2 `Box<dyn Backend>` compiles and `MockBackend` passes every conformance case
   (`cargo test -p courier-ftp-core --features test-util conformance`).
-- [ ] AC3 Reconnect-once: an operation failing with `Error::Connection` reconnects and
+- [x] AC3 Reconnect-once: an operation failing with `Error::Connection` reconnects and
   succeeds; a second consecutive loss is returned to the caller; with `reconnect = false`
   the first error is returned.
-- [ ] AC4 `connect` makes exactly `1 + retries` attempts `retry_delay_secs` apart for
+- [x] AC4 `connect` makes exactly `1 + retries` attempts `retry_delay_secs` apart for
   transient errors and one attempt for `Auth`/`HostKey`/`ConnectionLimit` (paused time).
-- [ ] AC5 A cancelled operation returns `Cancelled` within 50 ms of `cancel()` even when the
+- [x] AC5 A cancelled operation returns `Cancelled` within 50 ms of `cancel()` even when the
   mock latency is 10 s (paused time), and the next operation works.
-- [ ] AC6 Keep-alive fires after an idle interval, never while the backend is locked, and its
+- [x] AC6 Keep-alive fires after an idle interval, never while the backend is locked, and its
   task has finished within one tick after the last `SessionHandle` is dropped.
-- [ ] AC7 `format!("{:?}", connect_info)` contains no password text.
-- [ ] AC8 The events `SessionOpened`, `Connecting`, `Connected`, `Disconnected{Lost|Failed}`,
+- [x] AC7 `format!("{:?}", connect_info)` contains no password text.
+- [x] AC8 The events `SessionOpened`, `Connecting`, `Connected`, `Disconnected{Lost|Failed}`,
   `SessionClosed` are emitted in the documented situations.
-- [ ] AC9 T00 CI gates pass (fmt, clippy, docs, test-local-only, test-os, layering).
+- [x] AC9 T00 CI gates pass (fmt, clippy, docs, test-local-only, test-os, layering).
 
 ## Tests
 
@@ -572,3 +572,41 @@ Not applicable here; T76 runs the conformance macro (`ignored` variant) against 
 ## Open questions
 
 None.
+
+## Implementation notes
+
+- Files: `crates/courier-ftp-core/src/backend/{mod,types,connect_info,factory,session,mock,conformance}.rs`,
+  tests in `backend/tests.rs` (unit, proptest, conformance macro against `MockBackend`) and
+  `backend/session_tests.rs` (paused-time `SessionHandle` tests).
+- Additions beyond the spec (public, for dependants):
+  - `Listing::build(dir, entries, raw, Option<&SessionLog>)` applies the listing hygiene
+    (drops invalid/duplicate names, logs `Ignored N entries with invalid names`, caps `raw`);
+    `Listing::clean_entries` and `Listing::cap_raw` are the pieces. Backends (T06/T14/T22)
+    should build listings with it.
+  - `ConformanceEnv` has one extra field `make_symlink: Option<MakeSymlink>`: the `Backend`
+    trait has no symlink operation, so `remove_symlink_keeps_target` needs the environment
+    to create the link (None → the case is skipped). `conformance::run_case_outcome` returns
+    `CaseOutcome::{Passed, Skipped(reason)}`; `run_case` prints skips on stderr.
+  - `mock::test_context()` / `test_context_with(Settings)` (a `BackendContext` + its
+    `EventReceiver`), `mock::conformance_env()` (MockServer with `/scratch`),
+    `MockServer::exists`, `impl Default for MockServer`.
+  - `SessionOptions::new(purpose)`; `Default` = Browse with reconnect and keep-alive on.
+- `futures` was not added: nothing in core needs it (`tokio::select!` covers the races).
+  `bytes` is an optional dependency enabled by `test-util` (mock only).
+- SessionHandle details the spec leaves open:
+  - Before an operation, state `Connected` but `backend.is_connected() == false` (e.g. a
+    dropped future) is treated as a loss: event `Disconnected { Lost }`, Status
+    `Connection lost, reconnecting`, reconnect (this counts as the one reconnect).
+  - A connect that ends with `Cancelled` also sets `Failed("cancelled")` and sends
+    `Disconnected { Failed }`, so the UI always sees the end of a `Connecting`.
+  - After the final failed attempt an Error line `Could not connect to server` is logged;
+    `disconnect()` logs `Disconnected from server` and sends `Disconnected { Requested }`.
+  - An operation's final connection-lost error (reconnect disabled, or second loss) sets
+    state `Disconnected`, sends `Disconnected { Lost }` and logs `Connection lost`.
+  - `SessionState::Reconnecting` is used whenever the previous connection was lost (until
+    a connect succeeds or `disconnect()` is called).
+  - The keep-alive task and the drop-time `disconnect()` are only spawned when a tokio
+    runtime is current.
+- `MockServer::backend` reports address `sftp://test@mock.invalid`; the factory
+  (`impl BackendFactory for MockServer`) validates the `ConnectInfo` and uses its address.
+
