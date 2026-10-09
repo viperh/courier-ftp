@@ -1,0 +1,42 @@
+# T22 — SFTP operations and Backend impl
+
+**Phase:** C SFTP · **Depends on:** T20, T21, T03 · **Crate:** `courier-ftp-proto-sftp` · **FEATURES.md:** §4
+
+## Goal
+
+Implement `Backend` for SFTP using `russh-sftp` over the session from T20.
+
+## Scope
+
+| Backend method | SFTP | Notes |
+|---|---|---|
+| `connect` | T20 + open `session` channel + `request_subsystem("sftp")` + `SftpSession::new` | Log SFTP protocol version. |
+| `home_dir` | `canonicalize(".")` | |
+| `list` | `read_dir` | Use `longname` (ls -l line) to fill `owner`/`group` names when attrs only have uid/gid; parse with T13's Unix parser. Resolve symlink targets with `read_link` + `metadata` lazily (only for symlinks, batched, bounded concurrency). |
+| `stat` | `metadata` (follows links) / `symlink_metadata` | |
+| `mkdir` / `rmdir` / `remove_file` | `create_dir` / `remove_dir` / `remove_file` | |
+| `rename` | `rename`; if it fails because target exists and user chose overwrite, `remove_file` then `rename` (or `posix-rename@openssh.com` extension if advertised) | |
+| `chmod` | `set_metadata` with permissions only | |
+| `set_mtime` | `set_metadata` with atime+mtime | |
+| `open_read(off)` | `open` + seek | Pipelined reads, see T41b §3. |
+| `open_write(mode)` | `open_with_flags` (`CREATE|TRUNCATE`, `APPEND`, or `WRITE` + seek for resume) | Same pipelining for writes. |
+| `raw_command` | **Unsupported** for SFTP (FileZilla allows some; we expose `exec` over a separate channel only if user enables it — out of scope v1) | Capability false. |
+| `keepalive` | SSH-level keepalive is automatic; method is a no-op or `canonicalize(".")` | |
+
+Additional:
+1. **Charset**: SFTP v3 filenames are bytes; decode as UTF-8, fall back to site charset if set to custom.
+2. **Error mapping**: `NoSuchFile` → `NotFound`, `PermissionDenied`, `Failure` with context message, `ConnectionLost` → `Connection`.
+3. **Throughput target**: ≥ 80 % of OpenSSH `sftp` CLI throughput on a localhost 1 GiB transfer. Measure and record in the task when done.
+4. Multiple sessions: engine (T41) may open extra SSH connections, or multiple SFTP channels on one SSH connection — prefer **one SSH connection per transfer slot** (simpler, matches FileZilla), revisit later.
+
+## Acceptance criteria
+
+- [ ] Passes backend conformance suite against OpenSSH in Docker.
+- [ ] Symlink to dir shows as symlink with `target_kind = Dir` and can be entered.
+- [ ] Resume download/upload byte-identical.
+- [ ] Throughput target met (numbers written here).
+
+## Tests
+
+- Integration (T76) with `linuxserver/openssh-server` or `atmoz/sftp`.
+- Benchmark script `scripts/bench-sftp.sh` (manual, not CI).

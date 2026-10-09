@@ -1,6 +1,6 @@
-# rust-tui-template
+# courier-ftp
 
-[![CI](https://github.com/qviperh/rust-tui-template/workflows/CI/badge.svg)](https://github.com/qviperh/rust-tui-template/actions)
+[![CI](https://github.com/viperh/courier-ftp/workflows/CI/badge.svg)](https://github.com/viperh/courier-ftp/actions)
 
 A starting point for terminal user interfaces in Rust, built on
 [ratatui](https://ratatui.rs) with an async [tokio](https://tokio.rs) event
@@ -15,7 +15,7 @@ Cargo.toml              workspace manifest — all dependency versions live here
 .config/config.json     default keybindings and styles, baked into the binary
 .envrc                  direnv: keep config/data/logs inside the repo
 crates/
-  app/                  the binary: terminal, rendering, input, config, logging
+  courier-ftp/          the binary: terminal, rendering, input, config, logging
     build.rs            vergen — stamps git/build info into the version string
     src/
       main.rs           entry point
@@ -29,46 +29,26 @@ crates/
       errors.rs         panic hooks, color-eyre, human-panic
       logging.rs        tracing subscriber writing to a log file
       tui.rs            terminal setup/teardown and the crossterm event stream
-  app-core/             domain logic, no terminal dependencies
+  courier-ftp-core/     domain logic, no terminal dependencies
     src/lib.rs
 ```
 
-`app-core` must never depend on `ratatui`, `crossterm` or `clap`. Keeping the
+`courier-ftp-core` must never depend on `ratatui`, `crossterm` or `clap`. Keeping the
 domain there means it can be unit tested without a TTY, and it stays reusable
 if you later add a second front end (a CLI, a daemon, a web UI).
-
-## Using the template
-
-1. Rename the crates. `app` and `app-core` appear in:
-   - `crates/app/` and `crates/app-core/` (directory names)
-   - the `name` field of both `crates/*/Cargo.toml`
-   - `app-core = { path = ... }` in the root `Cargo.toml`
-   - `use app_core::Core;` in `crates/app/src/app.rs`
-   - `BINARY_NAME` in `.github/workflows/cd.yml`
-2. Rename the environment variables in `.envrc`. The prefix is the crate name
-   upper-cased — `config::PROJECT_NAME` derives it from `CARGO_CRATE_NAME`, so
-   renaming the crate to `foo` means `FOO_CONFIG`, `FOO_DATA`, `FOO_LOG_LEVEL`.
-3. Set `APP_QUALIFIER` and `APP_ORGANIZATION` in `crates/app/src/config.rs`.
-   They decide where per-user config and data land on each platform.
-4. Update `authors`, `repository` and `license` in the root `Cargo.toml`, and
-   the copyright line in `LICENSE`. `repository` is read at compile time by
-   `errors.rs` for the panic message, so it cannot be removed.
-5. Replace `Core` and `Error` in `crates/app-core/src/lib.rs` with your model.
-6. Rewrite `crates/app/src/components/home.rs`, and add modes to
-   `app::Mode` plus matching sections in `.config/config.json`.
 
 ## Running
 
 ```sh
-cargo run -p app
+cargo run -p courier-ftp
 ```
 
 `q`, `Ctrl-c` and `Ctrl-d` quit; `Ctrl-z` suspends. Rebind in
 `.config/config.json`.
 
 ```sh
-cargo run -p app -- --tick-rate 4 --frame-rate 60
-cargo run -p app -- --version    # prints git info and the resolved directories
+cargo run -p courier-ftp -- --tick-rate 4 --frame-rate 60
+cargo run -p courier-ftp -- --version    # prints git info and the resolved directories
 ```
 
 ## Configuration
@@ -76,7 +56,7 @@ cargo run -p app -- --version    # prints git info and the resolved directories
 Defaults are compiled in from `.config/config.json`. At startup the app also
 looks in the per-user config directory (printed by `--version`) for
 `config.json5`, `config.json`, `config.yaml`, `config.toml` or `config.ini`,
-and layers whatever it finds on top. Set `APP_CONFIG` to override that
+and layers whatever it finds on top. Set `COURIER_FTP_CONFIG` to override that
 directory outright.
 
 Keybindings are keyed by mode, then by key sequence: `"<Ctrl-a>"` for a single
@@ -84,8 +64,8 @@ chord, `"<g><g>"` for a sequence. Every value must name an `Action` variant.
 
 ## Logging
 
-Logs go to `<data dir>/app.log`. Set `APP_LOG_LEVEL` (or `RUST_LOG`) to change
-the filter, and `APP_DATA` to change the directory.
+Logs go to `<data dir>/courier-ftp.log`. Set `COURIER_FTP_LOG_LEVEL` (or `RUST_LOG`) to change
+the filter, and `COURIER_FTP_DATA` to change the directory.
 
 ## Checks
 
