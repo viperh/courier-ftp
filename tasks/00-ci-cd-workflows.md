@@ -449,18 +449,18 @@ Not applicable to Rust code. Failure reporting rules for workflows and scripts:
 
 - [ ] AC1 Every `ci.yml` job listed in §2 exists with the exact name, and a PR against `master` shows all of them green (jobs whose prerequisites are missing show "skipped").
 - [ ] AC2 `ci.yml` triggers on pushes to `master` (not `main`), PRs and `workflow_dispatch`; a push to `master` runs it.
-- [ ] AC3 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, the `docs` command and `cargo test --workspace --all-features --locked` pass locally on the template with the new lints.
-- [ ] AC4 The `msrv` job installs the toolchain read from `rust-version` (1.95) and `cargo check` passes; making one crate declare a different `rust-version` makes the job fail with "workspace crates disagree".
-- [ ] AC5 `python3 scripts/check-unsafe.py` exits 0 on the tree, and exits 1 when a scratch file `crates/courier-ftp-core/src/x.rs` contains `#![allow(unsafe_code)]` or a crate drops `[lints] workspace = true`.
-- [ ] AC6 `python3 scripts/check-layering.py` exits 0; adding `ratatui` to `courier-ftp-core` makes it exit 1 with the dependency path in the message; adding `courier-ftp-core` as a dependency of `courier-ftp-store` makes it exit 1 (core → store → crypto direction); `clap` in `courier-ftp-server` is accepted, `clap` in `courier-ftp-core` is rejected.
-- [ ] AC15 `scripts/bench-gates.toml` format accepts every planned gate in §4 (including `queue/*`, `transfer_engine/*`, `rate_limit/acquire_unlimited_1m`, `segment_plan/claim_reserve_100k`, fractional `max_ms` such as `0.02`, and `min_mb_s` throughput gates); `bench-gate.py self-test` covers a fractional and a throughput gate.
-- [ ] AC7 `scripts/canary-scan.sh --self-test` passes (clean tree accepted, all nine dirty cases detected).
-- [ ] AC8 `python3 scripts/bench-gate.py self-test`, `python3 scripts/update-packaging.py --self-test` pass; `bench-gate.py gate` exits 0 with the empty gates file.
-- [ ] AC9 `cargo deny --all-features check advisories bans licenses sources` and `cargo vet --locked` pass.
+- [x] AC3 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, the `docs` command and `cargo test --workspace --all-features --locked` pass locally on the template with the new lints.
+- [x] AC4 The `msrv` job installs the toolchain read from `rust-version` (1.95) and `cargo check` passes; making one crate declare a different `rust-version` makes the job fail with "workspace crates disagree".
+- [x] AC5 `python3 scripts/check-unsafe.py` exits 0 on the tree, and exits 1 when a scratch file `crates/courier-ftp-core/src/x.rs` contains `#![allow(unsafe_code)]` or a crate drops `[lints] workspace = true`.
+- [x] AC6 `python3 scripts/check-layering.py` exits 0; adding `ratatui` to `courier-ftp-core` makes it exit 1 with the dependency path in the message; adding `courier-ftp-core` as a dependency of `courier-ftp-store` makes it exit 1 (core → store → crypto direction); `clap` in `courier-ftp-server` is accepted, `clap` in `courier-ftp-core` is rejected.
+- [x] AC15 `scripts/bench-gates.toml` format accepts every planned gate in §4 (including `queue/*`, `transfer_engine/*`, `rate_limit/acquire_unlimited_1m`, `segment_plan/claim_reserve_100k`, fractional `max_ms` such as `0.02`, and `min_mb_s` throughput gates); `bench-gate.py self-test` covers a fractional and a throughput gate.
+- [x] AC7 `scripts/canary-scan.sh --self-test` passes (clean tree accepted, all nine dirty cases detected).
+- [x] AC8 `python3 scripts/bench-gate.py self-test`, `python3 scripts/update-packaging.py --self-test` pass; `bench-gate.py gate` exits 0 with the empty gates file.
+- [x] AC9 `cargo deny --all-features check advisories bans licenses sources` and `cargo vet --locked` pass.
 - [ ] AC10 `fuzz.yml` and `bench.yml` complete successfully on a manual `workflow_dispatch` (fuzz: the matrix is empty and the job is skipped until T91; bench: no gates).
 - [ ] AC11 A `workflow_dispatch` dry run of `cd.yml` produces `dist-linux-x86_64`, `dist-linux-aarch64`, `dist-macos-universal`, `dist-windows-x86_64` and `release-dry-run` (with `SHA256SUMS` and `notes.md`); the static check and the x86_64 reproducibility `cmp` pass; nothing is published.
 - [ ] AC12 Pushing a tag whose version differs from `workspace.package.version` fails `meta` with the mismatch error.
-- [ ] AC13 `CONTRIBUTING.md` documents every job with its local command, the canary prefixes, the `unsafe` rule, fuzzing, e2e and the required-checks list; README "Checks" matches the CI commands.
+- [x] AC13 `CONTRIBUTING.md` documents every job with its local command, the canary prefixes, the `unsafe` rule, fuzzing, e2e and the required-checks list; README "Checks" matches the CI commands.
 - [ ] AC14 Branch protection on `master` requires the checks listed in §2 (screenshot or `gh api repos/:owner/:repo/branches/master/protection` output recorded in the PR).
 
 ## Tests
@@ -498,3 +498,62 @@ Not applicable.
 - **Package channel names**: the Homebrew tap `<owner>/homebrew-courier-ftp` and Scoop bucket `<owner>/scoop-courier-ftp` repositories must be created by the owner before the first release.
 - ~~Server crate and `clap`~~ — **Resolved** (coordinator): the server crate may use `clap` for its admin CLI; the README rule is updated accordingly. The layering rules above allow it.
 - ~~Store/core layering~~ — **Resolved** (coordinator): core → store → crypto; store does not depend on core (rules in §6).
+
+## Implementation notes
+
+Deviations and things later tasks must know (T00 implementation, 2026-10-09):
+
+- **`cargo package --no-verify`** in the `packaging` job. The binary crate bakes in
+  `.config/config.json` with `include_str!("../../../.config/config.json")`, a file
+  outside `crates/courier-ftp`, so a verified build of the packaged crate fails. Until
+  the defaults move into the crate directory (T01/T05/T50 decision; many tasks name the
+  path `.config/config.json`), the job packages without the verification build. Drop
+  `--no-verify` once that is resolved (T01 AC8, T77 AC7).
+- **MSRV 1.95**: the lock file had `vergen`/`vergen-gix`/`vergen-lib` 10.0.3, which need
+  rustc 1.96. They are locked back to 10.0.1 (sverb's set) with `cargo update --precise`,
+  so `cargo +1.95 check --workspace --all-features --locked` passes. A dependabot bump of
+  them will turn `msrv` red: then raise `rust-version` or keep the pin.
+- **Gating before later tasks**: `packaging` runs `cargo tree -p courier-ftp-server` only
+  when that crate exists; `layering` runs the T76 tests only when the e2e crate exists;
+  `bench.yml` skips `cargo bench --bench '*'` when the workspace has no bench target
+  (cargo errors on an unmatched pattern) and the startup gate when
+  `crates/courier-ftp/tests/startup.rs` is missing; `fuzz.yml`'s `list` job outputs `[]`
+  without calling `cargo fuzz list` when `fuzz/fuzz_targets/` has no `*.rs` (cargo-fuzz
+  rejects a crate without targets).
+- **`cd.yml` before T77/T86/T01**: `meta` also outputs `has-server` (server crate) and
+  `has-server-image` (`deploy/Dockerfile.server.release`). Without `courier-ftp
+  generate`, a tag fails in `meta` ("releases need the man page and completions"), and a
+  dry run packages a placeholder man page (with a `::warning::`). Server archives, image
+  artifacts and the `image` job appear when the server crate / release Dockerfile exist.
+  `linux`/`macos`/`windows` use `if: !cancelled() && meta ok && assets != failure` so a
+  skipped `assets` does not skip them.
+- **`fuzz/seed-corpus.sh`** names every planned target of T91 §7 but only seeds targets
+  whose `fuzz/fuzz_targets/<name>.rs` exists (no empty corpus dirs for missing targets).
+  `fuzz/fuzz_targets/.gitkeep` keeps the directory.
+- **`canary-scan.sh`** classifies the T71 session log (`session*.log*`) as its own class
+  `session` (secret canaries checked, host canaries allowed).
+- **`bench-gate.py`** validates every `[[gate]]` (either `max_ms`+`ci_max_ms` or
+  `min_mb_s`+`ci_min_mb_s`, numbers) and its self-test also parses the shipped
+  `bench-gates.toml`. `gate` with an empty gates file exits 0 even without
+  `target/criterion`.
+- **Template lint fixes**: `unreachable_pub` (binary crate items are now `pub(crate)`),
+  `unwrap`/`expect` removed from non-test code in `config.rs` and `tui.rs` (key-binding
+  parse errors now surface as deserialize errors; `Drop for Tui` logs instead of
+  panicking). The template test `config::tests::test_config` checks the shipped
+  `<Ctrl-q>` binding (the config no longer defines `<q>`).
+- `[workspace.dependencies] courier-ftp-core` carries `version = "0.1.0"` (needed by
+  `cargo package`; T01 adds the others).
+- Negative checks run locally (AC5, AC6), for the PR description:
+  - `#![allow(unsafe_code)]` in `crates/courier-ftp-core/src/x.rs` → `check-unsafe.py`
+    exit 1; `[lints] workspace = false` in `crates/courier-ftp/Cargo.toml` → exit 1.
+  - In a scratch copy with stub `courier-ftp-{crypto,store,server}` crates: `clap` in the
+    server accepted (exit 0); `ratatui` in core → exit 1
+    (`courier-ftp-core -> ratatui -> ratatui-crossterm -> crossterm`); `clap` in core →
+    exit 1; core as a dependency of store → exit 1; a crate without a rule → exit 1.
+  - A crate with `rust-version = "1.90"` makes the `msrv` jq expression fail with
+    `workspace crates disagree on rust-version: ["1.90","1.95"]`.
+- Not verifiable from the sandbox (left unticked): AC1, AC2, AC10, AC11, AC12 need GitHub
+  runs (PR #2 was already merged, so these pushes ran no PR CI; a new PR against
+  `master` is needed), AC14 needs the owner to apply branch protection (command in
+  `CONTRIBUTING.md`).
+
