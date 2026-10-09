@@ -1,0 +1,37 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mvs/dataset-quoted.txt
+---
+format: mvs-dataset
+used_fallback_encoding: false
+skipped_count: 1
+entries:
+  - name: BOB.SOURCE
+    kind: dir
+    size: ~
+    modified: "2024-01-31T00:00:00Z (Day)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: BOB.ARCHIVE
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: BOB.TEST
+    kind: dir
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped:
+  - line: 5
+    reason: Unrecognised
+    text: ARCIVE Not Direct Access Device                         BOB.TAPE

@@ -1,0 +1,50 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/ibmi/qsys-members.txt
+---
+format: ibm-i
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: PRODLIB.LIB
+    kind: dir
+    size: ~
+    modified: "2024-01-30T08:00:00Z (Second)"
+    permissions: ~
+    owner: QSYS
+    group: ~
+    hidden: false
+  - name: QRPGSRC.FILE
+    kind: dir
+    size: ~
+    modified: "2024-01-30T08:00:00Z (Second)"
+    permissions: ~
+    owner: QPGMR
+    group: ~
+    hidden: false
+  - name: PGM1.MBR
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: PGM2.MBR
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: PGM1.PGM
+    kind: file
+    size: 65536
+    modified: "2024-01-30T08:00:00Z (Second)"
+    permissions: ~
+    owner: QPGMR
+    group: ~
+    hidden: false
+skipped: []

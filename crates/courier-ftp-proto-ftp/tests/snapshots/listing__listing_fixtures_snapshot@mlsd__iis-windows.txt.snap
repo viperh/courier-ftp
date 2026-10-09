@@ -1,0 +1,50 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mlsd/iis-windows.txt
+---
+format: mlsd
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: wwwroot
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:00.512Z (Millis)"
+    permissions: raw flcdmpe
+    owner: ~
+    group: ~
+    hidden: false
+  - name: Report Q1.xlsx
+    kind: file
+    size: 1234
+    modified: "2024-01-31T09:05:00.7Z (Millis)"
+    permissions: raw adfrw
+    owner: ~
+    group: ~
+    hidden: false
+  - name: read-only.txt
+    kind: file
+    size: 42
+    modified: "2024-01-31T23:59:59Z (Second)"
+    permissions: raw r
+    owner: ~
+    group: ~
+    hidden: false
+  - name: Program Files (x86)
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: nanos.log
+    kind: file
+    size: 0
+    modified: "2024-01-31T12:00:00.123Z (Millis)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

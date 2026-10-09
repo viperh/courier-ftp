@@ -43,7 +43,7 @@ fn object_type(s: &str) -> Option<&str> {
 
 fn kind_for(t: &str) -> EntryKind {
     match t {
-        "DIR" | "LIB" | "FILE" | "FLR" => EntryKind::Dir,
+        "DIR" | "DDIR" | "LIB" | "FILE" | "FLR" => EntryKind::Dir,
         _ => EntryKind::File,
     }
 }

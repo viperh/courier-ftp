@@ -1,0 +1,5 @@
+type=dir;modify=20240131120000.512;perm=flcdmpe; wwwroot
+type=file;size=1234;modify=20240131090500.7;perm=adfrw;create=20240101000000; Report Q1.xlsx
+type=file;size=42;modify=20240131235959;perm=r; read-only.txt
+type=dir;modify=20240131120000; Program Files (x86)
+type=file;size=0;modify=20240131120000.123456; nanos.log

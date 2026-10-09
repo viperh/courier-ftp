@@ -1,0 +1,18 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mixed/hint-vms.txt
+---
+format: vms
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: LOGIN.COM
+    kind: file
+    size: 1024
+    modified: "2024-01-31T12:00:05Z (Second)"
+    permissions: "raw (RWED,RWED,RE,)"
+    owner: ALICE
+    group: STAFF
+    hidden: false
+skipped: []

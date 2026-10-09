@@ -1,0 +1,5 @@
+Volume Unit    Referred Ext Used Recfm Lrecl BlkSz Dsorg Dsname
+WYOSPT 3390   2024/01/31  1   15  FB      80  6160  PO  ALICE.SOURCE
+WYOSPT 3390   2024/01/30  1    2  FB      80 27920  PS  ALICE.DATA.TXT
+Migrated                                                ALICE.OLD.DATA
+Pseudo Directory                                        ALICE.PROJECTS

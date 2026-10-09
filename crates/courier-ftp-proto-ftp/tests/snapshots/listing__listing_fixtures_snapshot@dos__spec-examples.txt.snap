@@ -1,0 +1,51 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/dos/spec-examples.txt
+---
+format: dos
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: wwwroot
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: report.txt
+    kind: file
+    size: 1234
+    modified: "2024-01-31T09:05:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: iso-date.txt
+    kind: file
+    size: 42
+    modified: "2024-01-31T23:59:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: Ordner
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: Documents
+    kind: symlink
+    target: "C:\\Users\\alice\\Documents"
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

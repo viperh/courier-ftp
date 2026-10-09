@@ -1,0 +1,3 @@
+ Name     VV.MM   Created       Changed      Size  Init   Mod   Id
+MEMBER1   01.03 2024/01/30 2024/01/31 12:00    15    10     0 ALICE
+MEMBER2

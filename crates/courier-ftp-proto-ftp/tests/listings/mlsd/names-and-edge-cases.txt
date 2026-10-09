@@ -1,0 +1,16 @@
+type=file;size=1; leading space
+type=file;size=2; trailing space  
+type=file;size=3; semi;colon; and = equals
+type=file;size=4;  double leading
+ no-facts-at-all
+type=file;size=5;lang=en;media-type=text/plain;charset=UTF-8; ignored-facts.txt
+TYPE=FILE;SIZE=6;MODIFY=20240131120000; upper-case-facts
+type=file;size=99999999999999999999999; overflow
+type=file;modify=garbage; bad-modify
+type=file;modify=20241301120000; month-13
+type=file;size=7; ünïcødé 名前.txt
+type=OS.unix=chrdev; null
+type=OS.unix=fifo; pipe
+garbage line without separator
+type=dir; ..
+type=file; a/b

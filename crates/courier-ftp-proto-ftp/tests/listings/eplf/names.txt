@@ -1,0 +1,8 @@
++r,s1,	 leading space
++r,s2,	with	tab
++r,s3,	ünï 名.txt
++r,s4,	.hidden
++/,	..
++r,	
++r,s99999999999999999999999,	overflow
++r,sabc,	bad-size

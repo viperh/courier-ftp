@@ -1,0 +1,5 @@
+modify=20240131120000;perm=flcdmpe;type=cdir;unique=FD00U2B1;UNIX.group=1000;UNIX.groupname=staff;UNIX.mode=0755;UNIX.owner=1000;UNIX.ownername=alice; .
+modify=20240130080000;perm=flcdmpe;type=pdir;unique=FD00U2;UNIX.group=0;UNIX.groupname=root;UNIX.mode=0755;UNIX.owner=0;UNIX.ownername=root; ..
+modify=20240131101500;perm=adfrw;size=2048;type=file;unique=FD00U2B5;UNIX.group=1000;UNIX.groupname=staff;UNIX.mode=0644;UNIX.owner=1000;UNIX.ownername=alice; .profile
+modify=20231105231501;perm=flcdmpe;type=dir;unique=FD00U2B6;UNIX.group=1000;UNIX.groupname=staff;UNIX.mode=02775;UNIX.owner=1000;UNIX.ownername=alice; shared
+modify=20240131120000;perm=adfrw;size=0;type=OS.unix=symlink;unique=FD00U2B7;UNIX.mode=0777; current

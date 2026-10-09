@@ -1,0 +1,26 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mvs/member-loadlib.txt
+---
+format: mvs-member
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: IEFBR14
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: MYPGM
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

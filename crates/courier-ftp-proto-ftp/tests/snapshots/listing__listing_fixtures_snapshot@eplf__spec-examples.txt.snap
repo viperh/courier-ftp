@@ -1,0 +1,34 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/eplf/spec-examples.txt
+---
+format: eplf
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: djb.html
+    kind: file
+    size: 280
+    modified: "1996-03-01T22:15:03Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: "514"
+    kind: dir
+    size: ~
+    modified: "1996-02-13T23:58:27Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: notes.txt
+    kind: file
+    size: 1024
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: rw-r--r-- (644)
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

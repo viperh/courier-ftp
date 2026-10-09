@@ -1,0 +1,3 @@
+ Name      Size   TTR   Alias-of AC --------- Attributes --------- Amode Rmode
+IEFBR14  000008 00000A          00 FO             RN RU            31    ANY
+MYPGM    0001A0 00000B          01 FO             RN RU            31    ANY
