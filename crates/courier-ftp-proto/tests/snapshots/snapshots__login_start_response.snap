@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&LoginStartResponse\n{ credential_response: vec![1, 2, 3], login_state_id: id(3), })"
+---
+{
+  "credential_response": "AQID",
+  "login_state_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e03"
+}

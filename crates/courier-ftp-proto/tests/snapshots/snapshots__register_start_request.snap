@@ -1,0 +1,9 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RegisterStartRequest\n{\n    email: \"alice@example.com\".into(), registration_request: vec![0xfb, 0xff],\n    invite_token: Some(\"invite\".into()), setup_token: None,\n})"
+---
+{
+  "email": "alice@example.com",
+  "registration_request": "-_8",
+  "invite_token": "invite"
+}

@@ -1,0 +1,7 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RefreshRequest { refresh_token: \"r\".repeat(43), })"
+---
+{
+  "refresh_token": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+}

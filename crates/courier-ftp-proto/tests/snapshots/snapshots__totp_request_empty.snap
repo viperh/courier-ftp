@@ -1,0 +1,5 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&TotpRequest::default())"
+---
+{}
