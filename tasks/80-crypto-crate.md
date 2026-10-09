@@ -267,27 +267,27 @@ item make that item "unreadable" (T30 status count), never a panic.
 
 ## Acceptance criteria
 
-- [ ] AC1 Every module in the API table exists with rustdoc on each public item;
+- [x] AC1 Every module in the API table exists with rustdoc on each public item;
   `cargo doc -p courier-ftp-crypto` builds with `-D warnings`.
-- [ ] AC2 `cargo tree -p courier-ftp-crypto -e normal` contains no `tokio`, `rusqlite`,
+- [x] AC2 `cargo tree -p courier-ftp-crypto -e normal` contains no `tokio`, `rusqlite`,
   `reqwest`, `ratatui`, `crossterm`, `clap`, `tracing` or other courier-ftp crate
   (`check-layering.py` rule "crypto has no I/O deps" passes).
-- [ ] AC3 `grep -rn "unsafe" crates/courier-ftp-crypto/src` finds only the
+- [x] AC3 `grep -rn "unsafe" crates/courier-ftp-crypto/src` finds only the
   `#![forbid(unsafe_code)]` line; `scripts/check-unsafe.py` passes.
-- [ ] AC4 Known-answer tests pass for: HKDF (RFC 5869 case 1), Argon2id (phc reference),
+- [x] AC4 Known-answer tests pass for: HKDF (RFC 5869 case 1), Argon2id (phc reference),
   HChaCha20 and XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03 §2.2.1 and A.3.1), Ed25519
   (RFC 8032 §7.1 test 1), every `canon` constructor, item key, key wrap, envelope, device
   blob, private and recovery bundles, grant layout, recovery phrase encoding and safety number.
-- [ ] AC5 Flipping any single byte of an envelope, wrapped key, device blob, bundle or grant,
+- [x] AC5 Flipping any single byte of an envelope, wrapped key, device blob, bundle or grant,
   or changing any AAD input (vault id, item id, key version, purpose, blob name, user id),
   makes opening fail with `Auth` (or `Malformed`/`UnsupportedVersion` for header bytes).
-- [ ] AC6 Envelopes in `tests/fixtures/envelopes/v1/` open to their recorded bodies (format
+- [x] AC6 Envelopes in `tests/fixtures/envelopes/v1/` open to their recorded bodies (format
   frozen; the test fails if a future change breaks old data).
-- [ ] AC7 A zstd frame declaring or producing more than 16 MiB (envelope) / 256 MiB (device
+- [x] AC7 A zstd frame declaring or producing more than 16 MiB (envelope) / 256 MiB (device
   blob) returns `Decompress` while peak allocation stays below cap + 1 MiB.
-- [ ] AC8 `Argon2Params::validate` rejects each out-of-range value from the bounds table and
+- [x] AC8 `Argon2Params::validate` rejects each out-of-range value from the bounds table and
   `argon2id` returns `InvalidParams` without running.
-- [ ] AC9 No dependency edge outside `[dev-dependencies]` enables `insecure-test-ksf`
+- [x] AC9 No dependency edge outside `[dev-dependencies]` enables `insecure-test-ksf`
   (checked by `courier-ftp-e2e/tests/workspace_metadata.rs`, T76).
 - [ ] AC10 Fuzz targets `envelope_open`, `device_blob_open`, `bundle_open`, `grant_open` run
   30 s each in the CI `fuzz` job without findings; their bodies also run as property tests.
@@ -374,3 +374,44 @@ Not applicable (exercised end to end through T30, T87, T89).
 ## Open questions
 
 None.
+
+## Implementation notes
+
+- **Decompression peak (AC7).** sverb's streaming fallback (`take(cap + 1).read_to_end`)
+  can grow its `Vec` to about 2 × cap. The fallback here makes two passes instead: it
+  first streams into a 64 KiB scratch buffer and only counts (stopping at cap + 1), then
+  decompresses in one pass into a buffer of exactly that size; the streaming decoder's
+  window is limited to 1 MiB (`window_log_max(20)`; our own frames always declare their
+  size and never take this path). Frames that declare a size above the cap are rejected
+  before any allocation. Peak allocation is bounded by construction; no test measures it,
+  because a counting `#[global_allocator]` needs `unsafe` (forbidden outside T91's module).
+  `envelope::decompress_capped(compressed, cap)` (crate-private) is shared by `envelope`
+  and `device_blob`.
+- **`device_blob`** also has `#[doc(hidden)] seal_device_blob_with_nonce` (for the KATs) and
+  `HEADER_LEN` (25) / `MIN_LEN` (41); sealing more than `MAX_BLOB_PLAINTEXT` returns
+  `InvalidParams`. The device-blob KAT records the zstd payload (`compressed`) so the
+  Python checker can re-derive the AEAD layer without zstd.
+- `hpke::take_len_prefixed` is `pub` (as in the API table; sverb has it `pub(crate)`).
+- `opaque::recovery_proof_message` keeps sverb's extra label, renamed
+  `courier-ftp/recovery-proof/v1` (not in the label table above).
+- `insecure-test-ksf` is enabled for this crate's own tests by a self dev-dependency
+  (`courier-ftp-crypto = { path = ".", features = ["insecure-test-ksf"] }`).
+- `zstd` is the workspace pin `0.14.1` (the table says 0.14.0). New workspace dev
+  dependencies: `chacha20` (with `rng`), `criterion`, `hex`, `proptest` (sverb's pins).
+- All KAT files and the v1 envelope fixtures were generated fresh with the courier-ftp
+  labels (`--ignored generate_kats`, `generate_account_kats`, `generate_v1_fixtures`);
+  `recording.json` is dropped, `device_blob.json` is new, `canon.json` covers every
+  constructor. Every vector named in "Unit tests" matched on the first run.
+- `scripts/kat/gen_crypto.py --check` only checks (it never writes); it also verifies
+  the bundles, recovery bundles, fingerprints/safety numbers and grant signature messages
+  in `account.json`. `tests/kat_python.rs` runs it; it skips when Python or
+  `cryptography` is unusable unless `COURIER_KAT_PYTHON_REQUIRED` is set, which the CI
+  job `test-local-only` does after installing `cryptography==50.0.1` with
+  `actions/setup-python` (Windows/macOS `test-os` runners skip it).
+- `supply-chain/config.toml` / `imports.lock`: `cargo vet regenerate exemptions` for the
+  new crates (insertions only); `check-vet-crypto.py` now warns that the crypto crates
+  are exempted (the documented non-strict mode).
+- Fuzz targets `envelope_open`, `device_blob_open`, `bundle_open`, `grant_open` are in
+  `fuzz/` (`cargo check` passes on stable). AC10/AC11 stay open until CI runs them:
+  no nightly toolchain here for `cargo fuzz`, and `test-os` needs the Windows/macOS
+  runners. Every other gate passes locally.
