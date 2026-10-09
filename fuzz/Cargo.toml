@@ -26,6 +26,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.13"
+courier-ftp-crypto = { path = "../crates/courier-ftp-crypto" }
 
 # Not part of the root workspace.
 [workspace]
@@ -35,6 +36,34 @@ members = ["."]
 debug = 1
 # libFuzzer reports panics as crashes only when they abort.
 panic = "abort"
+
+[[bin]]
+name = "envelope_open"
+path = "fuzz_targets/envelope_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "device_blob_open"
+path = "fuzz_targets/device_blob_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bundle_open"
+path = "fuzz_targets/bundle_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "grant_open"
+path = "fuzz_targets/grant_open.rs"
+test = false
+doc = false
+bench = false
 
 # [[bin]]
 # name = "url_parse"

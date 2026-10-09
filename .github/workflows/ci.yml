@@ -165,10 +165,19 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # T80: `courier-ftp-crypto/tests/kat_python.rs` re-derives the KATs with
+      # `scripts/kat/gen_crypto.py`, which needs `cryptography`.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install the KAT checker's dependency
+        run: python3 -m pip install cryptography==50.0.1
       - name: Run tests without default features
         env:
           COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home
           COURIER_FTP_KEYRING: "off"
+          COURIER_KAT_PYTHON_REQUIRED: "1"
         run: >-
           cargo test --workspace --no-default-features --locked
           --exclude courier-ftp-sync --exclude courier-ftp-server --exclude courier-ftp-e2e
