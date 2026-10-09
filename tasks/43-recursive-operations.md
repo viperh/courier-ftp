@@ -63,6 +63,35 @@ pub const MAX_DEPTH: u16 = 64;
 /// below `target_real`.
 pub fn is_link_loop(parent_real: &RemotePath, chain: &[RemotePath], target_real: &RemotePath) -> bool;
 
+// ---- walk.rs: the iterative walker, with a caller-supplied lister ----
+/// Where the walker gets directory listings. The caller chooses: delete/chmod pass the
+/// browsing `SessionHandle` (fresh listings); T49 search passes a lister that goes through
+/// the T46 listing cache; tests pass a closure over a `MockServer`.
+#[async_trait]
+pub trait DirLister: Send + Sync {
+    async fn list(&self, dir: &RemotePath, cancel: &CancellationToken) -> Result<Listing>;
+}
+impl DirLister for SessionHandle { /* SessionHandle::list */ }
+/// Adapter for closures (T49, tests).
+pub struct FnLister<F>(pub F);
+
+pub struct WalkOpts { pub max_depth: u16 /* MAX_DEPTH */, pub follow_symlinks: bool }
+pub enum WalkEvent<'a> {
+    /// A directory's listing arrived (entries already filtered when a filter is given).
+    Listed { dir: &'a RemotePath, depth: u16, entries: &'a [Entry], filtered: u32 },
+    ListFailed { dir: &'a RemotePath, error: &'a Error },
+    /// All children of `dir` were visited (post-order hook; delete's `rmdir`, chmod's
+    /// post-order mode change).
+    DirDone { dir: &'a RemotePath, depth: u16 },
+}
+pub enum WalkControl { Continue, SkipChildren, Stop }
+/// Depth-first, iterative (explicit stack), symlinks to dirs followed only with
+/// `follow_symlinks` (loop check as above). Checks `cancel` before every list call.
+/// `visit` returns which subdirectories of a `Listed` dir to descend into.
+pub async fn walk(roots: &[RemotePath], lister: &dyn DirLister, filter: Option<&FilterEngine>,
+                  opts: WalkOpts, cancel: &CancellationToken,
+                  visit: &mut (dyn FnMut(WalkEvent<'_>) -> WalkControl + Send)) -> Result<()>;
+
 // ---- delete / chmod on the browsing session ----
 pub struct RecursiveCtx<'a> {
     pub id: OperationId,                         // T04
@@ -72,8 +101,10 @@ pub struct RecursiveCtx<'a> {
     pub cancel: CancellationToken,
 }
 
-pub async fn delete_recursive(session: &SessionHandle, targets: Vec<(RemotePath, Entry)>,
-                              ctx: RecursiveCtx<'_>) -> DeleteReport;
+/// `session` performs the mutations; `lister` provides listings (normally the same
+/// `SessionHandle`, never a cache — deletes must see the current server state).
+pub async fn delete_recursive(session: &SessionHandle, lister: &dyn DirLister,
+                              targets: Vec<(RemotePath, Entry)>, ctx: RecursiveCtx<'_>) -> DeleteReport;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DeleteReport {
     pub files_deleted: u64, pub dirs_deleted: u64,
@@ -91,7 +122,8 @@ pub enum ChmodScope { All, FilesOnly, DirsOnly }
 /// `(old & !mask) | (value & mask)`; `old = None` → `Some(value)` only if `mask == 0o7777`.
 pub fn compute_mode(old: Option<u32>, spec: ChmodSpec) -> Option<u32>;
 
-pub async fn chmod_recursive(session: &SessionHandle, targets: Vec<(RemotePath, Entry)>,
+pub async fn chmod_recursive(session: &SessionHandle, lister: &dyn DirLister,
+                             targets: Vec<(RemotePath, Entry)>,
                              spec: ChmodSpec, scope: ChmodScope, recurse: bool,
                              ctx: RecursiveCtx<'_>) -> ChmodReport;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -179,8 +211,9 @@ and fan-out `F` (entries per directory) and depth `D`, live items ≤ `S·F + D�
 
 #### Recursive delete (browsing session, T62)
 
-Iterative post-order with an explicit stack; memory holds only the *subdirectories still
-to visit* per level (files are deleted as soon as their listing arrives):
+Built on `walk` (listings from the caller's `DirLister`). Iterative post-order with an
+explicit stack; memory holds only the *subdirectories still to visit* per level (files are
+deleted as soon as their listing arrives):
 
 ```
 for each target:
@@ -260,7 +293,8 @@ active filter set (T47). No new keys. `DirExpansion` persistence format is in T4
 2. `expand_placeholder` with classification, filters, names, destination dir creation.
 3. Hook into T41's slot (`Listing` phase) and `Queue::replace_placeholder`; Move markers.
 4. Symlink following with real-path tracking (remote resolve, local canonicalize).
-5. Iterative walker; `delete_recursive` with reports, progress, cache patches.
+5. Iterative `walk` with the `DirLister` seam (`SessionHandle`, `FnLister`);
+   `delete_recursive` with reports, progress, cache patches.
 6. `chmod_recursive` with scope and pre/post order.
 7. Memory-bound and property tests; local symlink-loop test; e2e scenarios.
 
@@ -276,6 +310,10 @@ active filter set (T47). No new keys. `DirExpansion` persistence format is in T4
 - [ ] AC8 Move of a directory removes the source tree only for children that transferred; a failed child keeps its directory chain.
 - [ ] AC9 Hostile names (`..`, `a/b`, ESC sequences) in a mock listing never produce a path outside the target directory.
 - [ ] AC10 T00 `test-local-only`, `test-os` (Windows: no symlink test; canonicalize path) and `e2e` pass.
+- [ ] AC11 `walk` lists only through the supplied `DirLister`: with an `FnLister` that
+  counts calls and serves a fixed tree, every directory is listed exactly once, none of the
+  session's `list` calls happen, `SkipChildren` prunes a subtree, `Stop` and cancellation
+  end the walk before the next list call.
 
 ## Tests
 
@@ -285,6 +323,7 @@ active filter set (T47). No new keys. `DirExpansion` persistence format is in T4
 - `fn children_order_files_then_dirs_by_name` (AC1).
 - `fn classify_symlink_matrix` — the table above × `follow_symlinks` (AC2, AC5).
 - `fn depth_limit_skips_level_65`.
+- `async fn walk_uses_supplied_lister_only` and `async fn walk_skip_children_and_stop` (AC11).
 
 ### Property / fuzz tests
 - `proptest fn delete_postorder_and_complete` — random trees (≤ 500 entries, depth ≤ 8, random symlinks, random injected failures) on `MockServer`; afterwards exactly the failed paths and their ancestors remain, every `rmdir` comes after its children, links' targets untouched (AC3).
@@ -326,6 +365,5 @@ Not applicable (T62 renders the dialogs).
    line, and symlinks to files are transferred as regular files (their content). Should
    symlinks instead be recreated as symlinks where both sides support it (SFTP `symlink`,
    local)? FileZilla doesn't; this spec doesn't either.
-2. Note for T62's owner: T62 defines `apply_chmod(old, value, mask)` with the same
-   semantics as `compute_mode` here; T62 should call `compute_mode` (T43 is a dependency
-   of T62) instead of duplicating it.
+2. Resolved: T62 uses `compute_mode` and T40's `QueueItemKind`; T49 walks through `walk`
+   with a cache-backed `DirLister`.

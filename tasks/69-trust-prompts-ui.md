@@ -14,11 +14,16 @@ a changed key or certificate can never be accepted by pressing Enter.
 
 ## Context
 
-- **Before:** T04 delivers `CoreEvent::Prompt(PromptRequest { id, kind, reply })`
-  (reply = `oneshot::Sender<PromptResponse>`; a dropped sender means cancel). T52 gives
+- **Before:** T04 delivers `CoreEvent::Prompt(PromptRequest { id, session, kind })`
+  with `respond(PromptResponse) -> bool` and `is_withdrawn()` (a dropped reply means
+  cancel), all prompt payload types (`HostKeyPrompt`, `CertPromptDetails`,
+  `PasswordPrompt`, `PassphrasePrompt`, `KbdInteractivePrompt`, `FileExistsPrompt`,
+  `MessagePrompt`), the answers (`PromptResponse`, `TrustAnswer`, `ApplyTo`) and
+  `CoreEvent::CredentialAccepted { session, prompt_id }`. T52 gives
   the modal stack, `TextInput` (incl. `masked`), `Checkbox`, `RadioGroup`, `Button`
   rows, `Form` focus traversal, scrolling for tall dialogs and "terminal too small".
-  T50 routes core events to the UI and owns `Mode`.
+  T50 routes core events to the UI and owns `Mode`, `ui::text::sanitize` and
+  `ui::symbols::Symbols`. T51 binds `OpenNextPrompt` to `ctrl-x p`.
 - **Producers** (each dialog is built when its producer's payload type exists, as
   `tasks/README.md` notes): T20 (password, passphrase, keyboard-interactive) and T21
   (host keys) in M2; T12 (certificates) in M3; T42 (file exists) in M4. The queue,
@@ -53,7 +58,7 @@ impl PromptQueue {
     /// Called every tick (T50, 4 Hz minimum) and after every key: drops withdrawn prompts
     /// (reply sender closed), applies the auto-open rules, returns what changed.
     pub fn tick(&mut self, now: Instant, ui: &UiFocusState) -> PromptTick;
-    /// `Action::OpenNextPrompt` (Ctrl-x p).
+    /// `Action::OpenNextPrompt` (`ctrl-x p`, T51).
     pub fn open_next(&mut self, now: Instant);
     /// Status-bar badge text: "⚠ 2 prompts" (ASCII: "! 2 prompts"); None if nothing waits.
     pub fn badge(&self, unicode: bool) -> Option<String>;
@@ -95,25 +100,30 @@ pub struct FileExistsDialog;   // file_exists.rs
 
 /// Shared detail renderers (also used by T57's server info dialog).
 pub fn render_host_key_details(p: &HostKeyPrompt) -> Vec<Line<'static>>;
-pub fn render_certificate_details(c: &CertDetails, now: OffsetDateTime) -> Vec<Line<'static>>;
+pub fn render_certificate_details(c: &CertificateDetails, now: OffsetDateTime) -> Vec<Line<'static>>;
 ```
 
-Payloads consumed (produced by T20, T21, T12, T42; field lists are what this task needs,
-see Open questions): `HostKeyPrompt` (T21), `Password`/`KeyPassphrase` secret prompts
-and `KeyboardInteractive` (T20), `CertPrompt { host, port, problems:
-Vec<CertProblem>, chain: Vec<CertDetails>, tls_version, cipher_suite, changed:
-Option<OldCert { fingerprint_sha256, added_at }>, can_save }` (T12), `FileExists {
-direction, source_path, target_path, source: Entry, target: Entry, suggested_name,
-resume_possible }` (T42).
+Payloads consumed — exactly the T04 types (produced by T20, T21, T12, T42):
 
-Answers sent back: `HostKey(TrustOnce | AlwaysTrust | Reject)`, `Certificate(TrustOnce
-| AlwaysTrust | Reject)`, `Secret { value: SecretString, remember_session: bool,
-save_in_vault: bool }`, `Answers(Vec<SecretString>)`, `FileExists { action:
-ExistsAction, apply_to: Once | AllInQueue | AllForDirection, new_name: Option<String> }`,
+| `PromptKind` | Payload fields used |
+|---|---|
+| `TrustHostKey(HostKeyPrompt)` (T21) | `host`, `port`, `key_type`, `bits`, `fingerprint_sha256`, `fingerprint_md5`, `changed: Option<Vec<OldKey { fingerprint_sha256, source }>>`, `other_known_types`, `can_save` |
+| `TrustCertificate(Box<CertPromptDetails>)` (T12) | `host`, `port`, `session: TlsSessionInfo { protocol, cipher_suite, chain: Vec<CertificateDetails>, .. }`, `problems: Vec<CertProblem>`, `hostname_matches`, `previous: Option<PreviousCert { sha256, subject, not_after, added_at }>`, `can_save` |
+| `Password(PasswordPrompt)` (T07/T10/T15/T20) | `purpose`, `target`, `retry`, `attempt`, `max_attempts`, `cache_key`, `can_save` |
+| `KeyPassphrase(PassphrasePrompt)` (T20) | `key_label`, `retry`, `attempt`, `max_attempts`, `cache_key`, `can_save` |
+| `KeyboardInteractive(KbdInteractivePrompt)` (T20) | `host`, `name`, `instructions`, `prompts: Vec<KbdField { text, echo }>` |
+| `FileExists(Box<FileExistsPrompt>)` (T42) | `direction`, `source_path`, `source: Entry`, `target_path`, `target: Entry`, `can_resume`, `suggested_name` |
+| `Message(MessagePrompt)` | `level`, `title`, `text` → T52 message dialog, answered `Ack` |
+
+Answers sent back (T04 `PromptResponse`): `HostKey(TrustAnswer)`,
+`Certificate(TrustAnswer)` with `TrustAnswer { TrustOnce, AlwaysTrust, Reject }`,
+`Secret { value: SecretString, remember_session: bool, save_in_vault: bool }`,
+`Answers(Vec<SecretString>)`, `FileExists { action: ExistsAction, apply_to: ApplyTo,
+new_name: Option<String> }` with `ApplyTo { Once, AllInQueue, AllForDirection }`, `Ack`,
 `Cancel`.
 
-New actions (default bindings to be added to T51's table): `Action::OpenNextPrompt`
-(`Ctrl-x p`), `Action::SaveCredential(SaveRequest)` (internal, no key).
+Actions: `OpenNextPrompt` (bindable, T51 default `ctrl-x p`) and
+`Action::SaveCredential(SaveRequest)` (internal, no key).
 
 ### Behaviour
 
@@ -133,12 +143,12 @@ New actions (default bindings to be added to T51's table): `Action::OpenNextProm
    - background: only if `mode == Normal` (not `Input`, `Filter`, `Dialog`) and no key
      was pressed for ≥ 2 s.
    Otherwise the status bar shows the badge (`⚠ N prompts` / `! N prompts`, N = queued
-   count). `Ctrl-x p` opens the next prompt at once (or, if a non-prompt dialog is open,
+   count). `ctrl-x p` opens the next prompt at once (or, if a non-prompt dialog is open,
    right after it closes).
 5. **Input guard:** for 500 ms after a prompt dialog becomes visible, key presses are
    ignored (buttons drawn with the `dim` style), so an Enter typed for something else
    cannot answer it.
-6. **Withdrawn prompts:** when `reply.is_closed()` (the core gave up: connect cancelled,
+6. **Withdrawn prompts:** when `PromptRequest::is_withdrawn()` (the core gave up: connect cancelled,
    server closed the connection), the prompt is removed within one tick; a visible
    dialog closes and the status bar shows "Prompt withdrawn: the connection was closed"
    for 3 s.
@@ -185,7 +195,8 @@ and 160×48 (the dialog is 76 wide in both, centred over the dimmed main screen)
   checkbox; `t`/`Alt-t` Trust; `a`/`Alt-a` toggle; `c`/`Alt-c`/`Esc` Cancel; `Tab`/`Shift-Tab` move.
 - Answer: Trust + checked → `AlwaysTrust`; Trust + unchecked → `TrustOnce`; Cancel → `Reject`.
 
-**2. Changed host key** (`changed == Some(old)`), border and title in the `error` style,
+**2. Changed host key** (`changed == Some(old_keys)`; the `Trusted:` line lists each
+`OldKey`, with "saved in the vault on <date>" or "from ~/.ssh/known_hosts line N"), border and title in the `error` style,
 title text bold so it reads without colour (`NO_COLOR`):
 
 ```
@@ -274,9 +285,9 @@ certificate; problems listed with `✘`, ASCII `x`):
   Keys: `j`/`k`/`↑`/`↓` line, `PgUp`/`PgDn` page, `g`/`G` top/bottom, `[`/`]` or
   `←`/`→` previous/next certificate, `Esc`/`d` back to the summary. More than 20 SANs
   are listed in full (scrolling).
-- **Changed certificate** (`changed == Some(old)`): same safety rules and button row as
-  the changed host key (title `WARNING: CERTIFICATE CHANGED`, `Trusted:` = old
-  SHA-256 + date, `New:` = new SHA-256 on two lines, typed host name, default `Cancel`).
+- **Changed certificate** (`previous == Some(prev)`): same safety rules and button row as
+  the changed host key (title `WARNING: CERTIFICATE CHANGED`, `Trusted:` = `prev.sha256`
+  + `prev.added_at` date + `prev.subject`, `New:` = new SHA-256 on two lines, typed host name, default `Cancel`).
 - Answers map like the host-key dialogs to `Certificate(TrustOnce | AlwaysTrust | Reject)`.
 
 **4. Password / key passphrase** (T20 secret prompts):
@@ -358,7 +369,7 @@ certificate; problems listed with `✘`, ASCII `x`):
 - Paths middle-truncated with `…` to fit; sizes per `interface.size_format`, dates per
   `interface.date_format`/`time_format` and the entry's precision (day-only dates show
   no time); unknown values show `?`.
-- `Resume` is disabled (dim, skipped) when `resume_possible == false`. The rename field
+- `Resume` is disabled (dim, skipped) when `can_resume == false`. The rename field
   is enabled only when `Rename` is selected; prefilled with `suggested_name`; validated
   inline (non-empty, no `/` or `\`, not equal to the target's name).
 - "Only for downloads" (`uploads` for an upload) is enabled only when the first checkbox is set.
@@ -374,7 +385,7 @@ certificate; problems listed with `✘`, ASCII `x`):
 
 | Key | Type | Default | Use |
 |---|---|---|---|
-| `interface.unicode_symbols` (T57) | auto/bool | auto | `•`/`*`, `✔`/`ok`, `✘`/`x`, `⚠`/`!` |
+| `interface.unicode_symbols` (T05; resolved by T50 `Symbols`) | `auto` \| `always` \| `never` | `auto` | `•`/`*`, `✔`/`ok`, `✘`/`x`, `⚠`/`!` |
 | `interface.size_format`, `date_format`, `time_format` (T05) | — | — | file-exists dialog |
 
 Constants: input guard 500 ms; background auto-open idle 2 s; withdrawn-message 3 s;
@@ -422,13 +433,13 @@ reported by T31 as an error dialog; the connection is unaffected.
 - [ ] AC2 Changed host key / certificate: with an empty or wrong host name, `Enter` on every focusable element and `Esc` answer `Reject`; `Trust once`/`Replace` are unreachable by Tab until the host name matches; `Enter` in the field never answers.
 - [ ] AC3 Keys pressed within 500 ms after a prompt opens have no effect (paused-time test).
 - [ ] AC4 Three prompts pushed at once (one foreground, two background) are shown one at a time, foreground first, then FIFO; answering one shows the next on the following tick.
-- [ ] AC5 A background prompt arriving while `mode == Input` only shows the badge; it opens after `Ctrl-x p`, or automatically after 2 s without keys in `Normal` mode.
+- [ ] AC5 A background prompt arriving while `mode == Input` only shows the badge; it opens after `ctrl-x p`, or automatically after 2 s without keys in `Normal` mode.
 - [ ] AC6 Closing the reply sender removes the prompt (and closes the visible dialog) within one tick and shows the withdrawn message.
 - [ ] AC7 Typed passwords never appear in any rendered buffer or `Debug` output (snapshot buffers searched for the typed canary string).
 - [ ] AC8 "Remember for this session" answers the next non-retry prompt with the same `cache_key` without opening a dialog; retry prompts always open; vault lock clears the cache.
 - [ ] AC9 "Save in the vault" emits `Action::SaveCredential` only after `CredentialAccepted`; a failed connect emits nothing and drops the pending secret (drop counter = typed secrets).
 - [ ] AC10 Keyboard-interactive: echo flags respected (masked vs plain in snapshots); `Enter` advances fields and submits on the last one; answers arrive in prompt order.
-- [ ] AC11 File exists: every radio × checkbox combination maps to the documented `ExistsAction`/`apply_to`/`new_name`; Resume can't be selected when `resume_possible` is false; invalid rename names block OK with an inline message.
+- [ ] AC11 File exists: every radio × checkbox combination maps to the documented `ExistsAction`/`apply_to`/`new_name`; Resume can't be selected when `can_resume` is false; invalid rename names block OK with an inline message.
 - [ ] AC12 Vault lock while a prompt is visible hides it; after unlock it is shown again with its original content; "Always trust"/"Save in the vault" follow `can_save`.
 - [ ] AC13 At 60×20 dialogs scroll instead of clipping buttons; below T52's minimum the "terminal too small" message shows and no answer is sent.
 - [ ] AC14 T00 gates pass (`fmt`, `clippy -D warnings`, `docs`, tests).
@@ -492,16 +503,13 @@ In `courier-ftp-e2e` (T76 `PtyApp`, `#[ignore]`, `COURIER_E2E=1`), once T58 exis
 
 ## Open questions
 
-1. **T04 types:** T04 names the prompt kinds but not their fields or the
-   `PromptResponse` variants; it also lacks `session` on `PromptRequest` (needed for the
-   foreground/background rule) and `CoreEvent::CredentialAccepted`. The payloads and
-   answers listed above (from T20/T21) should be adopted by the T04 owner.
-2. **T12/T42 payloads:** `CertPrompt` (problems list, chain details, TLS session,
-   changed/old fingerprint, `can_save`) and `FileExists` (`suggested_name`,
-   `resume_possible`, both paths) are assumed here; T12 and T42 should produce exactly
-   these fields.
-3. **File-exists "remember":** FileZilla can also turn the chosen action into the new
-   default setting. T42's `apply_to` only covers this queue run; should the dialog offer
-   "Make this the default for downloads/uploads" (writes `transfers.on_exists_*`)?
-4. **"Always trust" pre-checked:** the unknown host key and certificate dialogs
+1. **File-exists "remember":** FileZilla can also turn the chosen action into the new
+   default setting, and has an "apply to current queue only" scope. T04's `ApplyTo` has
+   only `Once`, `AllInQueue` and `AllForDirection` (this queue run), so the dialog offers
+   no session-wide or default-changing scope. Should T04 add a session scope, or the
+   dialog offer "Make this the default for downloads/uploads" (writes the T05 exists
+   setting)?
+2. **"Always trust" pre-checked:** the unknown host key and certificate dialogs
    pre-check "Always trust" when the vault is unlocked. Keep, or default to trust-once?
+
+(Resolved by the coordinator: payloads and answers are T04's final types listed above.)

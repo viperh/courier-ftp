@@ -342,7 +342,7 @@ placeholder expansion) send `CoreEvent::QueueChanged`.
 | `ConnectionLimit` | `is_connection_limit` | back-off (above) |
 | `LocalDiskFull` | `Error::Io` with `ErrorKind::StorageFull`/`QuotaExceeded` or raw OS error 28 (ENOSPC), 122 (EDQUOT), 112 / 39 (Windows disk full) | item `Failed(Permanent)` "Local disk full"; engine stops like `Stop`; Error log and `Notice`: "Local disk is full — queue stopped. Free some space and start the queue again." |
 | `RemoteDiskFull` | upload with `Protocol { code: Some(452 \| 552) }` | item failed; group blocked "Server disk full or quota exceeded" |
-| `ServerFatal` | at `Connecting`: any error (`SessionHandle::connect` already retried transient ones), plus resolver errors (site deleted, password prompt cancelled) | group blocked with the message; its items stay queued but not runnable; `Start` unblocks |
+| `ServerFatal` | at `Connecting`: any error (`SessionHandle::connect` already retried transient ones), plus resolver errors (site deleted, `Error::VaultLocked` while the vault is locked — message "Unlock the vault to transfer to this site", password prompt cancelled) | group blocked with the message; its items stay queued but not runnable; `Start` unblocks |
 | `ItemFatal` | `NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidInput`, `Internal`, `Unsupported`, `Protocol` 5xx, `Io` other than transient kinds | `Failed(Permanent)`, no retry |
 | `Transient` | `err.is_transient()` (T02) after connect | `attempts += 1`; if `attempts ≤ connection.retries` → `Waiting { until: now + connection.retry_delay_secs }`; else `Failed(Transient)` |
 

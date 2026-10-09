@@ -173,8 +173,9 @@ end of range:
   direction limits permitting) with the largest unreserved remainder, if that remainder is
   ≥ `2 × min_segment_size` and it has fewer than `max_segments` segments.
 - **Read-ahead**: SFTP stops requesting at `range_len` (T22); bytes requested beyond a
-  stolen end (≤ T22's 8 MiB pipeline window) are discarded. FTP: the remainder of the
-  stream is aborted with ABOR.
+  stolen end (≤ T22's 8 MiB pipeline window) are discarded. FTP: T11 honours `range_len`
+  (EOF after N bytes) and its `finish` runs ABOR + resync for the rest of the server's data,
+  reporting success.
 - **Checkpoints**: every `CHECKPOINT_EVERY` (5 s) the coordinator flushes the segment
   writers and stores `plan.done()` into the queue item's `completed` (persisted by T40),
   so a crash resumes only the missing ranges.
@@ -210,7 +211,7 @@ Single-stream throughput bound ≈ min(link, in-flight / RTT): with OpenSSH, 8 M
 
 #### 4. FTP data path (tuning of T11/T12)
 
-- `DataConnOpts.socket_buffer` = 4 MiB (`SO_RCVBUF`/`SO_SNDBUF`, the OS may cap it; T11's
+- T11 `DataConfig.socket_buffer` = 4 MiB (`SO_RCVBUF`/`SO_SNDBUF`, the OS may cap it; T11's
   default is 256 KiB). Single-stream bound ≈ 4 MiB / RTT (≈ 84 MB/s at 50 ms), so large
   files rely on segmentation to fill 1 Gbit/s.
 - TLS 1.3 with AES-GCM preferred, session resumption on data connections (T12).
@@ -238,7 +239,7 @@ Settings (already defined in T05 with this task as owner; editable in T68):
 | `transfers.segmented.min_file_size_mib` | u32 | 32 | 1–1 048 576 | files below are never split |
 | `transfers.segmented.max_segments` | u8 | 4 | 1–16 | 1 = off |
 | `transfers.segmented.min_segment_size_mib` | u32 | 8 | 1–1024 | initial split and growth granularity |
-| `sftp.max_outstanding_requests` | u32 | 64 | 1–256 | per open file (T22) |
+| `sftp.max_outstanding_requests` | u16 | 64 | 1–256 | per open file (T22) |
 | `sftp.request_size` | u32 | 32 768 | 4 096–261 120 | used without `limits@openssh.com` (T22) |
 
 Constants (not settings): `WINDOW` 1 MiB, `STEAL_MIN` 1 MiB, `SPLIT_ALIGN` 64 KiB, copy
@@ -369,14 +370,6 @@ runs 3 times; the median is recorded.
    detects SFTP `check-file`, but `Backend` has no checksum method. Add
    `Backend::checksum(path, range) -> Option<Digest>` (T03) and verify when available, or
    rely on size + unchanged-source checks only (this spec, v1)?
-2. Inconsistency for T05's owner: T05 lists `sftp.max_outstanding_requests` as 1–1024 and
-   `sftp.request_size` as 1024–262 144; T22 (and this task) use 1–256 and 4 096–261 120.
-   T05 should adopt T22's ranges.
-3. Inconsistency for T22's owner: T22's capability table does not list
-   `positional_writes`; segmented SFTP uploads need it `true` (T03 `WriteMode::WriteAt`).
-4. Inconsistency for T11's owner: T03's `TransferOpts.range_len` is not mentioned in T11;
-   this task only relies on `finish_transfer(Abort)` for early stops, but T11 should honour
-   `range_len` (return EOF after N bytes) to avoid reading past a segment.
-5. Inconsistency for T06's owner: T06 calls `sync_all` when every local write stream is
-   shut down. That costs 1–10 ms per file on SSDs (seconds for 10 000 small files) and
-   FileZilla never fsyncs. Proposal: `sync_all` only for files ≥ 32 MiB (or never).
+2. Resolved: `sftp.*` uses T22's ranges (1–256, 4 096–261 120, registered in T05); T22 sets
+   `positional_writes = true`; T11 honours `range_len`; T06 calls `sync_all` only at the end
+   of files ≥ 8 MiB (never per write).

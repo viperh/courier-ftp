@@ -124,15 +124,17 @@ pub enum WsEvent { Connected, Message(ServerMsg), Disconnected { retry_in: Durat
 pub async fn run(api: ApiClient, tokens: Arc<TokenManager>, cfg: WsConfig, tx: mpsc::Sender<WsEvent>, cancel: CancellationToken);
 ```
 
-Additions to `courier-ftp-core::vault` (T30's engine):
+Sync-facing `VaultEngine` methods used here; signatures are fixed in T30, this task
+implements their bodies in `courier-ftp-core::vault`:
 
 ```rust
 impl VaultEngine {
-    /// Bumped after every committed local write (put/delete/import). The binary forwards it
-    /// to SyncHandle::local_change.
+    /// Bumped after every committed local write (put/delete/import/transfer). The binary
+    /// forwards it to SyncHandle::local_change.
     pub fn local_changes(&self) -> tokio::sync::watch::Receiver<u64>;
-    /// Re-reads these items from the store into the decrypted in-memory index (after a pull).
-    pub async fn apply_remote(&self, vault: VaultId, items: &[ItemId]) -> Result<(), Error>;
+    /// `reload_items(items)` for one vault after a pull (re-reads them into the decrypted
+    /// in-memory index), then `ItemsChanged`.
+    pub async fn apply_remote(&self, vault: VaultId, items: &[ItemId]) -> Result<(), VaultError>;
 }
 ```
 
@@ -267,8 +269,8 @@ frecency, `local_dir_override`), `local_approvals`, `pinned_keys`, `meta`, setti
 | Key | Type | Default | Range | Meaning |
 |---|---|---|---|---|
 | `sync.history` | bool | `false` | — | also sync quickconnect history entries |
-| `sync.push_debounce_ms` | u32 | `2000` | 200..=60000 | delay after the last local edit |
-| `sync.poll_fallback_secs` | u32 | `300` | 30..=86400 | full cycle interval without notifications |
+| `sync.push_debounce_ms` | u32 | `2000` | 100..=60000 (T05) | delay after the last local edit |
+| `sync.poll_fallback_secs` | u32 | `300` | 30..=3600 (T05) | full cycle interval without notifications |
 
 (Defined in T05's `sync` section; validation as T05 §3: out of range → warn + default.)
 `meta.sync_last_ok`: 8-byte big-endian Unix ms.
@@ -292,7 +294,8 @@ rolls back and the engine task restarts the cycle after backoff.
 
 ## Implementation steps
 
-1. `keys.rs`, `status.rs`, `info.rs`; `VaultEngine::local_changes`/`apply_remote` in core.
+1. `keys.rs`, `status.rs`, `info.rs`; bodies of T30's `VaultEngine::local_changes` /
+   `apply_remote` in core.
 2. `pull.rs` (page transaction, merge, cursor) + tests with the in-process server.
 3. `push.rs` (batching, results table, conflict rounds, blocks).
 4. `resync.rs` (`410`).

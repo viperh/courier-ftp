@@ -1,6 +1,6 @@
 # T89 — Teams and shared vaults
 
-**Phase:** H Sync · **Milestone:** M8 · **Depends on:** T80, T85, T87, T88 · **Crate(s):** `courier-ftp-server` (orgs, team vaults, rotation), `courier-ftp-sync` (`trust`, `account::teams`, `account::vaults`, `rotation`), `courier-ftp-store` (pin trust columns), `courier-ftp-core` (vault permission, reference rules, transfers, credential overrides) · **Decisions:** D14 · **FEATURES.md:** §2 (shared Site Manager entries)
+**Phase:** H Sync · **Milestone:** M8 · **Depends on:** T80, T85, T87, T88 · **Crate(s):** `courier-ftp-server` (orgs, team vaults, rotation), `courier-ftp-sync` (`trust`, `account::teams`, `account::vaults`, `rotation`), `courier-ftp-store` (pin trust queries on T82's `pinned_keys`), `courier-ftp-core` (vault permission, reference rules, transfers, credential overrides) · **Decisions:** D14 · **FEATURES.md:** §2 (shared Site Manager entries)
 **Related (integrates with, not blocking):** T90, T91
 **Reference:** sverb `crates/sverb-server/src/{orgs/*,routes/{orgs,shared_vaults,rotate}.rs,sync/{shared,rotation}.rs}`, `crates/sverb-sync/src/{trust,rotation}.rs`, `src/account/{teams,vaults,grants}.rs`, `crates/sverb-crypto/src/{grant,fingerprint}.rs`, `migrations/client/0003_pinned_keys.sql`, `tests/{orgs,shared_vaults,rotation,trust}.rs`, `docs/threat-model.md` (Teams); SPEC §13.
 
@@ -118,14 +118,19 @@ pub async fn rotate(admin: &VaultAdmin, vault: VaultId, progress: impl Fn(Rotati
 
 Core (`courier-ftp-core`):
 
+Sync-facing `VaultEngine` methods with signatures fixed in T30; this task implements the
+bodies (read-only check and cross-vault reference check included):
+
 ```rust
 impl VaultEngine {
-    pub fn vault_permission(&self, vault: VaultId) -> Permission;      // Personal → Manage
-    pub fn vaults(&self) -> Vec<VaultInfo>;                            // id, kind, name, org, permission
-    /// put/delete on a `read` vault → Error::Vault(VaultError::ReadOnly).
-    /// put of a team-vault item referencing an item in another vault → Error::InvalidInput(
-    ///   "A shared site can't use an item from your personal vault; add a credential override instead").
-    pub async fn transfer(&self, plan: TransferPlan) -> Result<Vec<ItemId>, Error>;   // copy or move, one tx
+    pub fn vault_permission(&self, vault: VaultId) -> VaultPermission;   // Personal → Manage
+    pub fn vaults(&self) -> Result<Vec<VaultInfo>, VaultError>;          // id, kind, permission (+ name, org from meta)
+    /// Read-only check: put/put_many/delete/transfer-out on a `Read` vault →
+    /// `VaultError::ReadOnlyVault(id)`. Cross-vault reference check: put/put_many/transfer
+    /// of a team-vault item referencing an item in another vault →
+    /// `VaultError::CrossVaultReference("A shared site can't use an item from your personal
+    /// vault; add a credential override instead")` (→ `Error::InvalidInput`).
+    pub async fn transfer(&self, plan: TransferPlan) -> Result<Vec<ItemId>, VaultError>;   // copy or move, one tx
 }
 pub enum TransferMode { Copy, Move }
 pub struct TransferPlan { pub mode: TransferMode, pub items: Vec<ItemId>, pub target: VaultId,
@@ -252,7 +257,7 @@ Revoked members keep whatever they downloaded before (residual risk, T91 §9).
   pull): delete the local vault, its items and outbox rows; toast "You no longer have access to
   <name>" plus "N unsynced changes were discarded" when N > 0.
 - **Permission change:** `meta.vault_permission/<id>` updated on every vault list refresh.
-  `read` → `VaultEngine::put/delete` refuse with `VaultError::ReadOnly`; items dirty before
+  `read` → `VaultEngine::put/delete` refuse with `VaultError::ReadOnlyVault(id)`; items dirty before
   the downgrade are blocked `ReadOnly` (T88) and the UI offers "Revert to server version"
   (drop local changes, re-pull) or "Copy to personal vault".
 - **Admin reconcile:** on each vault list refresh, a client with `manage` grants `manage`
@@ -298,20 +303,11 @@ CREATE INDEX invites_org ON invites (org_id) WHERE accepted_at IS NULL;
 -- At least one owner per org is enforced in the transaction (count check), not by a constraint.
 ```
 
-Client store migration (next free number in `courier-ftp-store/migrations/`, e.g.
-`0002_pin_trust.sql`), extending T82's `pinned_keys`:
-
-```sql
-ALTER TABLE pinned_keys ADD COLUMN label TEXT;
-ALTER TABLE pinned_keys ADD COLUMN fingerprint BLOB;          -- SHA-256("courier-ftp/fpr/v1"||x||ed)
-ALTER TABLE pinned_keys ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE pinned_keys ADD COLUMN verified_at INTEGER;
-ALTER TABLE pinned_keys ADD COLUMN is_self INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE pinned_keys ADD COLUMN changed_fingerprint BLOB;
-ALTER TABLE pinned_keys ADD COLUMN changed_x25519_pub BLOB;
-ALTER TABLE pinned_keys ADD COLUMN changed_ed25519_pub BLOB;
-ALTER TABLE pinned_keys ADD COLUMN changed_at INTEGER;
-```
+Client pins use T82's full `pinned_keys` table (sverb's: `user_id`, `label`,
+`fingerprint` = SHA-256(`"courier-ftp/fpr/v1"`‖x25519‖ed25519), `x25519_pub`,
+`ed25519_pub`, `first_seen_at`, `verified`, `verified_at`, `is_self`,
+`changed_fingerprint`, `changed_x25519_pub`, `changed_ed25519_pub`, `changed_at`). No client
+migration is added by this task.
 
 Local meta keys: `vault_name_enc/<uuid>`, `vault_permission/<uuid>` (`read|write|manage`),
 `rotation:<uuid>` (CBOR `{new_key_version, vk_new_wrapped, uploaded: [16-byte ids],
@@ -326,7 +322,8 @@ No new settings keys.
 
 - Server: `ApiError` variants as in the tables.
 - Client: `TrustError`, `RotationError` (above), `SyncError` (T87); core:
-  `Error::Vault(VaultError::ReadOnly)`, `Error::InvalidInput(..)` for cross-vault references.
+  `VaultError::ReadOnlyVault(id)` (→ `Error::Vault(..)`), `VaultError::CrossVaultReference`
+  (→ `Error::InvalidInput(..)`), `VaultError::Locked` (→ `Error::VaultLocked`).
   UI texts in T90.
 
 ### Security and logging
@@ -349,7 +346,7 @@ No new settings keys.
 2. Server team vaults: create, members listing, org vaults, grant, revoke, push audit, admin
    implicit `manage` in vault list/push permission checks.
 3. Server rotation (begin/upload/commit, resume, abandonment) + tests incl. crash/abandon.
-4. Client store migration for pins; `trust.rs` (pins, observe, safety numbers,
+4. Pin queries on T82's `pinned_keys`; `trust.rs` (pins, observe, safety numbers,
    `verify_grant`, `TrustedKeySource`); wire into T87 login and T88 engine.
 5. Client `VaultAdmin` create/grant/revoke, adoption/revocation in the engine, admin reconcile.
 6. Client `rotation.rs` with persisted state and resume.
@@ -447,6 +444,9 @@ Client (`courier-ftp-sync/tests/{team_vaults,rotation,trust}.rs`, in-process ser
 
 - **Unsynced edits in a vault whose access was revoked** are discarded (with a toast giving the
   count), as in sverb. Alternative: move them into the personal vault as copies. Which one?
-- **T82 `pinned_keys` columns:** this task adds the trust columns with an `ALTER TABLE`
-  migration. If T82 is revised before M8, it can create the full table (sverb client migration
-  `0003`) and this migration is dropped.
+
+Resolved (reconciliation): T82 creates the full `pinned_keys` table (with `verified` and the
+pending changed-key columns) and the meta keys `vault_name_enc/<id>`,
+`vault_permission/<id>`, `rotation:<id>`; T30 fixes the signatures of `vault_permission`,
+`vaults` and `transfer` and the read-only / cross-vault reference checks. This task's
+`ALTER TABLE` migration is dropped.

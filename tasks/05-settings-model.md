@@ -314,7 +314,7 @@ referenced by `password_ref`; the binary resolves them when building `ConnectInf
 | `show_queue` | bool | true | — | T50 |
 | `show_quickconnect` | bool | true | — | T58 |
 | `theme` | Theme | default | `NO_COLOR` forces monochrome | T50 |
-| `unicode_symbols` | UnicodeSymbols | auto | — | T57 |
+| `unicode_symbols` | UnicodeSymbols | auto | — | T50 (detection), T57 |
 | `key_sequence_timeout_ms` | u32 | 1000 | 200–5000 | T51 |
 | `enter_on_file` | EnterOnFile | transfer | — | T51, T53 |
 | `connect_target` | ConnectTarget | ask | `ask` \| `new_tab` \| `replace`; set by "remember my choice" in the connect-target dialog | T61 (used by T58, T59) |
@@ -373,7 +373,7 @@ referenced by `password_ref`; the binary resolves them when building `ConnectInf
 |---|---|---|---|---|
 | `listing_cache` | bool | true | — | T46 |
 | `listing_cache_ttl_secs` | u32 | 0 | 0–86400 (0 = until refresh) | T46 |
-| `listing_cache_max_dirs` | u32 | 200 | 10–10000 (directories per server, LRU) | T46 |
+| `listing_cache_max_dirs` | u32 | 200 | 10–10000 (directories in one global LRU across servers) | T46 |
 
 #### `vault`
 | Key | Type | Default | Range | Owner |

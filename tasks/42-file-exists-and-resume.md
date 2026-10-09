@@ -166,9 +166,13 @@ missing; otherwise `cmp_coarse` (Day-precision listings compare by date only).
    only slots that also need to ask wait.
 2. After acquiring, recompute `effective_action` — an answer given meanwhile with
    "apply to all" now decides this item without a prompt.
-3. Otherwise set the item to `Active { phase: AwaitingUser }` and call
+3. Otherwise compute `suggested_name` = the first `rename_candidates(file_name)` entry for
+   which `TargetProbe::exists` is false, probing at most 20 candidates (`None` if all 20
+   exist; the full search still runs if the user picks Rename), set the item to
+   `Active { phase: AwaitingUser }` and call
    `events.prompt_with_cancel(session, PromptKind::FileExists(Box::new(FileExistsPrompt {
-   direction, source_path, source, target_path, target, can_resume: resume_ok })), cancel)`.
+   direction, source_path, source, target_path, target, can_resume: resume_ok,
+   suggested_name })), cancel)`.
 4. Answer `PromptResponse::FileExists { action, apply_to, new_name }` (`action ≠ Ask`):
    `apply_to = AllInQueue` / `AllForDirection` stores the run rule **before** releasing the
    gate; then `decide(action, …)`. `new_name` is used only for this item's `Rename`.
@@ -233,7 +237,7 @@ Settings read (all defined in T05): `transfers.on_exists_download` (`ask`),
 memory only and never persisted.
 
 Prompt payload: T04's `FileExistsPrompt { direction, source_path, source, target_path,
-target, can_resume }`; paths are display strings (remote `RemotePath::as_str`, local
+target, can_resume, suggested_name }` (T69 prefills its rename field with `suggested_name`); paths are display strings (remote `RemotePath::as_str`, local
 `LocalPath::to_display`).
 
 ### Errors
@@ -278,6 +282,9 @@ target, can_resume }`; paths are display strings (remote `RemotePath::as_str`, l
 - [ ] AC8 With `preallocate`, the local `open_write` receives `preallocate_hint = Some(size)` for files ≥ 1 MiB and `None` below; a cancelled download leaves a file whose length equals the bytes written (resume picks the right offset).
 - [ ] AC9 `preserve_timestamps` sets local mtime for Minute/Second precision sources and not for Day; on a server without `set_mtime` one Status line per run is logged.
 - [ ] AC10 T00 `test-local-only` and `test-os` (Windows/macOS sanitiser cases) pass.
+- [ ] AC11 The prompt carries `can_resume` = `resume_ok` and `suggested_name` = the first
+  free candidate (`report (2).pdf` when `report.pdf` and `report (1).pdf` exist; `None`
+  when the first 20 candidates exist).
 
 ## Tests
 
@@ -304,6 +311,7 @@ responder reading `CoreEvent::Prompt`:
 - `async fn one_prompt_apply_to_all_across_slots` (AC2).
 - `async fn apply_for_direction_scoped` and `async fn run_rules_cleared_after_run` (AC2, AC3).
 - `async fn dismissed_prompt_pauses_item_only` (AC6).
+- `async fn prompt_payload_has_suggested_name_and_can_resume` (AC11).
 - `async fn resume_5gib_sparse_at_4_5gib` — remote `MockServer::add_sparse_file` 5 GiB, local mock holding a 4.5 GiB sparse partial file (no memory cost, T03 sparse chunk map); asserts the offset and the final length/zero content (AC5).
 - `async fn resume_upload_uses_remote_size`.
 - `async fn preallocate_hint_only_for_large_downloads` and `async fn cancelled_download_length_equals_written` (AC8).
@@ -327,6 +335,5 @@ responder reading `CoreEvent::Prompt`:
 
 1. FileZilla's dialog has "Apply to current queue only"; unchecked, the answer applies
    for the rest of the session. T04's `ApplyTo` has only run-scoped values, so this spec
-   offers run scope only and T69's "apply only to current queue" checkbox has no effect.
-   Should a session scope be added (T04 `ApplyTo::Session`, T69 checkbox), or the
-   checkbox removed from T69?
+   offers run scope only and T69 does not show that checkbox (coordinator decision). Should
+   a session scope be added later (T04 `ApplyTo::Session` + T69 checkbox)?
