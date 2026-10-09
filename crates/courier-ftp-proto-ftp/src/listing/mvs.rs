@@ -88,7 +88,8 @@ fn is_member_name(s: &str) -> bool {
     !b.is_empty()
         && b.len() <= 8
         && (b[0].is_ascii_alphabetic() || b"@#$".contains(&b[0]))
-        && b.iter().all(|c| c.is_ascii_alphanumeric() || b"@#$".contains(c))
+        && b.iter()
+            .all(|c| c.is_ascii_alphanumeric() || b"@#$".contains(c))
 }
 
 /// `VV.MM`.
@@ -112,17 +113,19 @@ pub(super) fn parse_member(line: &str, ctx: &ListingContext, member_mode: &mut b
         return Outcome::NoMatch;
     }
     // `NAME VV.MM created changed HH:MM[:SS] size init mod id`
-    if toks.len() >= 5 && is_version(toks[1]) && date_ymd_slash(toks[2]).is_some() {
-        if let (Some(changed), Some((time, secs))) = (date_ymd_slash(toks[3]), time_hms(toks[4])) {
-            let precision = if secs {
-                Precision::Second
-            } else {
-                Precision::Minute
-            };
-            let mut e = entry(first, EntryKind::File);
-            e.modified = Some(local_to_utc(dt(changed, time), precision, ctx));
-            return Outcome::Entry(e);
-        }
+    if toks.len() >= 5
+        && is_version(toks[1])
+        && date_ymd_slash(toks[2]).is_some()
+        && let (Some(changed), Some((time, secs))) = (date_ymd_slash(toks[3]), time_hms(toks[4]))
+    {
+        let precision = if secs {
+            Precision::Second
+        } else {
+            Precision::Minute
+        };
+        let mut e = entry(first, EntryKind::File);
+        e.modified = Some(local_to_utc(dt(changed, time), precision, ctx));
+        return Outcome::Entry(e);
     }
     // Bare names, and load-library rows (`NAME 000060 000005 …`, size in hex).
     let loadlib_row = toks

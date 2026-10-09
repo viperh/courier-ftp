@@ -217,12 +217,14 @@ fn run(
 
 /// Parses `MLSD` output (one fact line per entry, RFC 3659 §7).
 pub fn parse_mlsd(data: &[u8], opts: &ParseOptions) -> ParsedListing {
-    run(data, opts, |c, line_no, text| match mlsd::parse_line(text) {
-        Outcome::Entry(e) => c.push(line_no, text, e, ListFormat::Mlsd),
-        Outcome::Header | Outcome::Ignore | Outcome::Pending => {}
-        Outcome::BadNumber => c.skip(line_no, text, SkipReason::BadNumber),
-        Outcome::NoMatch | Outcome::LoggedHeader => {
-            c.skip(line_no, text, SkipReason::Unrecognised);
+    run(data, opts, |c, line_no, text| {
+        match mlsd::parse_line(text) {
+            Outcome::Entry(e) => c.push(line_no, text, e, ListFormat::Mlsd),
+            Outcome::Header | Outcome::Ignore | Outcome::Pending => {}
+            Outcome::BadNumber => c.skip(line_no, text, SkipReason::BadNumber),
+            Outcome::NoMatch | Outcome::LoggedHeader => {
+                c.skip(line_no, text, SkipReason::Unrecognised);
+            }
         }
     })
 }

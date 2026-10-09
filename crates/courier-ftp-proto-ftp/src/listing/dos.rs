@@ -101,11 +101,11 @@ pub(super) fn parse(line: &str, ctx: &ListingContext) -> Outcome {
         return Outcome::NoMatch;
     };
     let mut ampm = None;
-    if let Some((t, r)) = next_token(rest) {
-        if t.eq_ignore_ascii_case("AM") || t.eq_ignore_ascii_case("PM") {
-            ampm = Some(t);
-            rest = r;
-        }
+    if let Some((t, r)) = next_token(rest)
+        && (t.eq_ignore_ascii_case("AM") || t.eq_ignore_ascii_case("PM"))
+    {
+        ampm = Some(t);
+        rest = r;
     }
     let Some(time) = parse_time(time_tok, ampm) else {
         return Outcome::NoMatch;
@@ -118,7 +118,10 @@ pub(super) fn parse(line: &str, ctx: &ListingContext) -> Outcome {
     let (kind, size, name) = match upper.as_str() {
         "<DIR>" => (EntryKind::Dir, None, name_part),
         "<JUNCTION>" | "<SYMLINKD>" | "<SYMLINK>" => {
-            let (name, target) = match name_part.strip_suffix(']').and_then(|s| s.rsplit_once(" [")) {
+            let (name, target) = match name_part
+                .strip_suffix(']')
+                .and_then(|s| s.rsplit_once(" ["))
+            {
                 Some((n, t)) => (n, Some(t.to_owned())),
                 None => (name_part, None),
             };

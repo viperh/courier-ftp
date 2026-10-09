@@ -819,6 +819,13 @@ name = "courier-ftp-proto-ftp"
 version = "0.1.0"
 dependencies = [
  "courier-ftp-core",
+ "criterion",
+ "encoding_rs",
+ "insta",
+ "proptest",
+ "serde",
+ "serde_json",
+ "time",
 ]
 
 [[package]]

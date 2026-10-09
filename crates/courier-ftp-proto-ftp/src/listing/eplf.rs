@@ -51,12 +51,11 @@ pub(super) fn parse(line: &str) -> Outcome {
                 modified = Some(Timestamp::new(t, Precision::Second));
             }
             'u' => {
-                if let Some(octal) = value.strip_prefix('p') {
-                    if (1..=6).contains(&octal.len())
-                        && octal.bytes().all(|b| (b'0'..=b'7').contains(&b))
-                    {
-                        mode = u32::from_str_radix(octal, 8).ok();
-                    }
+                if let Some(octal) = value.strip_prefix('p')
+                    && (1..=6).contains(&octal.len())
+                    && octal.bytes().all(|b| (b'0'..=b'7').contains(&b))
+                {
+                    mode = u32::from_str_radix(octal, 8).ok();
                 }
             }
             // `r` (retrievable), `i` (identifier) and unknown facts.
