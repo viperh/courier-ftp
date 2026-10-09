@@ -36,7 +36,6 @@ pub const CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 /// One keyed GCRA limiter.
 pub struct KeyedLimiter<K: Hash + Eq + Clone, C: Clock = DefaultClock> {
     limiter: RateLimiter<K, DefaultKeyedStateStore<K>, C, NoOpMiddleware<C::Instant>>,
-    clock: C,
 }
 
 impl<K: Hash + Eq + Clone, C: Clock> std::fmt::Debug for KeyedLimiter<K, C> {
@@ -60,8 +59,7 @@ impl<K: Hash + Eq + Clone, C: Clock> KeyedLimiter<K, C> {
     #[must_use]
     pub fn with_clock(quota: Quota, clock: C) -> Self {
         Self {
-            limiter: RateLimiter::dashmap_with_clock(quota, clock.clone()),
-            clock,
+            limiter: RateLimiter::dashmap_with_clock(quota, clock),
         }
     }
 
@@ -72,7 +70,7 @@ impl<K: Hash + Eq + Clone, C: Clock> KeyedLimiter<K, C> {
     pub fn check(&self, key: &K) -> Result<(), Duration> {
         self.limiter
             .check_key(key)
-            .map_err(|not_until| not_until.wait_time_from(self.clock.now()))
+            .map_err(|not_until| not_until.wait_time_from(self.limiter.clock().now()))
     }
 
     /// Drops keys whose state has fully recovered.
