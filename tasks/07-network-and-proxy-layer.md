@@ -1,6 +1,7 @@
 # T07 — Network layer: sockets, IPv6, generic proxies
 
 **Phase:** A Foundation · **Depends on:** T02, T04, T05 · **Crate:** `courier-ftp-core` (`net` module) · **FEATURES.md:** §1 (IPv6, proxies, timeouts)
+**Related (integrates with, not blocking):** T11, T31
 
 ## Goal
 

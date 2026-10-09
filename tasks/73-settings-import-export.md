@@ -1,6 +1,7 @@
 # T73 — Settings import / export
 
-**Phase:** G App-level · **Depends on:** T05, T32, T68 · **Crate:** `courier-ftp` · **FEATURES.md:** §10 (settings import and export)
+**Phase:** G App-level · **Depends on:** T05, T30, T32, T40, T68 · **Crate:** `courier-ftp` · **FEATURES.md:** §10 (settings import and export)
+**Related (integrates with, not blocking):** T60
 
 ## Goal
 

@@ -1,6 +1,7 @@
 # T10 — FTP control connection
 
-**Phase:** B FTP · **Depends on:** T04, T05, T07 · **Crate:** `courier-ftp-proto-ftp` · **Decisions:** D1 (own client) · **FEATURES.md:** §1
+**Phase:** B FTP · **Depends on:** T02, T04, T05, T07 · **Crate:** `courier-ftp-proto-ftp` · **Decisions:** D1 (own client) · **FEATURES.md:** §1
+**Related (integrates with, not blocking):** T12, T13
 
 ## Goal
 

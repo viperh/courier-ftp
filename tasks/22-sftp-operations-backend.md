@@ -1,6 +1,7 @@
 # T22 — SFTP operations and Backend impl
 
-**Phase:** C SFTP · **Depends on:** T20, T21, T03 · **Crate:** `courier-ftp-proto-sftp` · **FEATURES.md:** §4
+**Phase:** C SFTP · **Depends on:** T03, T06, T13, T20, T21, T76 · **Crate:** `courier-ftp-proto-sftp` · **FEATURES.md:** §4
+**Related (integrates with, not blocking):** T41, T41b
 
 ## Goal
 
@@ -12,7 +13,7 @@ Implement `Backend` for SFTP using `russh-sftp` over the session from T20.
 |---|---|---|
 | `connect` | T20 + open `session` channel + `request_subsystem("sftp")` + `SftpSession::new` | Log SFTP protocol version. |
 | `home_dir` | `canonicalize(".")` | |
-| `list` | `read_dir` | Use `longname` (ls -l line) to fill `owner`/`group` names when attrs only have uid/gid; parse with T13's Unix parser. Resolve symlink targets with `read_link` + `metadata` lazily (only for symlinks, batched, bounded concurrency). |
+| `list` | `read_dir` | Use `longname` (ls -l line) to fill `owner`/`group` names when attrs only have uid/gid; parse with the Unix `ls -l` parser in `courier-ftp-core::listing::unix` (T13). Resolve symlink targets with `read_link` + `metadata` lazily (only for symlinks, batched, bounded concurrency). |
 | `stat` | `metadata` (follows links) / `symlink_metadata` | |
 | `mkdir` / `rmdir` / `remove_file` | `create_dir` / `remove_dir` / `remove_file` | |
 | `rename` | `rename`; if it fails because target exists and user chose overwrite, `remove_file` then `rename` (or `posix-rename@openssh.com` extension if advertised) | |

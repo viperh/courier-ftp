@@ -1,6 +1,7 @@
 # T82 — Local store (SQLite)
 
 **Phase:** H Sync (also used by the local vault) · **Depends on:** T80, T81 · **Crate:** new `courier-ftp-store` · **Decisions:** D4, D13
+**Related (integrates with, not blocking):** T40
 **Reference:** sverb `crates/sverb-store/src/{db,items,outbox,sync_state,vaults,meta,approvals,pins,device_local}.rs`, `migrations/client/*.sql`.
 
 ## Goal

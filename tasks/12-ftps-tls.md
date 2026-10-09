@@ -1,6 +1,7 @@
 # T12 — FTPS (TLS)
 
-**Phase:** B FTP · **Depends on:** T10, T11 · **Crate:** `courier-ftp-proto-ftp` · **Decisions:** D9 (rustls) · **FEATURES.md:** §1 (FTPS modes, certificate trust)
+**Phase:** B FTP · **Depends on:** T04, T10, T11 · **Crate:** `courier-ftp-proto-ftp` · **Decisions:** D9 (rustls) · **FEATURES.md:** §1 (FTPS modes, certificate trust)
+**Related (integrates with, not blocking):** T30, T57, T69, T76, T81
 
 ## Goal
 
@@ -19,15 +20,16 @@ connections.
 3. **Data connection TLS**: wrap each data socket in TLS as a client (also in active mode — we are still the TLS client). **Session resumption is mandatory** for many servers (vsftpd `require_ssl_reuse=YES`, FileZilla Server): use one `rustls::ClientConfig` per session with a shared `Resumption` store so data connections resume the control session. Verify with vsftpd.
    - TLS 1.3 tickets vs. TLS 1.2 session IDs: test both; some servers only support 1.2 resumption.
 4. **TLS shutdown**: send `close_notify` on data connections before closing (some servers report `426` otherwise); tolerate servers that don't send it back.
-5. **Certificate verification**
+5. **Trust store interface**: define `CertTrustStore` (lookup / add / list / remove by host:port + SHA-256) in `courier-ftp-core::trust`, with an in-memory implementation used until the vault exists. The vault-backed implementation (`trusted-cert` items, synced) is added by T30, so this task doesn't wait for the vault.
+6. **Certificate verification**
    - Base verifier: `rustls-platform-verifier` (OS trust store).
    - If verification fails *or* the cert is valid but not yet seen for this host, decide:
      - Valid chain + matching hostname → accept silently (optionally record fingerprint).
      - Invalid (self-signed, expired, wrong host, unknown CA) → look up the vault's `trusted-cert` items (T30/T81, synced between devices) by host:port + SHA-256 fingerprint. If trusted → accept. Else → `Prompt(TrustCertificate)` (T04) with full details; user answers *Trust once* / *Always trust* / *Reject*.
      - Changed certificate for a host that had an "always trusted" one → prompt with a prominent warning showing old and new fingerprints.
    - Certificate details for the prompt (via `x509-parser`): subject, issuer, validity dates, serial, SHA-256 + SHA-1 fingerprints, SANs, key algorithm/size, signature algorithm, TLS version, cipher suite, and the full chain.
-6. **Session info**: expose negotiated protocol version + cipher on the backend for the status bar lock tooltip / "Server → Show certificate" action (T57).
-7. CCC (clear command channel) — **not** supported; document.
+7. **Session info**: expose negotiated protocol version + cipher on the backend for the status bar lock tooltip / "Server → Show certificate" action (T57).
+8. CCC (clear command channel) — **not** supported; document.
 
 ## Acceptance criteria
 

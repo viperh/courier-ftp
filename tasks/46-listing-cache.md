@@ -1,6 +1,6 @@
 # T46 — Directory listing cache
 
-**Phase:** E Transfers · **Depends on:** T03 · **Crate:** `courier-ftp-core` (`cache` module) · **FEATURES.md:** §3 (directory listing cache, option to refresh or not)
+**Phase:** E Transfers · **Depends on:** T03, T04 · **Crate:** `courier-ftp-core` (`cache` module) · **FEATURES.md:** §3 (directory listing cache, option to refresh or not)
 
 ## Goal
 

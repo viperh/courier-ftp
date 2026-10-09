@@ -1,6 +1,7 @@
 # T40 — Queue model and persistence
 
-**Phase:** E Transfers · **Depends on:** T02, T30, T82 · **Crate:** `courier-ftp-core` (`queue` module) · **FEATURES.md:** §5
+**Phase:** E Transfers · **Depends on:** T02, T05, T30, T82 · **Crate:** `courier-ftp-core` (`queue` module) · **FEATURES.md:** §5
+**Related (integrates with, not blocking):** T43
 
 ## Goal
 

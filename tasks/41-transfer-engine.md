@@ -1,6 +1,7 @@
 # T41 — Transfer engine
 
-**Phase:** E Transfers · **Depends on:** T03, T04, T40 · **Crate:** `courier-ftp-core` (`transfer` module) · **FEATURES.md:** §5, §6
+**Phase:** E Transfers · **Depends on:** T03, T04, T05, T40 · **Crate:** `courier-ftp-core` (`transfer` module) · **FEATURES.md:** §5, §6
+**Related (integrates with, not blocking):** T42, T44, T45
 
 ## Goal
 
@@ -15,6 +16,7 @@ respecting connection limits, reporting progress and retrying failures.
    - Pick next eligible item by priority then order; skip items whose server is at its limit.
    - **Connection pool** per server: reuse idle sessions (`SessionHandle`, T03) for consecutive transfers; open new ones up to the limit; close idle ones after 30 s. Transfer sessions are separate from the browsing session of the tab (like FileZilla), so browsing stays responsive.
    - Servers that only allow one connection (detected by `421 Too many connections` / `530 ... maximum`): reduce that server's limit for the session and requeue the item without counting an attempt; log it.
+2b. **Extension points** so this task doesn't depend on later ones: an `ExistsPolicy` trait (default: overwrite; the real policy comes from T42) and a `RateLimiter` trait (default: unlimited; T44 provides the token bucket). Both are injected when the engine is built.
 3. **Worker** per active transfer:
    - Resolve existence/size of target (T42 decides action).
    - Open source reader + destination writer via backends (local ↔ remote; remote ↔ remote is out of scope).

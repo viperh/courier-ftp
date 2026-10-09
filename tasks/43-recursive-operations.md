@@ -1,6 +1,7 @@
 # T43 — Recursive operations
 
-**Phase:** E Transfers · **Depends on:** T41, T47 · **Crate:** `courier-ftp-core` (`transfer::recursive`) · **FEATURES.md:** §4 (recursive delete, recursive chmod), §5, §6 (empty dirs, symlinks), §8 (filters applied to transfers)
+**Phase:** E Transfers · **Depends on:** T40, T41, T47 · **Crate:** `courier-ftp-core` (`transfer::recursive`) · **FEATURES.md:** §4 (recursive delete, recursive chmod), §5, §6 (empty dirs, symlinks), §8 (filters applied to transfers)
+**Related (integrates with, not blocking):** T62
 
 ## Goal
 

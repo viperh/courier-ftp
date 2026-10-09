@@ -1,6 +1,7 @@
 # T83 — Sync protocol types
 
 **Phase:** H Sync · **Depends on:** T80 · **Crate:** new `courier-ftp-proto` · **Decisions:** D12, D13
+**Related (integrates with, not blocking):** T84, T87
 **Reference:** sverb `crates/sverb-proto/src/{auth,sync,vaults,orgs,rotation,ws,version,b64}.rs`.
 
 ## Goal

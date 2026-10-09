@@ -1,6 +1,7 @@
 # T03 — Backend trait
 
-**Phase:** A Foundation · **Depends on:** T02, T04 · **Crate:** `courier-ftp-core` (`backend` module) · **Decisions:** D5
+**Phase:** A Foundation · **Depends on:** T02, T04, T05 · **Crate:** `courier-ftp-core` (`backend` module) · **Decisions:** D5
+**Related (integrates with, not blocking):** T31
 
 ## Goal
 
@@ -46,7 +47,8 @@ UI, transfer engine, search and comparison code never care which protocol is in 
 2. **`Capabilities`** bitflags/struct: `chmod`, `set_mtime`, `resume_download`, `resume_upload`, `append`, `raw_commands`, `symlinks`, `server_side_rename_across_dirs`, `ascii_mode`, `parallel_connections_allowed`.
    UI greys out actions a backend can't do.
 3. **One connection = one operation at a time.** A `Backend` instance is a single session. The transfer engine (T41) opens extra instances for parallel transfers. Document this.
-4. **`BackendFactory`** trait in core: `fn create(&self, site: &SiteConnectInfo, events: EventSender) -> Box<dyn Backend>`. The binary crate implements it, matching on `Protocol` to construct the FTP or SFTP backend. Core never names the protocol crates.
+4. **`ConnectInfo`** (defined here, not in the Site Manager): everything needed to open a session — `ServerAddress`, `Credentials`, encryption mode, charset, server type override, timezone offset, transfer mode, proxy choice (generic / FTP proxy / bypass), connection limit, key file or vault key. Quickconnect builds it directly; the Site Manager (T31) converts a saved site into it.
+   **`BackendFactory`** trait in core: `fn create(&self, info: &ConnectInfo, events: EventSender) -> Box<dyn Backend>`. The binary crate implements it, matching on `Protocol` to construct the FTP or SFTP backend. Core never names the protocol crates.
 5. **`SessionHandle`**: a wrapper owning a `Backend` behind a `tokio::sync::Mutex` plus a task that sends `keepalive()` every N seconds when idle (setting from T05), and transparently **reconnects** once on `Error::Connection` before failing the call (FileZilla behaviour). Re-issues `cwd` to the last directory after reconnect.
 
 ## Design notes

@@ -1,6 +1,6 @@
 # T62 — File operations UI
 
-**Phase:** F TUI · **Depends on:** T52, T53, T40, T41, T43 · **Crate:** `courier-ftp` · **FEATURES.md:** §4
+**Phase:** F TUI · **Depends on:** T03, T40, T41, T43, T46, T52, T53 · **Crate:** `courier-ftp` · **FEATURES.md:** §4
 
 ## Goal
 

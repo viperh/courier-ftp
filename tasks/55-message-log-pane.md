@@ -1,6 +1,7 @@
 # T55 — Message log pane
 
-**Phase:** F TUI · **Depends on:** T50, T04 · **Crate:** `courier-ftp` (`components/message_log.rs`) · **FEATURES.md:** §3 (message log), §9
+**Phase:** F TUI · **Depends on:** T04, T50, T51 · **Crate:** `courier-ftp` (`components/message_log.rs`) · **FEATURES.md:** §3 (message log), §9
+**Related (integrates with, not blocking):** T62
 
 ## Goal
 

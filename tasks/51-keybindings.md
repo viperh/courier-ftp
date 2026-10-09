@@ -1,6 +1,7 @@
 # T51 — Keybindings (hybrid)
 
 **Phase:** F TUI · **Depends on:** T50 · **Crate:** `courier-ftp` (`.config/config.json`, `config.rs`, `action.rs`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (keyboard shortcuts)
+**Related (integrates with, not blocking):** T59, T62, T63, T64, T65, T68, T77
 
 ## Goal
 

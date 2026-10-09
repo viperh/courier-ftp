@@ -1,6 +1,7 @@
 # T04 — Event and log bus
 
-**Phase:** A Foundation · **Depends on:** T02 · **Crate:** `courier-ftp-core` (`events` module) · **FEATURES.md:** §3 message log, §9
+**Phase:** A Foundation · **Depends on:** T02, T05 · **Crate:** `courier-ftp-core` (`events` module) · **FEATURES.md:** §3 message log, §9
+**Related (integrates with, not blocking):** T42
 
 ## Goal
 

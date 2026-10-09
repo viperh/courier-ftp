@@ -1,6 +1,7 @@
 # T71 — Log to file, debug levels, raw listing
 
 **Phase:** G App-level · **Depends on:** T04, T05, T55 · **Crate:** `courier-ftp` (`logging.rs`) + core · **FEATURES.md:** §9
+**Related (integrates with, not blocking):** T91
 
 ## Goal
 

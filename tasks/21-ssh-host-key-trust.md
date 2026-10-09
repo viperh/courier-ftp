@@ -1,6 +1,7 @@
 # T21 — SSH host key verification
 
-**Phase:** C SFTP · **Depends on:** T20, T30, T81 · **Crate:** `courier-ftp-proto-sftp` (+ trust store types in core) · **Decisions:** D4 · **FEATURES.md:** §1 (cached host key fingerprint)
+**Phase:** C SFTP · **Depends on:** T04, T20 · **Crate:** `courier-ftp-proto-sftp` (+ trust store types in core) · **Decisions:** D4 · **FEATURES.md:** §1 (cached host key fingerprint)
+**Related (integrates with, not blocking):** T30, T68, T69, T81
 
 ## Goal
 
@@ -9,7 +10,7 @@ answer, and warn loudly if a key changes.
 
 ## Scope
 
-1. **Trust store** (`courier_ftp_core::trust::HostKeyStore`), persisted **inside the vault** as `known-host` items (T81), so trusted keys sync between devices (D4):
+1. **Trust store** (`courier_ftp_core::trust::HostKeyStore` trait, defined here with an in-memory implementation). The persistent implementation — `known-host` items in the vault (T81), synced between devices (D4) — is added by T30, so this task doesn't wait for the vault:
    - Entries: `host`, `port`, `key_type`, `public_key` (OpenSSH base64), `added_at`.
    - Lookup by `(host, port)`; multiple keys per host allowed (different algorithms).
 2. **Read-only import from OpenSSH** `~/.ssh/known_hosts` (and `/etc/ssh/ssh_known_hosts`): treated as trusted. Support hashed hostnames (`|1|salt|hash`), `[host]:port` syntax, `@revoked` marker (reject), `@cert-authority` (ignore, log). Never write to the user's known_hosts.

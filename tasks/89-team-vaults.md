@@ -1,6 +1,7 @@
 # T89 — Teams and shared vaults
 
-**Phase:** H Sync · **Depends on:** T85, T87, T88 · **Crates:** `courier-ftp-server`, `courier-ftp-sync`, `courier-ftp-crypto` · **Decisions:** D14
+**Phase:** H Sync · **Depends on:** T80, T85, T87, T88 · **Crates:** `courier-ftp-server`, `courier-ftp-sync`, `courier-ftp-crypto` · **Decisions:** D14
+**Related (integrates with, not blocking):** T90, T91
 **Reference:** sverb `crates/sverb-crypto/src/grant.rs`, `crates/sverb-sync/src/{trust,rotation}.rs`, server `routes/orgs.rs`, `sync/rotation.rs`, `docs/threat-model.md`.
 
 ## Goal

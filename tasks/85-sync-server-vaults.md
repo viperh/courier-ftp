@@ -1,6 +1,7 @@
 # T85 — Sync server: vaults, pull/push and live updates
 
-**Phase:** H Sync · **Depends on:** T84 · **Crate:** `courier-ftp-server` · **Decisions:** D12, D14
+**Phase:** H Sync · **Depends on:** T83, T84 · **Crate:** `courier-ftp-server` · **Decisions:** D12, D14
+**Related (integrates with, not blocking):** T89
 **Reference:** sverb `crates/sverb-server/src/{sync/*,ws/*,routes/vaults.rs}`, `migrations/server/*`.
 
 ## Goal

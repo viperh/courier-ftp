@@ -1,6 +1,7 @@
 # T50 — App shell and layout
 
 **Phase:** F TUI · **Depends on:** T01, T04, T05 · **Crate:** `courier-ftp` · **Decisions:** D7 (no mouse) · **FEATURES.md:** §3
+**Related (integrates with, not blocking):** T51, T52, T53, T55, T57
 
 ## Goal
 

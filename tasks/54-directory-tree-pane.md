@@ -1,6 +1,7 @@
 # T54 — Directory tree pane
 
 **Phase:** F TUI · **Depends on:** T53 · **Crate:** `courier-ftp` (`components/dir_tree.rs`) · **FEATURES.md:** §3 (local and remote folder tree)
+**Related (integrates with, not blocking):** T06, T46
 
 ## Goal
 

@@ -1,6 +1,7 @@
 # T48 — Directory comparison engine
 
 **Phase:** E Transfers · **Depends on:** T02, T47 · **Crate:** `courier-ftp-core` (`compare` module) · **FEATURES.md:** §7
+**Related (integrates with, not blocking):** T13, T66
 
 ## Goal
 

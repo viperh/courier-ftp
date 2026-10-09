@@ -1,6 +1,7 @@
 # T70 — Command-line arguments
 
-**Phase:** G App-level · **Depends on:** T02, T31, T61 · **Crate:** `courier-ftp` (`cli.rs`) · **FEATURES.md:** §2 (command-line start)
+**Phase:** G App-level · **Depends on:** T02, T31, T60, T61 · **Crate:** `courier-ftp` (`cli.rs`) · **FEATURES.md:** §2 (command-line start)
+**Related (integrates with, not blocking):** T71, T91
 
 ## Goal
 

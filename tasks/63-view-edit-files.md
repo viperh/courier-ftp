@@ -1,6 +1,6 @@
 # T63 — View / edit files externally
 
-**Phase:** F TUI · **Depends on:** T41, T62, T05 · **Crate:** `courier-ftp` (+ helpers in core) · **FEATURES.md:** §4 (view/edit with watched temp copy, file associations)
+**Phase:** F TUI · **Depends on:** T05, T41, T62 · **Crate:** `courier-ftp` (+ helpers in core) · **FEATURES.md:** §4 (view/edit with watched temp copy, file associations)
 
 ## Goal
 

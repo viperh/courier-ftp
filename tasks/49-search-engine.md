@@ -1,6 +1,7 @@
 # T49 — Search engine
 
-**Phase:** E Transfers · **Depends on:** T43, T47 · **Crate:** `courier-ftp-core` (`search` module) · **FEATURES.md:** §4 (remote search, local search)
+**Phase:** E Transfers · **Depends on:** T43, T46, T47 · **Crate:** `courier-ftp-core` (`search` module) · **FEATURES.md:** §4 (remote search, local search)
+**Related (integrates with, not blocking):** T65
 
 ## Goal
 

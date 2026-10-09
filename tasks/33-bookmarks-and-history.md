@@ -1,6 +1,7 @@
 # T33 — Bookmarks and connection history
 
-**Phase:** D Vault & sites · **Depends on:** T31, T81 · **Crate:** `courier-ftp-core` · **Decisions:** D4 · **FEATURES.md:** §2 (bookmarks, quickconnect history, reconnect, recent servers)
+**Phase:** D Vault & sites · **Depends on:** T31, T81, T82 · **Crate:** `courier-ftp-core` · **Decisions:** D4 · **FEATURES.md:** §2 (bookmarks, quickconnect history, reconnect, recent servers)
+**Related (integrates with, not blocking):** T66
 
 ## Goal
 

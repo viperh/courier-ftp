@@ -1,6 +1,7 @@
 # T11 — FTP data connections and transfer modes
 
 **Phase:** B FTP · **Depends on:** T10 · **Crate:** `courier-ftp-proto-ftp` · **FEATURES.md:** §1 (active/passive), §5 (resume), §6 (ASCII/binary)
+**Related (integrates with, not blocking):** T76
 
 ## Goal
 

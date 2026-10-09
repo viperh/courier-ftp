@@ -1,6 +1,7 @@
 # T69 — Trust prompts (host keys and certificates)
 
-**Phase:** F TUI · **Depends on:** T04, T12, T21, T52 · **Crate:** `courier-ftp` · **FEATURES.md:** §1 (host key confirmation, certificate trust dialog)
+**Phase:** F TUI · **Depends on:** T04, T52 · **Crate:** `courier-ftp` · **FEATURES.md:** §1 (host key confirmation, certificate trust dialog)
+**Related (integrates with, not blocking):** T12, T21, T42
 
 ## Goal
 
@@ -8,6 +9,9 @@ Clear, safe dialogs for the security prompts the protocols raise, plus the
 other interactive prompts (passwords, passphrases, keyboard-interactive).
 
 ## Scope
+
+Each prompt type is built when its producer exists: host-key and password/keyboard-interactive prompts with SFTP (T20/T21), certificate prompts with FTPS (T12), the file-exists prompt with the transfer policy (T42). The queueing mechanism (§7) comes first.
+
 
 1. **Unknown host key**
    ```

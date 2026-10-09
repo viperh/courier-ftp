@@ -1,6 +1,7 @@
 # T30 — Vault (local encrypted store and unlock)
 
-**Phase:** D Vault & sites · **Depends on:** T80 (crypto), T81 (item model), T82 (local store) · **Crate:** `courier-ftp-core` (`vault` module) · **Decisions:** D3, D4, D13 · **FEATURES.md:** §2 (password storage, master password)
+**Phase:** D Vault & sites · **Depends on:** T05, T80, T81, T82 · **Crate:** `courier-ftp-core` (`vault` module) · **Decisions:** D3, D4, D13 · **FEATURES.md:** §2 (password storage, master password)
+**Related (integrates with, not blocking):** T12, T21, T31, T60, T91
 **Reference:** sverb `crates/sverb-tui/src/services/vault/engine.rs`, `crates/sverb-core/src/vault/{mod,unlock,lock,password}.rs`, `crates/sverb-core/src/secret.rs`, `crates/sverb-core/src/hardening/` — copy and adapt (D13).
 
 ## Goal
@@ -60,6 +61,7 @@ VK  ──HKDF(salt = item_id, info = "courier-ftp/item/v1")──▶ per-item k
    - `lock()`: zeroize all keys and decrypted data, keep only ciphertext.
    - `change_password(old, new)`: re-wrap the LMK under a new KEK (and new salt).
      With sync enabled, this goes through the server flow in T87 instead.
+   - **Trust stores**: implement `HostKeyStore` (T21) and `CertTrustStore` (T12) on top of `known-host` and `trusted-cert` items, and swap them in for the in-memory stores after unlock.
    - Item CRUD used by T31/T33/T21/T12: `get`, `list(kind)`, `put` (stamps changed
      fields with the HLC and marks the item dirty for sync, T81/T82), `delete` (tombstone).
    - The engine **never contacts the sync server** to unlock.

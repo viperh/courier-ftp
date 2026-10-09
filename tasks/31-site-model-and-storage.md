@@ -1,6 +1,7 @@
 # T31 — Site model and storage
 
-**Phase:** D Vault & sites · **Depends on:** T02, T30, T81 · **Crate:** `courier-ftp-core` (`sites` module) · **Decisions:** D4 · **FEATURES.md:** §2 (Site Manager)
+**Phase:** D Vault & sites · **Depends on:** T02, T03, T30, T81, T82 · **Crate:** `courier-ftp-core` (`sites` module) · **Decisions:** D4 · **FEATURES.md:** §2 (Site Manager)
+**Related (integrates with, not blocking):** T70, T88, T89
 
 ## Goal
 
@@ -22,7 +23,7 @@ setting FileZilla exposes per site, stored in the vault.
    - **Charset**: `charset: Charset`.
    - **SFTP extras**: `key_file`, `try_agent_first`.
    - Metadata: `created_at`, `last_connected_at` (for "recent").
-3. **`SiteConnectInfo`**: resolved, ready-to-connect struct (secrets fetched from the vault, settings merged with globals) — what `BackendFactory` receives (T03).
+3. **`Site::to_connect_info()`**: builds the `ConnectInfo` from T03 (secrets taken from the decrypted item, device-local overrides applied, settings merged with globals) — what `BackendFactory` receives.
 4. **Persistence**: each site is a `site` item and each folder a `site-folder` item (T81) in a vault (personal or team, T89). Folders and sites point to their parent folder by id; the tree is rebuilt from items on unlock. Every change goes through `VaultEngine::put` (T30), which writes immediately and queues it for sync. `default_local_dir` and `last_connected_at` are device-local (T82 `device_local`), not part of the synced item.
 5. **Passwords**: when the logon type changes to one without a password, the password fields are cleared in the item (the old value is gone once the change syncs).
 6. **"Save password" off** (FileZilla's "do not save passwords" global option): setting `vault.store_passwords` (default **true**); when false, logon `Normal` behaves like `AskForPassword` and password fields are never written.

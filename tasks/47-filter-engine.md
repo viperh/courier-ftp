@@ -1,6 +1,7 @@
 # T47 — Filename filter engine
 
 **Phase:** E Transfers · **Depends on:** T02, T05 · **Crate:** `courier-ftp-core` (`filters` module) · **FEATURES.md:** §8
+**Related (integrates with, not blocking):** T48, T53, T57
 
 ## Goal
 

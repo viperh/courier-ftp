@@ -1,6 +1,6 @@
 # T15 — FTP proxies
 
-**Phase:** B FTP · **Depends on:** T10, T05 · **Crate:** `courier-ftp-proto-ftp` · **FEATURES.md:** §1 (FTP proxies: USER@HOST, SITE, OPEN, custom)
+**Phase:** B FTP · **Depends on:** T05, T10 · **Crate:** `courier-ftp-proto-ftp` · **FEATURES.md:** §1 (FTP proxies: USER@HOST, SITE, OPEN, custom)
 
 ## Goal
 
