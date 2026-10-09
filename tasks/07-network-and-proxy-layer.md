@@ -50,9 +50,11 @@ pub enum ProxyConfig {
     Socks5 { proxy: HostPort, auth: Option<ProxyCredentials> },
 }
 impl ProxyConfig {
-    /// `choice = Bypass` or `settings.kind = none` → Direct. Port 0 → 8080 (HTTP) / 1080 (SOCKS).
-    /// `password` comes from the vault item `settings.credential_id` (resolved by the caller).
-    pub fn from_settings(settings: &GenericProxySettings, choice: ProxyChoice,
+    /// `bypass` (site "Bypass proxy": `ConnectInfo.proxy == ProxyChoice::Bypass`, T03) or
+    /// `settings.kind = none` → Direct. Port 0 → 8080 (HTTP) / 1080 (SOCKS).
+    /// `password` comes from the vault item `settings.credential_id`
+    /// (`ConnectInfo.proxy_password`, resolved by the caller).
+    pub fn from_settings(settings: &GenericProxySettings, bypass: bool,
                          password: Option<SecretString>) -> Result<Self>;
     /// "direct", "http", "socks4", "socks5" (logs).
     pub fn kind(&self) -> &'static str;
