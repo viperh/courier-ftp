@@ -18,7 +18,7 @@ Implement `Backend` for SFTP using `russh-sftp` over the session from T20.
 | `rename` | `rename`; if it fails because target exists and user chose overwrite, `remove_file` then `rename` (or `posix-rename@openssh.com` extension if advertised) | |
 | `chmod` | `set_metadata` with permissions only | |
 | `set_mtime` | `set_metadata` with atime+mtime | |
-| `open_read(off)` | `open` + seek | Pipeline reads: multiple outstanding requests (e.g. 32 × 32 KiB) for throughput; check what russh-sftp does and add our own pipelining if it's request-at-a-time. |
+| `open_read(off)` | `open` + seek | Pipelined reads, see T41b §3. |
 | `open_write(mode)` | `open_with_flags` (`CREATE|TRUNCATE`, `APPEND`, or `WRITE` + seek for resume) | Same pipelining for writes. |
 | `raw_command` | **Unsupported** for SFTP (FileZilla allows some; we expose `exec` over a separate channel only if user enables it — out of scope v1) | Capability false. |
 | `keepalive` | SSH-level keepalive is automatic; method is a no-op or `canonicalize(".")` | |
