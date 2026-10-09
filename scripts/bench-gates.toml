@@ -24,3 +24,8 @@
 # (T11), queue/{add_100k,move_1k_to_top_of_100k,rows_window_100k,next_runnable_100k}
 # (T40), transfer_engine/mock_10k_small_files (T41), rate_limit/acquire_unlimited_1m
 # (T44).
+
+[[gate]]
+bench = "listing_parse/listing_unix_100k"   # T13 AC10
+max_ms = 150
+ci_max_ms = 300

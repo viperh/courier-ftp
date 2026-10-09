@@ -165,15 +165,18 @@ const MAX_TOKENS: usize = 32;
 /// Byte ranges of the space/tab-separated tokens of a line.
 struct Tokens<'a> {
     line: &'a str,
-    spans: Vec<(usize, usize)>,
+    /// Fixed-size storage: no allocation per line.
+    spans: [(usize, usize); MAX_TOKENS],
+    len: usize,
 }
 
 impl<'a> Tokens<'a> {
     fn new(line: &'a str) -> Self {
-        let mut spans = Vec::with_capacity(12);
+        let mut spans = [(0, 0); MAX_TOKENS];
+        let mut len = 0;
         let bytes = line.as_bytes();
         let mut i = 0;
-        while i < bytes.len() && spans.len() < MAX_TOKENS {
+        while i < bytes.len() && len < MAX_TOKENS {
             while i < bytes.len() && is_sep(bytes[i]) {
                 i += 1;
             }
@@ -184,18 +187,19 @@ impl<'a> Tokens<'a> {
             while i < bytes.len() && !is_sep(bytes[i]) {
                 i += 1;
             }
-            spans.push((start, i));
+            spans[len] = (start, i);
+            len += 1;
         }
-        Self { line, spans }
+        Self { line, spans, len }
     }
 
     fn len(&self) -> usize {
-        self.spans.len()
+        self.len
     }
 
     /// Token `i`, or "" past the end.
     fn get(&self, i: usize) -> &'a str {
-        self.spans
+        self.spans[..self.len]
             .get(i)
             .and_then(|&(s, e)| self.line.get(s..e))
             .unwrap_or("")
@@ -203,7 +207,9 @@ impl<'a> Tokens<'a> {
 
     /// End byte offset of token `i` (line length past the end).
     fn end(&self, i: usize) -> usize {
-        self.spans.get(i).map_or(self.line.len(), |&(_, e)| e)
+        self.spans[..self.len]
+            .get(i)
+            .map_or(self.line.len(), |&(_, e)| e)
     }
 }
 

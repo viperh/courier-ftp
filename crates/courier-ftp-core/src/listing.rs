@@ -161,8 +161,80 @@ pub fn parse_month(token: &str) -> Option<u8> {
         let n: u8 = num.parse().ok()?;
         return (1..=12).contains(&n).then_some(n);
     }
-    let lower = token.to_lowercase();
-    if let Some(&(_, m)) = MONTH_ABBREVIATIONS.iter().find(|(a, _)| *a == lower) {
+    // Month names never contain digits: rejects sizes, times and years cheaply.
+    if token.bytes().any(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    // ASCII tokens (the common case): a cheap 3-letter prefix filter first (owner and
+    // group names are tried as months on every line), then matching without allocating.
+    if token.is_ascii() {
+        let head = token.as_bytes().get(..3)?;
+        let head = [
+            head[0].to_ascii_lowercase(),
+            head[1].to_ascii_lowercase(),
+            head[2].to_ascii_lowercase(),
+        ];
+        if !matches!(
+            &head,
+            b"abr"
+                | b"ago"
+                | b"aou"
+                | b"apr"
+                | b"aug"
+                | b"avr"
+                | b"dec"
+                | b"des"
+                | b"dez"
+                | b"dic"
+                | b"ene"
+                | b"feb"
+                | b"fev"
+                | b"gen"
+                | b"giu"
+                | b"jae"
+                | b"jan"
+                | b"jui"
+                | b"jul"
+                | b"jun"
+                | b"lug"
+                | b"maa"
+                | b"mae"
+                | b"mag"
+                | b"mai"
+                | b"maj"
+                | b"mar"
+                | b"may"
+                | b"mei"
+                | b"mrt"
+                | b"mrz"
+                | b"nov"
+                | b"oct"
+                | b"okt"
+                | b"ott"
+                | b"out"
+                | b"sep"
+                | b"set"
+        ) {
+            return None;
+        }
+    }
+    // ASCII tokens (the common case) are matched without allocating.
+    let lower_owned;
+    let lower: &str = if token.is_ascii() {
+        token
+    } else {
+        lower_owned = token.to_lowercase();
+        &lower_owned
+    };
+    let is_prefix = |name: &str| {
+        name.as_bytes()
+            .get(..lower.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(lower.as_bytes()))
+    };
+    if let Some(&(_, m)) = MONTH_ABBREVIATIONS
+        .iter()
+        .find(|(a, _)| a.eq_ignore_ascii_case(lower))
+    {
         return Some(m);
     }
     if lower.chars().count() < 3 {
@@ -170,7 +242,7 @@ pub fn parse_month(token: &str) -> Option<u8> {
     }
     let mut found: Option<u8> = None;
     for (i, names) in MONTH_NAMES.iter().enumerate() {
-        if names.iter().any(|n| n.starts_with(lower.as_str())) {
+        if names.iter().any(|n| is_prefix(n)) {
             let m = u8::try_from(i + 1).ok()?;
             match found {
                 None => found = Some(m),
