@@ -112,7 +112,7 @@ impl SettingsScreen {
 pub struct PendingSecret { pub key: &'static str, pub value: SecretString }
 ```
 
-New `Action` variants: `OpenSettings(Option<SectionId>)`,
+New `Action` variants: `Settings` (unit action bound to `F9`, opens the first section), internal message `OpenSettingsAt(SectionId)` (not bindable; sent by other screens),
 `SettingsChanged(Arc<Settings>)` (broadcast; components and the engine re-read).
 
 ### Behaviour
@@ -143,7 +143,7 @@ New `Action` variants: `OpenSettings(Option<SectionId>)`,
 - At 80×24 the tree is 22 columns wide, the form scrolls vertically; the help line
   wraps to at most 2 lines.
 - Opened with `F9` (T51), or from other screens with a section
-  (`OpenSettings(Some(Security))` from the status bar vault indicator, `Comparison`
+  (`OpenSettingsAt(Security)` from the status bar vault indicator, `Comparison`
   from T66, `Editing` from T63's "no editor" error).
 
 #### Keys
@@ -465,7 +465,7 @@ T73 flows (hidden until T73 lands).
   `proxy.ftp_proxy.password_ref`, T05/T15).
 - `FIELDS` metadata lives in core next to `Settings`; the `help` text is the first
   sentence of each field's rustdoc (kept in sync by the coverage test below).
-- Default binding: `F9` → `OpenSettings(None)` (existing in T51).
+- Default binding: `F9` → `Settings` (T51).
 
 ### Errors
 

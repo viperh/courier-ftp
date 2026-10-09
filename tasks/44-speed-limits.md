@@ -123,7 +123,7 @@ for FTP); the long-run average is exact.
 | `transfers.speed_limit_enabled` | bool | false | — | master toggle (`Ctrl-x k` ToggleSpeedLimit, status bar indicator; T57) |
 | `transfers.download_limit_kib` | u32 | 0 | 0–1 048 576 | KiB/s, 0 = unlimited |
 | `transfers.upload_limit_kib` | u32 | 0 | 0–1 048 576 | KiB/s, 0 = unlimited |
-| `transfers.burst_tolerance` | BurstTolerance | normal | normal / high / very-high | 1 s / 2 s / 5 s |
+| `transfers.burst_tolerance` | BurstTolerance | normal | normal / high / very_high | 1 s / 2 s / 5 s |
 
 No new keys. The toggle from the status bar is applied with `set_transient` (T05) and
 persisted when the user saves settings (T68).
@@ -154,7 +154,7 @@ tracing log beyond "speed limits changed".
 - [ ] AC2 Two concurrent transfers under a 200 KiB/s limit each get 100 KiB/s ±20 % over 10 s; three get 66.7 KiB/s ±20 %.
 - [ ] AC3 Toggling `speed_limit_enabled` off mid-transfer: the next chunk is granted within 100 ms of virtual time and throughput then equals the mock's unthrottled bandwidth.
 - [ ] AC4 Changing the rate from 100 to 200 KiB/s mid-transfer: the next 5 s average is 200 KiB/s ±5 %.
-- [ ] AC5 Burst: after 10 s idle with `very-high` at 100 KiB/s, 500 KiB are granted without waiting, then the rate is 100 KiB/s ±5 %.
+- [ ] AC5 Burst: after 10 s idle with `very_high` at 100 KiB/s, 500 KiB are granted without waiting, then the rate is 100 KiB/s ±5 %.
 - [ ] AC6 Upload and download limits are independent (a saturated download limit does not slow uploads).
 - [ ] AC7 A cancelled `acquire` returns its reservation (a following acquire is not delayed by it).
 - [ ] AC8 `max_chunk` follows `chunk_for_rate` (table test).

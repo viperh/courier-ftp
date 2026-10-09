@@ -187,7 +187,7 @@ browsing session, other operations on that tab return `Unavailable::Busy`
 Navigation in the pane is still possible from the cache; uncached listings wait
 on the session mutex and show the spinner.
 
-#### 1. Transfer (F5) and queue only (Shift-F5)
+#### 1. Transfer (F5) and queue only (Shift-F5 / `Q`)
 
 Direction follows the focused pane: local → remote is an upload, remote → local
 a download. Destination = the other pane's current directory.
@@ -211,7 +211,7 @@ Flow:
    │                   [ Upload ]    [ Cancel ]                   │
    └──────────────────────────────────────────────────────────────┘
    ```
-   Title is "Download" for downloads. Shift-F5 pre-ticks "Add to queue only".
+   Title is "Download" for downloads. Shift-F5 / `Q` pre-ticks "Add to queue only".
    On SFTP the transfer-type row is disabled with "(SFTP always transfers binary)"
    (`Capabilities::ascii_mode == false`).
 3. `build_transfer_items` creates one `QueueItem` per entry:
@@ -293,7 +293,7 @@ Dialog (inline list editing is out of scope):
   name.
 - Cache: `rename` patch (T46) on success; cursor moves to the new name.
 
-#### 4. Make directory (F7) and make directory and enter it (Shift-F7)
+#### 4. Make directory (F7) and make directory and enter it (Shift-F7 / `M`)
 
 ```
 ┌ Create directory ────────────────────────────────────┐
@@ -529,21 +529,23 @@ New `Action` variants (serialised names for the keymap, T51): `Transfer`,
 `Chmod`, `CopyUrl`, `CopyUrlOptions`, `CustomCommand`, `ManualTransfer`,
 `Refresh`, plus internal `FileOpFinished { tab, op, outcome }`.
 
-Default bindings (T51 table; the two marked * are added there by this task):
+Default bindings (T51's final table; `Ctrl-x n` and `Ctrl-x m` are in its `Ctrl-x`
+prefix table, owner T62):
 
 | Key | Action | Mode |
 |---|---|---|
 | `F5` | Transfer | FileList |
-| `Shift-F5` | QueueOnly | FileList |
+| `Shift-F5`, `Q` | QueueOnly | FileList |
 | `F6` | Move | FileList |
 | `F2` | Rename | FileList |
-| `F7` / `Shift-F7` | Mkdir / MkdirEnter | FileList |
-| `Ctrl-x n` * | NewFile | FileList |
+| `F7` | Mkdir | FileList |
+| `Shift-F7`, `M` | MkdirEnter | FileList |
+| `Ctrl-x n` | NewFile | Normal (acts on the focused file list, or the last focused one when another region has focus) |
 | `F8` / `Delete` | Delete | FileList |
 | `c` | Chmod | FileList |
 | `y u` / `y U` | CopyUrl / CopyUrlOptions | FileList |
 | `:` | CustomCommand | FileList |
-| `Ctrl-x m` * | ManualTransfer | Normal |
+| `Ctrl-x m` | ManualTransfer | Normal |
 | `Ctrl-r` | Refresh | Normal |
 
 ### Errors

@@ -135,7 +135,7 @@ Settings (all defined in T05):
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `queue.on_complete` | OnComplete | `none` | `none`, `show-message`, `run-command`, `disconnect`, `close-app` |
+| `queue.on_complete` | OnComplete | `none` | `none`, `show_message`, `run_command`, `disconnect`, `close_app` |
 | `queue.on_complete_command` | String | "" | ≤ 1024 chars; run by `sh -c` / `cmd /C` |
 | `queue.notify` | NotifyMethod | `bell` | `none`, `bell`, `osc` |
 | `queue.refresh_remote_after` | bool | true | |
@@ -162,7 +162,7 @@ No core `Error` crosses into the UI from this task besides `SettingsStore::updat
 - Notification text contains only counts, sizes and durations — no paths or hosts —
   because terminal notifications may be forwarded to the OS notification centre.
 - The summary log line is a Status line in the message log; the tracing log at `info`
-  records "queue finished: ok=12 failed=1 skipped=2 action=show-message".
+  records "queue finished: ok=12 failed=1 skipped=2 action=show_message".
 - Notification bytes are built from sanitised text, so no control sequence from a server
   (file names never appear) can reach the terminal through this path.
 
@@ -178,7 +178,7 @@ No core `Error` crosses into the UI from this task besides `SettingsStore::updat
 
 ## Acceptance criteria
 
-- [ ] AC1 Each `OnComplete` value produces its behaviour after a mock queue run (AppHarness): none → only the log line; show-message → modal with the summary; run-command → process started; disconnect → every tab disconnected, idle engine connections closed; close-app → countdown, then quit.
+- [ ] AC1 Each `OnComplete` value produces its behaviour after a mock queue run (AppHarness): none → only the log line; show_message → modal with the summary; run_command → process started; disconnect → every tab disconnected, idle engine connections closed; close_app → countdown, then quit.
 - [ ] AC2 A one-shot override applies to the next finished run only; the run after it uses `queue.on_complete`; `Stop` keeps the override; "always" persists `queue.on_complete`.
 - [ ] AC3 The command receives `COURIER_FTP_FILES_OK`, `_FAILED`, `_SKIPPED`, `_BYTES`, `_DURATION_SECS` with the run's values (test script writes its env to a temp file; Unix `sh`, Windows `cmd`).
 - [ ] AC4 Stopping the queue manually, a disk-full stop, and app start with an empty queue trigger no action and no notification.
@@ -216,7 +216,7 @@ AppHarness (T50) with the engine on `MockServer`s, paused time:
 
 ### End-to-end tests
 `PtyApp` (T76), `#[ignore]` + `COURIER_E2E=1`: `queue_finished_show_message` — upload two
-files to sshd `password` with `queue.on_complete = show-message`; the screen shows
+files to sshd `password` with `queue.on_complete = show_message`; the screen shows
 "Queue finished: 2 files transferred" (AC1 on the real binary).
 
 ## Out of scope

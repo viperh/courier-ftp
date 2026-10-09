@@ -45,9 +45,10 @@ pub struct SyncService {               // owns the SyncHandle and runs library c
     pub fn sync_now(&self);
     pub async fn shutdown(self);
 }
-// Actions added to `Action` (T50/T51):
+// Bindable `Action`s (T51): `SyncPanel` (`Ctrl-x y`, opens the sync panel).
+// Internal messages carried by `Action::Sync(SyncAction)` (not bindable):
 pub enum SyncAction {
-    OpenPanel, SyncNow, OpenSettingsSync,
+    SyncNow, OpenSettingsSync,
     Status(SyncStatus), Event(SyncEvent),
     Wizard(WizardMsg),                  // results of library calls fed back into wizards
     NeedsLogin(NeedsLoginReason),
@@ -74,7 +75,7 @@ Keybindings added to the default keymap (T51, rebindable):
 
 | Context | Key | Action |
 |---|---|---|
-| global | `Ctrl-x y` | open sync panel |
+| global | `Ctrl-x y` | `SyncPanel` — open sync panel (T51 `Ctrl-x` prefix table, owner T90) |
 | sync panel | `s` | sync now |
 | sync panel | `o` | open Settings → Sync & teams |
 | Settings → Sync & teams | `[` / `]` | previous / next page (Sync · Account · Devices · Team · Vaults) |
@@ -83,14 +84,14 @@ Keybindings added to the default keymap (T51, rebindable):
 | Devices page | `j`/`k`, `x`, `r` | move, revoke, reload |
 | Team page [B] | `Tab` org, `i`, `p`/`d`, `x`, `v`, `l`, `n`, `a`, `L` | switch org, invite, promote/demote, remove, verify, audit log, new org, accept invite, leave |
 | Vaults page [B] | `n`, `Enter`, `g`, `x`, `R` | new vault, members, grant/change, revoke, restart abandoned rotation |
-| Site Manager [B] | `C` / `M` / `o` | copy to vault / move to vault / my login for this site |
+| Site Manager [B] | `C` / `M` / `L` | `SmCopyToVault` / `SmMoveToVault` (T59 keys) / `SmCredentialOverride` — my login for this site (`o` stays T59's open/connect, `m`/`p` mark/paste) |
 | toasts | — | no keys (they never take focus) |
 
 ### Behaviour
 
 #### Status segment (T57 slot "Sync", right of the vault segment)
 
-| `SyncStatus` | Unicode | ASCII (`interface.unicode_symbols = false`) | Style |
+| `SyncStatus` | Unicode | ASCII (`interface.unicode_symbols` resolves to off: `never`, or `auto` on a non-UTF-8 terminal, T57) | Style |
 |---|---|---|---|
 | `Disabled` | (hidden) | (hidden) | — |
 | `Synced` | `⟳ synced` | `sync ok` | normal |
@@ -326,12 +327,13 @@ Site Manager integration (T59):
   copy the SSH key / proxy credential it uses" checkbox when references exist; errors from
   T89 shown as dialogs.
 - Saving a team-vault site that references a personal item → the T89 error text inline.
-- `o` on a team-vault site: `CredentialOverrideDialog` (user, password, account, key from
+- `L` on a team-vault site: `CredentialOverrideDialog` (user, password, account, key from
   personal vault, passphrase) — "Only you use these; they stay in your personal vault."
 
 ### Data formats and configuration
 
-- Settings used: `sync.history` (toggle on the Sync page; saved via T05 `save_user`),
+- Settings used: `sync.history` (toggle on the Sync page; saved via T05
+  `SettingsStore::update`),
   `interface.unicode_symbols`.
 - All user-facing strings live in `components/sync/strings.rs` (T75 extraction).
 - No new files on disk.
@@ -448,9 +450,10 @@ Snapshots use a fixed fake mnemonic and fixed ids/timestamps.
 
 ## Open questions
 
-- **Copying invite links.** The terminal clipboard (OSC 52) is not used anywhere in the
-  project; the link is shown for manual selection. Should T90 offer OSC 52 copy for invite
-  links and recovery codes, or a "write to file" option?
-- **Milestone order.** T90 (M7) contains team screens that need T89 (M8). This file splits
-  them into stage A (M7) and stage B (M8). Alternatively move the team screens into T89 or
-  move T90 to M8 in `tasks/README.md`.
+- **Copying invite links.** T55 provides `crate::ui::clipboard` (OSC 52 + platform tools).
+  Invite links are bearer tokens and recovery codes are secrets, so this spec shows them for
+  manual selection only. Should T90 offer clipboard copy (with a warning) for invite links
+  and/or recovery codes, or a "write to file" option?
+
+Resolved (reconciliation): T90 stays in M7 with stage B (team screens) in M8 after T89;
+the sync panel is the `SyncPanel` action on `Ctrl-x y`.
