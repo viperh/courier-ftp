@@ -357,26 +357,26 @@ No settings keys in this task.
 
 ## Acceptance criteria
 
-- [ ] AC1 `merge` is commutative, associative and idempotent: proptest with 1 000 cases each
+- [x] AC1 `merge` is commutative, associative and idempotent: proptest with 1 000 cases each
   over random bodies with colliding stamps passes.
-- [ ] AC2 N = 2..5 simulated devices with random offline edits, deletes and restores, exchanged
+- [x] AC2 N = 2..5 simulated devices with random offline edits, deletes and restores, exchanged
   through a network that reorders, duplicates and delays, end with identical bodies equal to
   the per-field maximum of every write (proptest, 1 000 seeds).
-- [ ] AC3 With a `ManualClock`, a remote stamp 10 min ahead returns `ClockSkew` with
+- [x] AC3 With a `ManualClock`, a remote stamp 10 min ahead returns `ClockSkew` with
   `ahead_by ≈ 10 min`, the local clock ends at `physical + 5 min`, and the stored remote stamp
   is unchanged; a stamp 4 min ahead returns `Ok` and advances the clock past it.
-- [ ] AC4 For each view implemented here, `from_body(apply_to(view)) == view`, and
+- [x] AC4 For each view implemented here, `from_body(apply_to(view)) == view`, and
   `apply_to` of an unchanged view creates no new stamp.
-- [ ] AC5 A body with an unknown key `x.future` survives `from_body` → edit another field →
+- [x] AC5 A body with an unknown key `x.future` survives `from_body` → edit another field →
   `apply_to` → CBOR round trip byte-for-byte in that key.
-- [ ] AC6 `ItemBody::to_cbor` is deterministic (same body → same bytes across 100 encodes and
+- [x] AC6 `ItemBody::to_cbor` is deterministic (same body → same bytes across 100 encodes and
   a decode/encode round trip).
-- [ ] AC7 A body with `schema_version = CURRENT + 1` migrates to `read_only = true` and is not
+- [x] AC7 A body with `schema_version = CURRENT + 1` migrates to `read_only = true` and is not
   modified; a v1 body with a registered test step migrates to v2.
-- [ ] AC8 `format!("{body:?}")` of a body with canary values in `password`, `key_passphrase`,
+- [x] AC8 `format!("{body:?}")` of a body with canary values in `password`, `key_passphrase`,
   `passphrase`, `private_key` and `proxy.password` contains none of them.
-- [ ] AC9 An unknown kind string decodes to `BodyCodecError::UnknownKind`.
-- [ ] AC10 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
+- [x] AC9 An unknown kind string decodes to `BodyCodecError::UnknownKind`.
+- [x] AC10 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
 
 ## Tests
 
@@ -426,3 +426,36 @@ Not applicable.
 ## Open questions
 
 None.
+
+## Implementation notes
+
+- Layout: `model/ids.rs` (ids, `UnixMillis`, `IdGen`) and `model/item/` (`kinds`, `body`,
+  `hlc`, `merge`, `migrate`, `view`, `views/*`, `refs`); everything is re-exported from
+  `courier_ftp_core::model::item`, the ids also from `model::ids`.
+- `ItemBody` has no serde `Deserialize`: decoding goes through `ItemBody::from_cbor`, which
+  reads `kind` as a string first so an unknown kind is `BodyCodecError::UnknownKind(kind)`
+  (its `Display` does not print the string).
+- Additions beyond the spec, needed by T31/T33 to write their views: a public
+  `FieldReader` (`for_kind`, `text`/`opt_text`/`req_text`, `secret`, `int`/`opt_int`/`req_int`
+  with range checks, `millis`, `opt_float`, `bool`, `opt_id`/`req_id`/`ids`,
+  `enum_`/`opt_enum`/`req_enum`, `opt_bytes`/`req_bytes`); `FieldWriter::new`, `put`, `clear`,
+  `req_text`, `millis`, `float`, `opt_enum`; `ItemView::to_new_body`; `SecretField::{from_option,
+  without_value, duplicate}`; `ItemKind::from_wire`/`FromStr`; `HlcClock::observe_stamp`;
+  `ItemBody::contains`; `OVERRIDE_SITE_FIELD`; enums `SshKeyAlgorithm`, `SshKeyFormat`,
+  `ProxyScope` (via the crate-internal `wire_enum!` macro).
+- `SecretField` (and the views holding one: `SshKeyItem`, `ProxyCredentialItem`) has no
+  `Clone`, as `SecretString` has none; use `duplicate()`. Its `PartialEq` compares in
+  constant time.
+- `references` returns nothing for a deleted body, so writing a tombstone is never blocked
+  by `check_vault_refs`. `check_vault_refs` has no personal/team parameter (per the
+  signature): every reference must stay in the item's vault, except
+  `credential-override.shared_site_id`; references to unknown items pass.
+- Required view fields (no stated default): `known-host` `host`/`key_type`/`public_key`;
+  `trusted-cert` `host`/`port`/`sha256`/`cert_der`; `ssh-key` `algorithm`/`format`;
+  `proxy-credential` `scope`. Missing timestamps read as `UnixMillis(0)`. Range checks:
+  `sha256` 32 bytes, `cert_der` ≤ 16 KiB, `private_key` ≤ 64 KiB. Recorded in
+  `docs/data-model.md`.
+- The kind-mismatch `error!` in `merge` logs the two kinds only (merge has no item id; T88
+  can add it).
+- New dependencies of `courier-ftp-core`: `ciborium`, `uhlc` (both already in
+  `[workspace.dependencies]`).
