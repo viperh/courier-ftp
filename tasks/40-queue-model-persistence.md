@@ -162,7 +162,8 @@ impl RangeSet {
 /// Where to move selected items inside their server group.
 pub enum MoveTo { Up, Down, Top, Bottom }
 
-pub enum QueueTab { Queued, Failed, Successful }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum QueueTab { #[default] Queued, Failed, Successful }
 
 /// One visible row for the queue pane (T56). Borrowed view, valid while the lock is held.
 pub enum QueueRow<'a> {

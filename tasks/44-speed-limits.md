@@ -18,7 +18,7 @@ under tokio's paused clock.
   token) and sizes chunks with `max_chunk`; T05 defines `transfers.speed_limit_enabled`,
   `download_limit_kib`, `upload_limit_kib`, `burst_tolerance` (`BurstTolerance`),
   `SharedSettings` and `SettingsStore::set_transient`; T02 gives `Direction`.
-- After: T57's `ToggleSpeedLimit` flips `transfers.speed_limit_enabled` through
+- After: the `Ctrl-x k` `ToggleSpeedLimit` action (T51 keymap; T44/T57) flips `transfers.speed_limit_enabled` through
   `SettingsStore::set_transient` and shows `SpeedLimitIndicator` built from
   `EffectiveLimits`; T68 edits and persists the values; T41b's segments share the same
   limiter (the limit applies to the sum of all connections and segments).
@@ -120,7 +120,7 @@ for FTP); the long-run average is exact.
 
 | Key (T05) | Type | Default | Range | Use |
 |---|---|---|---|---|
-| `transfers.speed_limit_enabled` | bool | false | — | master toggle (status bar `Ctrl-x b`, T57) |
+| `transfers.speed_limit_enabled` | bool | false | — | master toggle (`Ctrl-x k` ToggleSpeedLimit, status bar indicator; T57) |
 | `transfers.download_limit_kib` | u32 | 0 | 0–1 048 576 | KiB/s, 0 = unlimited |
 | `transfers.upload_limit_kib` | u32 | 0 | 0–1 048 576 | KiB/s, 0 = unlimited |
 | `transfers.burst_tolerance` | BurstTolerance | normal | normal / high / very-high | 1 s / 2 s / 5 s |
