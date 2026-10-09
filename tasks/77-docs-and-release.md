@@ -40,7 +40,7 @@ target, the server image and the package-channel updates.
 // crates/courier-ftp/src/docs_gen.rs  (#[cfg(test)] module tree only, nothing shipped)
 /// Markdown for docs/keybindings.md from the default keymap (T51): one table per mode
 /// (Normal, file panes, dialogs, …) with columns Keys | Action | Description, keys in
-/// the notation of `.config/config.json` ("<F5>", "<Ctrl-x><Ctrl-l>", "<g><g>").
+/// the notation of `crates/courier-ftp/config/config.json` ("<F5>", "<Ctrl-x><Ctrl-l>", "<g><g>").
 fn render_keybindings_md(keymap: &KeyMap) -> String;
 
 // crates/courier-ftp-core/tests/configuration_doc.rs

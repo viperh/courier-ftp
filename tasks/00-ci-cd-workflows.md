@@ -504,10 +504,10 @@ Not applicable.
 Deviations and things later tasks must know (T00 implementation, 2026-10-09):
 
 - **`cargo package --no-verify`** in the `packaging` job. The binary crate bakes in
-  `.config/config.json` with `include_str!("../../../.config/config.json")`, a file
+  `crates/courier-ftp/config/config.json` with `include_str!("../../../crates/courier-ftp/config/config.json")`, a file
   outside `crates/courier-ftp`, so a verified build of the packaged crate fails. Until
   the defaults move into the crate directory (T01/T05/T50 decision; many tasks name the
-  path `.config/config.json`), the job packages without the verification build. Drop
+  path `crates/courier-ftp/config/config.json`), the job packages without the verification build. Drop
   `--no-verify` once that is resolved (T01 AC8, T77 AC7).
 - **MSRV 1.95**: the lock file had `vergen`/`vergen-gix`/`vergen-lib` 10.0.3, which need
   rustc 1.96. They are locked back to 10.0.1 (sverb's set) with `cargo update --precise`,

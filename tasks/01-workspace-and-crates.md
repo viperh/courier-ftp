@@ -386,12 +386,12 @@ the second, lane `t01b`, closed the gaps to the current specification).
 - **Cache dir and `NoHome`.** The cache dir has no variable of its own, so with only
   `COURIER_FTP_CONFIG` + `COURIER_FTP_DATA` set and no home directory, resolution
   still fails with `NoHome` (the message tells the user to set `COURIER_FTP_HOME`).
-- **Deviation: the baked-in defaults moved** from `.config/config.json` to
+- **Deviation: the baked-in defaults moved** from `crates/courier-ftp/config/config.json` to
   `crates/courier-ftp/config/config.json`, because `include_str!` of a file outside
   the crate made the verified `cargo package` (AC8) fail. `.envrc` now points
   `COURIER_FTP_CONFIG` at that directory (same behaviour as before: the dev config dir
   is the defaults' directory), and the T00 `packaging` job no longer passes
-  `--no-verify`. Task files that still say `.config/config.json` (T05, T47, T50, T51,
+  `--no-verify`. Task files that still say `crates/courier-ftp/config/config.json` (T05, T47, T50, T51,
   T58, T77, README of `tasks/`) mean this file.
 - **`courier-ftp-server`**: `--version` prints `courier-ftp-server 0.1.0`; anything
   else prints "courier-ftp-server: not implemented yet (T84)" to stderr, exit 2. No clap.

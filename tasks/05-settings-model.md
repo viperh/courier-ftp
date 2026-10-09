@@ -14,7 +14,7 @@ the user's keybindings, styles or unknown keys.
 
 ## Context
 
-- Before: the binary's `config.rs` (template) loads `.config/config.json` (baked in) plus
+- Before: the binary's `config.rs` (template) loads `crates/courier-ftp/config/config.json` (baked in) plus
   user `config.{json5,json,yaml,toml,ini}` from the config dir into `Config { config,
   keybindings, styles }` with the `config` crate. T01 added `COURIER_FTP_HOME`.
 - T02 provides `TransferType`, `Charset`, `RemotePath` etc.
@@ -151,7 +151,7 @@ pub enum EditorChoice { #[default] Auto, Command { command: String, terminal: bo
    `pub settings: Settings`, filled from the raw `settings` value: the crate deserialises
    into a private `RawConfig { …, #[serde(default)] settings: serde_json::Value }` and then
    calls `Settings::from_json_lenient`. A bad setting never fails `Config::new`.
-2. The baked-in `.config/config.json` does **not** contain settings: defaults have one
+2. The baked-in `crates/courier-ftp/config/config.json` does **not** contain settings: defaults have one
    source, `Settings::default()`. (Users see defaults in `docs/settings.schema.json` and in
    T68; T77 renders `docs/configuration.md` from the schema.)
 3. Warnings are logged with `tracing::warn!(path = %w.path, "{message}")` (no values) and

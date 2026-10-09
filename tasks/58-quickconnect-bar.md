@@ -281,7 +281,7 @@ session ids are unique per process.
 | `vault.store_passwords` | bool | `true` (T30) | password in history / save-as-site default |
 | `sftp.use_openssh_known_hosts` | bool | `true` (T21) | factory verifier |
 
-Keybinding config (`.config/config.json`, T51 format, mode `Normal`):
+Keybinding config (`crates/courier-ftp/config/config.json`, T51 format, mode `Normal`):
 `"ctrl-k": "FocusQuickconnect"`, `"ctrl-x r": "ReconnectLast"`, `"ctrl-x S": "SaveAsSite"`,
 `"ctrl-x q": "ToggleQuickconnect"`.
 

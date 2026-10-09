@@ -1,6 +1,6 @@
 # T51 — Keybindings (hybrid)
 
-**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T50 · **Crate(s):** `courier-ftp` (`keymap/`, `action.rs`, `config.rs`, `.config/config.json`, `docs/keybindings.md`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (keyboard shortcuts for most actions)
+**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T50 · **Crate(s):** `courier-ftp` (`keymap/`, `action.rs`, `config.rs`, `crates/courier-ftp/config/config.json`, `docs/keybindings.md`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (keyboard shortcuts for most actions)
 **Related (integrates with, not blocking):** T59, T62, T63, T64, T65, T68, T77
 **Reference:** sverb `crates/sverb-tui/src/keymap/` (`chord.rs` grammar and normalisation, `keymap.rs` sequence lookup, `validate.rs`, `dump.rs`, `whichkey.rs`), `docs/keybindings.md` (generated, `SVERB_BLESS`), SPEC §8.2–8.3
 
@@ -139,7 +139,7 @@ Rules (adapted from sverb `chord.rs`):
 
 #### Building the effective keymap
 
-1. Parse `.config/config.json` (defaults, baked in) and the user config's `keybindings`
+1. Parse `crates/courier-ftp/config/config.json` (defaults, baked in) and the user config's `keybindings`
    as `RawKeymap` (plain strings, so serde never fails on a bad key — this replaces the
    template's `parse_key_sequence(..).unwrap()`).
 2. For each (mode, key string, action name): unknown mode → `UnknownMode`; parse the key
@@ -464,7 +464,7 @@ one default sequence made only of portable chords.
 #### Generated documentation
 
 `docs/keybindings.md` is generated from `BINDABLE` (descriptions, groups, owners) plus the
-default `.config/config.json` tables (keys), with an intro (grammar, timeout, caveats,
+default `crates/courier-ftp/config/config.json` tables (keys), with an intro (grammar, timeout, caveats,
 the "none" unbinding rule). A test fails when the committed file differs;
 `COURIER_FTP_BLESS=1 cargo test -p courier-ftp keybindings_doc` rewrites it (T00 rule for
 generated docs). The help overlay (T50) uses `bindings_for(chain)` plus `ActionMeta`
@@ -472,7 +472,7 @@ descriptions, grouped by `Group`.
 
 ### Data formats and configuration
 
-`.config/config.json` holds the default tables exactly as listed above, one JSON object
+`crates/courier-ftp/config/config.json` holds the default tables exactly as listed above, one JSON object
 per mode, keys in the space-separated form:
 
 ```json
@@ -534,7 +534,7 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 3. Prefix-conflict analysis per chain; `KeymapProblem` display; startup reporting.
 4. Sequence resolver with timeout, `Esc` cancel, re-resolve rule, `deadline()`; wire into T50's loop; pending display.
 5. `BINDABLE` registry with all actions above (including the `Tree` and `SiteManager` modes); `handled_actions()` and "not available yet".
-6. Full default tables in `.config/config.json` (including the complete `ctrl-x` table); zero-problem test; portability test; `ctrl_x_table_matches_spec` test.
+6. Full default tables in `crates/courier-ftp/config/config.json` (including the complete `ctrl-x` table); zero-problem test; portability test; `ctrl_x_table_matches_spec` test.
 7. Which-key popup; help overlay descriptions and groups.
 8. `docs/keybindings.md` generator and staleness test; terminal caveats in the doc intro.
 

@@ -237,7 +237,7 @@ filters in < 10 ms (release build, CI runner); 100 000 entries in < 100 ms.
 
 ### Data formats and configuration
 
-Settings section `filters` (in `.config/config.json` defaults and user config, saved
+Settings section `filters` (in `crates/courier-ftp/config/config.json` defaults and user config, saved
 through `Settings::save_user`, T05):
 
 ```json
@@ -282,7 +282,7 @@ variant except `NoConditions`.
 
 ## Implementation steps
 
-1. Types, serde representation and defaults (`FilterSettings::default`, `builtin_filters`); add `filters: FilterSettings` to `Settings` (T05) and the defaults to `.config/config.json`.
+1. Types, serde representation and defaults (`FilterSettings::default`, `builtin_filters`); add `filters: FilterSettings` to `Settings` (T05) and the defaults to `crates/courier-ftp/config/config.json`.
 2. `validate_filter` / `validate_settings`, including set references.
 3. `CompiledFilter::compile` and `matches` for Name/Path (all string ops), with the per-entry lowercase cache.
 4. Size, Attribute, Permission and Date conditions; kind resolution.

@@ -1,6 +1,6 @@
 # T50 — App shell and layout
 
-**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T01, T04, T05 · **Crate(s):** `courier-ftp` (`app.rs`, `action.rs`, `components.rs`, `components/main_screen/`, `ui/`, `runtime.rs`, `tui.rs`, `config.rs`, `.config/config.json`) · **Decisions:** D6, D7, D10 · **FEATURES.md:** §3 (interface layout, layout options, show/hide panes)
+**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T01, T04, T05 · **Crate(s):** `courier-ftp` (`app.rs`, `action.rs`, `components.rs`, `components/main_screen/`, `ui/`, `runtime.rs`, `tui.rs`, `config.rs`, `crates/courier-ftp/config/config.json`) · **Decisions:** D6, D7, D10 · **FEATURES.md:** §3 (interface layout, layout options, show/hide panes)
 **Related (integrates with, not blocking):** T51, T52, T53, T55, T57
 **Reference:** sverb `crates/sverb-tui/src/testing.rs` (`AppHarness`), `src/theme/` (themes, `NO_COLOR`, ASCII glyph post-pass), `src/widgets/statusbar.rs`, SPEC §8.1, §8.8
 
@@ -40,7 +40,7 @@ and a test harness that renders the app into a `TestBackend` for snapshot tests.
 ### Types and APIs
 
 ```rust
-// app.rs — key tables and styles in .config/config.json are keyed by these names.
+// app.rs — key tables and styles in crates/courier-ftp/config/config.json are keyed by these names.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, EnumIter)]
 pub enum Mode {
     /// Global table; consulted last in every non-modal chain.
@@ -521,7 +521,7 @@ C1, bidi and line separators as `<U+XXXX>`). The status line applies it to
 
 ### Data formats and configuration
 
-`.config/config.json` after this task (excerpt; T51 fills the keymap):
+`crates/courier-ftp/config/config.json` after this task (excerpt; T51 fills the keymap):
 
 ```json
 {
