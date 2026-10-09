@@ -1,3 +1,4 @@
+use courier_ftp_core::settings::SettingsStore;
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,13 @@ use crate::{
 
 pub(crate) struct App {
     config: Config,
+    /// The live settings (T05); components subscribe to it, the settings screen (T68)
+    /// updates it.
+    #[expect(
+        dead_code,
+        reason = "subscribed to by the panes (T50) and the settings screen (T68)"
+    )]
+    settings: SettingsStore,
     tick_rate: f64,
     frame_rate: f64,
     components: Vec<Box<dyn Component>>,
@@ -40,13 +48,17 @@ impl App {
         paths: &AppPaths,
     ) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
+        let config = Config::new(paths)?;
+        let settings =
+            SettingsStore::new(config.settings.clone(), config.config.config_dir.clone());
         Ok(Self {
             tick_rate,
             frame_rate,
             components: vec![Box::new(Home::new())],
             should_quit: false,
             should_suspend: false,
-            config: Config::new(paths)?,
+            config,
+            settings,
             mode: Mode::Normal,
             last_tick_key_events: Vec::new(),
             action_tx,

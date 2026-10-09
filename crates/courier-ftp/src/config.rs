@@ -1,11 +1,15 @@
-#![allow(dead_code)] // Remove this once you start using the code
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
-use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
+use courier_ftp_core::settings::{Settings, SettingsStore, SettingsWarning};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, de::Deserializer};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{action::Action, app::Mode, paths::AppPaths};
 
@@ -16,19 +20,91 @@ const CONFIG: &str = include_str!("../config/config.json");
 #[derive(Clone, Debug, Deserialize, Default)]
 pub(crate) struct AppConfig {
     #[serde(default)]
+    #[expect(dead_code, reason = "read by the log file (T71) and the vault (T30)")]
     pub data_dir: PathBuf,
     #[serde(default)]
     pub config_dir: PathBuf,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub(crate) struct Config {
+/// The layered config as the `config` crate deserialises it. `settings` stays raw JSON
+/// so a bad setting never fails loading (see [`Settings::from_json_lenient`]).
+#[derive(Debug, Default, Deserialize)]
+struct RawConfig {
     #[serde(default, flatten)]
+    config: AppConfig,
+    #[serde(default)]
+    keybindings: KeyBindings,
+    #[serde(default)]
+    styles: Styles,
+    #[serde(default)]
+    settings: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Config {
     pub config: AppConfig,
-    #[serde(default)]
     pub keybindings: KeyBindings,
-    #[serde(default)]
+    #[expect(dead_code, reason = "read by the themed panes (T50)")]
     pub styles: Styles,
+    /// The application settings (T05), defaults merged with the user's `settings` key.
+    pub settings: Settings,
+    /// Problems found in the user's `settings`; each bad value was replaced by its
+    /// default. Shown once as `Error:` lines in the message log at startup (T55).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "shown by the message log pane (T55)")
+    )]
+    pub settings_warnings: Vec<SettingsWarning>,
+}
+
+/// User config files loaded after `config.json`, so a `settings` key in one of them
+/// would shadow settings saved to `config.json`.
+const SHADOWING_FILES: [(&str, config::FileFormat); 3] = [
+    ("config.yaml", config::FileFormat::Yaml),
+    ("config.toml", config::FileFormat::Toml),
+    ("config.ini", config::FileFormat::Ini),
+];
+
+/// Refuses (`InvalidInput`) when `config.yaml`, `config.toml` or `config.ini` in
+/// `config_dir` has a top-level `settings` key: it is loaded after `config.json` and
+/// would hide the saved values.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "called by the settings screen (T68)")
+)]
+pub(crate) fn check_settings_not_shadowed(config_dir: &Path) -> courier_ftp_core::Result<()> {
+    for (file, format) in SHADOWING_FILES {
+        let path = config_dir.join(file);
+        if !path.exists() {
+            continue;
+        }
+        let table = config::Config::builder()
+            .add_source(config::File::from(path.clone()).format(format))
+            .build()
+            .and_then(|c| c.try_deserialize::<HashMap<String, config::Value>>())
+            .map_err(|e| courier_ftp_core::Error::InvalidInput(format!("{file}: {e}")))?;
+        if table.contains_key("settings") {
+            return Err(courier_ftp_core::Error::InvalidInput(format!(
+                "{file} has a \"settings\" key that would override the saved settings; \
+                 move it to config.json or remove it"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Saves a settings change made in the app (T68): refuses when another config file
+/// shadows `config.json`, then [`SettingsStore::update`].
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "called by the settings screen (T68)")
+)]
+pub(crate) fn save_settings(
+    store: &SettingsStore,
+    edit: impl FnOnce(&mut Settings),
+) -> courier_ftp_core::Result<Vec<SettingsWarning>> {
+    check_settings_not_shadowed(store.config_dir())?;
+    store.update(edit)
 }
 
 /// Upper-cased crate name, used as the prefix for the `*_DATA`, `*_CONFIG`
@@ -38,7 +114,7 @@ pub(crate) static PROJECT_NAME: LazyLock<String> =
 
 impl Config {
     pub(crate) fn new(paths: &AppPaths) -> color_eyre::Result<Self, config::ConfigError> {
-        let default_config: Config = json5::from_str(CONFIG)
+        let default_config: RawConfig = json5::from_str(CONFIG)
             .map_err(|e| config::ConfigError::Message(format!("built-in config: {e}")))?;
         let data_dir = &paths.data_dir;
         let config_dir = &paths.config_dir;
@@ -67,7 +143,7 @@ impl Config {
             error!("No configuration file found. Application may not behave as expected");
         }
 
-        let mut cfg: Self = builder.build()?.try_deserialize()?;
+        let mut cfg: RawConfig = builder.build()?.try_deserialize()?;
 
         for (mode, default_bindings) in default_config.keybindings.0.iter() {
             let user_bindings = cfg.keybindings.0.entry(*mode).or_default();
@@ -84,7 +160,19 @@ impl Config {
             }
         }
 
-        Ok(cfg)
+        let (settings, settings_warnings) = Settings::from_json_lenient(&cfg.settings);
+        for w in &settings_warnings {
+            // Only the key path: values can be hosts or paths (T91 §4).
+            warn!(path = %w.path, "setting ignored; using its default");
+        }
+
+        Ok(Self {
+            config: cfg.config,
+            keybindings: cfg.keybindings,
+            styles: cfg.styles,
+            settings,
+            settings_warnings,
+        })
     }
 }
 
@@ -200,6 +288,10 @@ fn parse_key_code_with_modifiers(
     Ok(KeyEvent::new(c, modifiers))
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "shown in the help and keybinding screens (T51)")
+)]
 pub(crate) fn key_event_to_string(key_event: &KeyEvent) -> String {
     let char;
     let key_code = match key_event.code {
@@ -490,6 +582,85 @@ mod tests {
                 .unwrap(),
             &Action::Quit
         );
+        Ok(())
+    }
+
+    fn temp_paths(tmp: &tempfile::TempDir) -> AppPaths {
+        AppPaths {
+            config_dir: tmp.path().join("config"),
+            data_dir: tmp.path().join("data"),
+            cache_dir: tmp.path().join("cache"),
+        }
+    }
+
+    #[test]
+    fn config_new_survives_bad_settings() -> color_eyre::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let paths = temp_paths(&tmp);
+        std::fs::create_dir_all(&paths.config_dir)?;
+        std::fs::write(
+            paths.config_dir.join("config.json"),
+            r#"{"settings": {"transfers": {"max_concurrent": 99}, "connection": {"timeout_secs": 30}},
+                "keybindings": {"Normal": {"<Ctrl-x>": "Quit"}}}"#,
+        )?;
+        let c = Config::new(&paths)?;
+        assert_eq!(c.settings.transfers.max_concurrent, 4);
+        assert_eq!(c.settings.connection.timeout_secs, 30);
+        assert_eq!(c.settings_warnings.len(), 1);
+        assert_eq!(c.settings_warnings[0].path, "transfers.max_concurrent");
+        // Keybindings still load next to settings.
+        assert!(
+            c.keybindings.0[&Mode::Normal].contains_key(&parse_key_sequence("<Ctrl-x>").unwrap())
+        );
+
+        // No user settings at all: defaults, no warnings.
+        let tmp = tempfile::TempDir::new()?;
+        let c = Config::new(&temp_paths(&tmp))?;
+        assert_eq!(c.settings, Settings::default());
+        assert!(c.settings_warnings.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn saved_settings_reload_through_config() -> color_eyre::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let paths = temp_paths(&tmp);
+        let mut s = Settings::default();
+        s.interface.show_tree = true;
+        s.save_user(&paths.config_dir)?;
+        let c = Config::new(&paths)?;
+        assert_eq!(c.settings, s);
+        assert!(c.settings_warnings.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn save_refused_when_toml_shadows_settings() -> color_eyre::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let dir = tmp.path();
+        // A toml file without `settings` does not block saving.
+        std::fs::write(dir.join("config.toml"), "[styles.Normal]\n")?;
+        check_settings_not_shadowed(dir)?;
+        let store = SettingsStore::new(Settings::default(), dir.to_path_buf());
+        save_settings(&store, |s| s.interface.show_tree = true)?;
+
+        std::fs::write(
+            dir.join("config.toml"),
+            "[settings.transfers]\nmax_concurrent = 2\n",
+        )?;
+        let before = std::fs::read_to_string(dir.join("config.json"))?;
+        let err = save_settings(&store, |s| s.interface.show_log = false).unwrap_err();
+        assert!(matches!(err, courier_ftp_core::Error::InvalidInput(_)));
+        assert!(store.current().interface.show_log);
+        assert!(err.to_string().contains("config.toml"), "{err}");
+        assert_eq!(std::fs::read_to_string(dir.join("config.json"))?, before);
+
+        std::fs::remove_file(dir.join("config.toml"))?;
+        std::fs::write(
+            dir.join("config.yaml"),
+            "settings:\n  ftp:\n    use_mlsd: false\n",
+        )?;
+        assert!(check_settings_not_shadowed(dir).is_err());
         Ok(())
     }
 
