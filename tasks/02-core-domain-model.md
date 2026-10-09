@@ -560,27 +560,27 @@ characters cannot reach the terminal through an error message).
 
 ## Acceptance criteria
 
-- [ ] AC1 All types and functions in "Types and APIs" exist with the given names and
+- [x] AC1 All types and functions in "Types and APIs" exist with the given names and
   rustdoc on every public item; `cargo doc -p courier-ftp-core --no-deps` with
   `RUSTDOCFLAGS="-D warnings"` passes.
-- [ ] AC2 `RemotePath` normalisation, `join`, `parent`, `starts_with`, `strip_prefix`,
+- [x] AC2 `RemotePath` normalisation, `join`, `parent`, `starts_with`, `strip_prefix`,
   `resolve` match the rules above (table test, ≥ 25 rows).
-- [ ] AC3 `RemotePath::join` and `LocalPath::join` reject `""`, `"."`, `".."`, names with
+- [x] AC3 `RemotePath::join` and `LocalPath::join` reject `""`, `"."`, `".."`, names with
   '/', NUL (and '\\'/drive prefixes for LocalPath on Windows).
-- [ ] AC4 `Permissions` rwx ↔ mode round-trips for all modes 0..=0o7777; octal parsing and
+- [x] AC4 `Permissions` rwx ↔ mode round-trips for all modes 0..=0o7777; octal parsing and
   printing per the rules.
-- [ ] AC5 `Timestamp::cmp_coarse` returns `Equal` for `12:00` (Minute) vs `12:00:59` (Second)
+- [x] AC5 `Timestamp::cmp_coarse` returns `Equal` for `12:00` (Minute) vs `12:00:59` (Second)
   and `Less` for `12:00` vs `12:01:00`.
-- [ ] AC6 URL parsing table (all four schemes, bare host, `host:port`, IPv6, percent-encoded
+- [x] AC6 URL parsing table (all four schemes, bare host, `host:port`, IPv6, percent-encoded
   user with '@', password, path, invalid inputs) passes, and parse(to_url(x)) == x for every
   non-PlainOnly address in a property test (1 000 cases).
-- [ ] AC7 `format!("{:?}")` of `LogonType::Normal`, `Account`, `KeyFile` with an inline key,
+- [x] AC7 `format!("{:?}")` of `LogonType::Normal`, `Account`, `KeyFile` with an inline key,
   `ParsedUrl` with a password, and `SecretString` never contains the secret text and
   contains `[REDACTED]`.
-- [ ] AC8 `Error::is_transient` / `is_connection_lost` / `code` table-tested for every variant.
-- [ ] AC9 Parsers never panic: proptest on random strings for `RemotePath::parse`,
+- [x] AC8 `Error::is_transient` / `is_connection_lost` / `code` table-tested for every variant.
+- [x] AC9 Parsers never panic: proptest on random strings for `RemotePath::parse`,
   `ParsedUrl::parse`, `Permissions::from_rwx_string` (10 000 cases each).
-- [ ] AC10 CI gates from T00 pass: fmt, clippy (`-D warnings`), docs, test-local-only,
+- [x] AC10 CI gates from T00 pass: fmt, clippy (`-D warnings`), docs, test-local-only,
   test-os (Windows/macOS for `LocalPath`), layering (core has no ratatui/crossterm/clap).
 
 ## Tests
@@ -636,3 +636,31 @@ Not applicable.
 - `FtpEncryption::PlainOnly` has no URL scheme (FileZilla has none either), so a copied URL
   of a plain-only site reopens as "explicit TLS if available". Is that acceptable, or do you
   want a courier-ftp-specific scheme (e.g. `ftp+plain://`)?
+
+## Implementation notes
+
+- Open question (PlainOnly URL scheme): the stated default applies — PlainOnly prints
+  `ftp://` and parses back as `ExplicitIfAvailable` (documented in `model::server`).
+- `ParsedUrl::parse` and `ServerAddress::new` also reject CR, LF and NUL in the user name
+  (and the URL parser in the password), so a typed URL cannot inject FTP commands; the
+  message never echoes the value. `ServerAddress::new` turns `Some("")` into `None` (keeps
+  the URL round-trip exact).
+- URL parsing treats '?' and '#' as ordinary characters (no query/fragment); the authority
+  ends at the first '/', so a raw '/' in a user or password must be written `%2F` (as
+  `to_url` does). Unbracketed IPv6 is accepted only without a scheme.
+- `Error::Protocol` displays as `server error 550: text` (`server error: text` without a
+  code).
+- Small additions beyond the listed API: `Protocol` also derives `PartialOrd`/`Ord`
+  (required by `ServerIdentity`'s `Ord` derive); `KeySource::duplicate` (used by
+  `LogonType::duplicate`); `LogonKind::is_valid_for`; `Charset: Display` (the label);
+  `Secret::new` and `Secret::expose_for_envelope` come with the verbatim sverb copy.
+  `Charset::label` of a custom encoding is the encoding_rs name (e.g. `Shift_JIS`);
+  `from_label` is case-insensitive.
+- Fuzz: the body is `courier_ftp_core::model::server::fuzz_url_parse` (run by
+  `prop_url_parse_never_panics`); the `fuzz/fuzz_targets/url_parse.rs` wrapper and its
+  `[[bin]]` stay with T91 S1 (its AC13); seeds are already in `fuzz/seed-corpus.sh`.
+- Property tests live in `crates/courier-ftp-core/tests/model_props.rs`.
+- New workspace dependency `percent-encoding`; cargo-vet exemptions regenerated for the new
+  crates (`secrecy`, `zeroize` show up as the expected crypto-exemption warning).
+- AC10: the Windows-only tests (`local_path_join_rejects_drive_prefix`, the Windows
+  `local_path_display_uses_tilde`) were not run locally (Linux only); they run in test-os.
