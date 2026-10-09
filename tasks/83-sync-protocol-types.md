@@ -410,6 +410,9 @@ pub struct AuditEventView {
 pub struct AuditPage { pub events: Vec<AuditEventView>, pub next_before: Option<i64> }
 /// Audit kinds (T89 §audit): string constants in `orgs::audit_kind`.
 pub mod audit_kind {
+    pub const ORG_CREATED: &str = "org.created";
+    pub const ACCOUNT_DELETED: &str = "account.deleted";            // org_id NULL (T84)
+    pub const REFRESH_TOKEN_REUSE: &str = "auth.refresh_token_reuse"; // org_id NULL (T84)
     pub const MEMBER_ADDED: &str = "member.added";
     pub const MEMBER_REMOVED: &str = "member.removed";
     pub const MEMBER_ROLE_CHANGED: &str = "member.role_changed";

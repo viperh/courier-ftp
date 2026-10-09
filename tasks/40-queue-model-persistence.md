@@ -83,12 +83,16 @@ pub enum QueueItemKind {
     RemoveSourceDir { pending: u32 },
 }
 
-/// State carried by a directory placeholder (fields owned by T43; serialised here).
+/// State carried by a directory placeholder (meaning defined by T43; serialised here).
 pub struct DirExpansion {
-    pub filter_snapshot: Option<u32>,      // index into the queue's filter-snapshot table (T43)
-    pub link_chain: Vec<LinkId>,           // symlink-loop detection (T43)
-    pub depth: u16,                        // 0 = selected directory; hard limit 64 (T43)
+    /// Remote: real path when the directory was reached through a followed symlink.
+    pub real_path: Option<RemotePath>,
+    /// Symlink-loop detection (T43): remote real paths / local (dev, inode) or canonical paths.
+    pub link_chain: Vec<LinkId>,
+    /// 0 = selected directory; hard limit 64 (T43).
+    pub depth: u16,
 }
+pub enum LinkId { Remote(RemotePath), LocalInode { dev: u64, ino: u64 }, LocalPath(LocalPath) }
 
 pub struct QueueItem {
     pub id: TransferId,
@@ -381,7 +385,6 @@ QueueSnapshotV1 = {
   "v": 1,
   "next_id": u64,
   "servers": [ServerDto],             // index = server ref
-  "filters": [[Filter]],              // T43 filter snapshots, referenced by index
   "items":  [ItemDto],                // queued + paused, in scheduling display order per group
   "failed": [ItemDto],
   "successful": [ItemDto]             // newest last, ≤ max_successful
@@ -394,7 +397,7 @@ ItemDto = { "id": u64, "s": uint /*server ref*/, "k": "f"|"d"|"r", "dir": 0|1 /*
             "tt": 0|1|2, "p": 0..4, "ox": text?, "del": bool, "cp": u64?,
             "st": "q"|"p"|"f"|"d", "att": u8, "err": text?, "done": [[u64,u64]],
             "added": i64, "fin": i64?, "bytes": u64?, "dur_ms": u64?, "out": text?,
-            "dx": { "f": uint?, "lc": [LinkIdDto], "depth": u16 }? }
+            "dx": { "rp": text?, "lc": [LinkIdDto], "depth": u16 }? }
 ```
 
 The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output too.

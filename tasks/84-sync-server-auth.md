@@ -280,7 +280,7 @@ device, disabled user).
 - **Refresh** (one transaction, `SELECT … FOR UPDATE` on the token row):
   1. no row / not `refresh` / expired / device revoked / user disabled → `Invalid`;
   2. `used_at IS NOT NULL` → **reuse**: delete every token of that `family`, write audit
-     row `refresh_token_reuse` (user id, device id, family), log warn with ids → 401;
+     row `auth.refresh_token_reuse` (`org_id` NULL) (user id, device id, family), log warn with ids → 401;
   3. else set `used_at = now`, insert a new access + refresh pair in the **same family**,
      delete the family's other access tokens → `TokenPair`.
   There is no grace window; the client must persist the new pair before using it (T87).
