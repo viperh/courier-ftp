@@ -267,7 +267,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16  # ECR mirror; Docker Hub anonymous pulls hit rate limits on CI
         env:
           POSTGRES_USER: courier
           POSTGRES_PASSWORD: courier
@@ -455,7 +455,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16  # ECR mirror; Docker Hub anonymous pulls hit rate limits on CI
         env:
           POSTGRES_USER: courier
           POSTGRES_PASSWORD: courier
