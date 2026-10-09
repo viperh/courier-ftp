@@ -142,7 +142,7 @@ pub struct ControlParams {
     pub net: NetOpts,                 // from T07 (timeouts, proxy, prefer_ipv6)
     pub charset: Charset,             // T02
     pub timeout: Duration,            // connection.timeout_secs
-    /// `courier_ftp_core::settings::KeepaliveCommand` (T05: Noop*, Pwd, Type, Random),
+    /// `courier_ftp_core::settings::KeepaliveCommand` (T05: `Noop`* | `Random`),
     /// from `ftp.send_keepalive_command`. Not redefined here.
     pub keepalive_command: KeepaliveCommand,
     pub log: SessionLog,              // T04: session id + EventSender
@@ -418,7 +418,8 @@ Ready ─quit()─▶ Closed
 | any | 530, 430 | `Error::Auth(server text)` |
 | any | other 4xx | `Error::Protocol` (transient) |
 | any | other 5xx | `Error::Auth(server text)` |
-| `Other` (T15 `SITE`/`OPEN`) | 2xx, 3xx | next step; 4xx/5xx → `Error::Connection("proxy could not connect: …")` |
+| `Other` (T15 `SITE`/`OPEN`) | 2xx, 3xx | next step; 4xx/5xx → `Error::Proxy("FTP proxy could not connect to the server: …")` |
+| step with `LoginTarget::Proxy` | 530, 430, other 5xx | `Error::Proxy("FTP proxy login failed: …")` (T15) |
 
 - After the last step the last reply must be 2xx (`230`/`202`), otherwise
   `Error::Auth("login incomplete: <text>")`.
@@ -441,9 +442,9 @@ Ready ─quit()─▶ Closed
 
 **7. Keep-alive.** `keepalive()` is called by `SessionHandle` (T03) after
 `connection.keepalive_interval_secs` (30 s) idle. Command from `ftp.send_keepalive_command`:
-`NOOP` (default), `PWD`, `TYPE` (re-sends the current type, `TYPE I` if unknown) or
-`random` (uniform choice of the three each time, like FileZilla, to defeat servers that
-ignore `NOOP` for idle detection). If a transfer is open, `keepalive()` returns `Ok(())`
+`noop` (default) → `NOOP`; `random` → a uniform choice of `NOOP`, `PWD` or `TYPE`
+(re-sends the current type, `TYPE I` if unknown) each time, like FileZilla, to defeat
+servers that ignore `NOOP` for idle detection. If a transfer is open, `keepalive()` returns `Ok(())`
 without sending. Any reply is accepted; 421/timeout → `Error::Connection`/`Timeout`.
 
 **8. Raw command (FEATURES §4).** Verb = first token, upper-cased. Refused with
@@ -480,7 +481,7 @@ Settings read (all from T05, none added here):
 |---|---|---|---|
 | `connection.timeout_secs` | u32 | 20 | inactivity timeout |
 | `connection.keepalive` / `keepalive_interval_secs` | bool / u32 | true / 30 | `SessionHandle` schedule |
-| `ftp.send_keepalive_command` | `KeepaliveCommand` (`noop`\|`pwd`\|`type`\|`random`) | `noop` | §7; invalid values are reset by T05 |
+| `ftp.send_keepalive_command` | `KeepaliveCommand` (`noop`\|`random`, snake_case) | `noop` | §7; invalid values are reset by T05 |
 | `logging.level` | u8 0–4 | 2 | `Debug(n)` lines dropped above it (T04) |
 
 Wire formats: RFC 959 commands `VERB SP arg CRLF`; replies per §1. Status-line texts used

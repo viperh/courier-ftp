@@ -13,12 +13,15 @@ and a quick way to select all differences on one side so F5 can push them.
 ## Context
 
 Before this task:
-- T48 provides `compare(left, right, opts) -> ComparedListing` with aligned
-  `ComparedRow { left: Option<usize>, right: Option<usize>, status: RowStatus }`,
-  `RowStatus { Equal, OnlyLeft, OnlyRight, LeftNewer, RightNewer, SizeDiffers,
-  DirBoth, Unknown }`, `CompareOpts { mode: Size | ModificationTime,
-  threshold_minutes, dirs_first, hide_identical, case_sensitive_names }`, and the
-  "filters differ" flag (via T47 `FilterEngine::equivalent`).
+- T48 (`courier_ftp_core::compare`) provides `compare(left, right, opts, filters:
+  (&FilterEngine, &FilterEngine)) -> ComparedListing` with aligned `ComparedRow {
+  left: Option<usize>, right: Option<usize>, status: RowStatus }`, `RowStatus {
+  Equal, OnlyLeft, OnlyRight, LeftNewer, RightNewer, SizeDiffers, KindDiffers,
+  DirBoth, Unknown }`, `CompareOpts { mode: CompareMode, threshold_minutes,
+  hide_identical, name_case: NameCase, order: NameOrder }`, `NameCase::{for_sides,
+  local_is_insensitive, remote_is_insensitive}`, `ComparedListing.filters_differ`, and
+  the persisted `CompareSettings { mode, threshold_minutes, hide_identical }` (the
+  `compare.*` settings section, registered in T05).
 - T53 provides both file list panes: navigation (address bar, enter, parent,
   back/forward), listing via the cache (T46), sorting, selection, quick filter,
   filters (T47), virtualised rendering, and emits navigation as actions.
@@ -61,11 +64,7 @@ pub enum MapResult {
 /// joined onto the other side's base.
 pub fn map_to_other(sync: &SyncBrowsing, target: &PanePath) -> MapResult;
 
-/// Comparison settings (persisted, see Data formats).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CompareSettings { pub mode: CompareMode, pub threshold_minutes: u32, pub hide_identical: bool }
-
-/// Per-tab comparison state.
+/// Per-tab comparison state. `CompareSettings` is T48's type (`settings.compare`).
 pub struct CompareState {
     pub settings: CompareSettings,
     pub listing: Option<ComparedListing>,   // None until both panes are listed
@@ -85,9 +84,12 @@ pub fn row_look(status: RowStatus, side: PaneSide, present: bool, unicode: bool)
 pub enum StatusSelect { OnlyHere, NewerHere, SizeDiffers, AllDifferences }
 pub fn select_by_status(listing: &ComparedListing, side: PaneSide, which: StatusSelect) -> Vec<usize>;
 
-/// Builds T48 options from settings and the two sides.
-pub fn compare_opts(s: &CompareSettings, dirs_first: bool, local_windows: bool,
-                    remote_server_type: ServerTypeOverride) -> CompareOpts;
+/// Builds T48 options from settings and the two sides:
+/// `name_case = NameCase::for_sides(NameCase::local_is_insensitive(),
+/// NameCase::remote_is_insensitive(remote_style))`, `order` from `interface.dirs_first`,
+/// `interface.natural_sort` and `interface.sort_case_sensitive`.
+pub fn compare_opts(s: &CompareSettings, interface: &InterfaceSettings,
+                    remote_style: PathStyle) -> CompareOpts;
 
 /// Public entry points used by T59 (site connect), T64 (bookmarks) and keys.
 pub trait CompareControl {
@@ -141,8 +143,8 @@ target: PanePath }`, `SyncListingsReady { tab, .. }`.
      exists by the sync invariant; one call), cache patch, then both navigate.
      *Disable…* → sync off, the initiating pane navigates alone. *Stay* (default,
      `Esc`) → neither pane moves.
-   - Before reporting `NotFound` on a case-insensitive pairing (local Windows or
-     remote `Dos` server type, same rule as T48), the other side's parent listing is
+   - Before reporting `NotFound` on a case-insensitive pairing (`NameCase::Insensitive`
+     per T48: local Windows/macOS, or remote path style `Dos`/`Vms`), the other side's parent listing is
      searched case-insensitively; a single match is used instead.
    - Other errors on either side (`PermissionDenied`, `Timeout`) → error message,
      neither pane moves, sync stays on.
@@ -162,12 +164,12 @@ target: PanePath }`, `SyncListingsReady { tab, .. }`.
 2. **Input to T48**: the entries each pane would show after hidden-file and filter
    rules (T47/T53), **ignoring** the quick filter (the quick filter is then
    applied to the aligned rows by name, hiding both sides of a row together).
-   `compare_opts`: mode/threshold/hide-identical from `CompareSettings`,
-   `dirs_first = interface.dirs_first`, `case_sensitive_names = false` when the
-   local OS is Windows or the remote server type is `Dos`, else true.
-3. **Sorting**: while comparing, both panes are sorted by name (case rule as
-   above), directories first per `interface.dirs_first`; sort keys (`s …`) show
-   "Sorting is by name while comparing" and do nothing.
+   `compare_opts`: mode/threshold/hide-identical from `CompareSettings`, `order`
+   (`NameOrder`) from the interface settings, `name_case` from `NameCase::for_sides`.
+   The `filters` argument is the pair of active `FilterEngine`s (local, remote).
+3. **Sorting**: while comparing, both panes are sorted by T48's `name_sort_key`
+   with the same `NameOrder`; sort keys (`s …`) show "Sorting is by name while
+   comparing" and do nothing.
 4. **Recompute** (synchronously on the update path, never in `draw`) when: either
    listing changes (`ListingUpdated`, navigation, refresh), settings change, filters
    change, hidden-file toggle. Target: 10 000 + 10 000 entries in < 20 ms.
@@ -181,6 +183,7 @@ target: PanePath }`, `SyncListingsReady { tab, .. }`.
    | `LeftNewer` | green | default | `>` / ` ` |
    | `RightNewer` | default | green | ` ` / `>` |
    | `SizeDiffers` | red | red | `≠` / `≠` (`!` in ASCII) |
+   | `KindDiffers` (file on one side, directory on the other) | red | red | `≠` / `≠` (`!` in ASCII) |
    | `Equal`, `DirBoth` | default | default | ` ` |
    | `Unknown` | dim | dim | `?` / `?` |
 
@@ -189,13 +192,13 @@ target: PanePath }`, `SyncListingsReady { tab, .. }`.
    the marker column carries the meaning. The marker column (1 char) replaces the
    selection marker column's left padding, so widths don't change.
 6. **Legend** (one line under the panes, above the queue):
-   `■ only on one side  ■ newer  ■ size differs   by time ±1 min · identical shown`
+   `■ only on one side  ■ newer  ■ size or type differs   by time ±1 min · identical shown`
    (squares coloured; ASCII mode uses `+ only  > newer  ! size`).
 7. **Lockstep cursor**: the cursor row index and scroll offset are shared by both
    panes; moving in the focused pane moves the other. Placeholder rows can hold the
    cursor; operations on a placeholder (F5, F8, …) report "Nothing selected on this
    side" (T62 source rules). Selections stay per pane.
-8. **Filters differ** (T48 flag): once per enable per tab, a message "The filters on
+8. **Filters differ** (`ComparedListing.filters_differ`, T48): once per enable per tab, a message "The filters on
    the two sides differ, so the comparison may be misleading (Ctrl-x f to review
    filters)." The comparison is still shown.
 9. **Disable**: `Ctrl-o` again or remote disconnect; panes return to their own
@@ -215,7 +218,8 @@ target: PanePath }`, `SyncListingsReady { tab, .. }`.
 - Threshold 0–1440 minutes (`NumberInput`), disabled in size mode.
 - *Hide identical files* hides `Equal` rows; `DirBoth` rows stay (so directories
   remain navigable).
-- OK applies immediately (recompute) and saves via `Settings::save_user` (T05).
+- OK applies immediately (recompute) and saves via `SettingsStore::update` (T05),
+  writing `settings.compare`.
   The dialog can be opened with comparison off; the settings then apply next time.
 
 #### Select by status (`Ctrl-x =`)
@@ -225,12 +229,13 @@ Only while comparing. `choose` dialog for the focused pane:
 ┌ Select on the local side ──────────────────┐
 │ 1  Only on this side (yellow)              │
 │ 2  Newer on this side (green)              │
-│ 3  Size differs (red)                      │
+│ 3  Size or type differs (red)              │
 │ 4  All of the above                        │
 └────────────────────────────────────────────┘
 ```
 `1`–`4` or Enter replaces the pane's selection with the matching rows
-(`select_by_status`), directories included for "only on this side". Status
+(`select_by_status`; `StatusSelect::SizeDiffers` covers `SizeDiffers` and
+`KindDiffers`), directories included for "only on this side". Status
 "Selected 7 entries"; the user then presses F5 (T62) to transfer them. No
 automatic sync (FileZilla has none).
 
@@ -246,19 +251,20 @@ message.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `compare.mode` | `CompareMode` (`ModificationTime` \| `Size`) | `ModificationTime` | T48 mode |
+| `compare.mode` | `CompareMode` (`modification_time` \| `size`) | `modification_time` | T48 mode |
 | `compare.threshold_minutes` | u32 (0–1440) | `1` | T48 threshold |
 | `compare.hide_identical` | bool | `false` | hide `Equal` rows |
-| `interface.dirs_first` | bool | `true` | row order while comparing |
-| `interface.unicode_symbols` | auto/bool | auto | `⇄`, `≠`, `·` vs ASCII |
+| `interface.dirs_first`, `interface.natural_sort`, `interface.sort_case_sensitive` | (T05) | | `NameOrder` while comparing |
+| `interface.unicode_symbols` | `UnicodeSymbols` (`auto` \| `always` \| `never`) | `auto` | `⇄`, `≠`, `·` vs ASCII |
 
-`compare.*` is a new section (see Open questions). Theme style keys
+`compare.*` is the section T48 adds to `Settings` (type `CompareSettings`, registered in
+T05). Theme style keys
 `compare_only_one` (yellow), `compare_newer` (green), `compare_size_differs` (red),
 `compare_placeholder` (dim) in the `styles` config (T50).
 
 Default bindings: `Ctrl-y` `ToggleSyncBrowsing`, `Ctrl-o` `ToggleComparison`
-(existing in T51); `Ctrl-x c` `CompareOptions` and `Ctrl-x =` `SelectByStatus`
-(added to T51's table by this task).
+(T51); `Ctrl-x c` `CompareOptions` and `Ctrl-x =` `SelectByStatus` (T51's `Ctrl-x`
+prefix table, owner T66).
 
 ### Errors
 
@@ -284,8 +290,8 @@ Default bindings: `Ctrl-y` `ToggleSyncBrowsing`, `Ctrl-o` `ToggleComparison`
    Windows local path shapes).
 2. `SyncNavigate` interception in the tab controller: concurrent listing, atomic
    switch, outside-base and missing-dir dialogs, create-it, case-insensitive retry.
-3. `CompareSettings` in settings (+ save), `compare_opts`, `CompareState`, recompute
-   triggers, sort override.
+3. Read/save T48's `CompareSettings` (`settings.compare`), `compare_opts`,
+   `CompareState`, recompute triggers, sort override.
 4. Aligned rendering in both panes (`row_look`, placeholders, markers, legend),
    lockstep cursor and scroll.
 5. Options dialog, select-by-status, filters-differ warning.
@@ -298,7 +304,7 @@ Default bindings: `Ctrl-y` `ToggleSyncBrowsing`, `Ctrl-o` `ToggleComparison`
 - [ ] AC2 Missing directory on the other side shows the dialog; *Create it* creates it with one `mkdir` and navigates both; *Stay* moves neither; *Disable* turns sync off and moves only the initiating pane.
 - [ ] AC3 Navigating above the base (or an address-bar jump outside it) asks to disable sync; default is Stay.
 - [ ] AC4 Enabling comparison also enables synchronized browsing; disabling comparison keeps sync on.
-- [ ] AC5 Comparison rows are aligned and coloured per the table for every `RowStatus` (snapshot tests with constructed listings, colour and `NO_COLOR` variants).
+- [ ] AC5 Comparison rows are aligned and coloured per the table for every `RowStatus` including `KindDiffers` (snapshot tests with constructed listings, colour and `NO_COLOR` variants).
 - [ ] AC6 *Hide identical files* removes `Equal` rows and keeps `DirBoth` rows.
 - [ ] AC7 Select-by-status selects exactly the rows of the chosen class on the focused side.
 - [ ] AC8 The cursor moves in lockstep; operations on a placeholder row report "Nothing selected on this side".
@@ -315,9 +321,9 @@ Default bindings: `Ctrl-y` `ToggleSyncBrowsing`, `Ctrl-o` `ToggleComparison`
 - `fn map_above_base_is_outside` / `fn map_sibling_of_base_is_outside` (AC3).
 - `#[cfg(windows)] fn map_windows_local_drive_paths` and `fn map_invalid_component_on_windows_local` (AC1).
 - `fn map_unicode_and_spaces_round_trip`.
-- `fn compare_opts_case_insensitive_for_windows_or_dos` (AC5).
+- `fn compare_opts_name_case_and_order_from_settings` — `NameCase::Insensitive` for a `Dos`/`Vms` path style (and on Windows/macOS locally); `NameOrder` from the three interface keys (AC5).
 - `fn row_look_table_all_statuses_both_sides` (AC5).
-- `fn select_by_status_each_class` (AC7).
+- `fn select_by_status_each_class` — `SizeDiffers` also picks `KindDiffers` rows (AC7).
 - `fn hide_identical_keeps_dirboth` (AC6).
 
 ### Property / fuzz tests
@@ -362,8 +368,9 @@ default (AC5, AC7).
 
 ## Open questions
 
-1. **T05 inconsistency**: there is no `compare` settings section in T05; this task
-   needs `compare.mode`, `compare.threshold_minutes`, `compare.hide_identical`
-   persisted (FileZilla remembers them). T05 should add the section.
-2. **T51**: `Ctrl-x c` (comparison options) and `Ctrl-x =` (select by status) need
-   to be added to the keymap table.
+None.
+
+Resolved (reconciliation): `compare.{mode, threshold_minutes, hide_identical}` is T48's
+`CompareSettings`, registered in T05; `Ctrl-x c` / `Ctrl-x =` are in T51's table; T48's
+new `CompareOpts` (`order`, `name_case`), filters argument and `RowStatus::KindDiffers`
+are used.

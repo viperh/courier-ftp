@@ -140,9 +140,14 @@ immediately), wrap in `take(range_len)` when set. Returns a `tokio::fs::File`-ba
 partial download never looks complete to resume logic: Linux uses
 `rustix::fs::fallocate(fd, FallocateFlags::KEEP_SIZE, 0, len)`; on other platforms, and when
 the filesystem does not support it (`EOPNOTSUPP`), it is skipped with one `Debug(Info)` line.
-The stream is flushed and `sync_all` is called when the caller shuts it down.
+**Durability:** `write`/`poll_write` never syncs. When the caller shuts the stream down
+(`shutdown().await`) it is flushed, and `sync_all` is called **once** only if the file's
+length at that point is ≥ 8 MiB (`SYNC_THRESHOLD = 8 * 1024 * 1024`); smaller files are not
+synced (a lost small file is cheap to re-transfer, and syncing thousands of small files
+would dominate T41b's small-file throughput). Dropping the stream without `shutdown` (abort)
+never syncs.
 
-**finish_transfer:** `Complete` → Ok (data already synced at shutdown); `Abort` → Ok (the
+**finish_transfer:** `Complete` → Ok (large files already synced at shutdown); `Abort` → Ok (the
 partial file stays for resume, FileZilla behaviour). Transfer-in-progress rules from T03.
 
 **raw_command:** `Unsupported("custom commands are not available for local files")`.
@@ -236,6 +241,7 @@ The UI shows the Display text; for `Io` it is the OS message.
 - [ ] AC8 `ResumeAt(n)` produces byte-identical files; preallocation never changes the file
   length (Linux test checks `metadata.len()` after `open_write` with a hint).
 - [ ] AC9 T00 CI gates pass, including `test-os` on Windows and macOS.
+- [ ] AC10 `sync_all` is never called per write: a 7 MiB write stream shut down normally performs 0 syncs, a 9 MiB one exactly 1 (at shutdown), and an aborted (dropped) 9 MiB stream 0 (test counter).
 
 ## Tests
 
@@ -264,6 +270,7 @@ Not applicable.
 - `#[cfg(windows)] virtual_root_lists_system_drive` — contains `C:` (or `%SystemDrive%`) within 1 s. (AC5)
 - `#[cfg(unix)] non_utf8_names_are_skipped_and_reported` — creates `b"bad\xff"` via `OsStr::from_bytes`; listing has the others and one Status line "1 entries…". (AC7)
 - `resume_at_offset_is_byte_identical`, `write_at_preserves_existing_bytes`, `resume_offset_beyond_eof_is_invalid_input`. (AC8)
+- `sync_only_at_end_of_large_files` — writes 7 MiB and 9 MiB in 64 KiB chunks; the `#[cfg(test)]` per-stream sync counter is 0 and 1, and 0 for a dropped 9 MiB stream; never incremented inside `poll_write`. (AC10)
 - `#[cfg(target_os = "linux")] preallocate_keeps_length` — hint 10 MiB → `len() == 0` after open, allocated blocks ≥ 10 MiB when the fs supports it. (AC8)
 - `available_space_is_positive`. (AC1)
 - `canonicalize_resolves_symlink_loop_entry` — `a/loop -> ..` canonicalises to the parent. (AC2)

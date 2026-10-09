@@ -1,6 +1,6 @@
 # T15 — FTP proxies
 
-**Phase:** B FTP · **Milestone:** M3 · **Depends on:** T05, T10 · **Crate(s):** `courier-ftp-proto-ftp` (`ftp_proxy` module), `courier-ftp-core` (`settings::proxy::FtpProxySettings` validation) · **Decisions:** D1, D3/D4 (proxy password in the vault) · **FEATURES.md:** §1 (FTP proxies: USER@HOST, SITE, OPEN, custom scripts)
+**Phase:** B FTP · **Milestone:** M3 · **Depends on:** T05, T10 · **Crate(s):** `courier-ftp-proto-ftp` (`ftp_proxy` module), `courier-ftp-core` (`settings` module: `validate_ftp_proxy` for T05's `FtpProxySettings`) · **Decisions:** D1, D3/D4 (proxy password in the vault) · **FEATURES.md:** §1 (FTP proxies: USER@HOST, SITE, OPEN, custom scripts)
 **Reference:** sverb `crates/sverb-conn/src/proxy/command.rs` and `proxy/tests.rs` (proxy configuration validated up front, credentials never logged, scripted proxy tests).
 
 ## Goal
@@ -15,14 +15,16 @@ work the same way. The result is a `LoginPlan` that T14's `connect` uses.
 
 **Exists before this task:** T05 `Settings` (`proxy.generic`, `proxy.ftp_proxy`), T10
 `ControlConnection`, `LoginScript`/`LoginStep`/`StepKind`/`StepValue`/`LoginTarget`,
-login state machine (incl. `Other` steps and prompts), `FakeServer`, T04 `mask_command`,
-T02 `Credentials`, `ServerAddress`.
+login state machine (incl. `Other` steps and prompts), `FakeServer`, T04 `mask_command`
+and `PasswordPrompt { purpose: FtpProxy, cache_key: SecretCacheKey::Proxy { .. }, .. }`,
+T02 `ServerAddress` (incl. `user`) + `LogonType`, `Error::Proxy`, T03 `ConnectInfo`
+(`proxy: ProxyChoice`, `ftp_proxy_password`).
 
 **Later tasks need from this one:**
-- T14: `login_plan(&ConnectInfo) -> Result<LoginPlan>` in `connect` (this is why T14 now
-  depends on T15).
-- T31/T58: `FtpProxyConfig::from_settings` when building `ConnectInfo` (they resolve the
-  proxy password from the vault `proxy-credential` item, T81).
+- T14: `login_plan(&ConnectInfo, &Settings) -> Result<LoginPlan>` in `connect` (this is
+  why T14 now depends on T15).
+- T31/T58/T70: when building `ConnectInfo` they resolve `proxy.ftp_proxy.password_ref`
+  (vault `proxy-credential` item, T81) into `ConnectInfo.ftp_proxy_password` (T03).
 - T68: settings form (type, host, port, user, password → vault, custom script editor)
   and `validate_ftp_proxy` for inline errors.
 - T32: FileZilla settings import may map FileZilla's FTP proxy settings (if imported).
@@ -32,24 +34,15 @@ T02 `Credentials`, `ServerAddress`.
 ### Types and APIs
 
 ```rust
-// courier_ftp_core::settings::proxy (extends T05's `proxy.ftp_proxy`) ---------------------
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum FtpProxyKind { #[default] None, UserAtHost, Site, Open, Custom }
+// courier_ftp_core::settings — types owned by T05 (not redefined here):
+//   FtpProxyKind { None*, UserAtHost, Site, Open, Custom }   (kebab-case: "user-at-host")
+//   FtpProxySettings { kind, host: String, port: u16 /* 21 */, user: String /* %s */,
+//                      password_ref: Option<Uuid> /* proxy-credential item, T81 */,
+//                      custom_script: Vec<String> /* one line per element, kind == Custom */ }
+//   GenericProxySettings (T07)
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FtpProxySettings {
-    pub kind: FtpProxyKind,
-    pub host: String,
-    pub port: u16,                       // default 21
-    pub user: String,                    // %s (may be empty)
-    pub password_ref: Option<ItemId>,    // `proxy-credential` item in the vault (T81); never the secret
-    pub custom_script: String,           // used when kind == Custom; '\n'-separated lines
-}
-
-/// Validation used at settings load (T05) and inline in the settings UI (T68).
-pub fn validate_ftp_proxy(ftp: &FtpProxySettings, generic: &GenericProxy) -> Vec<ProxySettingError>;
+/// Validation used at settings load (T05 `validate`) and inline in the settings UI (T68).
+pub fn validate_ftp_proxy(ftp: &FtpProxySettings, generic: &GenericProxySettings) -> Vec<ProxySettingError>;
 pub enum ProxySettingError {
     BothProxiesActive,                   // generic and FTP proxy cannot both be on
     EmptyHost, InvalidPort,
@@ -59,18 +52,19 @@ pub enum ProxySettingError {
 }
 
 // courier_ftp_proto_ftp::ftp_proxy -------------------------------------------------------
-/// FTP proxy settings resolved for one connection (part of `ConnectInfo`'s proxy choice).
-#[derive(Clone)]
+/// FTP proxy settings resolved for one connection. No Clone (holds a secret).
 pub struct FtpProxyConfig {
     pub kind: FtpProxyKind,              // never None here
     pub host: String,
     pub port: u16,
     pub user: String,
-    pub password: Option<SecretString>,  // resolved from the vault; None → prompt if needed
-    pub custom_script: String,
+    /// `ConnectInfo.ftp_proxy_password` (resolved from the vault); None → prompt if needed.
+    pub password: Option<SecretString>,
+    pub custom_script: Vec<String>,
 }
 impl FtpProxyConfig {
-    pub fn from_settings(s: &FtpProxySettings, password: Option<SecretString>) -> Option<Self>;
+    /// None when `s.kind == None`. The password is copied with `SecretString::from(p.expose())`.
+    pub fn from_settings(s: &FtpProxySettings, password: Option<&SecretString>) -> Option<Self>;
 }
 impl std::fmt::Debug for FtpProxyConfig { /* password printed as "****" */ }
 
@@ -82,11 +76,12 @@ pub struct LoginPlan {
     pub via_ftp_proxy: bool,
 }
 
-/// Builds the plan from `ConnectInfo` (address, credentials, encryption, proxy choice).
-pub fn login_plan(info: &ConnectInfo) -> Result<LoginPlan>;
+/// Builds the plan from `ConnectInfo` (address incl. user and encryption, logon, proxy
+/// choice, `ftp_proxy_password`) and `settings.proxy.ftp_proxy`.
+pub fn login_plan(info: &ConnectInfo, settings: &Settings) -> Result<LoginPlan>;
 
 /// Built-in and custom scripts → `LoginScript` with substituted values and masked log text.
-pub fn build_script(kind: &FtpProxyKind, custom: &str, vars: &ScriptVars) -> Result<LoginScript>;
+pub fn build_script(kind: &FtpProxyKind, custom: &[String], vars: &ScriptVars) -> Result<LoginScript>;
 
 pub struct ScriptVars {
     pub host: String,                    // %h, already formatted (see "Placeholders")
@@ -101,9 +96,10 @@ pub enum VarSecret { Value(SecretString), Ask, Empty }
 
 ### Behaviour
 
-**1. When an FTP proxy is used.** `ConnectInfo`'s proxy choice (T03) is `FtpProxy(cfg)`
-only if `settings.proxy.ftp_proxy.kind != None`, the protocol is FTP or FTPS (never SFTP),
-and the site does not set "bypass proxy" (T31). The generic proxy (T07) and the FTP proxy
+**1. When an FTP proxy is used.** `login_plan` uses an FTP proxy only if
+`settings.proxy.ftp_proxy.kind != None`, `info.address.protocol == Protocol::Ftp` (any
+`FtpEncryption`; never SFTP), and `info.proxy != ProxyChoice::Bypass` (site "Bypass
+proxy", T31). The generic proxy (T07) and the FTP proxy
 are mutually exclusive (validation below), so a connection has at most one of them.
 
 **2. Placeholders.**
@@ -115,7 +111,7 @@ are mutually exclusive (validation below), so a connection has at most one of th
 | `%p` | target password (`anonymous@example.com` for anonymous; `AskForPassword`/`Interactive` → prompt when the line is reached) | `Normal` with an empty password |
 | `%a` | account (`Account` logon) | no account |
 | `%s` | proxy user | proxy user empty |
-| `%w` | proxy password (vault; `None` with non-empty `%s` → prompt "Password for FTP proxy") | proxy user empty |
+| `%w` | proxy password (`ConnectInfo.ftp_proxy_password`; `None` with non-empty `%s` → `PromptKind::Password(PasswordPrompt { purpose: FtpProxy, target: "proxy-host:port", cache_key: SecretCacheKey::Proxy { host, port, user }, can_save: false, .. })`) | proxy user empty |
 | `%%` | literal `%` | – |
 
 A line in which **any** placeholder substitutes to an empty value is skipped (FileZilla
@@ -143,8 +139,9 @@ Example on the wire (`Site`, proxy user `proxyuser`, target `ftp.example.com:212
 > PASS ****               < 230 Logged in
 ```
 
-**4. Custom script rules.** Lines split at `\n`, trailing `\r` and surrounding whitespace
-trimmed, empty lines ignored. First token = verb (ASCII letters, 3–4 chars, upper-cased);
+**4. Custom script rules.** One line per `custom_script` element (an element containing
+`\n` is split further), trailing `\r` and surrounding whitespace trimmed, empty lines
+ignored. First token = verb (ASCII letters, 3–4 chars, upper-cased);
 `USER` → `StepKind::User`, `PASS` → `Pass`, `ACCT` → `Acct`, anything else → `Other(verb)`.
 Limits: ≤ 32 lines, ≤ 512 bytes per line after substitution. Unknown `%x` → validation
 error. `LoginTarget`: lines with `%s`/`%w` or `SITE`/`OPEN` verbs → `Proxy`; lines with
@@ -153,8 +150,10 @@ error. `LoginTarget`: lines with `%s`/`%w` or `SITE`/`OPEN` verbs → `Proxy`; l
 
 **5. Reply handling** (T10 login state machine, plus proxy specifics).
 - `USER`/`PASS`/`ACCT` steps: as T10 (230 after `USER` skips the directly following `PASS`).
+- Steps with `LoginTarget::Proxy` answered 530/430/other 5xx → `Error::Proxy("FTP proxy
+  login failed: <text>")` (not `Auth`, so the target credentials are not blamed).
 - `Other` steps (`SITE`, `OPEN`, custom verbs): 2xx or 3xx → next line; 4xx/5xx →
-  `Error::Connection("FTP proxy could not connect to the server: <text>")`.
+  `Error::Proxy("FTP proxy could not connect to the server: <text>")`.
 - Relayed greeting: proxies often answer `SITE`/`OPEN`/`USER u@h` with the target's `220`
   greeting **and then** the real reply; a `220` reply to a proxy step is logged and the next
   reply is read (at most 3 extra replies).
@@ -183,28 +182,28 @@ settings UI (T68: inline error, save blocked). Rules: generic proxy ≠ `None` a
 
 ### Data formats and configuration
 
-`config.json` (non-secret settings, D10):
+`config.json` (non-secret settings, D10; keys registered in T05):
 ```json
 "proxy": {
-  "generic": "none",
+  "generic": { "kind": "none" },
   "ftp_proxy": {
     "kind": "custom",
     "host": "proxy.corp.example",
     "port": 21,
     "user": "proxyuser",
     "password_ref": "0190f5b2-6c1e-7c3a-9a51-2f0e8d1c4b77",
-    "custom_script": "USER %s\nPASS %w\nUSER %u@%h\nPASS %p"
+    "custom_script": ["USER %s", "PASS %w", "USER %u@%h", "PASS %p"]
   }
 }
 ```
 | Key | Type | Default |
 |---|---|---|
-| `proxy.ftp_proxy.kind` | `none` \| `user_at_host` \| `site` \| `open` \| `custom` | `none` |
+| `proxy.ftp_proxy.kind` | `none` \| `user-at-host` \| `site` \| `open` \| `custom` | `none` |
 | `proxy.ftp_proxy.host` | string | `""` |
 | `proxy.ftp_proxy.port` | u16 | `21` |
 | `proxy.ftp_proxy.user` | string | `""` |
 | `proxy.ftp_proxy.password_ref` | UUID of a `proxy-credential` item, or null | `null` |
-| `proxy.ftp_proxy.custom_script` | string (`\n`-separated) | `""` |
+| `proxy.ftp_proxy.custom_script` | array of strings (≤ 32 lines, each ≤ 512 chars) | `[]` |
 
 The proxy password lives only in the vault (`proxy-credential` item: fields `user`,
 `password`), never in `config.json`.
@@ -213,8 +212,8 @@ The proxy password lives only in the vault (`proxy-credential` item: fields `use
 
 | Situation | Error | User sees |
 |---|---|---|
-| Proxy login refused (`USER %s`/`PASS %w` → 530) | `Auth` | "FTP proxy login failed: <text>" |
-| `SITE`/`OPEN`/custom verb refused | `Connection` | "FTP proxy could not connect to the server: <text>" |
+| Proxy login refused (`USER %s`/`PASS %w` → 530) | `Proxy` | "FTP proxy login failed: <text>" |
+| `SITE`/`OPEN`/custom verb refused | `Proxy` | "FTP proxy could not connect to the server: <text>" |
 | Target login refused | `Auth` | "Authentication failed: <text>" |
 | CR/LF/NUL in a substituted value | `InvalidInput` | "user name or password contains a line break" |
 | Implicit FTPS via FTP proxy | `Unsupported` | as above |
@@ -235,8 +234,8 @@ The proxy password lives only in the vault (`proxy-credential` item: fields `use
 
 ## Implementation steps
 
-1. `FtpProxySettings`, `FtpProxyKind`, serde defaults, `validate_ftp_proxy` + T05 load
-   hook (warning + reset) with unit tests.
+1. `validate_ftp_proxy` on T05's `FtpProxySettings` + T05 load hook (warning + reset)
+   with unit tests.
 2. Placeholder substitution, empty-skip rule, `%h` formatting, masked log text.
 3. Built-in scripts and custom script parsing → `LoginScript`.
 4. `login_plan` (direct vs proxied target, TLS name, implicit refusal).
@@ -286,7 +285,8 @@ Not applicable (no UI; T68 snapshots the settings form).
 - `proxy_user_at_host_sequence`, `proxy_user_at_host_with_proxy_auth_sequence`,
   `proxy_site_sequence`, `proxy_open_sequence`, `proxy_custom_sequence`. AC1, AC2.
 - `proxy_relayed_greeting_tolerated`. AC5.
-- `proxy_site_refused_is_connection_error`, `proxy_login_refused_is_auth_error`.
+- `proxy_site_refused_is_proxy_error`, `proxy_login_refused_is_proxy_error`,
+  `target_login_refused_is_auth_error`.
 - `proxy_password_prompted_when_not_in_vault`.
 - `proxy_explicit_tls_auth_before_script` (T12 fake TLS acceptor, cert for the proxy name). AC6.
 - `canary_secrets_never_logged_all_types`. AC3.
@@ -304,9 +304,5 @@ Not applicable (no UI; T68 snapshots the settings form).
 
 ## Open questions
 
-- T05 lists `proxy.ftp_proxy` as an enum (`None | UserAtHost | Site | Open | Custom(script)`)
-  but T15 needs host, port, user and a vault reference too. This task defines
-  `FtpProxySettings { kind, host, port, user, password_ref, custom_script }` under that key;
-  T05 should adopt this shape.
-- T76 does not list an FTP proxy fixture; this task adds an in-process relay proxy to the
-  e2e harness (no Docker image needed). T76 should list it with the other fixtures.
+None. (Resolved: T05 registers the full `proxy.ftp_proxy` shape used here; T76 lists the
+in-process FTP relay proxy fixture.)

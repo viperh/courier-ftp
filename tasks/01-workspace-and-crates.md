@@ -102,6 +102,7 @@ pub mod backend;    // T03
 pub mod bookmarks;  // T33
 pub mod cache;      // T46
 pub mod compare;    // T48
+pub mod edit;       // T05 (`Association`, `EditorChoice` data types), T63 (logic)
 pub mod error;      // T02 (`Error`, `Result`; re-exported at the crate root)
 pub mod events;     // T04
 pub mod filters;    // T47

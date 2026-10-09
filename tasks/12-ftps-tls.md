@@ -8,8 +8,8 @@
 
 Explicit (`AUTH TLS`, RFC 4217) and implicit (port 990) FTPS on rustls with real
 certificate verification against the OS trust store, a FileZilla-style "trust this
-certificate" flow backed by a `CertTrustStore` (in memory now, vault-backed and synced by
-T30), TLS on every data connection with mandatory session resumption (vsftpd
+certificate" flow backed by a `CertTrustStore` (in memory while the vault is locked,
+vault-backed and synced once unlocked — implemented here on T30's API), TLS on every data connection with mandatory session resumption (vsftpd
 `require_ssl_reuse`, ProFTPD and FileZilla Server require it), and the negotiated
 protocol/cipher/certificate exposed for the status bar and server-info dialog.
 
@@ -18,15 +18,19 @@ protocol/cipher/certificate exposed for the status bar and server-info dialog.
 **Exists before this task:** T10 `ControlConnection` (`StreamUpgrade` hook for implicit
 TLS, `upgrade_stream` for explicit TLS, login and negotiate phases, `FakeServer`); T11
 `DataTlsHook`, data-connection ordering (TLS handshake after the 1xx reply), abort/resync;
-T04 `PromptRequest`/`PromptKind::TrustCertificate { details }`, prompt cancellation via
-`CancellationToken`; T02 `FtpEncryption { PlainOnly, ExplicitIfAvailable, RequireExplicit,
-RequireImplicit }`, `Error::Tls`.
+T04 `PromptKind::TrustCertificate(Box<CertPromptDetails>)`, the certificate/TLS types
+(`CertificateDetails`, `CertProblem`, `TlsSessionInfo`, `PreviousCert`, `TrustSource`,
+`DataProtection`) and `PromptResponse::Certificate(TrustAnswer)`, prompt cancellation via
+`CancellationToken`; T02 `Protocol::Ftp` + `FtpEncryption { PlainOnly, ExplicitIfAvailable,
+RequireExplicit, RequireImplicit }`, `Error::Tls`; T03 `SessionSecurityInfo`; T30
+`VaultEngine` (`list`/`put`/`delete`, `subscribe`) and T81 `TrustedCertItem`.
 
 **Later tasks need from this one:**
 - T14: `TlsSession` (control upgrade + data hook), the `TlsReuseRequired` signal (reconnect
-  with TLS 1.2), `TlsSessionInfo` for the backend.
+  with TLS 1.2), `TlsSessionInfo` for `Backend::security_info()` (`SessionSecurityInfo.tls`).
 - T15: TLS through an FTP proxy (TLS peer = proxy host).
-- T30: implements `CertTrustStore` on `trusted-cert` items and swaps it in after unlock.
+- The binary: creates the `SwitchableCertTrustStore` (in-memory initially) and calls
+  `spawn_cert_store_switch` with the `VaultEngine` (T30 provides only the item view and API).
 - T57/T69: `CertPromptDetails`, `TlsSessionInfo`, `CertificateDetails` rendering data.
 - T68: `CertTrustStore::list`/`remove` for the TLS settings section.
 - T41b: TLS session reuse so segment connections skip full handshakes.
@@ -37,18 +41,32 @@ RequireImplicit }`, `Error::Tls`.
 
 ```rust
 // courier_ftp_core::trust ---------------------------------------------------------------
+/// Re-exported from T04 `events` (defined there, not here): `CertificateDetails`,
+/// `CertProblem`, `TlsSessionInfo`, `TrustSource { Platform, Stored, Once }`,
+/// `DataProtection { Private, Clear }`, `CertPromptDetails { host, port, session, problems,
+/// hostname_matches, previous: Option<PreviousCert>, can_save }`, `PreviousCert`,
+/// `TrustAnswer { TrustOnce, AlwaysTrust, Reject }`.
+pub use crate::events::{CertificateDetails, CertProblem, CertPromptDetails, DataProtection,
+                        PreviousCert, TlsSessionInfo, TrustAnswer, TrustSource};
+
 /// A certificate the user chose to "always trust" for host:port.
-/// Persisted by T30 as a `trusted-cert` item (fields: host, port, sha256, der, added_at).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Persisted by `VaultCertTrustStore` (below) as one `trusted-cert` item per host:port
+/// (T81 `TrustedCertItem`).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrustedCert {
     pub host: String,              // lower-case DNS name or IP literal without brackets
     pub port: u16,
     pub sha256: [u8; 32],          // SHA-256 of the end-entity certificate DER
-    pub der: Vec<u8>,              // end-entity DER (for the details view, T68)
+    pub der: Vec<u8>,              // end-entity DER, ≤ 16 KiB (details view, T68)
+    pub subject: String,
+    pub issuer: String,
+    pub not_after: OffsetDateTime,
     pub added_at: OffsetDateTime,
 }
+impl TrustedCert { pub fn to_previous(&self) -> PreviousCert; }
 
-/// Trusted-certificate storage. In-memory now; vault-backed (synced, D4) from T30.
+/// Trusted-certificate storage. In-memory until the vault is unlocked, then vault-backed
+/// (synced, D4).
 #[async_trait]   // same async-trait choice as T03's `Backend`
 pub trait CertTrustStore: Send + Sync + std::fmt::Debug {
     async fn lookup(&self, host: &str, port: u16) -> Result<Vec<TrustedCert>>;
@@ -57,73 +75,42 @@ pub trait CertTrustStore: Send + Sync + std::fmt::Debug {
     async fn add(&self, cert: TrustedCert) -> Result<()>;
     async fn list(&self) -> Result<Vec<TrustedCert>>;
     async fn remove(&self, host: &str, port: u16, sha256: &[u8; 32]) -> Result<()>;
-    /// false for the in-memory store (vault locked / not created): the prompt then
-    /// disables "Always trust".
+    /// false for the in-memory store (vault locked / not created): prompts then carry
+    /// `can_save = false` and "Always trust" is disabled.
     fn is_persistent(&self) -> bool;
 }
 #[derive(Debug, Default)]
 pub struct MemoryCertTrustStore { /* RwLock<Vec<TrustedCert>> */ }
-
-/// One certificate of the presented chain, parsed with `x509-parser`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CertificateDetails {
-    pub subject: String,           // RFC 4514, e.g. "CN=ftp.example.com,O=Example"
-    pub subject_cn: Option<String>,
-    pub issuer: String,
-    pub serial: String,            // upper-case hex, colon separated
-    pub not_before: OffsetDateTime,
-    pub not_after: OffsetDateTime,
-    pub sha256: [u8; 32],
-    pub sha1: [u8; 20],            // display only (FileZilla shows both)
-    pub sans: Vec<String>,         // "DNS:ftp.example.com", "IP:192.0.2.1"
-    pub public_key: String,        // "RSA 2048", "EC P-256", "Ed25519"
-    pub signature_algorithm: String, // "sha256WithRSAEncryption", "ecdsa-with-SHA256"
-    pub is_ca: bool,
-    pub self_signed: bool,         // subject == issuer
-    pub parse_error: Option<String>, // fingerprints still valid when parsing failed
+/// Delegates to the current store; swapped on vault unlock/lock (same pattern as T21's
+/// `SwitchableHostKeyStore`).
+#[derive(Debug)]
+pub struct SwitchableCertTrustStore { /* RwLock<Arc<dyn CertTrustStore>> */ }
+impl SwitchableCertTrustStore {
+    pub fn new(initial: Arc<dyn CertTrustStore>) -> Self;
+    pub fn set(&self, store: Arc<dyn CertTrustStore>);
 }
+impl CertTrustStore for SwitchableCertTrustStore { /* delegates */ }
 
-/// Why the platform verifier refused the chain (from `rustls::CertificateError`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CertProblem { UnknownIssuer, SelfSigned, Expired, NotYetValid, NotValidForName,
-                       Revoked, InvalidPurpose, BadSignature, Other(String) }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TlsSessionInfo {
-    pub protocol: String,          // "TLSv1.3"
-    pub cipher_suite: String,      // "TLS13_AES_128_GCM_SHA256"
-    pub server_name: String,       // name verified / sent as SNI
-    pub chain: Vec<CertificateDetails>,   // leaf first
-    pub trusted_by: TrustSource,   // Platform | Stored | Once
-    pub data_protection: DataProtection,  // Private (PROT P) | Clear (PROT C)
-}
-pub enum TrustSource { Platform, Stored, Once }
-pub enum DataProtection { Private, Clear }
-
-/// Payload of `PromptKind::TrustCertificate { details }` (T04/T69).
+// courier_ftp_core::vault::cert_trust (this task; uses T30's VaultEngine API) -----------
+/// `CertTrustStore` on `trusted-cert` items (T81 `TrustedCertItem`), implemented here
+/// because T30 (M2) precedes this task; T30 provides the item view and `VaultEngine`.
 #[derive(Debug, Clone)]
-pub struct CertPromptDetails {
-    pub host: String, pub port: u16,
-    pub session: TlsSessionInfo,
-    pub problems: Vec<CertProblem>,
-    pub hostname_matches: bool,
-    /// Set when another certificate is stored as "always trusted" for host:port —
-    /// the UI shows the changed-certificate warning (old vs new fingerprints).
-    pub previous: Option<TrustedCert>,
-    pub allow_always: bool,        // CertTrustStore::is_persistent()
-}
-
-/// Answer, carried in `PromptResponse` (shared with T21 host keys; if T04/T21 already
-/// define an equivalent enum, use theirs).
-pub enum TrustDecision { Once, Always, Reject }
+pub struct VaultCertTrustStore { engine: VaultEngine }
+impl VaultCertTrustStore { pub fn new(engine: VaultEngine) -> Self; }
+impl CertTrustStore for VaultCertTrustStore { /* list/put/delete, see Behaviour §7 */ }
+/// Keeps `switch` pointing at the vault store while unlocked: listens to
+/// `VaultEngine::subscribe()`; `Unlocked(_)` → `VaultCertTrustStore`, `Locked(_)` → a fresh
+/// `MemoryCertTrustStore`. Spawned by the binary next to T30's host-key swap.
+pub fn spawn_cert_store_switch(engine: VaultEngine, switch: Arc<SwitchableCertTrustStore>)
+    -> tokio::task::JoinHandle<()>;
 
 // courier_ftp_proto_ftp::tls ------------------------------------------------------------
 /// Process-wide trust state shared by all FTP backend instances (created by the
 /// `BackendFactory`, T14): "trust once" set, prompt de-duplication, TLS 1.2 hints.
 pub struct TlsTrustGate {
-    store: Arc<dyn CertTrustStore>,                    // swapped by T30 after unlock
+    store: Arc<dyn CertTrustStore>,                    // a SwitchableCertTrustStore
     once: Mutex<HashSet<(String, u16, [u8; 32])>>,     // lives until the process exits
-    pending: Mutex<HashMap<(String, u16, [u8; 32]), Shared<BoxFuture<'static, TrustDecision>>>>,
+    pending: Mutex<HashMap<(String, u16, [u8; 32]), Shared<BoxFuture<'static, TrustAnswer>>>>,
     tls12_only_hosts: Mutex<HashSet<(String, u16)>>,   // learned "reuse needs TLS 1.2"
 }
 impl TlsTrustGate {
@@ -142,7 +129,7 @@ impl TlsSession {
     pub fn new(server_name: &str, port: u16, roots: RootSource, max_tls12: bool,
                gate: Arc<TlsTrustGate>) -> Result<Self>;
     /// Handshake on the control stream, then the trust decision (may prompt).
-    pub async fn secure_control(&mut self, io: BoxedIo, events: &EventSender,
+    pub async fn secure_control(&mut self, io: BoxedIo, log: &SessionLog,
                                 cancel: &CancellationToken) -> Result<BoxedIo>;
     /// `DataTlsHook` for T11 (same config → session resumption, leaf pinned to control).
     pub fn data_hook(&self) -> impl DataTlsHook;
@@ -216,18 +203,20 @@ is never deferred). After the handshake and **before writing any byte** on the T
 | Err | contains the leaf SHA-256 | – | accept, `TrustSource::Stored` (even if now expired: the user pinned this exact certificate) |
 | Err | none | yes | accept, `TrustSource::Once` |
 | Err | none | no | prompt (new certificate) |
-| Err | other certificate(s) | no | prompt with `previous = Some(latest by added_at)` (changed certificate warning) |
+| Err | other certificate(s) | no | prompt with `previous = Some(latest by added_at .to_previous())` (changed certificate warning) |
 
 Prompt flow:
-- `Prompt(TrustCertificate { details: CertPromptDetails })` via T04, awaited with the
-  session `CancellationToken`; the T10 inactivity timer is paused while waiting.
+- `PromptKind::TrustCertificate(Box<CertPromptDetails>)` via T04 `prompt_with_cancel`,
+  awaited with the session `CancellationToken`, `can_save = store.is_persistent()`; the T10
+  inactivity timer is paused while waiting. The answer is `PromptResponse::Certificate(TrustAnswer)`.
 - **De-duplication:** concurrent connections (browsing session + up to 16 transfer
   sessions, T41b) that hit the same `(host, port, sha256)` share one pending prompt
   (`TlsTrustGate.pending`), so the user is asked once.
-- `TrustDecision::Once` → add to `once` (process lifetime, never persisted) → accept.
-- `TrustDecision::Always` → `store.add(TrustedCert { .. })` (replaces older entries for
-  host:port) → accept. Offered only when `store.is_persistent()`.
-- `TrustDecision::Reject`, dropped sender, or cancellation → close without `close_notify`,
+- `TrustAnswer::TrustOnce` → add to `once` (process lifetime, never persisted) → accept.
+- `TrustAnswer::AlwaysTrust` → `store.add(TrustedCert { .. })` (replaces older entries for
+  host:port) → accept. Offered only when `can_save`; with `can_save = false` T04 treats it
+  as `TrustOnce`.
+- `TrustAnswer::Reject`, dropped sender, or cancellation → close without `close_notify`,
   `Error::Tls("certificate rejected")` / `Error::Cancelled`. The rejected session's
   resumption cache is dropped with its `ClientConfig`.
 - If the server closed the connection while the prompt was open (its login timeout), the
@@ -271,8 +260,21 @@ everything else → `Other(text)`.
   `Debug(3)`. On abort (T11 §8) no `close_notify` is sent.
 
 **6. Session info.** `TlsSession::info()` is filled after the control handshake and
-exposed by `FtpBackend` (T14) for the status-bar lock and the server-info dialog (T57) and
-the certificate details view (T69). Status lines: `Initializing TLS...`,
+exposed by `FtpBackend::security_info()` (T03 `SessionSecurityInfo { encrypted: true,
+summary: "TLS 1.3", tls: Some(info), .. }`, T14) for the status-bar lock and the
+server-info dialog (T57) and the certificate details view (T69).
+
+**7. Vault-backed store** (`VaultCertTrustStore`, on T30's API):
+- `lookup(host, port)` / `list()`: `engine.list::<TrustedCertItem>()` (cache, no
+  decryption of secrets needed), filter by lower-cased host and port, convert fields
+  (`cert_der` ↔ `der`, UnixMillis ↔ `OffsetDateTime`).
+- `add(cert)`: T81 keeps **one item per (host, port)**: if an item exists, `put` the same
+  `ItemId` with the new fingerprint/DER/subject/issuer/not_after/added_at (replace);
+  otherwise `put` a new item into `engine.personal_vault()`. `is_persistent() = true`.
+- `remove(host, port, sha256)`: `delete(id)` of the matching item (no-op if the
+  fingerprint differs).
+- `VaultError::Locked` (vault locked between swap and call) → `Error::VaultLocked`; the
+  connection is then accepted as `Once` (see Errors). Status lines: `Initializing TLS...`,
 `TLS connection established.` (FileZilla wording), and at `Debug(3)` the version, cipher
 suite, resumed/full handshake per data connection.
 
@@ -281,8 +283,10 @@ suite, resumed/full handshake per data connection.
 Commands: `AUTH TLS` / `AUTH SSL` → `234` (or `334` for SSL on old servers); `PBSZ 0` →
 `200`; `PROT P` / `PROT C` → `200`; `536 Requested PROT level not supported`.
 
-`trusted-cert` item fields (T81 kind, implemented by T30): `host` (string), `port` (u16),
-`sha256` (lower-case hex, 64 chars), `der` (base64 standard), `added_at` (RFC 3339 UTC).
+`trusted-cert` item fields (T81 `TrustedCertItem`, written by `VaultCertTrustStore`):
+`host` text (lower-case), `port` uint, `sha256` bytes(32), `cert_der` bytes (≤ 16 KiB),
+`subject` text, `issuer` text, `not_after` UnixMillis, `added_at` UnixMillis; one item per
+(host, port).
 
 Fingerprint display: `SHA256` upper-case hex with `:` separators (`AB:CD:…`), same for SHA-1.
 
@@ -301,7 +305,7 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
 | PROT P refused (Require*) | `Tls` | "Server refused to encrypt data connections" |
 | Data cert differs | `Tls` | "Data connection certificate differs from control connection" |
 | Reuse required, already TLS 1.2 | `Tls` | "Server requires TLS session resumption, which failed" |
-| Trust store failure (vault) | `Vault(..)` from T30 | "Could not save trusted certificate"; connection still accepted for this session (`Once`) |
+| Trust store failure (vault) | `VaultLocked` / `Vault(..)` (T30 `From<VaultError>`) | "Could not save trusted certificate"; connection still accepted for this session (`Once`) |
 
 ### Security and logging
 
@@ -322,8 +326,7 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
 ## Implementation steps
 
 1. `courier_ftp_core::trust`: `TrustedCert`, `CertTrustStore`, `MemoryCertTrustStore`,
-   `CertificateDetails`, `CertProblem`, `TlsSessionInfo`, `CertPromptDetails`,
-   `TrustDecision`; T04 `PromptKind::TrustCertificate` carries `Box<CertPromptDetails>`.
+   `SwitchableCertTrustStore`, re-exports of the T04 certificate types and `TrustAnswer`.
 2. Certificate details extraction (`x509-parser`) + fingerprints, with `rcgen` test certs.
 3. `FtpCertVerifier` (deferred control verdict, data pinning, signature delegation) +
    pure decision function `decide_trust(record, stored, once) -> TrustOutcome` with table tests.
@@ -333,7 +336,8 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
 7. Data hook for T11 with close_notify handling and the reuse-required detection.
 8. `FakeServer` TLS steps (`StartTls`, `ImplicitTls`, `RequireResumedDataTls`) with
    `tokio-rustls` acceptors (TLS 1.2-only and TLS 1.3 configs).
-9. Docker e2e against vsftpd TLS profiles, pure-ftpd and proftpd mod_tls.
+9. `VaultCertTrustStore` + `spawn_cert_store_switch` (T30 API, T81 `TrustedCertItem`).
+10. Docker e2e against vsftpd TLS profiles, pure-ftpd and proftpd mod_tls.
 
 ## Acceptance criteria
 
@@ -352,7 +356,8 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
 - [ ] AC7 A different certificate after "always trust" → prompt with `previous` set (old and
   new fingerprints); "Always" replaces the stored entry.
 - [ ] AC8 "Trust once" is not persisted (store unchanged) but suppresses prompts for the
-  rest of the process; with the in-memory store `allow_always == false`.
+  rest of the process; with the in-memory store the prompt has `can_save == false` and an
+  `AlwaysTrust` answer stores nothing.
 - [ ] AC9 No byte is written on the TLS control stream before the trust decision (fake
   server asserts it receives nothing until the prompt is answered) and a rejected
   certificate sends no credentials.
@@ -366,6 +371,9 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
   pure-ftpd TLS and proftpd mod_tls each list and transfer a file (SHA-256 verified).
 - [ ] AC14 CI gates (T00) pass; `cargo deny` accepts the new TLS crates; no OpenSSL in
   `cargo tree` (D9).
+- [ ] AC15 `VaultCertTrustStore` round-trips a `TrustedCert` through a `trusted-cert`
+  item, keeps one item per host:port on `add` of a changed certificate, and the switch
+  task points the gate at the vault store after `Unlocked` and back to memory after `Locked`.
 
 ## Tests
 
@@ -378,6 +386,7 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
 - `verifier_delegates_signature_checks` — a forged CertificateVerify fails even though the
   chain verdict is deferred. AC9.
 - `memory_store_add_replaces_same_host_port`, `memory_store_is_not_persistent`. AC7, AC8.
+- `switchable_store_delegates_to_current`. AC15.
 - `client_config_versions_and_resumption` — TLS 1.2-only hint removes TLS 1.3.
 
 ### Property / fuzz tests
@@ -405,6 +414,8 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
   `download_without_close_notify_fails_without_226`. AC11.
 - `session_info_reports_version_and_cipher`. AC12.
 - `server_closed_during_prompt_reconnects_without_second_prompt`.
+- `vault_cert_store_roundtrip_and_replace` (T30 test vault with `Argon2Cost::TEST`),
+  `cert_store_switch_follows_unlock_and_lock`, `vault_locked_during_add_accepts_once`. AC15.
 
 ### End-to-end tests (`courier-ftp-e2e`, `#[ignore]` + `COURIER_E2E=1`, T76)
 - `ftps_explicit_vsftpd`, `ftps_implicit_vsftpd`, `ftps_reuse_required_vsftpd`,
@@ -418,7 +429,7 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
 
 - `CCC`, `AUTH GSSAPI`/Kerberos (D8), client certificates, `SSCN` (server-to-server TLS),
   OCSP stapling configuration beyond what the platform verifier does.
-- The vault-backed store (T30), the prompt and settings UI (T69, T68), the status bar (T57).
+- The vault engine itself (T30), the prompt and settings UI (T69, T68), the status bar (T57).
 - TLS for SFTP (not applicable).
 
 ## Open questions
@@ -427,7 +438,5 @@ mode comes from `ConnectInfo` (site `encryption`, T31; quickconnect default
   **team** vault (T89) be honoured on this device, or only those in the personal vault? A
   teammate (or compromised account) could otherwise plant a trust decision for a host;
   T91 §8 covers only locally-acting fields. Same question applies to T21 `known-host` items.
-- T03's `Backend` trait has no method to expose session security; T57 needs TLS version,
-  cipher and certificate. Proposal for T03: `fn security_info(&self) -> Option<SecurityInfo>`
-  (enum of `Tls(TlsSessionInfo)` / `Ssh(..)` / `Plain`). Until then `FtpBackend` offers an
-  inherent `tls_info()`.
+- Resolved: T03 now has `Backend::security_info() -> SessionSecurityInfo`; T04 owns the
+  certificate/TLS types and `TrustAnswer`; this task implements the vault-backed store.

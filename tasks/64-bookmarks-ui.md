@@ -14,16 +14,19 @@ reused by the Site Manager's bookmark list.
 ## Context
 
 Before this task:
-- T33 provides the bookmark model and storage: `Bookmark { id, name, local_dir:
-  Option<LocalPath>, remote_dir: Option<RemotePath>, sync_browsing: bool,
-  comparison: bool }`, stored as `bookmark` items (global when no `site_id`, site
-  bookmarks with `site_id`), with add / rename / edit / delete / reorder operations
-  through `VaultEngine` (T30). Site bookmarks keep their local dir as a device-local
-  override (T82 `device_local`).
+- T33 provides the bookmark model and storage: `Bookmark { name, site_id:
+  Option<SiteId>, local_dir: Option<LocalPath>, remote_dir: Option<RemotePath>,
+  sync_browsing: bool, comparison: bool, position: f64 }` (`BookmarkEntry { id, vault,
+  bookmark, read_only }`), stored as `bookmark` items (global when no `site_id`, site
+  bookmarks with `site_id`), with `Bookmarks::{list_global, list_for_site, add, edit,
+  rename, delete, reorder}` through `VaultEngine` (T30) and `validate_bookmark`.
+  `position` is a fractional index, so concurrent reorders merge per field (T81).
+  Site bookmarks keep their local dir as a device-local override (T82 `device_local`).
 - T52 provides `ListView`, `TextInput`, `PathInput`, `Checkbox`, `RadioGroup`,
-  the modal stack and `confirm`/`message`.
+  the modal stack and `confirm`/`message`; destructive confirmations use
+  `ConfirmOpts::danger(..)`.
 - T53 provides pane navigation (`navigate(PanePath)` with cache and error handling).
-- T60 provides the unlock overlay; T31 provides `SiteId` and the tab's site
+- T60 provides the unlock overlay (`App::request_unlock()`); T31 provides `SiteId` and the tab's site
   association (a tab connected from a saved site knows its `SiteId`).
 
 Later tasks use from this task: T59 calls `BookmarkEditDialog` for its
@@ -64,14 +67,16 @@ pub struct BookmarkForm {
     pub comparison: bool,
 }
 
-/// Validates the form. `taken_names` = names in the target scope (excluding the
-/// bookmark being edited); `site_available` = the tab is connected via a saved site.
+/// Validates the form (UI rules below, then T33 `validate_bookmark` for the model
+/// rules). `taken_names` = names in the target scope (excluding the bookmark being
+/// edited); `site_available` = the tab is connected via a saved site.
 pub fn validate_bookmark_form(form: &BookmarkForm, taken_names: &[String],
                               site_available: Option<SiteId>)
-    -> Result<Bookmark, Vec<(BookmarkField, String)>>;
+    -> Result<Bookmark, Vec<(BookmarkFormField, String)>>;
 
+/// Form fields: T33's `BookmarkField` plus `Scope` (named differently to avoid a clash).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BookmarkField { Name, Scope, LocalDir, RemoteDir, SyncBrowsing, Comparison }
+pub enum BookmarkFormField { Name, Scope, LocalDir, RemoteDir, SyncBrowsing, Comparison }
 
 /// What applying a bookmark will do in the current tab (pure, testable).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,7 +136,7 @@ New `Action` variants: `Bookmarks` (open menu), `AddBookmark`,
 | `a` | add bookmark (opens the edit dialog prefilled from the panes) |
 | `e` | edit the selected bookmark |
 | `r` | rename (small `prompt_text` dialog) |
-| `x` / `Delete` | delete (confirm, default Cancel) |
+| `x` / `Delete` | delete (`ConfirmOpts::danger`, default Cancel) |
 | `J` / `K` | move down / up within its section (disabled while a filter is active; status hint) |
 | `Esc` | clear the filter if set, else close |
 
@@ -194,9 +199,11 @@ Changing the type of an existing bookmark between Global and Site moves it
 #### Rename, delete, reorder
 
 - Rename: `prompt_text("Rename bookmark", "Name:", current)` with the name rules above.
-- Delete: `confirm("Delete bookmark", "Delete \"www root\"?", default = Cancel)`.
+- Delete: `confirm("Delete bookmark", "Delete \"www root\"?",
+  ConfirmOpts::danger("Delete"))` (default Cancel).
 - Reorder: `J`/`K` swap with the neighbour in the same section and persist through
-  T33's reorder operation immediately; the cursor follows the moved row.
+  T33's `Bookmarks::reorder(id, new_index)` immediately (it rewrites only the moved
+  bookmark's `position`); the cursor follows the moved row.
 
 #### Applying (`Enter`)
 
@@ -227,24 +234,23 @@ Changing the type of an existing bookmark between Global and Site moves it
 │            [ Unlock ]    [ Cancel ]                    │
 └────────────────────────────────────────────────────────┘
 ```
-*Unlock* opens the T60 unlock overlay; after a successful unlock the requested
+*Unlock* calls `App::request_unlock()` (T60 unlock overlay); after a successful unlock the requested
 menu or dialog opens. If the vault locks while the menu is open (auto-lock, T30),
 the menu is discarded with the other dialogs.
 
 ### Data formats and configuration
 
-No new settings. Data is T33's `bookmark` items; reordering uses T33's reorder
-operation (see Open questions about the order field). Display uses
-`interface.unicode_symbols` (T57).
+No new settings. Data is T33's `bookmark` items; order is `Bookmark.position: f64`
+(fractional index, T33). Display uses `interface.unicode_symbols` (T57).
 
-Default bindings (T51): `Ctrl-b` → `Bookmarks` (existing), `Ctrl-x b` → `AddBookmark`
-(added to T51's table by this task). Menu-local keys as listed above (mode `Dialog`).
+Default bindings (T51): `Ctrl-b` → `Bookmarks`, `Ctrl-x b` → `AddBookmark` (T51's
+`Ctrl-x` prefix table, owner T64). Menu-local keys as listed above (mode `Dialog`).
 
 ### Errors
 
 | Situation | Error | User sees |
 |---|---|---|
-| Vault locked | `Error::Vault(Locked)` | unlock dialog above |
+| Vault locked | `Error::VaultLocked` | unlock dialog above |
 | Vault write fails (DB busy, T30 §7) | `Error::Vault(..)` | error dialog "Could not save the bookmark: the database is busy (is another courier-ftp writing?)" with Retry |
 | Item from newer schema / read-only | T81 read-only | edit/rename/delete/move refused, status "This bookmark is read-only" |
 | Navigation failure | `Error::NotFound`, `Error::PermissionDenied`, `Error::Connection` | error message; pane unchanged; sync/compare not enabled |
@@ -331,9 +337,8 @@ integration tests above with real vault storage.
 
 ## Open questions
 
-1. **Inconsistency with T33**: the `Bookmark` model has no ordering field, but
-   reorder must persist and merge across devices. T33 should add an order key (e.g.
-   `position: f64` fractional index so concurrent moves merge per field, T81).
-2. **T51**: `Ctrl-x b` (add bookmark) needs to be added to the keymap table.
-3. Should a global bookmark's local dir also be device-local (like site bookmarks),
+1. Should a global bookmark's local dir also be device-local (like site bookmarks),
    since home directories differ between machines? Current spec: synced.
+
+Resolved (reconciliation): T33's `Bookmark.position: f64` is the order key; `Ctrl-x b`
+= `AddBookmark` is in T51's table; a locked vault is `Error::VaultLocked`.

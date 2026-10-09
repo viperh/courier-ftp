@@ -23,11 +23,13 @@ feature tasks only write scenarios, not plumbing.
   `bench.yml` runs `crates/courier-ftp/tests/startup.rs`.
 - T01: all crates, features `test-util` (core, proto-sftp), `test-hooks` (binary),
   `insecure-test-ksf` (crypto), `COURIER_FTP_HOME` with `config/`, `data/`, `cache/`.
-- T03: `Backend`, `BackendFactory`, `ConnectInfo`, `SessionHandle`, `MockBackend`
-  (feature `test-util`). T06: `LocalBackend` and the reusable backend conformance suite.
+- T03: `Backend`, `BackendFactory`, `ConnectInfo`, `SessionHandle`, `MockBackend` and the
+  reusable backend conformance suite (`courier_ftp_core::backend::conformance` with
+  `ConformanceEnv`, `CASES`, `run_case` and the `backend_conformance_tests!` macro, all
+  behind feature `test-util`). T06: `LocalBackend`, which runs that suite in-process.
 
 **Later tasks need from it:** the server profiles (T10–T15 FTP, T20–T22 SFTP, T07/T15
-proxies), `TestHome` with a vault (T30, T31, T33, T60), `Headless` (T14, T22, T41–T44,
+proxies, including the in-process FTP relay proxy for T15), `TestHome` with a vault (T30, T31, T33, T60), `Headless` (T14, T22, T41–T44,
 T41b, T71), `PtyApp` (T53, T60, T62, T63, T70), toxiproxy (T41, T41b, T42), the sync
 server fixture (T84–T90), the in-process hostile FTP server (T13, T42, T53, T55, T91),
 the TUI snapshot helper (all T5x/T6x UI tasks), the startup benchmark test (T00 bench gate).
@@ -41,7 +43,7 @@ the TUI snapshot helper (all T5x/T6x UI tasks), the startup benchmark test (T00 
 | FTP protocol (T10–T15) | Scripted fake servers over `tokio::io::duplex` / loopback for every command flow; reply/PASV parsers as property tests | `courier-ftp-proto-ftp/tests/` |
 | Listing parsers (T13) | Fixture corpus + `insta` snapshots; never-panics property tests (shared with fuzz bodies, T91) | `courier-ftp-proto-ftp/tests/fixtures/listings/` |
 | Importers (T32) | FileZilla `sitemanager.xml` fixtures with `insta` snapshots of the result | `courier-ftp-core/tests/fixtures/filezilla/` |
-| Backends | One conformance suite (T06) run against Local and Mock in-process, and against every FTP/FTPS profile and SFTP auth profile in Docker | T06 suite + `courier-ftp-e2e/tests/backend_conformance.rs` |
+| Backends | One conformance suite (T03, `courier_ftp_core::backend::conformance`, feature `test-util`) run against Mock (T03) and Local (T06) in-process, and against every FTP/FTPS profile and SFTP auth profile in Docker | T03 suite + `courier-ftp-e2e/tests/backend_conformance.rs` |
 | Transfer engine (T41, T41b, T42–T44) | Deterministic tests with `tokio::time::pause` and `MockBackend` with per-connection latency/bandwidth; exhaustive table for the file-exists decision | `courier-ftp-core/tests/` |
 | Settings / config (T05) | Table tests; schema/doc snapshot (generated docs fail when stale, T77) | `courier-ftp-core`, `courier-ftp` |
 | TUI | ratatui `TestBackend` + `insta` snapshots of every view at **80×24 and 160×48**; reducer-style tests that drive `App` with scripted key events | `courier-ftp/src/**` |
@@ -66,6 +68,7 @@ crates/courier-ftp-e2e/
   src/sshd.rs             Sshd, SshdProfile, SshdOptions
   src/ftpd.rs             Ftpd, FtpdProfile, FtpdOptions, CertVariant
   src/proxy.rs            ProxyServer, ProxyProfile
+  src/ftp_proxy.rs        FtpRelayProxy, FtpRelayMode (in-process FTP proxy for T15, no Docker)
   src/toxi.rs             Toxiproxy, ToxicProxy, Toxic
   src/sync_server.rs      SyncServer, SyncDevice                            (M7)
   src/hostile.rs          HostileFtpd, HostileScript (in-process, no Docker)
@@ -230,6 +233,33 @@ impl ToxicProxy { pub async fn add(&self, name: &str, toxic: Toxic) -> Result<()
                   pub async fn disable(&self) -> Result<()>; pub async fn enable(&self) -> Result<()>;
                   pub fn addr(&self) -> SocketAddr; }
 ```
+
+**`ftp_proxy.rs`** (in-process FTP proxy for T15; no Docker image)
+
+```rust
+/// Which login convention the relay accepts (FileZilla's FTP proxy types, T15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FtpRelayMode { UserAtHost, Site, Open }
+/// A minimal FTP proxy on 127.0.0.1:0 (tokio). It greets with `220 courier-ftp-e2e relay`,
+/// accepts optional proxy credentials (`USER proxyuser` / `PASS proxypass`, i.e.
+/// PROXY_USER/PROXY_PASSWORD), learns the target from `USER u@host[:port]`, `SITE host[:port]`
+/// or `OPEN host[:port]` per mode, then connects to the target (only targets in
+/// `allowed_targets`, so the relay is not an open proxy), relays the control connection
+/// line by line and rewrites `227`/`229` replies so data connections go through a relayed
+/// listener on 127.0.0.1 (passive mode only; active mode → `502`).
+pub struct FtpRelayProxy { … }
+impl FtpRelayProxy {
+    pub async fn start(mode: FtpRelayMode, require_auth: bool,
+                       allowed_targets: Vec<SocketAddr>) -> Result<Self>;
+    pub fn addr(&self) -> SocketAddr;
+    /// Every control line received from the client, with `PASS` arguments masked as `****`.
+    pub fn commands(&self) -> Vec<String>;
+}
+```
+
+The relay only forwards bytes; it never parses listings or inspects data connections. Its
+self-test (`harness_local.rs::ftp_relay_proxy_relays_to_hostile_ftpd`) runs it in front of
+`HostileFtpd` without Docker.
 
 **`hostile.rs`** (no Docker; runs in the normal suite)
 
@@ -472,6 +502,13 @@ so "changed certificate" is tested against an existing trust entry).
 (squid basic auth `proxyuser`/`proxypass`), `socks4`, `socks5` (dante :1080, no auth),
 `socks5-auth` (dante `username` method). `--check` runs `squid -k parse` / `danted -V`.
 
+**FTP proxy (in-process):** `FtpRelayProxy` (above) covers T15's `UserAtHost`, `Site` and
+`Open` types in front of the `vsftpd-plain` container; the `Custom` type is covered by T15's
+`FakeServer` integration tests. No Docker image is needed (`--list`/`--check` do not apply).
+
+**MLSD:** vsftpd has no MLSD; every MLSD/MLST scenario (T13, T14) uses the `proftpd-*` or
+`pureftpd-*` profiles. `vsftpd-*` profiles cover the LIST path.
+
 **Toxiproxy:** upstream image `ghcr.io/shopify/toxiproxy:2.9.0` (pulled, not built),
 controlled over its HTTP API (`POST /proxies`, `POST /proxies/<name>/toxics`).
 
@@ -604,7 +641,8 @@ locally `cargo insta review`.
 5. **M2** `PtyApp::unlock`; `pty_flows.rs::first_run_create_vault_and_unlock`.
 6. **M3** `tests/fixtures/ftpd/` image (vsftpd, proftpd, pure-ftpd, TLS CA + cert
    variants, supervisor, `courier-set-cert`); `ftpd.rs`; `hostile.rs`; `trust_cert`.
-7. **M3** `tests/fixtures/proxy/` + `proxy.rs` (with T07/T15).
+7. **M3** `tests/fixtures/proxy/` + `proxy.rs` (with T07); `ftp_proxy.rs` (`FtpRelayProxy`) with
+   its in-process self-test (with T15).
 8. **M4** `toxi.rs`; `Headless::download/upload/run_queue`; transfer scenarios.
 9. **M4** `startup.rs` benchmark test (needs T60 + T31; file keyring from T30).
 10. **M7–M8** `sync_server.rs` (`SyncServer`, `SyncDevice`) and sync/team scenarios.
@@ -623,6 +661,9 @@ locally `cargo insta review`.
 - [ ] AC10 The CI `e2e` job finishes in under 30 minutes on `ubuntu-latest` (recorded from the last 5 runs in the PR that completes M4).
 - [ ] AC11 A deliberately failing harness self-test (`diag::capture`) shows the container log tail, the last screen and the message-log tail in its captured output.
 - [ ] AC12 `startup.rs` reports a median below 200 ms on CI (`bench.yml`) once T60 lands.
+- [ ] AC13 `backend_conformance.rs` uses the T03 suite only (`courier_ftp_core::backend::conformance` via `backend_conformance_tests!(ignored, env_fn)`, feature `test-util`); the e2e crate defines no conformance cases of its own.
+- [ ] AC14 `FtpRelayProxy` relays a login, a listing and a passive download for each `FtpRelayMode` to `HostileFtpd` in-process (normal `test` job), refuses targets outside `allowed_targets`, and never records an unmasked `PASS` argument in `commands()`.
+- [ ] AC15 MLSD scenarios run only on `proftpd-*`/`pureftpd-*` profiles; `mlsd_used_on_proftpd_and_pureftpd` passes and a vsftpd profile is listed via LIST.
 
 ## Tests
 
@@ -633,6 +674,8 @@ In `courier-ftp-e2e/src/*` (`#[cfg(test)]`):
 - `pty.rs::chord_table_encodes_every_named_key`, `pty.rs::unknown_chord_is_an_error`.
 - `files.rs::fixture_bytes_matches_make_fixture_tree` — compares with the Python generator's output for 3 known files (hashes committed in the test).
 - `ftpd.rs::profile_names_are_unique_and_kebab_case`, `sshd.rs::profile_names_are_unique_and_kebab_case`.
+- `ftp_proxy.rs::parses_target_per_mode` — `USER test@10.0.0.2:2121`, `SITE 10.0.0.2`, `OPEN 10.0.0.2:21` → the expected `SocketAddr`; malformed targets → `501` (AC14).
+- `ftp_proxy.rs::rewrites_pasv_and_epsv_replies` — `227 (10,0,0,2,117,48)` and `229 (|||30000|)` become the relay's local listener address (AC14).
 
 ### Property / fuzz tests
 - `hostile.rs` self-test `hostile_listing_lines_round_trip` — proptest: any listing line without CR/LF is sent verbatim (what the parser sees equals the script).
@@ -646,7 +689,7 @@ In `courier-ftp-e2e/src/*` (`#[cfg(test)]`):
 - `workspace_metadata.rs`: `layering_rules_all_features`, `layering_rules_no_default_features` (same table as T00's `check-layering.py`, second implementation), `every_package_is_mit_with_rust_version`, `internal_deps_carry_versions`, `sync_is_optional_and_absent_without_default_features`, `insecure_ksf_only_in_dev` (T80 AC9: no normal/build edge enables `courier-ftp-crypto/insecure-test-ksf`), `test_features_never_default` (`test-hooks`, `test-util` not reachable from any `default` feature) (AC6).
 - `forbid_unsafe.rs`: `every_crate_inherits_workspace_lints`, `unsafe_block_is_rejected_by_workspace_lints` (throwaway workspace with the real `[workspace.lints]` and a probe crate containing `unsafe {}`; must fail with `deny(unsafe_code)`) (AC6).
 - `fixtures.rs`: `sshd_profiles_match_files`, `ftpd_profiles_match_files`, `proxy_profiles_match_files`, `fixture_keys_present_and_marked_test_only`, `sshd_configs_pass_sshd_t` (skips with a message when no `sshd`) (AC5).
-- `harness_local.rs`: `pty_app_starts_and_quits` (M1: template UI, `q`), `pty_app_resize_redraws`, `headless_lists_in_process_sftp_server` (M2), `hostile_ftpd_serves_scripted_listing` (M3), `diag_dumps_on_failure` (AC11).
+- `harness_local.rs`: `pty_app_starts_and_quits` (M1: template UI, `q`), `pty_app_resize_redraws`, `headless_lists_in_process_sftp_server` (M2), `hostile_ftpd_serves_scripted_listing` (M3), `diag_dumps_on_failure` (AC11), `ftp_relay_proxy_relays_to_hostile_ftpd` (each mode: login, LIST, RETR through the relay; target outside `allowed_targets` refused; `commands()` shows `PASS ****`) (M3, AC14).
 
 ### End-to-end tests
 `crates/courier-ftp-e2e/tests/`, every test `#[ignore]` + `require_docker!()`. The test
@@ -657,13 +700,14 @@ every row exists (AC8).
 | File | Tests (minimum) | Milestone, owner |
 |---|---|---|
 | `harness_docker.rs` | `sshd_profiles_start_and_accept_password`, `ftpd_profiles_start_and_greet`, `proxy_profiles_start`, `toxiproxy_cuts_connection`, `ftpd_set_cert_keeps_ip` | M2–M4, T76 |
-| `backend_conformance.rs` | `conformance_<profile>` for `vsftpd-plain`, `vsftpd-explicit-tls`, `vsftpd-implicit-tls`, `vsftpd-tls-reuse`, `proftpd-plain`, `proftpd-explicit-tls`, `pureftpd-plain`, `pureftpd-explicit-tls`, and SFTP `password`, `key`, `chroot-sftp`, `windows-like` — the T06 suite through `E2eBackendFactory` | M2 (SFTP, T22), M3 (FTP, T14) |
+| `backend_conformance.rs` | `conformance_<profile>` for `vsftpd-plain`, `vsftpd-explicit-tls`, `vsftpd-implicit-tls`, `vsftpd-tls-reuse`, `proftpd-plain`, `proftpd-explicit-tls`, `pureftpd-plain`, `pureftpd-explicit-tls`, and SFTP `password`, `key`, `chroot-sftp`, `windows-like` — the T03 suite (`backend_conformance_tests!(ignored, …)`) with a `ConformanceEnv` whose `make` builds backends through `E2eBackendFactory` (AC13) | M2 (SFTP, T22), M3 (FTP, T14) |
 | `ssh_auth.rs` | password, kbd (2 prompts), key ed25519/ecdsa/rsa/encrypted, PPK v2/v3/v3-encrypted, agent (local `ssh-agent`), `maxauth2` method list, `legacy` refused | M2, T20 |
 | `ssh_trust.rs` | unknown host key prompts (`PromptPolicy::TrustAlways` stores it, second connect silent); changed key after `regenerate_host_key` is blocked with `Error::HostKey` | M2, T21 |
-| `ftp_modes.rs` | `active_only_profile_uses_port`, `pasv_unreachable_falls_back_to_active`, `anonymous_is_read_only`, `fixture_names_listed_exactly_<server>` (all `FIXTURE_TREE` names incl. leading/trailing spaces and the symlink), `mlsd_used_on_proftpd_and_pureftpd`, `maxconn1_second_connection_gets_421` | M3, T11, T13, T14 |
+| `ftp_modes.rs` | `active_only_profile_uses_port`, `pasv_unreachable_falls_back_to_active`, `anonymous_is_read_only`, `fixture_names_listed_exactly_<server>` (all `FIXTURE_TREE` names incl. leading/trailing spaces and the symlink), `mlsd_used_on_proftpd_and_pureftpd`, `list_used_on_vsftpd` (AC15), `maxconn1_second_connection_gets_421` | M3, T11, T13, T14 |
 | `ftp_tls.rs` | `tls_reuse_required_transfers`, `self_signed_prompts_then_trust_always_is_silent`, `changed_cert_after_trust_warns`, `expired_cert_prompts`, `wrong_host_cert_prompts`, `explicit_if_available_on_plain_server_warns` | M3, T12 |
 | `hostile.rs` (in-process, **not** ignored) | `dotdot_name_does_not_escape_target`, `slash_in_name_is_rejected_or_sanitized`, `nul_and_esc_in_names_are_neutralised`, `huge_reported_size_does_not_preallocate`, `malformed_listing_lines_are_skipped`, `banner_escape_sequences_not_rendered` | M3, T13, T42, T53, T55, T91 |
-| `proxies.rs` | `sftp_via_socks5`, `sftp_via_http_connect_auth`, `ftp_passive_via_socks5`, `ftp_active_via_proxy_is_unsupported` | M3, T07, T15 |
+| `proxies.rs` | `sftp_via_socks5`, `sftp_via_http_connect_auth`, `ftp_passive_via_socks5`, `ftp_active_via_proxy_is_unsupported` | M3, T07 |
+| `ftp_proxy.rs` | `ftp_proxy_user_at_host_vsftpd`, `ftp_proxy_site_vsftpd`, `ftp_proxy_open_vsftpd` (`FtpRelayProxy` in front of `vsftpd-plain`: connect, list, download, SHA-256 compare) | M3, T15 |
 | `transfers.rs` | `queue_50_mixed_files_up_and_down_<ftp|sftp>` (sizes 0 B–8 MiB, SHA-256 verified), `segmented_download_2gib_sparse_<ftp|sftp>`, `resume_after_cut_<ftp|sftp>` (toxiproxy `LimitData`), `work_stealing_with_throttled_connection`, `connection_limit_backoff_<ftp|sftp>` (`vsftpd-maxconn1`, `maxconn1`), `speed_limit_within_10_percent`, `cancel_on_slow_profile_leaves_session_usable` | M4, T41–T44, T41b |
 | `pty_flows.rs` | `first_run_create_vault_and_unlock` (M2), `add_site_with_password_restart_unlock_connect_without_prompt` (M5), `site_manager_connect_upload_verified_on_server` (M5), `edit_in_editor_round_trip` (fake editor `tests/fixtures/editor/fake-editor.sh` appends a line; upload prompt accepted; server file hash changes) (M6) | T60, T31, T59, T62, T63 |
 | `sync.rs` | `register_and_second_device_login_with_preview`, `offline_edits_on_both_devices_merge`, `same_field_conflict_newest_wins`, `password_change_logs_out_other_device`, `recovery_with_24_words`, `server_410_triggers_resync` | M7, T84–T88 |
@@ -690,7 +734,10 @@ scripts/canary-scan.sh --self-test
 
 ## Open questions
 
-- **Alignment (not owned here):** T10 and T71 refer to FTP profiles as "vsftpd `plain`" / "the `plain` FTP profile"; this task names them `vsftpd-plain` etc. (one image, server-prefixed profiles). The feature tasks should use these names.
-- **Alignment (T06, not owned here):** the conformance suite must be reachable from another crate: T06 should expose it under `courier-ftp-core` feature `test-util` (e.g. `courier_ftp_core::backend::conformance::run_all(factory, root)` or the `backend_conformance_tests!` macro).
-- **Alignment (T30/T60, not owned here):** `Argon2Cost::TEST` must lie inside the KDF bounds T30 checks on load, or the real binary started by `PtyApp` cannot unlock a `TestHome` vault; and the file-backed keyring `COURIER_FTP_KEYRING=file:<dir>` (test-hooks builds only) is needed for the startup gate.
-- **Alignment (T91, not owned here):** `COURIER_FTP_KEYRING=off` is set by the harness and by CI; T30/T91 must honour it.
+None. Resolved by the coordinator:
+- ~~FTP profile names~~ — feature tasks use `vsftpd-plain` etc. (T71 adopts them).
+- ~~Conformance suite location~~ — it lives in T03 at `courier_ftp_core::backend::conformance` behind feature `test-util`.
+- ~~`Argon2Cost::TEST` / file keyring~~ — T30 keeps `Argon2Cost::TEST` within its load bounds and honours `COURIER_FTP_KEYRING=file:<dir>` (test-hooks builds only).
+- ~~`COURIER_FTP_KEYRING=off`~~ — honoured by T30.
+- ~~FTP proxy fixture~~ — the in-process `FtpRelayProxy` is listed above (T15).
+- ~~MLSD on vsftpd~~ — MLSD scenarios use proftpd/pure-ftpd profiles.

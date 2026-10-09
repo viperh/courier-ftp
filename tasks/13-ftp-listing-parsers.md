@@ -27,7 +27,8 @@ target_kind }`, `Other`), `Timestamp` + `Precision { Day, Minute, Second, Millis
   needs the control connection (T10/T11) which this M2 task does not depend on.
 - T22: `courier_ftp_core::listing::unix::parse_line` for SFTP `longname`.
 - T10: `TextDecoder` for reply lines.
-- T48: timestamps already converted to UTC with the site's offset, with precision.
+- T48: timestamps already converted to UTC with the site's offset (except Day-precision
+  dates, which carry no offset, T02), with precision.
 - T71: raw text for the raw-listing dialog and `ListingRaw` log lines.
 - T76/T91: fuzz target `ftp_listing`.
 
@@ -68,11 +69,12 @@ pub fn parse_month(token: &str) -> Option<u8>;
 /// last leap year (≤ 8 steps).
 pub fn infer_year(month: u8, day: u8, hour: u8, minute: u8, ctx: &ListingContext) -> Option<i32>;
 
-/// Server-local date-time → UTC `Timestamp` with the given precision.
+/// Server-local date-time → UTC `Timestamp` with the given precision. For
+/// `Precision::Day` no offset is applied: the date is kept as-is at 00:00 UTC (T02 rule).
 pub fn local_to_utc(dt: PrimitiveDateTime, precision: Precision, ctx: &ListingContext) -> Timestamp;
 
 pub mod unix {
-    /// One `ls -l` line → `Entry` (`raw` = the line). `None` for headers (`total N`) and
+    /// One `ls -l` line → `Entry`. `None` for headers (`total N`) and
     /// lines that are not Unix format.
     pub fn parse_line(line: &str, ctx: &ListingContext) -> Option<Entry>;
     pub fn is_header(line: &str) -> bool;
@@ -123,7 +125,8 @@ pub fn fuzz_listing(data: &[u8]);
    strip one trailing `\r`. Lines > 64 KiB → `SkipReason::LineTooLong`.
 2. Decode each line with `opts.decoder`; record `used_fallback_encoding`.
 3. Skip empty and whitespace-only lines.
-4. Parse (below). Each entry gets `raw = Some(line)`, `hidden = name.starts_with('.')`.
+4. Parse (below). Each entry gets `hidden = name.starts_with('.')`. There is no per-entry
+   raw text (T02 `Entry` has no `raw`); the raw text lives only in `ParsedListing.raw`.
 5. **Name rules (T91 hostile server):** drop `.` and `..`; drop names that are empty,
    contain `/` or NUL (`SkipReason::HostileName`). Names are otherwise kept byte-exact
    (leading/trailing spaces, unicode, leading `-`); sanitising for the local disk is T42/T06.
@@ -207,9 +210,9 @@ Algorithm:
 7. Kind: `-` File, `d` Dir, `l` Symlink, anything else Other. Symlinks split the name at
    the **first** `" -> "` into name and target (limitation: a symlink whose own name
    contains `" -> "` is split wrongly; non-symlink names containing `" -> "` are kept intact).
-8. Time: `HH:MM` → year via `infer_year`, `Precision::Minute`; `YYYY` → `Day`; ISO with
-   seconds → `Second`, with a fraction → `Millis`; an explicit `±HHMM` zone overrides the
-   site offset. All converted with `local_to_utc`.
+8. Time: `HH:MM` → year via `infer_year`, `Precision::Minute`; `YYYY` → `Day` (no offset
+   applied); ISO with seconds → `Second`, with a fraction → `Millis`; an explicit `±HHMM`
+   zone overrides the site offset. All converted with `local_to_utc`.
 9. Permissions: `Permissions::from_rwx_string` of the first 10 chars.
 
 **5. DOS / IIS.**
@@ -266,8 +269,8 @@ Migrated                                                ALICE.OLD.DATA
 Pseudo Directory                                        ALICE.PROJECTS
 ```
 Dataset rows: `Dsorg` `PO`/`PO-E` or `Pseudo Directory` → Dir; `PS`, `DA`, `VS`,
-`Migrated` → File; name = `Dsname`; `Referred` date `YYYY/MM/DD` → `Day` precision;
-size `None`.
+`Migrated` → File; name = `Dsname`; `Referred` date `YYYY/MM/DD` → `Day` precision (no
+offset applied); size `None`.
 ```
  Name     VV.MM   Created       Changed      Size  Init   Mod   Id
 MEMBER1   01.03 2024/01/30 2024/01/31 12:00    15    10     0 ALICE
@@ -295,8 +298,10 @@ precision, site offset applied.
 |---|---|---|---|
 | MLSD/MLST `modify` | UTC | no | Second / Millis |
 | EPLF `m` | UTC (epoch) | no | Second |
-| Unix `HH:MM` / `YYYY` / ISO | server local | yes | Minute / Day / Second–Millis |
-| DOS, VMS, MVS, IBM i | server local | yes | Minute / Second / Day |
+| Unix `HH:MM` / ISO | server local | yes | Minute / Second–Millis |
+| Unix `YYYY` (date only) | calendar date | **no** (Day precision, T02) | Day |
+| DOS, VMS, MVS member, IBM i | server local | yes | Minute / Second |
+| MVS dataset `Referred` | calendar date | **no** | Day |
 
 ### Data formats and configuration
 
@@ -352,7 +357,9 @@ Status warning ("Could not parse N lines of the directory listing") and logs the
   in this document appears in a fixture.
 - [ ] AC2 Year inference is correct around New Year and Feb 29 (injected `now`:
   2024-01-01T00:30Z, 2024-12-31T23:30Z, 2025-03-01, with offsets −720/0/+840).
-- [ ] AC3 Site offset applied to LIST times only; MLSD and EPLF times unchanged.
+- [ ] AC3 Site offset applied to LIST times with a time of day only; MLSD and EPLF times
+  and Day-precision dates (Unix `YYYY`, MVS `Referred`) are unchanged by any offset
+  (e.g. `Jan 31 2024` with offset +840 stays 2024-01-31).
 - [ ] AC4 Symlinks: `name -> target` split at the first `" -> "`; a regular file named
   `a -> b` stays intact; MLSD `OS.unix=slink:` targets parsed.
 - [ ] AC5 MLSD names with leading/trailing spaces and `;` are preserved byte-exact; Unix
@@ -375,7 +382,8 @@ Status warning ("Could not parse N lines of the directory listing") and logs the
 - `month_names_all_languages_table` (incl. `Jän`, `févr.`, `mrt`, `ago`, `dic`, `maj`,
   `okt`, `1月`, `12월`). AC7.
 - `infer_year_new_year_boundaries`, `infer_year_feb_29_walks_back_to_leap_year`. AC2.
-- `local_to_utc_applies_offset`. AC3.
+- `local_to_utc_applies_offset`, `local_to_utc_day_precision_ignores_offset`
+  (offsets −720 and +840 keep the calendar date). AC3.
 - `unix_parses_group_and_groupless`, `unix_numeric_owner`, `unix_device_file_has_no_size`,
   `unix_acl_marker_accepted`, `unix_total_line_is_header`, `unix_iso_and_full_iso_dates`,
   `unix_name_with_leading_spaces`, `unix_symlink_with_arrow_in_name_split_at_first`,
@@ -424,7 +432,5 @@ from the fake server.
 
 ## Open questions
 
-- T31 must define `timezone_offset_minutes` with the same sign convention as here (the
-  server's UTC offset; utc = server time − offset). FileZilla's per-site "timezone offset"
-  is added to listing times interpreted as the *client's* local time, so T32's FileZilla
-  import cannot copy the value verbatim; T32 should convert it (or flag it for review).
+None. (Resolved: T31 defines `timezone_offset_minutes` as the server's UTC offset with
+this sign convention, and T32 converts FileZilla's value on import.)

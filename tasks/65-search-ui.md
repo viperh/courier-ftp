@@ -14,17 +14,22 @@ upload with or without the directory structure, delete, view/edit, copy URL and
 ## Context
 
 Before this task:
-- T49 provides `SearchQuery { root, conditions, match_mode, case_sensitive,
-  search_type }`, a streaming search on a dedicated session with
-  `SearchEvent::{Found(path, Entry), Progress { dirs_scanned }, Done, Error}`,
-  cancellation, and helpers to queue downloads preserving relative paths or
-  flattened (rename on collision) and to delete selected results.
-- T47 provides `Condition` (`Name`, `Path`, `Size`, `Date` with `StringOp`,
-  `NumOp`, `DateOp`) and `MatchMode` (`All`, `Any`, `None`, `NotAll`).
+- T49 provides `SearchQuery { root: SearchRoot, conditions, match_mode,
+  case_sensitive, search_type, max_depth, max_results }`, `SearchEngine::start(query,
+  browsing) -> SearchHandle { events, cancel, id }` (streaming search on a dedicated
+  session), `SearchEvent::{Found(Vec<SearchHit>), Progress { dirs_scanned,
+  entries_scanned, current_dir }, DirError { dir, error }, Done(SearchSummary)}` with
+  `SearchSummary.outcome: SearchOutcome` (`Completed | Cancelled | Truncated |
+  Failed(String)`), and the pure plans `plan_downloads` / `plan_uploads` (with
+  `TransferLayout::{KeepStructure, Flatten}`), `plan_delete` and `numbered_name`.
+- T47 provides `Condition` (`Name`/`Path { op: StringOp, value }`, `Size { op: NumOp,
+  value }`, `Date { op: DateOp, value: time::Date }` — a calendar day) and `MatchMode`
+  (`All`, `Any`, `None`, `NotAll`).
 - T41/T40 provide the queue and engine (`Queue::add_batch`, `Start`); T52 gives
   widgets (`Select`, `RadioGroup`, `PathInput`, `ListView`, `ProgressDialog`,
-  `confirm`); T53 gives pane navigation and the file-list key conventions; T62 gives
-  `PaneSide`, `PanePath`, the delete confirmation widget and the copy-URL helper.
+  `confirm` with `ConfirmOpts::danger`); T53 gives pane navigation and the file-list
+  key conventions; T62 gives `PaneSide`, `PanePath`, the delete confirmation and the
+  copy-URL helper (`entry_url`); T50 gives `tabs::TabId(u32)`.
 
 Later: T63 (Related) provides View/Edit for results; T76 snapshot coverage.
 
@@ -57,29 +62,31 @@ pub struct SearchForm {
     pub rows: Vec<ConditionRow>,           // 1..=MAX_CONDITIONS
 }
 
-pub const MAX_CONDITIONS: usize = 10;
-pub const MAX_RESULTS: usize = 100_000;
+pub const MAX_CONDITIONS: usize = 10;          // UI cap (T49 accepts up to 32)
+pub const MAX_RESULTS: usize = 100_000;         // passed as SearchQuery::max_results
 
 /// Operators per field, in display order (index stored in `ConditionRow::op`).
 pub fn operators(field: SearchField) -> &'static [(&'static str, OpKind)];
 
-/// Validates the form and builds the T49 query. Errors are per row/field.
-pub fn build_query(form: &SearchForm, local_tz: time::UtcOffset)
+/// Validates the form and builds the T49 query for `root` (built by the caller from
+/// the side and the tab's connection). Errors are per row/field.
+pub fn build_query(form: &SearchForm, root: SearchRoot)
     -> Result<SearchQuery, Vec<(FormField, String)>>;
 
 /// "10", "10K", "10 KiB", "1.5MB", "2G" → bytes. K/M/G/T = 1024ⁿ (KiB…), KB/MB/GB/TB = 1000ⁿ.
 pub fn parse_size(s: &str) -> Result<u64, String>;
 
-/// "2026-10-08" or "2026-10-08 14:30" in the local time zone.
-pub fn parse_date(s: &str, tz: time::UtcOffset) -> Result<(OffsetDateTime, DatePrecision), String>;
+/// "2026-10-08" (ISO calendar date) → `time::Date` for T47 `Condition::Date`
+/// (whole-day semantics; no time of day).
+pub fn parse_date(s: &str) -> Result<time::Date, String>;
 
-/// One result row.
+/// One result row: the T49 hit plus its full path on its side.
 #[derive(Debug, Clone)]
-pub struct SearchResult { pub path: PanePath, pub entry: Entry }
+pub struct SearchResult { pub hit: SearchHit, pub path: PanePath }
 
 /// Running search: T49 handle + counters.
 pub struct RunningSearch {
-    pub cancel: CancellationToken,
+    pub handle: SearchHandle,              // events, cancel, id (T49)
     pub dirs_scanned: u64,
     pub skipped_dirs: u64,
     pub started: std::time::Instant,
@@ -87,10 +94,7 @@ pub struct RunningSearch {
 
 /// The full-screen view (one per tab, kept while the tab lives).
 pub struct SearchView { /* form, results, running, focus: Form | Results, last summary */ }
-
-/// Result actions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransferLayout { KeepStructure, Flatten }
+// Result-transfer layouts are T49's `TransferLayout::{KeepStructure, Flatten}`.
 ```
 
 New `Action` variants: `Search` (open view), `SearchStart`, `SearchStop`,
@@ -154,34 +158,37 @@ Width < 100 columns drops the Perms column, then Modified (T53 priority order).
 | Name | contains, doesn't contain, equals, doesn't equal, begins with, ends with, matches regex | text |
 | Path | same as Name (matched against the full path) | text |
 | Size | greater than, equals, doesn't equal, less than | `parse_size` |
-| Date | before, equals, doesn't equal, after | `parse_date` |
+| Date | before, equals, doesn't equal, after | `parse_date` (calendar day) |
 
 - Validation (`build_query`), live, shown under the row; Search disabled until valid:
   empty value for any field → "Enter a value"; regex compiled with `regex::RegexBuilder` (`size_limit`
   1 MiB, case-insensitivity from the checkbox) → error text from the regex crate;
   size/date parse errors; root must be an absolute path on that side.
-- Date semantics: a date without time means the whole local day, with time the
-  whole minute; the precision is passed to T47's `DateOp` evaluation (see Open
-  questions).
+- Date semantics: the value is a calendar day (`time::Date`, input `YYYY-MM-DD`);
+  T47 compares whole days (`equals` = same day, `before`/`after` = strictly
+  earlier/later day). A time of day is rejected with "Enter a date as YYYY-MM-DD".
 
 #### Running a search
 
-1. `build_query` → T49 search start (local: `LocalBackend`; remote: T49's
+1. `build_query` (with `max_results = MAX_RESULTS`) → `SearchEngine::start(query,
+   browsing)` (local: `SearchRoot::Local`; remote: `SearchRoot::Remote` — T49's
    dedicated session built from the tab's `ConnectInfo`). The previous results are
    cleared; the Search button becomes **Stop**; focus moves to the results.
 2. Events are drained once per frame (≤ 60 Hz) to keep rendering smooth:
-   - `Found(path, entry)` → append a `SearchResult` (rows appear while the search runs).
-   - `Progress { dirs_scanned }` → header "Searching… N directories scanned" with
+   - `Found(Vec<SearchHit>)` → append one `SearchResult` per hit (rows appear while
+     the search runs; T49 batches ≤ 256 hits per event).
+   - `Progress { dirs_scanned, .. }` → header "Searching… N directories scanned" with
      the T50 spinner.
-   - `Error` for a subdirectory (permission denied etc.) → `skipped_dirs += 1`,
+   - `DirError { dir, error }` (permission denied etc.) → `skipped_dirs += 1`,
      `Error:` line in the tab log; the search continues.
-   - `Done` → header "12 found in 143 directories (2.1 s)" (+ ", 3 skipped").
-   - Fatal `Error` (connection lost, root not found) → header "Search failed:
-     <reason>", results so far kept.
-3. **Stop**: `Ctrl-c`, the Stop button, or `Esc` while running → cancel token;
-   header "Search stopped: 12 found in 80 directories". T49 guarantees stop within 1 s.
-4. At `MAX_RESULTS` (100 000) the search is cancelled with "Result limit reached;
-   refine the search".
+   - `Done(summary)` by `summary.outcome`: `Completed` → header "12 found in 143
+     directories (2.1 s)" (+ ", 3 skipped"); `Cancelled` → "Search stopped: 12 found
+     in 80 directories"; `Truncated` → "Result limit reached; refine the search";
+     `Failed(reason)` (connection lost, root not found) → "Search failed: <reason>",
+     results so far kept.
+3. **Stop**: `Ctrl-c`, the Stop button, or `Esc` while running → `handle.cancel`;
+   T49 guarantees `Done(Cancelled)` within 1 s.
+4. At `MAX_RESULTS` (100 000) T49 stops the search and sends `Done(Truncated)`.
 5. Closing the view (`Esc` in the form when idle, `q`, or Close) while a search runs
    asks "Stop the running search?" (default Yes).
 
@@ -228,13 +235,16 @@ re-sorting everything: insertion by binary search. Rendering is virtualised
   ```
   Target defaults to the other pane's directory. An example line previews the
   first item's destination. Upload of local results requires a connected remote
-  pane ("Not connected" message otherwise). Items come from T49's helpers (keep
-  structure: path relative to the search root; flatten: rename on collision among
-  the selected results and against the target listing when cached), then
+  pane ("Not connected" message otherwise). Items come from T49's
+  `plan_downloads` / `plan_uploads` with the chosen `TransferLayout` (keep
+  structure: path relative to the search root; flatten: `numbered_name` on collision
+  among the selected results and against the target listing when cached); skipped
+  hits (`PlanSkip`) are listed in an `Error:` log line each. Then
   `Queue::add_batch` and `Start` unless queue-only. Directory results become
   recursive placeholders (T43). Status: "Queued 2 items".
 - **Delete** (`F8`): the T62 delete confirmation (≤ 5 names + "… and N more",
-  default Cancel, honours `interface.confirm_delete`); executes T49's delete helper
+  `ConfirmOpts::danger("Delete")`, default Cancel, honours `interface.confirm_delete`);
+  deletes in T49 `plan_delete` order (files first, then directories deepest first)
   with a `ProgressDialog` after 300 ms; deleted rows are removed from the results;
   failures listed as in T62.
 - **View / edit** (`F3`/`F4`): T63 flows on the result's full path; when T63 isn't
@@ -256,11 +266,12 @@ not active while the view is open).
 | Situation | Error | User sees |
 |---|---|---|
 | Invalid regex / size / date / root | form validation | inline message; Search disabled |
-| Root not found / not a directory | `Error::NotFound` | header "Search failed: /x does not exist" |
-| Subdirectory unreadable | `Error::PermissionDenied` (per dir) | counted as skipped; `Error:` log line |
-| Connection lost | `Error::Connection` / `Error::Timeout` | header "Search failed: connection lost"; results kept |
+| Invalid query at start | `Error::InvalidInput` from `SearchEngine::start` | error dialog; form stays editable |
+| Root not found / not a directory | `Done(Failed(..))` (T49, from `Error::NotFound`) | header "Search failed: /x does not exist" |
+| Subdirectory unreadable | `DirError` (per dir) | counted as skipped; `Error:` log line |
+| Connection lost | `Done(Failed(..))` (from `Error::Connection` / `Error::Timeout`) | header "Search failed: connection lost"; results kept |
 | Remote not connected | — | Remote option disabled; upload action refused with message |
-| Result limit | — | search stopped with "Result limit reached" |
+| Result limit | `Done(Truncated)` | search stopped with "Result limit reached" |
 
 ### Security and logging
 
@@ -290,9 +301,9 @@ not active while the view is open).
 - [ ] AC2 `Ctrl-c` during a search stops it within 1 s; no further results are appended afterwards; the header says "Search stopped".
 - [ ] AC3 Download with *Keep directory structure* queues items whose local paths mirror the paths relative to the search root; *Flatten* puts all files into the target dir with `name (1).ext` on collisions.
 - [ ] AC4 Upload of local results queues uploads with the same two layouts.
-- [ ] AC5 Delete removes the selected results from the backend and from the list after confirmation (default Cancel).
+- [ ] AC5 Delete removes the selected results from the backend (in `plan_delete` order) and from the list after confirmation (`ConfirmOpts::danger`, default Cancel).
 - [ ] AC6 Go to navigates the right pane to the result's directory with the cursor on the entry; reopening the view shows the previous results.
-- [ ] AC7 Form validation: invalid regex, size and date values block Search with an inline message; size suffixes parse per the table tests.
+- [ ] AC7 Form validation: invalid regex, size and date values (including a date with a time of day) block Search with an inline message; size suffixes parse per the table tests; dates become `time::Date`.
 - [ ] AC8 Conditions combine with All / Any / None / Not all as passed to T49 (query built correctly for each mode).
 - [ ] AC9 100 000 results render at < 5 ms per frame (bench, `#[ignore]` in CI, gate in `bench.yml`) and the limit stops the search.
 - [ ] AC10 Snapshot tests of the form (empty, conditions, validation error), results (streaming, done, stopped, failed), the collapsed 80×24 layout and the transfer dialog at 80×24 and 160×48.
@@ -303,8 +314,9 @@ not active while the view is open).
 ### Unit tests
 
 - `fn parse_size_table` — `"10"`, `"10K"`, `"10 KiB"`, `"1.5MB"`, `"2G"`, `"1TB"`, errors `"-1"`, `"10X"`, overflow (AC7).
-- `fn parse_date_day_and_minute_precision_local_tz` / `fn parse_date_rejects_invalid` (AC7).
-- `fn build_query_maps_each_operator_to_t47_condition` (AC8).
+- `fn parse_date_calendar_day` — `"2026-10-08"` → `Date` 2026-10-08 / `fn parse_date_rejects_invalid` — `"2026-13-01"`, `"2026-10-08 14:30"`, `"08.10.2026"` (AC7).
+- `fn build_query_maps_each_operator_to_t47_condition` — including `Condition::Date { op, value: Date }` (AC8).
+- `fn found_batch_appends_all_hits_and_done_outcomes_set_header` — `Found(vec![..3 hits])`, then each `SearchOutcome` (AC1, AC2).
 - `fn build_query_match_modes` — All/Any/None/NotAll passed through (AC8).
 - `fn build_query_invalid_regex_reports_row` (AC7).
 - `fn sorted_index_binary_insert_matches_full_sort` (AC1).
@@ -352,8 +364,9 @@ UI-flow tests with scripted keys; `MockBackend` with per-listing latency and
 
 ## Open questions
 
-1. **T47 date semantics**: `Condition::Date(DateOp, OffsetDateTime)` carries no
-   precision; this UI needs "equals = same day / same minute". T47 should add a
-   precision (or a range) to `Date` conditions.
-2. Should search results also be exportable (e.g. copy all paths to the clipboard
+1. Should search results also be exportable (e.g. copy all paths to the clipboard
    as a list)? Not specified by FileZilla; left out.
+
+Resolved (reconciliation): date conditions are calendar days (`time::Date`, T47) and
+`parse_date` yields `time::Date`; T49's events are `Found(Vec<SearchHit>)`,
+`DirError` and `Done(SearchSummary)`.

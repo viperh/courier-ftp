@@ -16,16 +16,18 @@ errors instead of panics, conflicts are reported, and the help overlay and
 
 ## Context
 
-- Before (T50): `Mode` (`Normal`, `FileList`, `Tree`, `Log`, `Queue`, `Filter`,
-  `Input`, `Dialog`) with `Mode::chain()`, `Action` (internal variants
+- Before (T50): `Mode` (`Normal`, `FileList`, `Tree`, `Log`, `Queue`, `SiteManager`,
+  `Filter`, `Input`, `Dialog`) with `Mode::chain()`, `Action` (internal variants
   `#[serde(skip)]`, bindable unit variants), `KeyChord` with normalisation
   (`from_key_event`), the T50 `KeyResolver` (single-chord lookup), the routing pipeline,
   the help overlay and `AppHarness`. The template's `parse_key_sequence` lower-cases the
   whole string (so `G` cannot be bound), `unwrap()`s parse errors and clears pending
   keys on every tick.
 - T05 defines `interface.key_sequence_timeout_ms` (u32, default 1000, range 200–5000)
-  and `interface.file_enter_action`.
-- Owners of the actions listed below implement them (T53–T71); this task defines the
+  and `interface.enter_on_file` (`EnterOnFile`: `transfer` default, `view`, `edit`,
+  `none`).
+- Owners of the actions listed below implement them (T30, T44, T45, T53–T74, T90); this
+  task defines the
   names, descriptions, groups and default keys. An action whose owner has not landed
   yet shows the status message "‹Name› is not available yet".
 - Later: T77 publishes `docs/keybindings.md`; T68 shows the bindings read-only; T76
@@ -48,7 +50,7 @@ pub struct ChordParseError { pub input: String, pub reason: String }   // Displa
 // action.rs
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group { General, Focus, View, Tabs, Connection, Navigation, Selection, Sorting,
-                 FileOps, Queue, Log, Tree, Compare, Tools, Text, Dialog }
+                 FileOps, Queue, Log, Tree, SiteManager, Compare, Tools, Text, Dialog }
 pub struct ActionMeta { pub name: &'static str, pub description: &'static str,
                         pub group: Group, pub owner: &'static str /* "T62" */ }
 impl Action {
@@ -183,7 +185,7 @@ on timeout (now >= deadline): clear pending (no action)
   it in the key-hint area (T57; T50's minimal status line until then).
 - **Which-key popup**: when a prefix stays pending for `WHICH_KEY_DELAY` (500 ms), the
   app draws a popup above the status bar listing `continuations()` (`d Disconnect`,
-  `r Reconnect`, …), at most 16 rows sorted by key, more as `… N more (F1)`. It closes
+  `r ReconnectLast`, …), at most 16 rows sorted by key, more as `… N more (F1)`. It closes
   with the sequence.
 - Keys consumed by a focused text widget (T50 routing step 2) never reach the resolver.
 - Unhandled actions: when a bindable action reaches dispatch and no component lists it in
@@ -194,16 +196,19 @@ on timeout (now >= deadline): clear pending (no action)
 
 Notation: `ctrl-x d` = press `ctrl-x`, release, press `d`. "Portable" = works in xterm,
 tmux and Windows Terminal without configuration (see Terminal caveats). Owner = task
-that implements the action.
+that implements the action. This is the complete default keymap; every other task
+references these keys and action names exactly. Two control keys are deliberately
+**not bound anywhere**: `ctrl-h` (arrives as `backspace`; hidden files are `.` in lists)
+and `ctrl-j` (is line feed; the queue toggle is `ctrl-x j`).
 
-**`Normal` (global; consulted in every non-dialog mode after the focused table)**
+**`Normal` (global; consulted in every non-modal mode after the focused table)**
 
 | Keys | Action | Description | Group | Owner |
 |---|---|---|---|---|
 | `f1`, `?` | `Help` | Help: bindings for the current mode | General | T50 |
 | `f10`, `ctrl-q` | `Quit` | Quit (confirm when transfers run) | General | T50 |
 | `ctrl-z` | `Suspend` | Suspend to the shell (Unix) | General | T50 |
-| `ctrl-x ctrl-r` | `Redraw` | Clear and redraw the screen | General | T50 |
+| `g r` | `Redraw` | Clear and redraw the screen | General | T50 |
 | `ctrl-c` | `Cancel` | Cancel the focused pane's running operation | General | T50 |
 | `f9` | `Settings` | Settings | General | T68 |
 | `tab` | `FocusOtherSide` | Switch between local and remote list | Focus | T50 |
@@ -211,33 +216,38 @@ that implements the action.
 | `g l` | `FocusLog` | Focus message log | Focus | T50 |
 | `g q` | `FocusQueue` | Focus queue | Focus | T50 |
 | `g f` | `FocusFiles` | Focus the last file list | Focus | T50 |
-| `ctrl-k` | `FocusQuickconnect` | Focus the quickconnect bar | Focus | T58 |
+| `ctrl-x 1` … `ctrl-x 7` | `FocusRegion1` … `FocusRegion7` | Focus region: 1 quickconnect, 2 local tree, 3 local list, 4 remote tree, 5 remote list, 6 log, 7 queue | Focus | T50 |
+| `ctrl-k` | `FocusQuickconnect` | Focus the quickconnect bar (opens the dialog when the bar is hidden) | Focus | T58 |
 | `ctrl-l` | `ToggleLog` | Show/hide message log | View | T50 |
-| `ctrl-x q` | `ToggleQueue` | Show/hide queue | View | T50 |
-| `ctrl-e`, `ctrl-x t` | `ToggleTree` | Show/hide directory trees | View | T50 |
-| `ctrl-x k` | `ToggleQuickconnectBar` | Show/hide quickconnect bar | View | T50 |
-| `ctrl-x x` | `SwapPanes` | Swap local and remote sides | View | T50 |
-| `ctrl-x 1` / `2` / `3` | `LayoutClassic` / `LayoutExplorer` / `LayoutWidescreen` | Layout | View | T50 |
+| `ctrl-x j` | `ToggleQueuePane` | Show/hide queue | View | T50 |
+| `ctrl-e` | `ToggleTree` | Show/hide directory trees | View | T50 |
+| `ctrl-x q` | `ToggleQuickconnect` | Show/hide quickconnect bar | View | T58 |
+| `g x` | `SwapPanes` | Swap local and remote sides | View | T50 |
+| `z 1` / `z 2` / `z 3` | `LayoutClassic` / `LayoutExplorer` / `LayoutWidescreen` | Layout | View | T50 |
 | `ctrl-t` | `NewTab` | New tab | Tabs | T61 |
 | `ctrl-w` | `CloseTab` | Close tab (confirm when connected) | Tabs | T61 |
 | `alt-1` … `alt-9`, `g 1` … `g 9` | `GoToTab1` … `GoToTab9` | Go to tab N | Tabs | T61 |
 | `g t`, `ctrl-pagedown` | `NextTab` | Next tab | Tabs | T61 |
 | `g T`, `ctrl-pageup` | `PrevTab` | Previous tab | Tabs | T61 |
-| `ctrl-x ,` | `RenameTab` | Rename tab | Tabs | T61 |
-| `ctrl-x +` | `DuplicateTab` | Duplicate tab (same server and directories) | Tabs | T61 |
+| `ctrl-x t` | `RenameTab` | Rename tab | Tabs | T61 |
+| `ctrl-x T` | `DuplicateTab` | Duplicate tab (same server and directories) | Tabs | T61 |
+| `ctrl-x <` / `ctrl-x >` | `MoveTabLeft` / `MoveTabRight` | Move tab left / right | Tabs | T61 |
 | `ctrl-s` | `SiteManager` | Site Manager | Connection | T59 |
-| `ctrl-x s` | `SitePicker` | Quick site picker | Connection | T59 |
-| `ctrl-x r` | `Reconnect` | Reconnect to the last server | Connection | T58 |
-| `ctrl-x d` | `Disconnect` | Disconnect the current tab | Connection | T58, T61 |
+| `ctrl-x s` | `SitePicker` | Quick site picker (fuzzy) | Connection | T59 |
+| `ctrl-x r` | `ReconnectLast` | Reconnect (active tab's server, else the last server) | Connection | T58 |
+| `ctrl-x S` | `SaveAsSite` | Save the current connection as a site | Connection | T58 |
+| `ctrl-x d` | `Disconnect` | Disconnect the current tab | Connection | T61 |
 | `ctrl-x i` | `ServerInfo` | Connection and encryption details | Connection | T57 |
-| `ctrl-x ctrl-l` | `LockVault` | Lock the vault | Connection | T60 |
+| `ctrl-x ctrl-l` | `LockVault` | Lock the vault | Connection | T30, T60 |
+| `ctrl-x N` | `NetworkWizard` | Network configuration wizard | Connection | T72 |
 | `ctrl-r` | `Refresh` | Refresh both panes (bypass cache) | FileOps | T62 |
 | `ctrl-x m` | `ManualTransfer` | Manual transfer | FileOps | T62 |
-| `ctrl-x e` | `EditedFiles` | Files being edited | FileOps | T63 |
+| `ctrl-x n` | `NewFile` | New empty file in the focused (else last focused) list | FileOps | T62 |
+| `ctrl-x e` | `EditedFilesList` | Files being edited | FileOps | T63 |
+| `ctrl-x v` | `ShowRawListing` | Raw directory listing of the focused (else remote) list | FileOps | T71 |
 | `ctrl-p` | `ProcessQueue` | Start/stop processing the queue | Queue | T56 |
-| `ctrl-x o` | `QueueCompletionAction` | Action after queue completion | Queue | T45, T56 |
-| `ctrl-x u` | `ToggleSpeedLimit` | Speed limits on/off | Queue | T44, T57 |
-| `ctrl-x y` | `CycleTransferType` | Transfer type Auto/ASCII/Binary | Queue | T57 |
+| `ctrl-x k` | `ToggleSpeedLimit` | Speed limits on/off | Queue | T44, T57 |
+| `ctrl-x a` | `CycleTransferType` | Transfer type Auto/ASCII/Binary | Queue | T57 |
 | `ctrl-y` | `ToggleSyncBrowsing` | Synchronized browsing | Compare | T66 |
 | `ctrl-o` | `ToggleComparison` | Directory comparison | Compare | T66 |
 | `ctrl-x c` | `CompareOptions` | Comparison options | Compare | T66 |
@@ -245,12 +255,38 @@ that implements the action.
 | `ctrl-f` | `Search` | Search files | Tools | T65 |
 | `ctrl-b` | `Bookmarks` | Bookmarks menu | Tools | T64 |
 | `ctrl-x b` | `AddBookmark` | Add bookmark for the current directories | Tools | T64 |
-| `ctrl-x f` | `Filters` | Directory listing filters | Tools | T67 |
-| `ctrl-x p` | `ShowPrompt` | Open the next pending prompt | Tools | T69 |
-| `ctrl-x l` | `LogClear` | Clear the message log of this tab | Log | T55 |
+| `ctrl-x f` | `FiltersDialog` | Directory listing filters | Tools | T67 |
+| `ctrl-x p` | `OpenNextPrompt` | Open the next pending prompt | Tools | T69 |
+| `ctrl-x y` | `SyncPanel` | Sync panel (feature `sync`) | Tools | T90 |
+| `ctrl-x u` | `DismissUpdate` | Dismiss the update notice | Tools | T74 |
 | `ctrl-x D` | `ShowAppLog` | Application log (only with `--debug`) | Tools | T71 |
+| `ctrl-x l` | `ClearLog` | Clear the message log of the current scope | Log | T55 |
+| `ctrl-x w` | `SaveLogAs` | Save the message log to a file | Log | T71 |
 
-**`FileList`** (T53 pane; file operations T62/T63/T71)
+**The `ctrl-x` prefix table** (all in `Normal`; the which-key popup lists exactly these):
+
+| Key | Action | Owner | | Key | Action | Owner |
+|---|---|---|---|---|---|---|
+| `a` | `CycleTransferType` | T57 | | `p` | `OpenNextPrompt` | T69 |
+| `b` | `AddBookmark` | T64 | | `q` | `ToggleQuickconnect` | T58 |
+| `c` | `CompareOptions` | T66 | | `r` | `ReconnectLast` | T58 |
+| `d` | `Disconnect` | T61 | | `s` | `SitePicker` | T59 |
+| `D` | `ShowAppLog` | T71 | | `S` | `SaveAsSite` | T58 |
+| `e` | `EditedFilesList` | T63 | | `t` | `RenameTab` | T61 |
+| `f` | `FiltersDialog` | T67 | | `T` | `DuplicateTab` | T61 |
+| `i` | `ServerInfo` | T57 | | `u` | `DismissUpdate` | T74 |
+| `j` | `ToggleQueuePane` | T50 | | `v` | `ShowRawListing` | T71 |
+| `k` | `ToggleSpeedLimit` | T44/T57 | | `w` | `SaveLogAs` | T71 |
+| `l` | `ClearLog` | T55 | | `y` | `SyncPanel` | T90 |
+| `m` | `ManualTransfer` | T62 | | `=` | `SelectByStatus` | T66 |
+| `n` | `NewFile` | T62 | | `<` / `>` | `MoveTabLeft` / `MoveTabRight` | T61 |
+| `N` | `NetworkWizard` | T72 | | `1` … `7` | `FocusRegion1` … `FocusRegion7` | T50 |
+| | | | | `ctrl-l` | `LockVault` | T30/T60 |
+
+No other `ctrl-x` continuation is bound by default; a new one requires an update of this
+table.
+
+**`FileList`** (T53 pane; file operations T62/T63)
 
 | Keys | Action | Description | Group | Owner |
 |---|---|---|---|---|
@@ -258,7 +294,7 @@ that implements the action.
 | `ctrl-d` / `ctrl-u` | `HalfPageDown` / `HalfPageUp` | Half page | Navigation | T53 |
 | `pagedown` / `pageup` | `PageDown` / `PageUp` | Page | Navigation | T53 |
 | `g g`, `home` / `G`, `end` | `Top` / `Bottom` | First / last row | Navigation | T53 |
-| `l`, `right`, `enter` | `Open` | Enter directory; on a file: `interface.file_enter_action` (transfer) | Navigation | T53 |
+| `l`, `right`, `enter` | `Open` | Enter directory; on a file: `interface.enter_on_file` | Navigation | T53 |
 | `h`, `left`, `backspace` | `Parent` | Parent directory | Navigation | T53 |
 | `alt-left`, `[` / `alt-right`, `]` | `Back` / `Forward` | Directory history | Navigation | T53 |
 | `a` | `EditAddress` | Edit the address bar | Navigation | T53 |
@@ -274,19 +310,17 @@ that implements the action.
 | `.` | `ToggleHidden` | Show/hide hidden files | View | T53 |
 | `C` | `ColumnMenu` | Columns | View | T53 |
 | `f5` | `Transfer` | Copy: transfer selection to the other side | FileOps | T62 |
-| `shift-f5`, `f15`, `ctrl-x a` | `QueueOnly` | Add selection to the queue only | FileOps | T62 |
+| `shift-f5`, `f15`, `Q` | `QueueOnly` | Add selection to the queue only | FileOps | T62 |
 | `f6` | `Move` | Move / rename to a path | FileOps | T62 |
 | `f2` | `Rename` | Rename | FileOps | T62 |
 | `f7` | `Mkdir` | Make directory | FileOps | T62 |
-| `shift-f7`, `f17`, `ctrl-x g` | `MkdirEnter` | Make directory and enter it | FileOps | T62 |
-| `ctrl-x n` | `NewFile` | New empty file | FileOps | T62 |
+| `shift-f7`, `f17`, `M` | `MkdirEnter` | Make directory and enter it | FileOps | T62 |
 | `f8`, `delete` | `Delete` | Delete (confirm) | FileOps | T62 |
 | `f3`, `o` | `View` | View | FileOps | T63 |
 | `f4`, `e` | `Edit` | Edit | FileOps | T63 |
 | `c` | `Chmod` | Change permissions | FileOps | T62 |
 | `y u` / `y U` | `CopyUrl` / `CopyUrlOptions` | Copy URL / with options | FileOps | T62 |
 | `:` | `CustomCommand` | Send a raw command | FileOps | T62 |
-| `ctrl-x v` | `ShowRawListing` | Raw directory listing | FileOps | T71 |
 
 **`Filter`** (typing a quick filter; printable keys and `backspace` go to the field)
 
@@ -296,14 +330,19 @@ that implements the action.
 | `esc` | `FilterClear` | Clear the filter, back to the list | T53 |
 | `down` / `up` | `CursorDown` / `CursorUp` | Move the cursor while typing | T53 |
 
-**`Tree`** (T54)
+**`Tree`** (T54; action names are T54's)
 
 | Keys | Action | Description | Owner |
 |---|---|---|---|
-| `j`, `down` / `k`, `up` | `CursorDown` / `CursorUp` | Move | T54 |
-| `l`, `right` / `h`, `left` | `TreeExpand` / `TreeCollapse` | Expand / collapse (or go to parent) | T54 |
+| `j`, `down` / `k`, `up` | `TreeDown` / `TreeUp` | Move | T54 |
+| `ctrl-d` / `ctrl-u` | `TreeHalfPageDown` / `TreeHalfPageUp` | Half page | T54 |
+| `g g`, `home` / `G`, `end` | `TreeTop` / `TreeBottom` | First / last row | T54 |
+| `l`, `right` | `TreeExpand` | Expand; if expanded, first child | T54 |
+| `h`, `left` | `TreeCollapse` | Collapse; if collapsed or a leaf, parent | T54 |
+| `o` | `TreeToggle` | Toggle expand | T54 |
 | `enter` | `TreeOpen` | Show this directory in the file list | T54 |
-| `g g`, `home` / `G`, `end`, `pagedown` / `pageup` | `Top` / `Bottom` / `PageDown` / `PageUp` | | T54 |
+| `ctrl-r` | `TreeRefresh` | Relist the cursor directory (overrides `Normal` `Refresh`) | T54 |
+| `.` | `TreeRevealCurrent` | Reveal the file list's current directory | T54 |
 
 **`Log`** (T55, T71)
 
@@ -318,24 +357,54 @@ that implements the action.
 | `w`, `t`, `e` | `LogToggleWrap`, `LogToggleScope`, `LogCycleKindFilter` | T55 |
 | `h`, `left` / `l`, `right` / `0` | `LogScrollLeft` / `LogScrollRight` / `LogScrollHome` | T55 |
 | `esc` | `Escape` | T55 |
-| `Y` | `CopyLog` | T71 |
-| `ctrl-x w` | `SaveLogAs` | T71 |
+| `Y` | `CopyLog` (whole current view) | T71 |
 
 **`Queue`** (T56)
 
 | Keys | Action | Description | Owner |
 |---|---|---|---|
-| `j`, `down` / `k`, `up`, `g g`, `home`, `G`, `end`, `pagedown`, `pageup` | navigation actions as in FileList | | T56 |
+| `j`, `down` / `k`, `up`, `ctrl-d` / `ctrl-u`, `pagedown` / `pageup`, `g g`, `home` / `G`, `end` | `CursorDown` / `CursorUp`, `HalfPageDown` / `HalfPageUp`, `PageDown` / `PageUp`, `Top` / `Bottom` | Move | T56 |
 | `1` / `2` / `3` | `QueueTabQueued` / `QueueTabFailed` / `QueueTabSuccessful` | Switch list | T56 |
-| `space` | `QueuePauseResume` | Pause/resume item | T56 |
+| `insert` | `ToggleMark` | Mark/unmark and move down | T56 |
 | `v` | `VisualMode` | Range selection | T56 |
+| `ctrl-a` | `MarkAll` | Mark all in this list | T56 |
+| `enter`, `o` | `QueueToggleGroup` | Collapse/expand server group | T56 |
+| `space` | `QueuePauseResume` | Pause/resume selected items | T56 |
 | `+` / `-` | `QueuePriorityUp` / `QueuePriorityDown` | Priority | T56 |
-| `K` / `J` / `T` / `B` | `QueueMoveUp` / `QueueMoveDown` / `QueueMoveTop` / `QueueMoveBottom` | Reorder | T56 |
+| `K` / `J` | `QueueMoveUp` / `QueueMoveDown` | Move up / down | T56 |
+| `t` / `b` | `QueueMoveTop` / `QueueMoveBottom` | Move to top / bottom | T56 |
 | `x`, `delete` | `QueueRemove` | Remove selected | T56 |
+| `X` | `QueueClearList` | Clear the Failed/Successful list (confirm) | T56 |
 | `r` | `QueueResetRequeue` | Reset and requeue (failed list) | T56 |
 | `e` | `QueueSetExistsAction` | File-exists action for selected items | T56 |
-| `enter` | `QueueToggleGroup` | Collapse/expand server group | T56 |
+| `a` | `QueueCompletionAction` | Action after queue completion | T45, T56 |
 | `m` | `QueueMenu` | All actions for the selection | T56 |
+| `esc` | `Escape` | Cancel visual mode / close the menu | T56 |
+
+**`SiteManager`** (T59; the Site Manager's tree has focus; the editor on the right uses
+`Dialog`). The Site Manager is a full-screen modal, so its chain is `[SiteManager]` only
+(T50 `Mode::chain`); `Help` and `Quit` are therefore listed in the table itself.
+
+| Keys | Action | Description | Owner |
+|---|---|---|---|
+| `j`, `down` / `k`, `up`, `g g`, `home` / `G`, `end` | `CursorDown` / `CursorUp`, `Top` / `Bottom` | Move | T59 |
+| `l`, `right` / `h`, `left` | `TreeExpand` / `TreeCollapse` | Expand / collapse (or parent) | T59 |
+| `enter`, `o` | `SmConnect` | Site: open/connect (T61 target rules); folder: toggle | T59 |
+| `O` | `SmConnectNewTab` | Connect in a new tab | T59 |
+| `e`, `tab` | `SmEdit` | Focus the editor | T59 |
+| `n` / `f` | `SmNewSite` / `SmNewFolder` | New site / folder | T59 |
+| `d` | `SmDuplicate` | Duplicate | T59 |
+| `r`, `f2` | `SmRename` | Rename inline | T59 |
+| `x`, `delete` | `SmDelete` | Delete (confirm) | T59 |
+| `m` / `p` | `SmMark` / `SmPaste` | Mark for move / move the marked item here | T59 |
+| `C` / `M` | `SmCopyToVault` / `SmMoveToVault` | Copy / move to another vault (team vaults, T89/T90 stage B; "not available yet" before) | T59 |
+| `/` | `SmFind` | Filter | T59 |
+| `ctrl-s` | `SmSave` | Save the draft | T59 |
+| `i` / `E` | `SmImport` / `SmExport` | Import / export | T59 |
+| `[`, `ctrl-pageup` / `]`, `ctrl-pagedown` | `SmPrevTab` / `SmNextTab` | Editor tab | T59 |
+| `esc`, `q` | `SmClose` | Close (unsaved-changes guard) | T59 |
+| `f1`, `?` | `Help` | Help | T50 |
+| `f10`, `ctrl-q` | `Quit` | Quit (unsaved-changes guard first) | T50 |
 
 **`Input`** (single-line fields outside dialogs: quickconnect T58, `:` line T62, log search T55)
 
@@ -356,23 +425,32 @@ that implements the action.
 | `ctrl-s` | `DialogSave` (forms) | T52 |
 | `ctrl-pagedown` / `ctrl-pageup` | `NextFormTab` / `PrevFormTab` | T52 |
 
+**Component-local keys (not in the keymap):** some full-screen views and menus read
+plain letters as raw keys in `handle_key` because they act like buttons of that view:
+the unlock screen (T60: `ctrl-r`, `ctrl-n`, `ctrl-b`, `ctrl-g`, forgot-screen letters),
+trust prompts (T69: `t`/`alt-t`, `a`/`alt-a`, `c`/`alt-c`, `o`/`alt-o`, `r`/`alt-r`,
+`d`/`alt-d`), the bookmarks menu (T64), the search view (T65), the sync panel (T90: `s`,
+`o`), dialog mnemonics (`alt-<letter>`, T52). They are listed in each task, shown in the
+view's own hint line, and are not rebindable in v1.
+
 **Text editing keys (fixed, not rebindable; inside every text field, T52 `TextInput`)**:
 `left`/`right`, `home`/`ctrl-a`, `end`/`ctrl-e`, `ctrl-left`/`alt-b` and
 `ctrl-right`/`alt-f` (word), `backspace`, `delete`, `ctrl-w`/`alt-backspace` (delete word
 back), `alt-d` (delete word forward), `ctrl-u` (delete to start), `ctrl-k` (delete to
 end), bracketed paste. These are consumed by the field before any table is consulted.
 
-`ctrl-d` is a half page in lists (vim); disconnect is `ctrl-x d`. `ctrl-h` is not bound
-anywhere (many terminals send it as `backspace`); hidden files use `.`.
+`ctrl-d` is a half page in lists (vim); disconnect is `ctrl-x d`. `ctrl-h` and `ctrl-j`
+are not bound anywhere (see Terminal caveats); hidden files use `.`, the queue toggle
+`ctrl-x j`.
 
 #### Terminal caveats
 
 | Key | Problem | Default policy |
 |---|---|---|
-| `ctrl-h`, `ctrl-i`, `ctrl-m`, `ctrl-j`, `ctrl-[` | arrive as `backspace`, `tab`, `enter`, `enter`/LF, `esc` in legacy encoding | never bound by default; binding them emits no warning but the help shows "(may be received as backspace)" |
-| `shift-f1`…`shift-f12` | rxvt/linux console send F11+ codes; some terminals send nothing | always paired with a portable alternative (`ctrl-x a`, `ctrl-x g`) and the F13–F24 alias |
+| `ctrl-h`, `ctrl-i`, `ctrl-m`, `ctrl-j`, `ctrl-[` | arrive as `backspace`, `tab`, `enter`, `enter`/LF, `esc` in legacy encoding | never bound by default (hidden files are `.`, queue toggle `ctrl-x j`); binding them emits no warning but the help shows "(may be received as backspace)" |
+| `shift-f1`…`shift-f12` | rxvt/linux console send F11+ codes; some terminals send nothing | always paired with a portable alternative (`Q`, `M`) and the F13–F24 alias |
 | `f1`, `f10`, `f11` | GNOME Terminal help/menu, fullscreen in many terminals | `f1`/`f10` paired with `?`/`ctrl-q`; `f11`, `f12` unbound |
-| `alt-*` | macOS Terminal/iTerm2 need "Option as Meta" | every `alt-` binding has a portable alternative (`g 1`, `[`, `]`) |
+| `alt-*` | macOS Terminal/iTerm2 need "Option as Meta" | every `alt-` binding has a portable alternative (`g 1` … `g 9`, `[`, `]`) |
 | `ctrl-pageup/pagedown` | intercepted by some terminals (tab switching) | paired with `g t` / `g T` |
 | `ctrl-s`, `ctrl-q` | XON/XOFF flow control in cooked mode | raw mode disables IXON (crossterm), so both arrive; documented |
 | `ctrl-z` | job control | Unix only; Windows shows a message |
@@ -399,10 +477,11 @@ per mode, keys in the space-separated form:
 ```json
 "keybindings": {
   "Normal":   { "f1": "Help", "?": "Help", "f10": "Quit", "ctrl-q": "Quit",
-                "ctrl-x d": "Disconnect", "g t": "NextTab", "alt-1": "GoToTab1", "...": "..." },
+                "ctrl-x d": "Disconnect", "ctrl-x j": "ToggleQueuePane",
+                "ctrl-x 1": "FocusRegion1", "g t": "NextTab", "alt-1": "GoToTab1", "...": "..." },
   "FileList": { "j": "CursorDown", "g g": "Top", "G": "Bottom", "s n": "SortByName",
-                "shift-f5": "QueueOnly", "f15": "QueueOnly", "...": "..." },
-  "Filter": { }, "Tree": { }, "Log": { }, "Queue": { }, "Input": { }, "Dialog": { }
+                ".": "ToggleHidden", "shift-f5": "QueueOnly", "f15": "QueueOnly", "Q": "QueueOnly", "...": "..." },
+  "Filter": { }, "Tree": { }, "Log": { }, "Queue": { }, "SiteManager": { }, "Input": { }, "Dialog": { }
 }
 ```
 
@@ -414,11 +493,12 @@ User override example (`config.json` in the user config dir):
 | Setting | Type | Default | Notes |
 |---|---|---|---|
 | `interface.key_sequence_timeout_ms` | u32 | 1000 | 200–5000 (T05 validation) |
-| `interface.file_enter_action` | `transfer` \| `view` \| `edit` | `transfer` | used by `Open` on a file (T53) |
+| `interface.enter_on_file` | `transfer` \| `view` \| `edit` \| `none` | `transfer` | used by `Open` on a file (T53) |
 
 Mode names in config are the `Mode` variant names (`Normal`, `FileList`, `Tree`, `Log`,
-`Queue`, `Filter`, `Input`, `Dialog`), matched case-sensitively; action names are the
-`Action` variant names (`GoToTab3`, not `GoToTab(3)`).
+`Queue`, `SiteManager`, `Filter`, `Input`, `Dialog`), matched case-sensitively; action names are the
+`Action` variant names (`GoToTab3`, not `GoToTab(3)`; `FocusRegion3`, not the internal
+`FocusRegion(Region)`).
 
 ### Errors
 
@@ -452,8 +532,8 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 2. `RawKeymap` deserialisation; `Keymap::build` with problems (unknown mode/action, bad key, duplicates, `none`).
 3. Prefix-conflict analysis per chain; `KeymapProblem` display; startup reporting.
 4. Sequence resolver with timeout, `Esc` cancel, re-resolve rule, `deadline()`; wire into T50's loop; pending display.
-5. `BINDABLE` registry with all actions above; `handled_actions()` and "not available yet".
-6. Full default tables in `.config/config.json`; zero-problem test; portability test.
+5. `BINDABLE` registry with all actions above (including the `Tree` and `SiteManager` modes); `handled_actions()` and "not available yet".
+6. Full default tables in `.config/config.json` (including the complete `ctrl-x` table); zero-problem test; portability test; `ctrl_x_table_matches_spec` test.
 7. Which-key popup; help overlay descriptions and groups.
 8. `docs/keybindings.md` generator and staleness test; terminal caveats in the doc intro.
 
@@ -463,13 +543,14 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 - [ ] AC2 Sequences fire with up to 999 ms between keys at the default timeout and do not fire at 1000 ms (paused-time tests); `interface.key_sequence_timeout_ms = 3000` lets 2.5 s pass.
 - [ ] AC3 Bad key strings, unknown modes and unknown actions in the user config produce the documented one-line messages and never panic (property test over arbitrary strings).
 - [ ] AC4 Duplicate and prefix conflicts are reported with both keys named; the shipped defaults produce zero problems.
-- [ ] AC5 `ctrl-d` is half-page-down in `FileList`, `Disconnect` is `ctrl-x d`, and `ctrl-h` is unbound; documented in `docs/keybindings.md`.
+- [ ] AC5 `ctrl-d` is half-page-down in `FileList`, `Disconnect` is `ctrl-x d`, `ToggleQueuePane` is `ctrl-x j`, `ToggleHidden` is `.`, and neither `ctrl-h` nor `ctrl-j` is bound in any mode; documented in `docs/keybindings.md`.
 - [ ] AC6 `G`, `shift-g`, `<G>` parse to the same chord and `g` does not; `parse(display(x)) == x` for every chord (property test).
 - [ ] AC7 Pending keys are shown while a prefix is pending and cleared on completion, `Esc`, timeout and focus change; the which-key popup appears after 500 ms.
 - [ ] AC8 A user binding overrides a default with the same sequence; `"none"` removes a default.
 - [ ] AC9 `docs/keybindings.md` is generated and the staleness test passes; the help overlay shows descriptions from the registry.
 - [ ] AC10 An unimplemented action shows "… is not available yet" instead of doing nothing.
 - [ ] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
+- [ ] AC12 The default `ctrl-x` continuations are exactly the 36 entries of the `ctrl-x` prefix table (letters, `=`, `<`, `>`, `1`–`7`, `ctrl-l`) with the listed actions; `alt-1`…`alt-9` and `g t`/`g T` switch tabs; `ctrl-x 1`…`ctrl-x 7` focus the listed regions.
 
 ## Tests
 
@@ -487,7 +568,11 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 - `default_keymap_has_no_problems` — AC4.
 - `user_overrides_default_and_none_unbinds` — AC8.
 - `input_tab_override_is_not_a_problem` — rule 5.
-- `ctrl_d_and_disconnect_defaults` — AC5.
+- `ctrl_d_and_disconnect_defaults` — `ctrl-d` → `HalfPageDown`, `ctrl-x d` → `Disconnect`, `ctrl-x j` → `ToggleQueuePane`, `.` → `ToggleHidden`. AC5.
+- `ctrl_h_and_ctrl_j_unbound_in_every_mode` — no default sequence in any mode contains `ctrl-h` or `ctrl-j`. AC5.
+- `ctrl_x_table_matches_spec` — `continuations(Normal, [ctrl-x])` equals the 36-entry table (key → action) exactly. AC12.
+- `tab_and_focus_region_defaults` — `alt-3`/`g 3` → `GoToTab3`, `g t`/`g T` → `NextTab`/`PrevTab`, `ctrl-x 6` → `FocusRegion6`, and `FocusRegion6` focuses `Log` in `AppHarness`. AC12.
+- `site_manager_mode_defaults` — `o`/`enter` → `SmConnect`, `m`/`p` → `SmMark`/`SmPaste`, `C`/`M` → `SmCopyToVault`/`SmMoveToVault`; chain `SiteManager → [SiteManager]`. AC12.
 - `every_bindable_action_has_portable_default` — AC1.
 - `registry_matches_enum` — every `Action` variant name (strum `VariantNames`) is in `BINDABLE` or in the internal list, and every `BINDABLE` name deserialises. AC9.
 - `display_problem_lines` — the four example lines in Errors. AC3.
@@ -513,7 +598,7 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 - `bad_user_config_starts_app` — user config with five bad entries; app starts, problems listed, valid entries active. AC3.
 
 ### End-to-end tests
-- `e2e_pty_sequences_and_fkeys` (`PtyApp`, no Docker) — real binary in a PTY: `g g`, `G`, `tab`, `f1` then `esc`, `ctrl-x l`, with 500 ms between chords; screen changes as expected. AC1, AC2.
+- `e2e_pty_sequences_and_fkeys` (`PtyApp`, no Docker) — real binary in a PTY: `g g`, `G`, `tab`, `f1` then `esc`, `ctrl-x l`, `ctrl-x j`, with 500 ms between chords; screen changes as expected. AC1, AC2, AC12.
 - Manual checklist (recorded in the PR): every default key in xterm 390+, tmux 3.3 (`TERM=tmux-256color`), Windows Terminal 1.20, macOS Terminal with and without Option-as-Meta. AC1.
 
 ## Out of scope
@@ -525,13 +610,8 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 
 ## Open questions
 
-- **Keys claimed by other tasks:** this table includes the bindings other tasks asked for
-  (`ctrl-x n`, `ctrl-x m` T62; `ctrl-x e` T63; `ctrl-x b` T64; `ctrl-x c`, `ctrl-x =`
-  T66; `ctrl-x v`, `ctrl-x w`, `ctrl-x D`, `Y` T71). Two differ from what those tasks
-  wrote: T55's "clear log" is `ctrl-x l` (not `ctrl-x c`, which T66 uses for comparison
-  options), and T55's text "hidden with Ctrl-l" stays correct (`ctrl-l` = `ToggleLog`).
-  T53 calls the setting `interface.enter_on_file`, T05 `interface.file_enter_action`
-  (with values `transfer`/`view`/`edit`, no `none`); this task uses T05's name. Owners of
-  T53/T55 should align.
-- T62 lists `Ctrl-x m` and `Ctrl-r` under mode "Normal": this task keeps `Normal` as the
-  name of the global table (the template's name), matching T62.
+None. (Resolved by the coordinator: the keymap above is final; `ctrl-h`/`ctrl-j` are
+unbound, the `ctrl-x` table is as listed, tabs use `alt-1..9`/`g t`/`g T`, focus regions
+`ctrl-x 1..7`, the setting is `interface.enter_on_file`. Actions displaced from `ctrl-x`
+by the final table moved to: `Redraw` `g r`, `SwapPanes` `g x`, layouts `z 1/2/3`,
+`QueueCompletionAction` `a` in `Queue`, `QueueOnly` alias `Q`, `MkdirEnter` alias `M`.)

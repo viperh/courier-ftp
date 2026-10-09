@@ -29,9 +29,11 @@ and a test harness that renders the app into a `TestBackend` for snapshot tests.
   T53/T54/T55/T56/T57/T58/T61 replace the placeholder regions; T60 shows the unlock
   view as a full-screen modal before the panes; T69 answers prompts from the prompt
   queue; T62/T63/T65 use the runner and the quit-blocker hook.
-- `ui/text.rs` (`sanitize`, `sanitize_spans`, `truncate_to_width`) is specified in T55
-  but implemented here (exact T55 signatures and rules), because T50's status line and
-  T52's dialogs draw untrusted text before T55 lands. See Open questions.
+- This task **owns** the shared UI helpers every later UI task uses: `ui::text`
+  (`sanitize`, `sanitize_spans`, `truncate_to_width`), `ui::symbols` (`Symbols`,
+  `TermEnv`, `UnicodeSymbols`; T57 only adds status-bar glyphs to `Symbols`) and
+  `tabs::TabId(u32)`. Tasks that need only these helpers depend on T50, not on T55/T57.
+  `ui::clipboard` is owned by T55.
 
 ## Technical specification
 
@@ -47,6 +49,7 @@ pub enum Mode {
     Tree,       // a directory tree has focus (T54)
     Log,        // message log (T55)
     Queue,      // queue pane (T56)
+    SiteManager,// Site Manager tree (T59); full-screen modal
     Filter,     // typing a pane quick filter (T53)
     Input,      // a single-line text field outside dialogs (quickconnect T58, `:` line T62, log search T55)
     Dialog,     // a modal is open (T52); the only table consulted then
@@ -54,7 +57,8 @@ pub enum Mode {
 
 impl Mode {
     /// Tables consulted for a key, highest priority first.
-    /// Dialog → [Dialog]; Normal → [Normal]; any other mode m → [m, Normal].
+    /// Dialog → [Dialog]; SiteManager → [SiteManager]; Normal → [Normal];
+    /// any other mode m → [m, Normal].
     pub fn chain(self) -> &'static [Mode];
 }
 
@@ -103,12 +107,19 @@ pub enum Action {
     #[serde(skip)] TaskFinished(TaskId),
     #[serde(skip)] SettingsSaved(Result<(), String>),
     #[serde(skip)] QuitConfirmed,
-    // bindable (T50's initial set; T51 adds the rest)
+    // bindable (T50's initial set; T51 adds the rest; keys in T51's table)
     Help, Quit, Suspend, Redraw, Cancel,
     FocusOtherSide, FocusNextRegion, FocusLog, FocusQueue, FocusFiles,
-    ToggleLog, ToggleQueue, ToggleTree, ToggleQuickconnectBar, SwapPanes,
+    FocusRegion1, FocusRegion2, FocusRegion3, FocusRegion4, FocusRegion5,
+    FocusRegion6, FocusRegion7,
+    ToggleLog, ToggleQueuePane, ToggleTree, ToggleQuickconnect, SwapPanes,
     LayoutClassic, LayoutExplorer, LayoutWidescreen,
 }
+
+// tabs.rs — created here; T55 adds `TabRoute`, T53/T61 extend it.
+/// A tab. Before T61 the only tab is `TabId(0)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct TabId(pub u32);
 
 // components.rs — the template trait, extended. Mouse handling is removed (D7).
 pub trait Component {
@@ -187,10 +198,32 @@ impl Theme {
     pub fn style(&self, key: &str) -> Style;            // unknown key → Style::default() (debug_assert in tests)
     pub fn site_accent(&self, color: SiteColor) -> Style;
 }
-pub struct Symbols { /* glyph set, see Behaviour */ }
+// ui/symbols.rs (owned here; T57 adds status-bar glyph fields only)
+pub use courier_ftp_core::settings::UnicodeSymbols;   // T05: Auto | Always | Never
+/// Terminal environment snapshot (read once at startup; tests build it by hand).
+#[derive(Debug, Clone, Default)]
+pub struct TermEnv { pub term: Option<String>, pub lc_all: Option<String>,
+                     pub lc_ctype: Option<String>, pub lang: Option<String>,
+                     pub ssh_connection: bool, pub ssh_tty: bool, pub windows: bool }
+impl TermEnv {
+    pub fn from_process() -> Self;
+    /// `SSH_CONNECTION` or `SSH_TTY` set (used by T55's clipboard).
+    pub fn over_ssh(&self) -> bool;
+}
+pub struct Symbols { /* glyph set, see Behaviour */ pub unicode: bool }
 impl Symbols { pub fn resolve(setting: UnicodeSymbols, env: &TermEnv) -> Self; }
-pub fn sanitize(s: &str) -> Cow<'_, str>;              // exactly as specified in T55
+
+// ui/text.rs (owned here)
+/// Make untrusted text safe to draw: C0 controls (incl. TAB, CR, LF) become caret
+/// notation (`^[`, `^I`, `^M`), DEL becomes `^?`, C1 controls (U+0080–U+009F), bidi
+/// controls (U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069) and line/paragraph
+/// separators (U+2028, U+2029) become `<U+XXXX>`. Returns `Cow::Borrowed` when the
+/// input needs no change (fast path over bytes).
+pub fn sanitize(s: &str) -> Cow<'_, str>;
+/// As `sanitize`, but returns spans so escapes can be drawn in `text.escape` style.
 pub fn sanitize_spans<'a>(s: &'a str, base: Style, escape: Style) -> Vec<Span<'a>>;
+/// Cut to `width` display columns (`unicode-width`), appending `ellipsis`
+/// (`…`, or `~` in ASCII mode); never splits a wide char.
 pub fn truncate_to_width(s: &str, width: usize, ellipsis: &str) -> Cow<'_, str>;
 
 // testing.rs (cfg(test) and feature "test-util")
@@ -256,7 +289,8 @@ loop {
 #### Key routing (first match wins)
 
 1. **Modal open**: the top modal gets `handle_key`; if `Ignored`, the resolver resolves
-   in mode `Dialog` and the resulting action goes to the top modal only. Nothing below
+   in the top modal's `key_mode()` (`Dialog` for every modal except the Site Manager
+   tree, which uses `SiteManager`) and the resulting action goes to the top modal only. Nothing below
    the modal sees the key.
 2. **Focused component raw key**: `handle_key` on the focused component (text input in
    modes `Input`/`Filter` consumes printable chars and editing keys).
@@ -278,6 +312,11 @@ loop {
   remote region → `LocalList`; from `Log`/`Queue`/`Quickconnect` → the last focused list.
 - `FocusNextRegion` (default `Shift-Tab`): next region in `focus_order` (wraps).
 - `FocusLog`, `FocusQueue`, `FocusFiles` (last focused list); `FocusRegion(r)` internal.
+- `FocusRegion1` … `FocusRegion7` (T51 `ctrl-x 1` … `ctrl-x 7`): 1 `Quickconnect`,
+  2 `LocalTree`, 3 `LocalList`, 4 `RemoteTree`, 5 `RemoteList`, 6 `Log`, 7 `Queue`.
+  A hidden region is handled like `FocusLog` on a hidden log: log/queue/quickconnect
+  are shown in compact mode, otherwise status message "‹Region› is hidden (‹key›
+  shows it)"; hidden trees → "Directory trees are hidden (Ctrl-e shows them)".
   Focusing a hidden log/queue shows it in compact mode (see below), otherwise it is a
   no-op with status message "Message log is hidden (Ctrl-l shows it)".
 - If the focused region disappears (toggle, resize), focus moves to the last focused
@@ -398,8 +437,9 @@ Compact, 60×16, focus on the remote list:
 
 #### Toggles and persistence
 
-`ToggleLog`, `ToggleQueue`, `ToggleTree`, `ToggleQuickconnectBar`, `SwapPanes`,
-`LayoutClassic/Explorer/Widescreen` change `Settings.interface` in memory, mark dirty,
+`ToggleLog` (`ctrl-l`), `ToggleQueuePane` (`ctrl-x j`), `ToggleTree` (`ctrl-e`),
+`ToggleQuickconnect` (`ctrl-x q`; T58 owns the bar, this task the layout effect),
+`SwapPanes` (`g x`), `LayoutClassic/Explorer/Widescreen` (`z 1`/`z 2`/`z 3`) change `Settings.interface` in memory, mark dirty,
 and schedule `Settings::save_user` (T05) 1 s after the last change on a blocking task;
 the result arrives as `SettingsSaved`. A failed save shows status message
 "Could not save settings: <reason>" and logs `warn!` (reason only, no path at `info`+).
@@ -456,16 +496,18 @@ first, then `Normal`), as rows `keys │ action │ description`. Content comes 
   syntax: `"bold yellow on blue"`), applied over the preset. Unknown keys → warning.
 - `Symbols` (`ui/symbols.rs`): Unicode set (`┌─┐`, `▶`, `▾`/`▸`, `●`/`○`, `•`, `✓`, `⚠`,
   braille spinner `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) or ASCII set (`+-|`, `>`, `v`/`>`, `*`/`o`, `*`,
-  `+`, `!`, spinner `|/-\`). `interface.unicode_symbols`: `On`, `Off`, or `Auto` =
-  ASCII when `TERM=linux` or none of `LC_ALL`, `LC_CTYPE`, `LANG` (first non-empty)
-  contains `UTF-8`/`utf8` (case-insensitive); Windows `Auto` = Unicode. ASCII mode also
+  `+`, `!`, spinner `|/-\`). `interface.unicode_symbols` (T05 `UnicodeSymbols`):
+  `always`, `never`, or `auto` = ASCII when `TERM=linux` or the first non-empty of
+  `LC_ALL`, `LC_CTYPE`, `LANG` does not contain `UTF-8`/`utf8` (case-insensitive);
+  Windows `auto` = Unicode. Other tasks add their own glyphs as fields of `Symbols`
+  in this module (T53 file-type marks, T57 status-bar glyphs) — never a second type. ASCII mode also
   uses `BorderType::Plain` with ASCII border symbols (`ratatui::symbols::border::Set`).
 - `site_accent(SiteColor)` maps T31 site colours to the remote pane border/tab accent.
 
 #### Untrusted text
 
 Every string that can come from a server, a file name or an error message is passed
-through `ui::text::sanitize` before it is drawn (T55 rules: C0/DEL as caret notation,
+through `ui::text::sanitize` before it is drawn (rules above: C0/DEL as caret notation,
 C1, bidi and line separators as `<U+XXXX>`). The status line applies it to
 `StatusMessage` text.
 
@@ -479,7 +521,8 @@ C1, bidi and line separators as `<U+XXXX>`). The status line applies it to
     "Normal":   { "f1": "Help", "?": "Help", "f10": "Quit", "ctrl-q": "Quit",
                   "ctrl-z": "Suspend", "tab": "FocusOtherSide", "backtab": "FocusNextRegion",
                   "ctrl-l": "ToggleLog", "ctrl-e": "ToggleTree", "ctrl-c": "Cancel" },
-    "FileList": {}, "Tree": {}, "Log": {}, "Queue": {}, "Filter": {}, "Input": {}, "Dialog": {}
+    "FileList": {}, "Tree": {}, "Log": {}, "Queue": {}, "SiteManager": {}, "Filter": {},
+    "Input": {}, "Dialog": {}
   },
   "styles": {
     "border": "", "border_focused": "bold yellow", "title": "", "title_focused": "bold",
@@ -496,7 +539,7 @@ C1, bidi and line separators as `<U+XXXX>`). The status line applies it to
 Settings used (all defined in T05): `interface.layout` (Classic), `interface.swap_panes`
 (false), `interface.show_tree` (false), `interface.show_log` (true),
 `interface.show_queue` (true), `interface.show_quickconnect` (true), `interface.theme`
-(Default), `interface.unicode_symbols` (Auto). CLI `--tick-rate` (4) and `--frame-rate`
+(Default), `interface.unicode_symbols` (`auto`). CLI `--tick-rate` (4) and `--frame-rate`
 (60) keep their template defaults. Style keys of other tasks (`file_list.*` T53, log
 kinds T55, …) are added to the same flat map by those tasks.
 
@@ -519,12 +562,13 @@ kinds T55, …) are added to the same flat map by those tasks.
 - Logging follows T91: `trace!` for key/action names; never key text typed into fields;
   no hostnames, usernames or paths at `info`+.
 - Untrusted text is sanitised before drawing (above); covered by a property test.
-- Mouse capture stays off (D7); no OSC sequences are emitted except by T55/T62 clipboard.
+- Mouse capture stays off (D7); no OSC sequences are emitted except by T55's
+  `ui::clipboard` (OSC 52; used by T55, T62, T71).
 
 ## Implementation steps
 
-1. `ui/text.rs` (per T55 spec), `ui/symbols.rs`, `ui/theme.rs` with presets, `NO_COLOR`, flat `styles` parsing; unit tests.
-2. `Mode` variants, `Action` restructure (`#[serde(skip)]` internals, initial bindable set), `KeyChord` normalisation, T50 `KeyResolver`; config sections for every mode; fix `test_config` (it expects `<q>`; the default is `ctrl-q`).
+1. `ui/text.rs`, `ui/symbols.rs` (`Symbols`, `TermEnv`), `ui/theme.rs` with presets, `NO_COLOR`, flat `styles` parsing; `tabs.rs` with `TabId`; unit and property tests.
+2. `Mode` variants (incl. `SiteManager`), `Action` restructure (`#[serde(skip)]` internals, initial bindable set), `KeyChord` normalisation, T50 `KeyResolver`; config sections for every mode; fix `test_config` (it expects `<q>`; the default is `ctrl-q`).
 3. `layout.rs`: `compute_layout`, `focus_order` (pure) with unit tests for every rule.
 4. `MainScreen`, `TabView`, `SideView`, placeholders, focus handling, minimal status bar; remove `Home` and its references.
 5. `App` loop rewrite: `select!` with core events and resolver deadline, routing pipeline, paste, render-on-dirty; `Tui` paste on, `Drop` without `unwrap`.
@@ -538,7 +582,7 @@ kinds T55, …) are added to the same flat map by those tasks.
 - [ ] AC1 Classic, Explorer and Widescreen render as specified at 80×24 and 160×48 (Widescreen at 80×24 falls back to Classic), with trees on/off, log/queue hidden and `swap_panes` (insta snapshots).
 - [ ] AC2 Compact mode at 60×16 shows exactly one body region (the focused one); below 40×10 the "Terminal too small" message is shown and `ctrl-q` still quits.
 - [ ] AC3 `compute_layout` never returns overlapping or out-of-bounds rects for any size 1×1 … 300×100 and any option combination (property test).
-- [ ] AC4 `Tab` toggles between local and remote lists from every region; `Shift-Tab` visits every visible focusable region once per cycle in visual order; focus falls back to a list when its region is hidden.
+- [ ] AC4 `Tab` toggles between local and remote lists from every region; `Shift-Tab` visits every visible focusable region once per cycle in visual order; `ctrl-x 1`…`ctrl-x 7` focus the seven regions in the documented order; focus falls back to a list when its region is hidden.
 - [ ] AC5 With a modal open, no key reaches components below it; with a text input focused, printable keys go to the input and `F10` still reaches the global table.
 - [ ] AC6 While a mock task waits 5 s, the focused pane title spinner changes frame at least every 100 ms of virtual time and keys are still processed (focus switch observed during the wait).
 - [ ] AC7 With `NO_COLOR=1`, no cell of the rendered buffer has a foreground or background colour, and the focused region is still distinguishable (thick border + `▶`).
@@ -546,7 +590,7 @@ kinds T55, …) are added to the same flat map by those tasks.
 - [ ] AC9 Layout toggles persist: after `ToggleLog` and 1 s of virtual time, the user config file contains `"show_log": false`, and a new `Config::new` reads it back.
 - [ ] AC10 Quit with a blocker shows the confirm modal; `Enter` keeps the app running (default Cancel); `Quit` pressed twice quits; quit without blockers exits immediately; no task survives `App::run` (runner `JoinSet` empty).
 - [ ] AC11 The idle app does not draw: 10 s of virtual time with no input → zero `draw` calls after the first frame.
-- [ ] AC12 `sanitize` property test: output contains no C0, C1, DEL or bidi characters for any input; a status message containing `\x1b[2J` renders as `^[[2J`.
+- [ ] AC12 `sanitize` property test: output contains no C0, C1, DEL or bidi characters for any input and is `Cow::Borrowed` for safe input; a status message containing `\x1b[2J` renders as `^[[2J`.
 - [ ] AC13 `Home` and `last_tick_key_events` are gone (`grep -rn "Home\|last_tick_key_events" crates/courier-ftp/src` is empty); `info!("Got action` is gone.
 - [ ] AC14 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` (Windows/macOS) pass.
 
@@ -564,17 +608,20 @@ kinds T55, …) are added to the same flat map by those tasks.
 - `focus_tab_from_every_region` — AC4.
 - `focus_shift_tab_cycles_visual_order` — Classic with trees on: Quickconnect, Log, LocalTree, LocalList, RemoteTree, RemoteList, Queue. AC4.
 - `focus_falls_back_when_region_hidden` — focus Log, `ToggleLog` → `LocalList`. AC4.
-- `mode_chain_table` — `Dialog → [Dialog]`, `FileList → [FileList, Normal]`, `Normal → [Normal]`. AC5.
+- `focus_region_n_targets` — `FocusRegion1`…`FocusRegion7` focus Quickconnect, LocalTree, LocalList, RemoteTree, RemoteList, Log, Queue (Classic, trees on); `FocusRegion2` with trees off shows the hint message. AC4.
+- `mode_chain_table` — `Dialog → [Dialog]`, `SiteManager → [SiteManager]`, `FileList → [FileList, Normal]`, `Normal → [Normal]`. AC5.
 - `modal_swallows_all_keys` — harness with a test modal; component key counter stays 0. AC5.
 - `input_mode_printables_to_widget_fkeys_to_global` — test text component. AC5.
-- `symbols_auto_detection_table` — `TERM=linux` → ASCII; `LANG=C` → ASCII; `LC_ALL=en_US.UTF-8` → Unicode; `LC_ALL` empty falls through to `LANG`. AC7.
+- `symbols_auto_detection_table` — `TERM=linux` → ASCII; `LANG=C` → ASCII; `LC_ALL=en_US.UTF-8` → Unicode; `LC_ALL` empty falls through to `LANG`; `always`/`never` override. AC7.
+- `term_env_over_ssh` — `SSH_CONNECTION` or `SSH_TTY` set → `over_ssh()`.
+- `sanitize_plain_text_is_borrowed`, `truncate_to_width_counts_wide_chars`. AC12.
 - `theme_overrides_and_unknown_keys_warn`.
 - `keychord_normalisation` — shift-letter → uppercase, `BackTab` → shift-tab, `Char('4')+CTRL` → `ctrl-\`. 
 - `quit_without_blockers_quits_immediately`, `quit_with_blocker_default_cancel`, `quit_twice_confirms`. AC10.
 - `suspend_on_windows_shows_message` (`#[cfg(windows)]`).
 - `prompt_without_dialog_is_dropped_and_logged` — core receives cancel (T04 semantics).
 - `cancel_without_task_shows_hint`.
-- `sanitize_caret_and_codepoints` — `"a\x1b[2Jb"` → `a^[[2Jb`; U+202E → `<U+202E>`. AC12.
+- `sanitize_caret_and_codepoints` — `"a\x1b[2Jb"` → `a^[[2Jb`; `\x7f` → `^?`; U+0085, U+202E, U+2066 → `<U+0085>`, `<U+202E>`, `<U+2066>`. AC12.
 
 ### Property / fuzz tests
 - `prop_layout_rects_disjoint_and_in_bounds` — random size 1..=300 × 1..=100 and random `LayoutOptions`. AC3.
@@ -614,15 +661,9 @@ All with `ratatui::backend::TestBackend` + `insta` (`crates/courier-ftp/src/snap
 
 ## Open questions
 
-- **Ownership of `ui/text.rs` (T55, not owned):** T55 specifies `sanitize`,
-  `sanitize_spans` and `truncate_to_width` and lists implementing them as its step 1,
-  but T50 and T52 (both before T55 in M1) already draw untrusted text. This task
-  implements them exactly as T55 specifies; T55's owner should drop that step and keep
-  its tests as extra coverage.
-- **Ownership of `Symbols` (T05/T53/T55/T57, not owned):** T05 lists T57 as owner of
-  `interface.unicode_symbols`, and T53/T55 expect `Symbols` from T57, but T52 (before
-  T57) needs glyphs. This task creates `ui/symbols.rs` and the `Auto` detection; T57
-  should extend it with status-bar glyphs instead of defining it.
 - Explorer layout stacks local over remote with trees on the left (closest to
   FileZilla's Explorer arrangement in a terminal). If the owner prefers side-by-side
   sides in Explorer too, only `compute_layout` changes. Product decision.
+
+(Resolved by the coordinator: this task owns `ui::text`, `ui::symbols` and `TabId`;
+focus regions are `ctrl-x 1..7`, tabs `alt-1..9`.)

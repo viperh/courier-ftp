@@ -11,18 +11,20 @@ the control connection (T10), data connections (T11), TLS (T12), listing parsers
 and FTP proxies (T15). It maps every `Backend` method to an exact RFC command sequence,
 learns what each server supports during the session, translates paths for VMS/MVS/DOS
 servers, maps reply codes to `courier_ftp_core::Error` variants, and is wired into the
-binary's `BackendFactory`. It passes the shared backend conformance suite (T06) against an
+binary's `BackendFactory`. It passes the shared backend conformance suite (T03) against an
 in-process FTP server in `cargo test` and against vsftpd, ProFTPD and pure-ftpd in Docker.
 
 ## Context
 
 **Exists before this task:** T03 `Backend`, `Capabilities`, `Listing`, `WriteMode`,
-`TransferOpts`, `ConnectInfo`, `BackendFactory`, `SessionHandle` (reconnect-once,
-keep-alive), `MockBackend`; T06 `backend_conformance_tests!`; T10 `ControlConnection`,
-`LoginScript`, `FakeServer`; T11 `FtpData`, `DataStream`, `DataConfig/DataState`; T12
+`TransferOpts` (incl. `range_len`), `ConnectInfo`, `BackendContext`, `BackendFactory`,
+`SessionHandle` (reconnect-once, keep-alive), `SessionSecurityInfo`, `MockBackend`, and the
+conformance suite (`courier_ftp_core::backend::conformance` + `backend_conformance_tests!`,
+feature `test-util`); T06 `LocalBackend` (reference for local tests); T10
+`ControlConnection`, `LoginScript::for_logon`, `FakeServer`; T11 `FtpData`, `DataStream`, `DataConfig/DataState`; T12
 `TlsSession`, `TlsTrustGate`, `TlsReuseRequired`; T13 `parse_mlsd`, `parse_list`,
-`parse_mlst_line`, `ListFormat`, `TextDecoder`; T15 `LoginPlan` (proxy target + login
-script); T58 `BackendFactory` implementation in the binary with the SFTP arm; T76 Docker
+`parse_mlst_line`, `ListFormat`, `TextDecoder`; T15 `login_plan`/`LoginPlan` (proxy target
++ login script); T58 `BackendFactory` implementation in the binary with the SFTP arm; T76 Docker
 FTP fixture images and profiles.
 
 **Why T15 was added to Depends on:** the FTP proxy settings only take effect if the
@@ -33,7 +35,7 @@ milestone change results.
 **Later tasks need from this one:** T41/T41b (transfers through `open_read`/`open_write`/
 `finish_transfer`, connection-limit errors, resume), T42 (`set_mtime`, `stat`, resume
 modes), T43 (recursive list/delete), T46 (cache patching after operations), T53/T62
-(capabilities greying out actions), T57 (`tls_info`), T63 (download/upload of edited
+(capabilities greying out actions), T57 (`Backend::security_info()`), T63 (download/upload of edited
 files), T72 (connect + data probes), T76 (conformance in Docker).
 
 ## Technical specification
@@ -42,20 +44,19 @@ files), T72 (connect + data probes), T76 (conformance in Docker).
 
 ```rust
 // courier_ftp_proto_ftp::backend ---------------------------------------------------------
-/// Shared, process-wide dependencies handed out by the factory.
+/// Shared, process-wide dependencies handed out by the factory. Settings come from
+/// `BackendContext.settings` (T03), read once per `connect`.
 #[derive(Clone)]
 pub struct FtpDeps {
-    pub settings: Arc<Settings>,          // snapshot at creation; new connections pick up changes
     pub tls_gate: Arc<TlsTrustGate>,      // T12: trust store, "once" set, TLS 1.2 hints
     pub roots: RootSourceKind,            // Platform in production, Custom(test CA) in tests
     pub clock: Arc<dyn Fn() -> OffsetDateTime + Send + Sync>, // `now` for T13 year inference
 }
 
 pub struct FtpBackend {
-    info: ConnectInfo,
+    info: Arc<ConnectInfo>,               // shared with the other sessions to this server (T03)
     deps: FtpDeps,
-    events: EventSender,
-    session: SessionId,
+    ctx: BackendContext,                  // session id, EventSender, SharedSettings (T03)
     ctrl: Option<ControlConnection>,
     tls: Option<TlsSession>,
     data_cfg: DataConfig,
@@ -80,15 +81,18 @@ struct Learned {
 }
 
 impl FtpBackend {
-    pub fn new(info: ConnectInfo, events: EventSender, deps: FtpDeps) -> Self;
-    /// TLS details for the status bar / server-info dialog (T57) until T03 offers a trait
-    /// method (see T12 open question).
-    pub fn tls_info(&self) -> Option<&TlsSessionInfo>;
-    pub fn server_software(&self) -> Option<String>;   // greeting first line + SYST
+    pub fn new(info: Arc<ConnectInfo>, ctx: BackendContext, deps: FtpDeps) -> Self;
 }
 
 #[async_trait]
-impl Backend for FtpBackend { /* all methods from T03, behaviour below */ }
+impl Backend for FtpBackend {
+    /* all methods from T03, behaviour below. `security_info()` returns
+       SessionSecurityInfo { encrypted: control is TLS, summary: "TLS 1.3"/"TLS 1.2"/"plain",
+       peer_addr, server_software: greeting first line + SYST (sanitised),
+       tls: TlsSession::info() (T12), host_key: None,
+       details: [("Features", FEAT summary), ("Data connections", "encrypted (PROT P)" |
+                 "not encrypted"), ("Transfer mode", "passive"/"active")] } */
+}
 
 // courier_ftp_proto_ftp::paths ------------------------------------------------------------
 /// RemotePath (always Unix-style, T02) ↔ server syntax.
@@ -116,10 +120,14 @@ impl MemFtpServer {
 }
 
 // courier-ftp (binary) --------------------------------------------------------------------
-// In the T58 factory: Protocol::Ftp | FtpsExplicit | FtpsImplicit →
-//   Box::new(FtpBackend::new(info.clone(), events, self.ftp_deps.clone()))
-// `ftp_deps.tls_gate` is created once per process; T30 calls `tls_gate.set_store(..)` with
-// the vault-backed `CertTrustStore` after unlock.
+// In the T58 factory, `BackendFactory::create(&self, info: Arc<ConnectInfo>,
+// ctx: BackendContext) -> Result<Box<dyn Backend>>`:
+//   info.validate()?;
+//   match info.address.protocol { Protocol::Ftp => Ok(Box::new(FtpBackend::new(info, ctx,
+//       self.ftp_deps.clone()))), Protocol::Sftp => /* T58 */ }
+// The FTP encryption mode is `info.address.encryption` (FtpEncryption, T02).
+// `ftp_deps.tls_gate` is created once per process over T12's `SwitchableCertTrustStore`,
+// which T12's `spawn_cert_store_switch` points at the vault store after unlock.
 ```
 
 ### Behaviour
@@ -127,13 +135,15 @@ impl MemFtpServer {
 **1. `connect(cancel)`** (on error every partial state is dropped; `is_connected()` false).
 1. `LoginPlan` from T15 (`ftp_proxy::login_plan(&info, &settings)`): target host/port
    (the FTP proxy or the server), TLS server name, `LoginScript` (proxy script or
-   `LoginScript::for_credentials`). `AskForPassword`: prompt answer cached in
-   `asked_password` for later reconnects of this instance.
-2. `NetOpts` from settings + `ConnectInfo` proxy choice (generic proxy unless bypass, T07).
-3. `RequireImplicit` → `TlsSession` + `StreamUpgrade` hook; `ControlConnection::connect`.
+   `LoginScript::for_logon(info.address.user, &info.logon, ..)`). `AskForPassword`: prompt
+   answer cached in `asked_password` for later reconnects of this instance.
+2. `NetOpts::from_settings(&settings, Purpose::Control, ProxyConfig::from_settings(
+   &settings.proxy.generic, info.proxy == ProxyChoice::Bypass, info.proxy_password))` (T07).
+3. `info.address.encryption == RequireImplicit` → `TlsSession` + `StreamUpgrade` hook;
+   `ControlConnection::connect`.
 4. Explicit TLS per T12 mode table → login (T10 state machine) → `negotiate` (SYST, FEAT,
    OPTS) → `PBSZ 0`/`PROT P` (T12).
-5. `PWD` → path style: `ConnectInfo` server type override if not `Auto`, else
+5. `PWD` → path style: `info.server_type.path_style()` if not `Auto`, else
    `detect_style`; `home = from_server(pwd)`; `cwd = home`.
 6. Capabilities computed (table §6). Status "Connected"/"Logged in"; the `Connected` event
    is emitted by `SessionHandle` (T03).
@@ -152,7 +162,7 @@ known-failing commands.
 | `mkdir(path)` | `MKD path` | `257`, `250` | `521` → `AlreadyExists`; `550` → `CWD path` succeeds → `AlreadyExists` |
 | `rmdir(path)` | `RMD path` | `250`, `200` | `cwd` reset if inside `path` |
 | `remove_file(path)` | `DELE path` | `250`, `200` | |
-| `rename(from, to)` | `RNFR from` → `RNTO to` | `350` → `250` | existing target: server decides (most overwrite); T42 checks first |
+| `rename(from, to, replace)` | [`replace = false`: `stat(to)` first] → `RNFR from` → `RNTO to` | `350` → `250` | same semantics as T22: `replace = false` and `to` exists → `AlreadyExists` without RNFR; `replace = true` → RNTO overwrites where the server allows it; a refusal because the target exists (`550`/`553` text matching `exists\|already`) → `AlreadyExists` |
 | `chmod(path, mode)` | `SITE CHMOD <octal> path` | `200`, `250` | `500/502/504` → `caps.chmod = false`, `Unsupported` |
 | `set_mtime(path, t)` | `MFMT YYYYMMDDHHMMSS path` → `MDTM YYYYMMDDHHMMSS path` → `SITE UTIME path t t t UTC` | `213` / `213`,`253`,`250` / `200`,`250` | §5 |
 | `open_read(path, off, opts)` | `TYPE`, [`EPSV`/`PASV`/`PORT`…], [`REST off`], `RETR path` | `350`, `150` | T11; ASCII + `off>0` → `Unsupported` |
@@ -176,7 +186,7 @@ transfer is open → `Error::InvalidInput("a transfer is in progress")`.
 4. `450`/`550` with text matching `/no files|not found|empty|no such file/i` **after a
    successful CWD** → empty listing (servers that refuse to list empty directories).
 5. Bytes from T11 `read_listing` (TLS when `PROT P`), parsed with T13 using
-   `ParseOptions { ctx: { now: clock(), tz_offset_minutes: info.timezone_offset }, decoder,
+   `ParseOptions { ctx: { now: clock(), tz_offset_minutes: info.timezone_offset_minutes }, decoder,
    hint: list_hint }`. MLSD is parsed with `parse_mlsd`, LIST with `parse_list`.
 6. `used_fallback_encoding` → T10 session encoding switches to windows-1252 (Status line).
 7. `logging.show_raw_listing` → every raw line as `LogKind::ListingRaw`; skipped lines →
@@ -223,6 +233,9 @@ transfer is open → `Error::InvalidInput("a transfer is in progress")`.
 | `server_side_rename_across_dirs` | `true` |
 | `ascii_mode` | `true` |
 | `parallel_connections_allowed` | `true` (T41 opens extra instances, honouring the site limit) |
+| `positional_writes` | `false` (FTP `REST`+`STOR` semantics differ between servers; T41b segments FTP downloads only) |
+| `case_insensitive_names` | `true` for `PathStyle::Dos`, else `false` |
+| `path_style` | the session's `PathStyle` (§7) |
 
 **7. Path styles.**
 
@@ -234,14 +247,16 @@ transfer is open → `Error::InvalidInput("a transfer is in progress")`.
 | `Mvs` | SYST contains `MVS` or `z/OS`, or PWD `'HLQ.'` | `/ALICE/DATA.TXT`, `/ALICE/SOURCE` (PDS), `/ALICE/SOURCE/MEMBER1` | `'ALICE.DATA.TXT'`, `'ALICE.SOURCE'`, `'ALICE.SOURCE(MEMBER1)'` (member form when the parent is in `mvs_pds`) |
 
 List hints: SYST `Windows_NT` → `Dos`; `VMS` → `Vms`; MVS → `MvsDataset`; `OS/400` →
-`IbmI`; otherwise none. Server type override (`ConnectInfo`, T31 `ServerTypeOverride`):
-`Unix`/`Dos`/`Vms`/`Mvs` force style + hint; any other value → `Unix` style with a Status
-warning "Server type X is not supported, using Unix". MVS and VMS support is best effort:
+`IbmI`; otherwise none. Server type override (`ConnectInfo.server_type`, T02/T31
+`ServerTypeOverride { Auto, Unix, Dos, Vms, Mvs }`): `Unix`/`Dos`/`Vms`/`Mvs` force style +
+hint. FileZilla's other server types (VxWorks, z/VM, HP NonStop, Cygwin, …) do not exist in
+the enum; T32 imports them as `Unix`, and this task treats them as Unix. MVS and VMS support is best effort:
 connecting logs Status "Warning: limited support for <style> servers".
 
 **8. Reconnect and transfer bookkeeping.**
 - `Error::Connection`/`Timeout` from an operation → `ctrl = None`, `is_connected() = false`;
-  `SessionHandle` (T03) reconnects once and re-lists `cwd`.
+  `SessionHandle` (T03) reconnects once; `cwd` is unknown afterwards, so the next operation
+  sends `CWD` itself (T03 rule 5).
 - `TlsReuseRequired` (T12) inside `list`/`open_read`/`open_write` → this backend
   reconnects with TLS 1.2 itself and retries the operation once.
 - `open_read`/`open_write` return the T11 `DataStream` boxed as
@@ -259,7 +274,8 @@ connecting logs Status "Warning: limited support for <style> servers".
 | `logging.show_raw_listing` (false) | `ListingRaw` lines |
 | `ftp.*` transfer settings | `DataConfig` (T11) |
 | `connection.timeout_secs` (20) | all timeouts |
-| `ConnectInfo`: address, credentials, encryption, charset, server type override, timezone offset, transfer mode, proxy choice | connect, parsing, path style |
+| `ConnectInfo` (T03): `address` (incl. `user`, `encryption`), `logon`, `charset`, `server_type`, `timezone_offset_minutes`, `transfer_mode`, `proxy`, `proxy_password`, `ftp_proxy_password`, `initial_remote_dir` | connect, parsing, path style |
+| `open_read` `TransferOpts.range_len` | T11 `Retr { range_len }` (segmented downloads, T41b) |
 
 Time format on the wire: `YYYYMMDDHHMMSS` UTC (RFC 3659 `time-val`), e.g. `MFMT
 20240131120000 /www/index.html` → `213 Modify=20240131120000; /www/index.html`.
@@ -270,6 +286,7 @@ Time format on the wire: `YYYYMMDDHHMMSS` UTC (RFC 3659 `time-val`), e.g. `MFMT
 
 | Code | Text contains | Error |
 |---|---|---|
+| 421, 530 at greeting/login with "too many connections" text | – | `ConnectionLimit(text)` (T10; T41 lowers the limit) |
 | 421 | – | `Connection(text)` |
 | 425, 426, 450, 451, 452 | – | `Protocol { code, message }` (transient → T41 retries) |
 | 500, 502, 504 | – | `Unsupported(<op name>)` and the learned flag for that command |
@@ -289,8 +306,9 @@ The message shown is `"<code> <server text>"` with control characters already re
 
 - Server-supplied names are never turned into local paths here (T42/T06 sanitize); hostile
   names were dropped by T13. Paths sent to the server pass T10's CR/LF/NUL check.
-- Credentials (incl. the `AskForPassword` answer) stay in `SecretString`; `FtpBackend`
-  implements `Debug` by hand without `info.credentials`.
+- Secrets (`info.logon`, proxy passwords, the `AskForPassword` answer) stay in
+  `SecretString`; `FtpBackend` implements `Debug` by hand and prints `ConnectInfo` only
+  through its redacted `Debug` (T03).
 - `tracing` `info`: session id + operation kind + outcome ("ftp list ok", "ftp connect
   failed: auth"); paths, host names and reply text only at `debug` (T91 §4). The session
   message log carries commands/replies (masked) as in FileZilla.
@@ -308,13 +326,14 @@ The message shown is `"<code> <server text>"` with control characters already re
 6. `stat`, `mkdir`, `rmdir`, `remove_file`, `rename`, `chmod`, `set_mtime`.
 7. `open_read`, `open_write`, `finish_transfer` (TransferFlag, abort path), resume rules.
 8. `raw_command`, `keepalive`, TLS-reuse reconnect, prompt-closed reconnect.
-9. Factory arm in the binary (T58 factory), `FtpDeps` with the process-wide `TlsTrustGate`.
+9. Factory arm in the binary (T58 factory, `create(Arc<ConnectInfo>, BackendContext)`),
+   `FtpDeps` with the process-wide `TlsTrustGate`; `security_info()`.
 10. Conformance suite against `MemFtpServer` (plain + TLS) in `cargo test`.
 11. Docker e2e: conformance × server profiles, error mapping, MLSD/LIST toggle.
 
 ## Acceptance criteria
 
-- [ ] AC1 `FtpBackend` passes `backend_conformance_tests!` (T06) against `MemFtpServer`
+- [ ] AC1 `FtpBackend` passes `backend_conformance_tests!` (T03) against `MemFtpServer`
   (plain and explicit TLS, MLSD on and off) in the normal `cargo test` run.
 - [ ] AC2 Docker e2e: conformance suite passes against vsftpd (`plain`, `explicit-tls`),
   proftpd (plain and mod_tls) and pure-ftpd (plain and TLS) — T76 profiles.
@@ -337,10 +356,15 @@ The message shown is `"<code> <server text>"` with control characters already re
   `Error::Cancelled` and the next `list` succeeds.
 - [ ] AC10 Path translation tables for Dos, VMS and MVS round-trip (`from_server(to_server(p)) == p`).
 - [ ] AC11 The binary's factory creates `FtpBackend` for `ftp://`, `ftpes://` and `ftps://`
-  quickconnect URLs (unit test on the factory).
+  quickconnect URLs (`Protocol::Ftp` with each `FtpEncryption`; unit test on the factory),
+  and `security_info()` reports `encrypted`, the TLS summary and `tls` for FTPS, `plain`
+  without TLS.
 - [ ] AC12 `max-1-connection` profile: a second concurrent connect fails with
-  `Error::Protocol { code: Some(421 | 530) }` (what T41 back-off detects).
+  `Error::ConnectionLimit` (what T41 back-off detects).
 - [ ] AC13 CI gates (T00) pass, incl. `e2e` and `layering`.
+- [ ] AC14 `rename(from, to, false)` onto an existing file returns `AlreadyExists` and sends
+  no `RNFR`; `rename(from, to, true)` replaces the target on servers that allow it and maps
+  an "exists" refusal to `AlreadyExists`.
 
 ## Tests
 
@@ -349,7 +373,7 @@ The message shown is `"<code> <server text>"` with control characters already re
 - `paths_dos_roundtrip`, `paths_vms_dir_and_file_forms`, `paths_vms_device_root`,
   `paths_mvs_dataset_pds_member`, `detect_style_from_syst_and_pwd`. AC10.
 - `capabilities_from_features_table`. AC4.
-- `factory_creates_ftp_backend_for_ftp_schemes`. AC11.
+- `factory_creates_ftp_backend_for_ftp_schemes`, `security_info_plain_and_tls`. AC11.
 
 ### Property / fuzz tests
 - `prop_paths_roundtrip_unix_dos` — random `RemotePath`s (no `\`, `:` only in the drive
@@ -367,6 +391,9 @@ Not applicable (no UI). Listing results are snapshotted in T13.
   `stat_via_parent_listing`, `stat_missing_is_not_found`. AC6.
 - `mkdir_257`, `mkdir_521_already_exists`, `mkdir_550_then_cwd_ok_is_already_exists`,
   `rmdir_resets_cwd_inside`, `rename_rnfr_rnto`, `rename_rnfr_550_not_found`. AC3.
+- `rename_without_replace_existing_target_already_exists`,
+  `rename_with_replace_overwrites`, `rename_with_replace_refused_exists_is_already_exists`. AC14.
+- `open_read_range_len_passes_to_retr` — `range_len: Some(n)` returns `n` bytes, `finish_transfer(Complete)` Ok.
 - `chmod_502_disables_capability`. AC4.
 - `set_mtime_mfmt`, `set_mtime_falls_back_to_mdtm`, `set_mtime_site_utime_only_if_advertised`,
   `set_mtime_all_refused_is_unsupported`. AC7.
@@ -389,7 +416,7 @@ Not applicable (no UI). Listing results are snapshotted in T13.
 - `ftp_listing_matches_server_tree_mlsd_and_list` (proftpd, pure-ftpd with `use_mlsd`
   on/off; vsftpd LIST). AC5.
 - `ftp_preserve_timestamps_proftpd_mfmt`, `ftp_preserve_timestamps_vsftpd_mdtm`. AC7.
-- `ftp_max_one_connection_second_connect_refused`. AC12.
+- `ftp_max_one_connection_second_connect_is_connection_limit`. AC12.
 
 ## Out of scope
 
@@ -401,9 +428,5 @@ Not applicable (no UI). Listing results are snapshotted in T13.
 
 ## Open questions
 
-- T31 `ServerTypeOverride` lists "Auto/Unix/Dos/Vms/Mvs/…". FileZilla also has VxWorks,
-  z/VM, HP NonStop, Cygwin and "DOS with forward slashes". This task maps any value beyond
-  Unix/Dos/Vms/Mvs to Unix with a warning; T31 should either restrict the enum to those
-  five or say which extra types it keeps.
-- T03's `ConnectInfo` field names (server type override, timezone offset, proxy choice)
-  are used here by meaning; adjust to T03's final names.
+None. (Resolved: `ServerTypeOverride` is `Auto, Unix, Dos, Vms, Mvs`; other FileZilla types
+are treated as Unix. `ConnectInfo` field names follow T03.)

@@ -1,7 +1,8 @@
 # T55 — Message log pane
 
-**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T04, T50, T51, T57 · **Crate(s):** `courier-ftp` (`components/message_log/`, `ui/text.rs`, `ui/clipboard.rs`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (message log, colours by type), §9 (debug level)
+**Phase:** F TUI · **Milestone:** M1 · **Depends on:** T04, T50, T51 · **Crate(s):** `courier-ftp` (`components/message_log/`, `ui/clipboard.rs`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (message log, colours by type), §9 (debug level)
 **Related (integrates with, not blocking):** T62
+**Reference:** sverb `crates/sverb-tui/src/services/clipboard.rs` (OSC 52 + platform tools, 100 KiB cap)
 
 ## Goal
 
@@ -18,13 +19,16 @@ terminal escape sequences.
 `session: SessionId`, `kind: LogKind` (`Status`, `Command`, `Response`, `Error`,
 `ListingRaw`, `Debug(1..=4)`) and `text` (commands already masked, `PASS ****`),
 and drops messages above `logging.level` at the source. T04 also delivers
-`CoreEvent::Connected { session, address }` / `Disconnected`. T50 bridges core
-events into `Action`s, owns focus, `Theme` and `Mode`. T51 provides the `Log` keymap
-mode and the global `Ctrl-x` prefix. T57 provides `Symbols` (Unicode/ASCII glyphs).
+`CoreEvent::Connected { session, address }` / `Disconnected`. Warnings arrive as
+`Status` lines whose text starts with `Warning: ` (T04 has no `LogKind::Warning`). T50
+bridges core events into `Action`s, owns focus, `Theme`, `Mode`, `tabs::TabId(u32)`,
+`ui::text::{sanitize, sanitize_spans, truncate_to_width}` and
+`ui::symbols::{Symbols, TermEnv, UnicodeSymbols}`; this task uses them and defines
+none of them. T51 provides the `Log` keymap mode and the global `ctrl-x` table
+(`ctrl-x l` `ClearLog`).
 
-**Later tasks need from it:** `crate::ui::text::sanitize` (T53, T54, T56, T59, T61,
-T69: every untrusted string), `crate::ui::clipboard::copy_osc52` (T62 extends it with
-an `arboard` fallback), the per-tab log store (T61 creates one view per tab), T71
+**Later tasks need from it:** `crate::ui::clipboard` (this task owns it; T62 uses it for
+Copy URL, T71 for `CopyLog`), the per-tab log store (T61 creates one view per tab), T71
 (raw listing lines, "copy/save log" actions), T57 (transient "Copied N lines" message).
 
 ## Technical specification
@@ -32,26 +36,51 @@ an `arboard` fallback), the per-tab log store (T61 creates one view per tab), T7
 ### Types and APIs
 
 ```rust
-// crates/courier-ftp/src/ui/text.rs
-/// Make untrusted text safe to draw: C0 controls (incl. TAB, CR, LF) become caret
-/// notation (`^[`, `^I`, `^M`), DEL becomes `^?`, C1 controls (U+0080–U+009F), bidi
-/// controls (U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069) and line/paragraph
-/// separators (U+2028, U+2029) become `<U+XXXX>`. Returns `Cow::Borrowed` when the
-/// input needs no change (fast path over bytes).
-pub fn sanitize(s: &str) -> Cow<'_, str>;
-/// As `sanitize`, but returns spans so escapes can be drawn in `text.escape` style.
-pub fn sanitize_spans<'a>(s: &'a str, base: Style, escape: Style) -> Vec<Span<'a>>;
-/// Cut to `width` display columns (`unicode-width`), appending `…` / `~` (ASCII).
-pub fn truncate_to_width(s: &str, width: usize, ellipsis: &str) -> Cow<'_, str>;
+// crates/courier-ftp/src/ui/clipboard.rs (owned by this task; sverb
+// `crates/sverb-tui/src/services/clipboard.rs` approach; no `arboard` dependency)
+/// Maximum OSC 52 payload (base64 bytes): 100 KiB.
+pub const OSC52_MAX_PAYLOAD: usize = 100 * 1024;
+/// Maximum text (UTF-8 bytes) whose base64 fits in `OSC52_MAX_PAYLOAD` (76 800).
+pub const OSC52_MAX_TEXT_BYTES: usize = OSC52_MAX_PAYLOAD / 4 * 3;
+/// `ESC ] 52 ; c ; <base64> BEL` for `text`, cut to `OSC52_MAX_TEXT_BYTES` at a char
+/// boundary. The flag says whether it was cut. Buffer is zeroized on drop.
+pub fn osc52_sequence(text: &str) -> (Zeroizing<Vec<u8>>, bool);
 
-// crates/courier-ftp/src/ui/clipboard.rs
-/// Write OSC 52 (`ESC ] 52 ; c ; <base64> ESC \`) to the terminal.
-/// Refuses payloads over `OSC52_MAX_BYTES` (74 KiB raw = 100 000 base64 bytes).
-pub fn copy_osc52(out: &mut impl std::io::Write, text: &str) -> Result<(), ClipboardError>;
-pub const OSC52_MAX_BYTES: usize = 75_000;
+/// A local (platform) clipboard; the seam for tests.
+pub trait LocalClipboard: Send + std::fmt::Debug {
+    /// Start setting the clipboard to `text` (may finish on a background thread).
+    fn set_text(&mut self, text: &str) -> std::io::Result<()>;
+}
+/// The platform clipboard tool: macOS `pbcopy`; Windows `clip.exe`; elsewhere
+/// `wl-copy` (if `WAYLAND_DISPLAY`), `xclip -selection clipboard` or
+/// `xsel --clipboard --input` (if `DISPLAY`) — the first one found in `PATH`.
+#[derive(Debug, Clone)]
+pub struct CommandClipboard { program: &'static str, args: &'static [&'static str] }
+impl CommandClipboard { pub fn detect() -> Option<Self>; }
+
+/// What a copy did (status message and tests).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CopyReport { pub osc52: bool, pub truncated: bool, pub local: bool }
+
+/// The app's clipboard: one instance created by `App` at startup and shared with
+/// components (this pane, T62, T71) as a `ClipboardHandle`. `copy` never blocks on the
+/// platform tool (it runs on a background thread).
+pub struct Clipboard { over_ssh: bool, local: Option<Box<dyn LocalClipboard>>,
+                       out: Box<dyn std::io::Write + Send> }
+impl Clipboard {
+    pub fn new(over_ssh: bool, local: Option<Box<dyn LocalClipboard>>,
+               out: Box<dyn std::io::Write + Send>) -> Self;
+    /// Real setup: `TermEnv::over_ssh()` (T50: `SSH_CONNECTION` or `SSH_TTY` set),
+    /// `CommandClipboard::detect()` when not over SSH, stdout for OSC 52.
+    pub fn from_env(env: &TermEnv) -> Self;
+    pub fn copy(&mut self, text: &str) -> Result<CopyReport, ClipboardError>;
+}
 #[derive(Debug, thiserror::Error)]
-pub enum ClipboardError { #[error("selection too large to copy ({0} bytes, max 75 000)")] TooLarge(usize),
-                          #[error(transparent)] Io(#[from] std::io::Error) }
+pub enum ClipboardError {
+    #[error("no clipboard available")] NothingCopied,
+    #[error(transparent)] Io(#[from] std::io::Error),
+}
+pub type ClipboardHandle = std::sync::Arc<std::sync::Mutex<Clipboard>>;
 
 // crates/courier-ftp/src/components/message_log/
 /// One stored line. Text is sanitised and capped at insert time.
@@ -100,10 +129,8 @@ impl LogStore {
 pub struct ServerKey { pub protocol: Protocol, pub host: String, pub port: u16, pub user: Option<String> }
 impl From<&ServerAddress> for ServerKey { /* … */ }
 
-// crates/courier-ftp/src/tabs.rs (created here; T53 and T61 extend it)
-/// A tab. Before T61 the only tab is `TabId(0)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TabId(pub u32);
+// crates/courier-ftp/src/tabs.rs (T50 creates the module and `TabId(u32)`; this task
+// adds `TabRoute`; T53 and T61 extend it)
 #[derive(Debug, Clone)]
 pub struct TabRoute { pub browsing: Option<SessionId>, pub server: Option<ServerKey> }
 
@@ -132,7 +159,7 @@ Actions (T51 names, mode `Log`): `LogCursorDown`, `LogCursorUp`, `LogHalfPageDow
 `LogHalfPageUp`, `LogPageDown`, `LogPageUp`, `LogTop`, `LogBottom`, `LogSearch`,
 `LogSearchNext`, `LogSearchPrev`, `LogVisual`, `LogCopy`, `LogToggleWrap`,
 `LogToggleScope`, `LogCycleKindFilter`, `LogScrollLeft`, `LogScrollRight`,
-`LogScrollHome`, `LogClear`, `Cancel`. Emitted: `Action::StatusMessage(String)`
+`LogScrollHome`, `Cancel`, and `ClearLog` (global, `ctrl-x l` in `Normal`). Emitted: `Action::StatusMessage(String)`
 (T57 transient message) after copy/clear.
 
 ### Behaviour
@@ -166,6 +193,7 @@ spaces, words longer than the line are hard-broken.
 | `Error` | `Error:` | `log.error` | red, bold | bold |
 | `Debug(1..=4)` | `Trace:` | `log.trace` | dark grey | dim |
 | `ListingRaw` | `Listing:` | `log.listing` | cyan | dim |
+| `Status` with text starting `Warning: ` | `Status:` | `log.warning` | yellow | bold |
 
 Timestamps and tags use `log.time` (dim). Sanitiser escapes use `text.escape` (dim,
 underline in monochrome). Search matches use `log.search_match` (reverse). The cursor
@@ -280,8 +308,9 @@ rules apply, so it shows the last 4 wrapped rows.
   and computes wrap heights only for lines it draws, so the cost is independent of the
   ring size.
 - When the anchor line is evicted from the ring, the anchor moves to the oldest line.
-- `LogClear` (`Ctrl-x c`) empties the current scope's ring and resets the view; the All
-  ring is cleared only when the All view is shown. Emits `StatusMessage("Log cleared")`.
+- `ClearLog` (`ctrl-x l`, a `Normal` binding so it works from any pane) empties the ring
+  of the scope the log pane currently shows and resets that view; the All ring is
+  cleared only when the All view is shown. Emits `StatusMessage("Log cleared")`.
 
 #### Cursor, visual range, copy
 
@@ -289,9 +318,19 @@ rules apply, so it shows the last 4 wrapped rows.
   the view scrolls to keep it visible (and leaves follow mode when moving up).
 - `v` starts a visual line range at the cursor; `y` copies the range (or the cursor
   line) as displayed text (timestamp, tag, prefix, unwrapped text), newline-joined.
-- Copy uses `copy_osc52`. Over 75 000 bytes: nothing is copied and the status bar says
-  `Selection too large to copy (max 75 000 bytes)`. Success: `Copied N lines`.
-- Terminals without OSC 52 silently ignore it; T62 adds the `arboard` fallback.
+- Copy uses `Clipboard::copy` (sverb strategy):
+  1. Over SSH (`TermEnv::over_ssh()`): OSC 52 only (the local clipboard would be the
+     server's).
+  2. Otherwise: the platform tool if one was detected (text piped to its stdin on a
+     background thread; the UI never waits for it), **plus** OSC 52 — except when the
+     text exceeds `OSC52_MAX_TEXT_BYTES` and the tool was asked, because a truncated
+     OSC 52 copy would overwrite the full local one.
+  3. OSC 52 text over `OSC52_MAX_TEXT_BYTES` (76 800 bytes) is cut at a char boundary
+     and `CopyReport::truncated` is set.
+  4. Neither the tool nor OSC 52 worked → `Err(NothingCopied)`.
+- Status messages: `Copied N lines`; truncated → `Copied N lines (cut to 100 KiB for the
+  terminal clipboard)`; error → `Could not copy: <reason>`. Terminals without OSC 52
+  ignore the sequence silently.
 
 #### Search
 
@@ -320,17 +359,19 @@ rules apply, so it shows the last 4 wrapped rows.
 | Key | Action |
 |---|---|
 | `j` `↓` / `k` `↑` | cursor down / up |
-| `Ctrl-d` / `Ctrl-u`, `PageDown` / `PageUp` | half page / page |
+| `ctrl-d` / `ctrl-u`, `PageDown` / `PageUp` | half page / page |
 | `gg` `Home` / `G` `End` | oldest line / newest line + follow |
 | `/`, `n`, `N` | search, next older, next newer |
 | `v`, `y` | visual range, copy |
 | `w`, `t`, `e` | wrap, scope, kind filter |
 | `h` `←` / `l` `→` / `0` | horizontal scroll (wrap off) |
 | `Esc` | cancel visual / clear search |
-| `Ctrl-x c` | clear log |
+| `Y` | copy the whole current view (`CopyLog`, T71) |
+| `ctrl-x l` (global) | clear log (`ClearLog`) |
+| `ctrl-x w` (global) | save log as (`SaveLogAs`, T71) |
 
-The pane is focused through T50's focus actions (`FocusLog`); it is hidden with
-`Ctrl-l` (T51 `ToggleLog`).
+The pane is focused through T50's focus actions (`FocusLog`, `g l`, `ctrl-x 6`); it is
+hidden with `ctrl-l` (T51 `ToggleLog`).
 
 #### Performance targets
 
@@ -350,15 +391,16 @@ The pane is focused through T50's focus actions (`FocusLog`); it is hidden with
 | `logging.pane_max_lines` | u32, 500–100 000 | 5 000 | added here; per ring; out of range → warning + default (T05 rule) |
 | `logging.show_raw_listing` | bool | `false` | T05; `Listing:` lines come from T13/T71 |
 
-Style keys: `log.status`, `log.command`, `log.response`, `log.error`, `log.trace`,
+Style keys: `log.status`, `log.warning`, `log.command`, `log.response`, `log.error`, `log.trace`,
 `log.listing`, `log.time`, `log.cursor`, `log.visual`, `log.search_match`, `text.escape`,
 `log.border`, `log.border_focused`.
 
 ### Errors
 
-The pane has no fallible I/O except the clipboard write: `ClipboardError::TooLarge`
-and `ClipboardError::Io` become a status message (`Could not copy: <reason>`); nothing
-is logged at `info`+. Events for unknown sessions are routed as in step 4, never dropped.
+The pane has no fallible I/O except the clipboard write: `ClipboardError::NothingCopied`
+and `ClipboardError::Io` become a status message (`Could not copy: <reason>`); a
+missing or failing platform tool is logged at `debug` only (program name and exit
+status, never the text); nothing is logged at `info`+. Events for unknown sessions are routed as in step 4, never dropped.
 
 ### Security and logging
 
@@ -369,11 +411,15 @@ is logged at `info`+. Events for unknown sessions are routed as in step 4, never
   The pane writes nothing to `tracing` except `debug` counters
   (`log_store lines=<n> dropped=<n>`), never message text.
 - Copy payload is size-limited; OSC 52 payload is base64 so it cannot contain escapes.
+- The OSC 52 buffer is `Zeroizing<Vec<u8>>` (T62 copies URLs that may contain a
+  password); the text handed to the tool thread is a `Zeroizing<String>` dropped after
+  the write. Copied text is never logged. The tool is started with a fixed program
+  name and fixed arguments (no shell, no user-controlled arguments).
 
 ## Implementation steps
 
-1. `ui/text.rs`: `sanitize`, `sanitize_spans`, `truncate_to_width` with tests and a property test.
-2. `ui/clipboard.rs`: `copy_osc52` with size limit.
+1. `ui/clipboard.rs`: `osc52_sequence`, `CommandClipboard::detect`, `Clipboard::copy` with the SSH rule, cap and truncation; unit tests with fake tool and output.
+2. Extra tests for T50's `ui::text` helpers on log content (escape-heavy server replies).
 3. `LogStore` with routing, rings, capacity, `ServerKey` map; unit tests.
 4. Line layout + renderer (anchor-based, wrap, narrow rules); snapshot tests.
 5. Follow/unseen, cursor, visual, copy; keymap `Log` entries and actions.
@@ -388,20 +434,22 @@ is logged at `info`+. Events for unknown sessions are routed as in step 4, never
 - [ ] AC3 A ring never holds more than `logging.pane_max_lines` lines and no stored line exceeds 4 096 characters plus suffix (unit + property test).
 - [ ] AC4 Follow mode keeps the newest line visible; scrolling up stops following, counts unseen lines, and `G` resumes.
 - [ ] AC5 Search finds matches with smart case; `n`/`N` move older/newer and wrap.
-- [ ] AC6 `y` emits a correct OSC 52 sequence for one line and for a visual range; payloads over 75 000 bytes are refused with a message.
+- [ ] AC6 `y` emits a correct OSC 52 sequence (`ESC ] 52 ; c ; <base64> BEL`) for one line and for a visual range; text over 76 800 bytes is cut at a char boundary (payload ≤ 100 KiB) with the "cut" message; over SSH only OSC 52 is used; with a local tool and oversize text, OSC 52 is skipped and the tool gets the full text.
 - [ ] AC7 Messages from a transfer session of the same server appear in that tab's view; unrelated sessions appear in All and the active tab.
-- [ ] AC8 `sanitize` output contains no C0/C1/DEL/bidi characters for any input, and returns `Cow::Borrowed` for plain text.
+- [ ] AC8 Every stored line passes through T50's `sanitize`: no stored or drawn line contains C0/C1/DEL/bidi characters for any server input (property test over `LogStore::push`).
 - [ ] AC9 Benchmarks meet: push ≥ 200 000 lines/s, full-ring render ≤ 1 ms median (bench gates, T00 §4).
 - [ ] AC10 CI gates `fmt`, `clippy`, `test-local-only`, `test-os` pass.
 
 ## Tests
 
 ### Unit tests
-- `sanitize_caret_notation_for_c0_and_del` — `"a\x1b[31mb\x7f"` → `a^[[31mb^?` (AC8).
-- `sanitize_c1_and_bidi_as_codepoints` — U+0085, U+202E, U+2066 (AC8).
-- `sanitize_plain_text_is_borrowed` (AC8).
-- `truncate_to_width_counts_wide_chars`.
-- `osc52_sequence_is_base64_and_terminated` (AC6), `osc52_refuses_large_payload` (AC6).
+- `push_stores_sanitised_text` — `"a\x1b[31mb\x7f"` is stored as `a^[[31mb^?`; U+202E as `<U+202E>` (AC8).
+- `warning_status_line_uses_warning_style` — `Status` text `Warning: …` → `log.warning`.
+- `osc52_sequence_format` — `"hello"` → `\x1b]52;c;aGVsbG8=\x07` (AC6).
+- `osc52_cuts_at_char_boundary_and_cap` — `"é" × 76 800` → payload ≤ 102 400 bytes, decodes to whole `é`s, flag set; exactly 76 800 ASCII bytes → not cut (AC6).
+- `copy_over_ssh_uses_osc52_only` — fake local tool never called (AC6).
+- `copy_local_and_osc52`, `copy_oversize_skips_osc52_when_local_succeeds` (AC6).
+- `copy_with_nothing_available_errors` — no tool, failing writer → `NothingCopied` and status `Could not copy: …` (AC6).
 - `ring_drops_oldest_at_capacity` (AC3), `long_line_is_capped_with_suffix` (AC3).
 - `routes_browsing_session_to_its_tab`, `routes_transfer_session_by_server_identity`, `unknown_session_goes_to_all_and_active_tab` (AC7).
 - `remove_tab_drops_its_ring`.
@@ -413,8 +461,7 @@ is logged at `info`+. Events for unknown sessions are routed as in step 4, never
 - `narrow_rules_shorten_tag_time_prefix` (AC1).
 
 ### Property / fuzz tests
-- `prop_sanitize_output_has_no_control_chars` — arbitrary `String` (AC8).
-- `prop_sanitize_is_identity_on_safe_text`.
+- `prop_stored_lines_have_no_control_chars` — arbitrary `String` pushed through `LogStore::push` (AC8).
 - `prop_ring_len_bounded` — random push/clear sequences, random capacity (AC3).
 - `prop_render_never_panics_any_size` — random lines × sizes 0–200 × 0–60.
 
@@ -439,4 +486,6 @@ is logged at `info`+. Events for unknown sessions are routed as in step 4, never
 
 ## Open questions
 
-1. T04 does not say which tab a transfer worker's messages belong to; this task routes them by server identity (any tab connected to the same server shows them). T62's description of the clipboard as "T62's helper" is superseded: T55 creates `ui::clipboard` (OSC 52) and T62 adds the `arboard` fallback. Confirm both with the owners of T04 and T62.
+None. (Resolved: transfer-session lines are routed by server identity; this task owns
+`ui::clipboard` with OSC 52 + platform tools and no `arboard`, T62 uses it; T50 owns
+`sanitize`, `Symbols` and `TabId`.)

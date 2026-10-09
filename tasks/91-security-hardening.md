@@ -30,9 +30,9 @@ implemented it and the tests that prove it.
 
 | Stage | Milestone | Content |
 |---|---|---|
-| S1 | M2 (with T30) | §1 hardening, §2 `unsafe` (already enforced by T00), §3 secret audit, §4 logging rules on the current logger, §5 canary fixture, §6 supply chain on, first fuzz targets (T80, T20, T21, T13) |
+| S1 | M2 (with T30) | §1 hardening, §2 `unsafe` (already enforced by T00), §3 secret audit, §4 logging rules on the current logger, §5 canary fixture, §6 supply chain on, first fuzz targets (T80, T20, T21, T13, T02 `url_parse`) |
 | S2 | M3 | FTP fuzz targets (T10, T11, T12, T07); hostile-server rules (§9 rows) with T76 `hostile.rs` |
-| S3 | M5 | §8 approvals for synced local-acting fields (needs T31 sites); `filezilla_xml_import` target (T32) |
+| S3 | M5 | §8 approvals for synced local-acting fields (needs T31 sites); `filezilla_xml_import` target (T32); `queue_import_json` target (T40, added as soon as T40 lands in M4) |
 | S4 | M7–M8 | sync/team rows: DTO fuzzing (T83), server canaries (T84), §10 trust rules verified in T89 |
 | S5 | M9 | `docs/threat-model.md` complete, `SECURITY.md`, review checklist signed off; T71 crash reports scanned |
 
@@ -108,11 +108,11 @@ feature `test-hooks` (otherwise treated as `off` with a warning on stderr).
 /// A synced field whose value makes this device do something locally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LocalActingField {
-    /// `LogonType::KeyFile { key: KeySource::File(path) }`: use a private key file on this device.
+    /// `LogonType::KeyFile { key: KeySource::Path(path), .. }`: use a private key file on this device.
     KeyFilePath,
     /// `LogonType::Agent`: offer this device's SSH agent keys to the host.
     AgentLogon,
-    /// `try_agent_first = true` (T20): same effect as AgentLogon.
+    /// `ConnectInfo.try_agent_first = true` (T03, T20; site field from T31): same effect as AgentLogon.
     TryAgentFirst,
 }
 impl LocalActingField {
@@ -281,7 +281,9 @@ corpus and uploaded crashes.
 | `tls_cert_details` | `courier_ftp_proto_ftp::tls::fuzz_cert_details` | DER certificate → prompt details (`x509-parser`) | `tests/fixtures/tls/*.der` | T12, S2 |
 | `http_connect_response` | `courier_ftp_core::net::fuzz_http_connect_response` | proxy reply to CONNECT, split reads | `printf` seeds | T07, S2 |
 | `socks_reply` | `courier_ftp_core::net::fuzz_socks_reply` | SOCKS4/5 server replies | `printf` seeds | T07, S2 |
-| `remote_name_sanitize` | `courier_ftp_core::local::fuzz_sanitize_local_name` | arbitrary name → `sanitize_local_name`; asserts no separator, NUL, control char, not empty/`.`/`..`, not a reserved Windows name | `FIXTURE_TREE` names (T76) | T06/T42, S2 |
+| `remote_name_sanitize` | `courier_ftp_core::local::fuzz_sanitize_local_name` | arbitrary name → `sanitize_local_name`; asserts no separator, NUL, control char, not empty/`.`/`..`; the "not a reserved Windows name" check is compiled only under `#[cfg(windows)]` (the sanitiser maps reserved names only on Windows, and the fuzz job runs on Linux, so the Windows check runs in T06's property test on the `test-os (windows-latest)` job) | `FIXTURE_TREE` names (T76) | T06/T42, S2 |
+| `url_parse` | `courier_ftp_core::model::server::fuzz_url_parse` (body of T02's `prop_url_parse_never_panics`) | arbitrary bytes (lossy UTF-8) → `ParsedUrl::parse`; when Ok, `to_url` of the address re-parses | `printf` seeds: the rows of T02's `url_parse_table` | T02, S1 |
+| `queue_import_json` | `courier_ftp_core::queue::fuzz_import_json` (body of T40's `import_never_panics`) | arbitrary bytes as a queue export → `import_json` into an empty queue with a stub `SiteLookup` | one T40 export fixture plus truncated/mutated copies | T40, S3 |
 | `filezilla_xml_import` | `courier_ftp_core::sites::import::fuzz_filezilla_xml` | `sitemanager.xml` bytes | `crates/courier-ftp-core/tests/fixtures/filezilla/*.xml` | T32, S3 |
 | `sync_dto_decode` | `courier_ftp_proto::fuzz_decode_all` | JSON decoded as every request and response DTO | serialized DTO fixtures | T83, S4 |
 
@@ -396,11 +398,11 @@ rows store only the value hash; `HardeningReport` and approval decisions are log
 5. **S1** `crates/courier-ftp/tests/canary.rs` + `tests/common/mod.rs` (PTY helper);
    `crates/courier-ftp/tests/hardening.rs`.
 6. **S1** First fuzz targets `envelope_open`, `bundle_open`, `grant_open`, `ppk_parse`,
-   `known_hosts_parse`, `ftp_listing_parse`, `backup_decrypt` (each as its owning task
-   lands); `seed-corpus.sh` entries.
+   `known_hosts_parse`, `ftp_listing`, `backup_decrypt`, `url_parse` (each as its owning
+   task lands); `seed-corpus.sh` entries.
 7. **S2** FTP/TLS/proxy fuzz targets and `remote_name_sanitize`; hostile-server rules
    checked by T76 `hostile.rs`.
-8. **S3** `vault::approvals`, `VaultEngine` approval methods, approval dialog, connect-path
+8. **S3** `queue_import_json` fuzz target (with T40); `vault::approvals`, `VaultEngine` approval methods, approval dialog, connect-path
    integration (T20/T59/T70), revoke list hook for T68.
 9. **S4** `sync_dto_decode`; server canary tests (T84) included in the `canary` job dump.
 10. **S5** `docs/threat-model.md`, `SECURITY.md`, review checklist with counts; set
@@ -420,6 +422,7 @@ rows store only the value hash; `HardeningReport` and approval decisions are log
 - [ ] AC10 (S3) Approval: a site whose key file path / agent logon / try-agent-first was stamped by another device shows the approval dialog before connecting; Allow persists (no dialog next time); a changed value asks again; Deny cancels and asks again after restart; values typed on this device never ask.
 - [ ] AC11 (S5) `docs/threat-model.md` exists with all sections of §"Data formats", every mitigation row names at least one existing test (`scripts/` check: each referenced `path::fn` resolves by `grep`), and `SECURITY.md` exists.
 - [ ] AC12 (S1) `COURIER_FTP_KEYRING=off` disables keyring use (no keyring calls; option hidden), `file:` is rejected in builds without `test-hooks`.
+- [ ] AC13 (S1/S3) The fuzz targets `url_parse` (T02) and `queue_import_json` (T40) exist in `fuzz/fuzz_targets/` with seed entries in `fuzz/seed-corpus.sh`, and `remote_name_sanitize` passes on Linux with the reserved-Windows-name assertion compiled out (`cargo +nightly fuzz build` succeeds; `grep -n 'cfg(windows)' crates/courier-ftp-core/src/local/` shows the guard on that assertion).
 
 ## Tests
 
@@ -433,6 +436,8 @@ rows store only the value hash; `HardeningReport` and approval decisions are log
 ### Property / fuzz tests
 - The never-panics property test of each §7 body in its owning crate (names in the owning tasks, e.g. T10 `prop_reply_parser_never_panics`, T83 `props::fuzz_body_never_panics`) (AC8).
 - `courier-ftp-core/src/local`: `prop_sanitized_name_stays_inside_target` — arbitrary names; `target.join(sanitize_local_name(n))` normalised starts with `target` and has exactly one more component (AC9).
+- `courier-ftp-core/src/local`: `prop_fuzz_sanitize_local_name_never_panics` — runs `fuzz_sanitize_local_name` on random strings on every OS; the reserved-name assertion is active only in the Windows `test-os` run (AC13).
+- T02 `prop_url_parse_never_panics` and T40 `import_never_panics` run the `url_parse` / `queue_import_json` bodies (AC8, AC13).
 
 ### Snapshot tests
 - `components/dialog/approval.rs`: `approval_key_file_dialog`, `approval_agent_dialog`, `approval_long_path_wraps` at 80×24 and 160×48 (T76 helper) (AC10).
@@ -442,7 +447,7 @@ rows store only the value hash; `HardeningReport` and approval decisions are log
 - `crates/courier-ftp-core/tests/compile_fail/*.rs` + `tests/secret_traits.rs` (`trybuild`): `secret_string_not_clone.rs`, `secret_string_not_serialize.rs`, `secret_string_not_partial_eq.rs` (AC7).
 - `crates/courier-ftp/tests/hardening.rs::t01_running_binary_is_not_dumpable` (`#[cfg(target_os = "linux")]`, PTY, `COURIER_FTP_TEST_HOOK=exit:3000`) (AC1).
 - `crates/courier-ftp/tests/canary.rs::t02_no_canary_leaks_after_trace_run` (`#[cfg(unix)]`, flow in §5) (AC5, AC6).
-- `crates/courier-ftp/tests/approval.rs::approval_dialog_flow` — `TestHome`-style vault with a site whose `KeySource::File` is stamped by a foreign `DeviceId`; drive the app with scripted keys (reducer test, no PTY): dialog appears, Deny → `Error::Cancelled`, Allow → row stored, second connect has no dialog (AC10).
+- `crates/courier-ftp/tests/approval.rs::approval_dialog_flow` — `TestHome`-style vault with a site whose `KeySource::Path` is stamped by a foreign `DeviceId`; drive the app with scripted keys (reducer test, no PTY): dialog appears, Deny → `Error::Cancelled`, Allow → row stored, second connect has no dialog (AC10).
 - CI jobs as tests: `unsafe-check`, `deny`, `vet`, `canary`, `fuzz` (AC4, AC8).
 
 ### End-to-end tests
