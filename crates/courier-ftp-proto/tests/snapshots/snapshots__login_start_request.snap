@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&LoginStartRequest\n{ email: \"alice@example.com\".into(), credential_request: vec![1, 2, 3], })"
+---
+{
+  "email": "alice@example.com",
+  "credential_request": "AQID"
+}

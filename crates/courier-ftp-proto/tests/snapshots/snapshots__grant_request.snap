@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&GrantRequest\n{\n    permission: Permission::Write, key_version: 2, wrapped_vault_key:\n    vec![1, 2, 3], signature: vec![4, 5, 6],\n})"
+---
+{
+  "permission": "write",
+  "key_version": 2,
+  "wrapped_vault_key": "AQID",
+  "signature": "BAUG"
+}

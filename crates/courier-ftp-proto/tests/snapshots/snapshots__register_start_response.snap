@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RegisterStartResponse\n{ registration_response: vec![1, 2], user_id: id(1), })"
+---
+{
+  "registration_response": "AQI",
+  "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01"
+}

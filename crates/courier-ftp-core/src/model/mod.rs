@@ -4,6 +4,8 @@
 
 pub mod charset;
 pub mod entry;
+pub mod ids; // T81
+pub mod item; // T81
 pub mod logon;
 pub mod path;
 pub mod server;

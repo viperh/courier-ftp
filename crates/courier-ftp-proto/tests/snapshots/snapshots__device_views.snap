@@ -1,0 +1,19 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&vec![DeviceView\n{\n    id: id(4), name: Some(\"laptop\".into()), platform: Some(\"linux\".into()),\n    created_at: Some(T0), last_seen_at: Some(T0), current: true, revoked_at:\n    None,\n}, DeviceView\n{\n    id: id(5), name: None, platform: None, created_at: None, last_seen_at:\n    None, current: false, revoked_at: Some(T0),\n},])"
+---
+[
+  {
+    "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e04",
+    "name": "laptop",
+    "platform": "linux",
+    "created_at": "2026-01-02T03:04:05Z",
+    "last_seen_at": "2026-01-02T03:04:05Z",
+    "current": true
+  },
+  {
+    "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e05",
+    "current": false,
+    "revoked_at": "2026-01-02T03:04:05Z"
+  }
+]

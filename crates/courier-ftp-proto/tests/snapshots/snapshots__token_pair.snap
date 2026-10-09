@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: json(&tokens())
+---
+{
+  "access_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "refresh_token": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+  "access_expires_in_s": 900,
+  "refresh_expires_in_s": 2592000
+}

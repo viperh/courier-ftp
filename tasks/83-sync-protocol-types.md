@@ -661,23 +661,23 @@ on the server and `SyncError::Protocol("malformed server response")` on the clie
 
 ## Acceptance criteria
 
-- [ ] AC1 Every DTO listed above exists with the exact field names, and its JSON matches the
+- [x] AC1 Every DTO listed above exists with the exact field names, and its JSON matches the
   committed `insta` snapshot (`cargo test -p courier-ftp-proto` passes, no pending snapshots).
-- [ ] AC2 Binary fields encode as base64url without padding; padded or standard-alphabet input
+- [x] AC2 Binary fields encode as base64url without padding; padded or standard-alphabet input
   is rejected on decode.
-- [ ] AC3 `negotiate` accepts absent/`1`/`0` and rejects `2`, `-1`, `01x`, `""`, `123456` with
+- [x] AC3 `negotiate` accepts absent/`1`/`0` and rejects `2`, `-1`, `01x`, `""`, `123456` with
   the documented errors.
-- [ ] AC4 Every secret-bearing DTO prints no secret in `{:?}` (canary test).
-- [ ] AC5 `PushRequest::validate` rejects 501 changes, 8 MiB + 1 byte total, duplicate ids and
+- [x] AC4 Every secret-bearing DTO prints no secret in `{:?}` (canary test).
+- [x] AC5 `PushRequest::validate` rejects 501 changes, 8 MiB + 1 byte total, duplicate ids and
   nil ids, and accepts exactly 500 changes / exactly 8 MiB.
-- [ ] AC6 Unknown JSON fields are ignored on every response type; an unknown WS `type`
+- [x] AC6 Unknown JSON fields are ignored on every response type; an unknown WS `type`
   decodes to `ServerMsg::Unknown`.
-- [ ] AC7 `cargo tree -p courier-ftp-proto -e normal` contains none of `tokio`, `axum`,
+- [x] AC7 `cargo tree -p courier-ftp-proto -e normal` contains none of `tokio`, `axum`,
   `reqwest`, `rusqlite`, `sqlx-core`, `ratatui`, `crossterm`, `clap` (checked by the
   `layering` CI job).
-- [ ] AC8 `fuzz_decode_all` never panics (property test with 10 000 random inputs) and the
+- [x] AC8 `fuzz_decode_all` never panics (property test with 10 000 random inputs) and the
   `sync_dto_decode` fuzz target builds in the `fuzz` CI job.
-- [ ] AC9 CI gates `fmt`, `clippy`, `docs`, `deny` pass.
+- [x] AC9 CI gates `fmt`, `clippy`, `docs`, `deny` pass.
 
 ## Tests
 
@@ -732,3 +732,34 @@ on the server and `SyncError::Protocol("malformed server response")` on the clie
 ## Open questions
 
 None.
+
+## Implementation notes
+
+- `ProtoError` texts follow the normative *Conventions* §2 wording instead of the
+  type sketch: `MalformedVersion` displays `malformed Courier-Proto header`,
+  `UnsupportedVersion(x)` displays `unsupported protocol version x (server supports
+  0..1)`, so the server can send `err.to_string()` as the 400 message unchanged.
+- The well-known message constants (`LOGIN_FAILED_MESSAGE`, `TOTP_*_HINT`,
+  `KEY_VERSION_STALE_HINT`, `*_MESSAGE`) live in `error.rs`.
+- Additions beyond the sketch: `ErrorEnvelope::new`, `Display` for `ErrorCode`,
+  `Role::{as_str, parse}`, `validate::UNKNOWN_DEVICE_FIELD`, and byte-length
+  constants re-exported from `courier-ftp-crypto` in `limits.rs` (`X25519_PUB_LEN`,
+  `ED25519_PUB_LEN`, `SIGNATURE_LEN`, `ACCOUNT_BUNDLE_LEN`) for T84 shape checks.
+- `RotateRequest::validate` also rejects `begin` with `new_key_version == 0`, and
+  duplicate or nil ids in `upload` / users in `commit`.
+- `b64` decoding also rejects non-canonical trailing bits (`"-_9"`).
+- Every `Option` field (including `DeviceView` timestamps and `VaultView.rotation`)
+  is omitted when `None`, per the common rules; `bool` fields with `#[serde(default)]`
+  are always serialised.
+- `scripts/check-layering.py`: the `courier-ftp-proto` rule now also forbids `tokio`,
+  `mio`, `hyper`, `axum`, `reqwest` and `sqlx-core` (AC7). No `workspace_metadata.rs`
+  test exists yet (T76), so nothing was added there.
+- Fuzz: `fuzz/fuzz_targets/sync_dto_decode.rs` plus its `[[bin]]` and the path
+  dependency in `fuzz/Cargo.toml`; seeds are `tests/fixtures/dto/*.json` (already
+  referenced by `fuzz/seed-corpus.sh`). Verified with `cargo check` on stable (no
+  nightly toolchain in the session); `props::fuzz_body_never_panics` runs 10 000 inputs.
+- Gates: fmt, clippy, tests and docs pass for `courier-ftp-proto`; `layering`,
+  `unsafe` and `cargo deny check bans licenses sources` pass. The workspace-wide
+  clippy/test/doc runs could not complete in the implementation session (the shared
+  disk ran out of space); no other crate uses this crate's code yet, so only
+  `Cargo.lock` (new `insta`, `similar`, `console 0.16`) changes for them.

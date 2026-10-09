@@ -1,0 +1,30 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RegisterFinishRequest\n{\n    email: \"alice@example.com\".into(), user_id: id(1), registration_upload:\n    vec![1, 2, 3], account_keys: AccountKeysUpload\n    {\n        x25519_pub: vec![1; 4], ed25519_pub: vec![2; 4], private_bundle_enc:\n        vec![3; 4], recovery_bundle_enc: vec![4; 4], version: 1,\n    }, personal_vault: PersonalVaultUpload\n    { id: id(2), name_enc: vec![5, 6], self_grant: grant_upload(), }, device:\n    DeviceInfo { name: \"laptop\".into(), platform: \"linux\".into(), },\n    invite_token: None, setup_token: Some(\"setup\".into()),\n})"
+---
+{
+  "email": "alice@example.com",
+  "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+  "registration_upload": "AQID",
+  "account_keys": {
+    "x25519_pub": "AQEBAQ",
+    "ed25519_pub": "AgICAg",
+    "private_bundle_enc": "AwMDAw",
+    "recovery_bundle_enc": "BAQEBA",
+    "version": 1
+  },
+  "personal_vault": {
+    "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e02",
+    "name_enc": "BQY",
+    "self_grant": {
+      "wrapped_vault_key": "AQID",
+      "signature": "BAUG",
+      "key_version": 1
+    }
+  },
+  "device": {
+    "name": "laptop",
+    "platform": "linux"
+  },
+  "setup_token": "setup"
+}

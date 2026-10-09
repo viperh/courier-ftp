@@ -40,7 +40,13 @@ RULES: dict[str, tuple[set[str] | None, set[str]]] = {
         UI
         | {"clap", "tokio", "mio", "hyper", "reqwest", "rusqlite", "sqlx-core", "russh"},
     ),
-    "courier-ftp-proto": ({"courier-ftp-crypto"}, UI | {"clap", "rusqlite", "russh"}),
+    # Wire types only: serde, no I/O (T83 AC7).
+    "courier-ftp-proto": (
+        {"courier-ftp-crypto"},
+        UI
+        | {"clap", "rusqlite", "russh"}
+        | {"tokio", "mio", "hyper", "axum", "reqwest", "sqlx-core"},
+    ),
     "courier-ftp-store": (
         {"courier-ftp-crypto"},
         UI

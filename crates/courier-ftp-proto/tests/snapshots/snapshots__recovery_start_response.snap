@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RecoveryStartResponse\n{\n    user_id: id(1), recovery_bundle_enc: vec![4; 4], registration_response:\n    vec![2], version: 2,\n})"
+---
+{
+  "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+  "recovery_bundle_enc": "BAQEBA",
+  "registration_response": "Ag",
+  "version": 2
+}

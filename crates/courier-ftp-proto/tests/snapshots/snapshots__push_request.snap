@@ -1,0 +1,15 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&PushRequest\n{\n    changes:\n    vec![PushChange\n    {\n        id: id(1), base_revision: 0, key_version: 1, envelope:\n        vec![1, 0, 0, 0, 1], deleted: false,\n    }],\n})"
+---
+{
+  "changes": [
+    {
+      "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+      "base_revision": 0,
+      "key_version": 1,
+      "envelope": "AQAAAAE",
+      "deleted": false
+    }
+  ]
+}

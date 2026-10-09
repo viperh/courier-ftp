@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&ClientMsg::Auth { token: \"a\".repeat(43), })"
+---
+{
+  "type": "auth",
+  "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

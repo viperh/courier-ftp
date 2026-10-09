@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&TotpSetupResponse\n{\n    otpauth_uri: \"otpauth://totp/courier-ftp:alice?secret=JBSWY3DP\".into(),\n    secret_base32: \"JBSWY3DP\".into(),\n})"
+---
+{
+  "otpauth_uri": "otpauth://totp/courier-ftp:alice?secret=JBSWY3DP",
+  "secret_base32": "JBSWY3DP"
+}

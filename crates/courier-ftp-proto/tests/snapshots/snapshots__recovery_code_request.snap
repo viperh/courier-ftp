@@ -1,0 +1,7 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RecoveryCodeRequest { email: \"alice@example.com\".into(), })"
+---
+{
+  "email": "alice@example.com"
+}
