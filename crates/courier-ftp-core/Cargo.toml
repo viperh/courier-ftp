@@ -15,6 +15,7 @@ test-util = []
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
 # (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
+ciborium = { workspace = true }
 directories = { workspace = true }
 encoding_rs = { workspace = true }
 globset = { workspace = true }
@@ -28,6 +29,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 time = { workspace = true, features = ["serde-well-known"] }
 tracing = { workspace = true }
+uhlc = { workspace = true }
 uuid = { workspace = true }
 zeroize = { workspace = true }
 

@@ -170,6 +170,10 @@ criteria = "safe-to-deploy"
 version = "0.11.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.ciborium]]
+version = "0.2.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.cipher]]
 version = "0.5.2"
 criteria = "safe-to-deploy"
@@ -221,6 +225,10 @@ criteria = "safe-to-deploy"
 [[exemptions.console]]
 version = "0.15.11"
 criteria = "safe-to-deploy"
+
+[[exemptions.console]]
+version = "0.16.6"
+criteria = "safe-to-run"
 
 [[exemptions.const-oid]]
 version = "0.9.6"
@@ -732,7 +740,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.half]]
 version = "2.7.1"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.hash32]]
 version = "0.3.1"
@@ -774,6 +782,10 @@ criteria = "safe-to-deploy"
 version = "2.0.8"
 criteria = "safe-to-deploy"
 
+[[exemptions.humantime]]
+version = "2.4.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.hybrid-array]]
 version = "0.4.15"
 criteria = "safe-to-deploy"
@@ -789,6 +801,10 @@ criteria = "safe-to-deploy"
 [[exemptions.indoc]]
 version = "2.0.7"
 criteria = "safe-to-deploy"
+
+[[exemptions.insta]]
+version = "1.49.0"
+criteria = "safe-to-run"
 
 [[exemptions.instability]]
 version = "0.3.10"
@@ -1098,6 +1114,10 @@ criteria = "safe-to-deploy"
 version = "0.2.8"
 criteria = "safe-to-deploy"
 
+[[exemptions.ppv-lite86]]
+version = "0.2.21"
+criteria = "safe-to-deploy"
+
 [[exemptions.pretty_assertions]]
 version = "1.4.1"
 criteria = "safe-to-run"
@@ -1314,6 +1334,10 @@ criteria = "safe-to-deploy"
 version = "3.0.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.similar]]
+version = "2.2.1"
+criteria = "safe-to-run"
+
 [[exemptions.siphasher]]
 version = "1.0.3"
 criteria = "safe-to-deploy"
@@ -1328,6 +1352,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.socket2]]
 version = "0.6.5"
+criteria = "safe-to-deploy"
+
+[[exemptions.spin]]
+version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.spki]]
@@ -1488,6 +1516,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.ucd-trie]]
 version = "0.1.7"
+criteria = "safe-to-deploy"
+
+[[exemptions.uhlc]]
+version = "0.9.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.unicase]]
@@ -1716,11 +1748,11 @@ criteria = "safe-to-run"
 
 [[exemptions.zerocopy]]
 version = "0.8.62"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy-derive]]
 version = "0.8.62"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.zeroize]]
 version = "1.9.1"

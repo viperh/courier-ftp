@@ -1,0 +1,38 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&vec![VaultView\n{\n    id: id(2), kind: VaultKind::Personal, org_id: None, name_enc: vec![5, 6],\n    key_version: 1, head_revision: 42, permission: Permission::Manage, grants:\n    vec![VaultGrant\n    {\n        key_version: 1, wrapped_vault_key: vec![1, 2, 3], wrapped_by: id(1),\n        signature: vec![4, 5, 6],\n    }], rotation: None,\n}, VaultView\n{\n    id: id(6), kind: VaultKind::Team, org_id: Some(id(7)), name_enc: vec![7],\n    key_version: 2, head_revision: 0, permission: Permission::Read, grants:\n    vec![], rotation:\n    Some(RotationView\n    { new_key_version: 3, by: id(8), started_at: T0, abandoned: false, }),\n},])"
+---
+[
+  {
+    "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e02",
+    "kind": "personal",
+    "name_enc": "BQY",
+    "key_version": 1,
+    "head_revision": 42,
+    "permission": "manage",
+    "grants": [
+      {
+        "key_version": 1,
+        "wrapped_vault_key": "AQID",
+        "wrapped_by": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+        "signature": "BAUG"
+      }
+    ]
+  },
+  {
+    "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e06",
+    "kind": "team",
+    "org_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e07",
+    "name_enc": "Bw",
+    "key_version": 2,
+    "head_revision": 0,
+    "permission": "read",
+    "grants": [],
+    "rotation": {
+      "new_key_version": 3,
+      "by": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e08",
+      "started_at": "2026-01-02T03:04:05Z",
+      "abandoned": false
+    }
+  }
+]

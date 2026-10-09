@@ -1,0 +1,26 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&vec![ServerMsg::VaultChanged { vault_id: id(6), head_revision: 42, },\nServerMsg::VaultAccess { vault_id: id(6), change: AccessChange::Revoked, },\nServerMsg::AccountChanged { key_version: 3 }, ServerMsg::Ping,\nServerMsg::Pong,])"
+---
+[
+  {
+    "type": "vault_changed",
+    "vault_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e06",
+    "head_revision": 42
+  },
+  {
+    "type": "vault_access",
+    "vault_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e06",
+    "change": "revoked"
+  },
+  {
+    "type": "account_changed",
+    "key_version": 3
+  },
+  {
+    "type": "ping"
+  },
+  {
+    "type": "pong"
+  }
+]

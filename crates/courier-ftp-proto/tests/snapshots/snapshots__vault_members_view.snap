@@ -1,0 +1,25 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&VaultMembersView\n{\n    vault_id: id(6), org_id: id(7), key_version: 2, created_by: Some(id(1)),\n    members:\n    vec![VaultMemberView\n    {\n        user_id: id(1), email: Some(\"alice@example.com\".into()), org_role:\n        Role::Owner, permission: Some(Permission::Manage), has_key: true,\n        granted_by: Some(id(1)),\n    }, VaultMemberView\n    {\n        user_id: id(8), email: None, org_role: Role::Member, permission: None,\n        has_key: false, granted_by: None,\n    },],\n})"
+---
+{
+  "vault_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e06",
+  "org_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e07",
+  "key_version": 2,
+  "created_by": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+  "members": [
+    {
+      "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+      "email": "alice@example.com",
+      "org_role": "owner",
+      "permission": "manage",
+      "has_key": true,
+      "granted_by": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01"
+    },
+    {
+      "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e08",
+      "org_role": "member",
+      "has_key": false
+    }
+  ]
+}

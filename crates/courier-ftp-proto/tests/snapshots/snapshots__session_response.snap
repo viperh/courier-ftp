@@ -1,0 +1,21 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&SessionResponse\n{\n    user_id: id(1), device_id: id(4), tokens: tokens(), account_keys:\n    AccountKeysView\n    {\n        x25519_pub: vec![1; 4], ed25519_pub: vec![2; 4], private_bundle_enc:\n        vec![3; 4], version: 2,\n    }, is_instance_admin: true,\n})"
+---
+{
+  "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+  "device_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e04",
+  "tokens": {
+    "access_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "refresh_token": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "access_expires_in_s": 900,
+    "refresh_expires_in_s": 2592000
+  },
+  "account_keys": {
+    "x25519_pub": "AQEBAQ",
+    "ed25519_pub": "AgICAg",
+    "private_bundle_enc": "AwMDAw",
+    "version": 2
+  },
+  "is_instance_admin": true
+}

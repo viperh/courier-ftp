@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&AuditQuery { before: Some(100), limit: Some(50), })"
+---
+{
+  "before": 100,
+  "limit": 50
+}

@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&InviteCreated\n{\n    id: id(9), org_id: id(7), email: Some(\"bob@example.com\".into()), role:\n    Role::Member, expires_at: T0, link:\n    Some(\"https://sync.example/invite/tok\".into()), emailed: true,\n})"
+---
+{
+  "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e09",
+  "org_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e07",
+  "email": "bob@example.com",
+  "role": "member",
+  "expires_at": "2026-01-02T03:04:05Z",
+  "link": "https://sync.example/invite/tok",
+  "emailed": true
+}

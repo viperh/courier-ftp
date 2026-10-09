@@ -1,0 +1,33 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&PushResponse\n{\n    results:\n    vec![PushResult\n    {\n        id: id(1), status: PushStatus::Conflict, revision: None, current:\n        Some(remote_item()), message: None,\n    }, PushResult\n    {\n        id: id(2), status: PushStatus::TooLarge, revision: None, current:\n        None, message: Some(QUOTA_EXCEEDED_MESSAGE.into()),\n    }, PushResult\n    {\n        id: id(3), status: PushStatus::Ok, revision: Some(8), current: None,\n        message: None,\n    }, PushResult\n    {\n        id: id(4), status: PushStatus::Forbidden, revision: None, current:\n        None, message: None,\n    },],\n})"
+---
+{
+  "results": [
+    {
+      "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+      "status": "conflict",
+      "current": {
+        "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+        "revision": 7,
+        "key_version": 1,
+        "envelope": "AQ",
+        "deleted": true
+      }
+    },
+    {
+      "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e02",
+      "status": "too_large",
+      "message": "quota exceeded"
+    },
+    {
+      "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e03",
+      "status": "ok",
+      "revision": 8
+    },
+    {
+      "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e04",
+      "status": "forbidden"
+    }
+  ]
+}

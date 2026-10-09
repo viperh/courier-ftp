@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&ErrorEnvelope::new(ErrorCode::RateLimited, \"too many login attempts\",\nSome(12)))"
+---
+{
+  "error": {
+    "code": "rate_limited",
+    "message": "too many login attempts",
+    "retry_after_s": 12
+  }
+}

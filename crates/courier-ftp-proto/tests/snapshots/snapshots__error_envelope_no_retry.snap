@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&ErrorEnvelope::new(ErrorCode::NotFound, \"not found\", None))"
+---
+{
+  "error": {
+    "code": "not_found",
+    "message": "not found"
+  }
+}
