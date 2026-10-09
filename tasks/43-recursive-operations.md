@@ -307,11 +307,11 @@ Not applicable (T62 renders the dialogs).
 
 ### End-to-end tests
 `crates/courier-ftp-e2e/tests/recursive.rs` (`#[ignore]`, `require_docker!`, `Headless`):
-- `fn recursive_roundtrip_<profile>` (vsftpd `plain`, sshd `password`): upload a 30-dir,
+- `fn recursive_roundtrip_<profile>` (`vsftpd-plain`, sshd `password`): upload a 30-dir,
   200-file tree incl. empty dirs and a symlink, download it elsewhere, compare trees and
   hashes (AC1, AC7).
-- `fn recursive_delete_on_server` and `fn recursive_chmod_files_only` (proftpd `SITE
-  CHMOD`, sshd) — server-side listing confirms the result (AC3, AC4).
+- `fn recursive_delete_on_server` and `fn recursive_chmod_files_only` (`proftpd-plain`
+  with `SITE CHMOD`, sshd `password`) — a server-side listing confirms the result (AC3, AC4).
 
 ## Out of scope
 

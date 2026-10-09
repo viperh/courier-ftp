@@ -24,8 +24,8 @@ timestamps. The decision itself is a pure function with an exhaustive table test
   preserve_timestamps, replace_invalid_chars, invalid_char_replacement}`; T06 gives
   `sanitize_local_name` and `available_space`; T02 gives `Timestamp::cmp_coarse`,
   `Precision`, `LocalPath::join`; T40 gives `QueueItem::on_exists`, `RangeSet`.
-- After: T69 renders the file-exists prompt; T56 sets per-item `on_exists`; T41b reuses
-  `decide` for segmented resume; T48/T66 reuse `compare_times`.
+- After: T69 renders the file-exists prompt; T56 sets per-item `on_exists` and shows
+  `effective_action`; T41b segments transfers after this decision.
 
 ## Technical specification
 
@@ -97,7 +97,6 @@ pub fn resolve_transfer_type(item: &QueueItem, caps: &Capabilities, s: &Settings
 /// else reject invalid names. Returns the path and whether it changed.
 pub fn local_target(item: &QueueItem, s: &TransferSettings) -> Result<(LocalPath, bool)>;
 ```
-
 
 ### Behaviour
 
@@ -315,7 +314,7 @@ responder reading `CoreEvent::Prompt`:
 `crates/courier-ftp-e2e/tests/exists.rs` (`#[ignore]`, `require_docker!`, `Headless`):
 - `fn resume_download_ftp_and_sftp` — truncate a downloaded file to half, re-queue with
   `Resume`; hash equal; server log shows `REST` (FTP) (AC5 on real servers, small file).
-- `fn preserve_timestamps_proftpd_mfmt` — upload, `MLST` shows the local mtime (AC9).
+- `fn preserve_timestamps_proftpd_mfmt` — `proftpd-plain`: upload with `preserve_timestamps`, `MLST` shows the local mtime (AC9).
 
 ## Out of scope
 

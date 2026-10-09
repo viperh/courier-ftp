@@ -18,12 +18,13 @@ file. A 100 000-item queue stays fast to edit and to render.
   `ServerIdentity`, `Direction`, `Credentials`, `core::Error`; T04 gives `TransferId` and
   `CoreEvent::QueueChanged`; T03 gives `ConnectInfo` and `WriteMode`; T05 gives
   `Settings` with `queue.persist`, `transfers.*`, and the enums `ExistsAction` and
-  `TransferTypeChoice`; T30 gives `VaultEngine` and the LMK; T82 gives the
-  `device_blobs(name, envelope)` table; T81 gives `ItemId` (site ids are item ids).
+  `TransferTypeChoice`, and `SharedSettings`; T30 gives `VaultEngine` (implements this
+  task's `DeviceBlobStore`), T80 the device-blob seal, T82 the `device_blobs(name,
+  envelope)` table; T81 gives `ItemId` (site ids are item ids).
 - After: T41 runs the queue (scheduler index, state transitions, `completed` ranges);
   T41b stores segment progress in `completed`; T42 reads `on_exists`; T43 expands
-  directory placeholders in place; T41 reads `QueueCounts` for `EngineStats`; T56 renders rows from
-  `Queue::rows`; T62 builds items (`build_transfer_items`) and calls `Queue::add_batch`.
+  directory placeholders in place; T41 reads `QueueCounts` for `EngineStats`; T56 renders
+  rows from `Queue::rows`; T62 builds items (`build_transfer_items`) and calls `Queue::add_batch`.
 
 ## Technical specification
 
@@ -53,7 +54,7 @@ pub enum QueueServer {
     Site { site_id: ItemId, label: String },
     /// Quickconnect / ad-hoc server. Holds the full `ConnectInfo` including secrets
     /// (`SecretString`, never logged, never in `Debug`).
-    Adhoc { info: Box<ConnectInfo>, label: String },
+    Adhoc { info: Arc<ConnectInfo>, label: String },
 }
 impl QueueServer {
     /// Grouping and limit key (see Behaviour §Groups).
@@ -139,7 +140,7 @@ pub enum ItemState {
     Failed { at: OffsetDateTime, kind: FailureKind },
     Done { outcome: DoneOutcome, finished_at: OffsetDateTime, bytes: u64, duration: Duration },
 }
-pub enum WaitReason { RetryDelay, ServerBlocked }
+pub enum WaitReason { RetryDelay }          // blocked groups keep their items Queued (T41)
 pub enum ActivePhase { Connecting, Listing, Preparing, AwaitingUser, Transferring, Finishing }
 pub enum FailureKind { Transient, Permanent, Cancelled }   // Transient = retries exhausted
 pub enum DoneOutcome { Transferred, Resumed, Skipped(SkipReason), Expanded }
@@ -224,7 +225,8 @@ Persistence (`queue::persist`):
 
 ```rust
 /// Device-local encrypted blob storage. Implemented by `VaultEngine` (T30) on top of
-/// `device_blobs` (T82), sealed with the LMK. Returns `Error::VaultLocked` when locked.
+/// `device_blobs` (T82), sealed by T80 `seal_device_blob` with the LMK-wrapped device key.
+/// The vault's `Locked` error is mapped to `Error::VaultLocked`.
 #[async_trait]
 pub trait DeviceBlobStore: Send + Sync {
     async fn put_blob(&self, name: &str, plaintext: Zeroizing<Vec<u8>>) -> Result<()>;
@@ -234,7 +236,7 @@ pub trait DeviceBlobStore: Send + Sync {
 
 pub const QUEUE_BLOB_NAME: &str = "transfer-queue";
 
-pub fn encode_snapshot(q: &Queue) -> Result<Zeroizing<Vec<u8>>>;   // CBOR + zstd, see formats
+pub fn encode_snapshot(q: &Queue) -> Result<Zeroizing<Vec<u8>>>;   // CBOR, see formats
 pub fn decode_snapshot(bytes: &[u8], max_successful: u32) -> Result<Queue>;
 
 pub struct PersisterHandle { /* … */ }
@@ -246,7 +248,7 @@ impl PersisterHandle {
     pub async fn shutdown(self) -> Result<()>;
 }
 pub fn spawn_persister(queue: SharedQueue, store: Arc<dyn DeviceBlobStore>,
-                       settings: watch::Receiver<Arc<Settings>>) -> PersisterHandle;
+                       settings: SharedSettings) -> PersisterHandle;
 pub async fn load_queue(store: &dyn DeviceBlobStore, settings: &Settings) -> Result<Queue>;
 ```
 
@@ -377,8 +379,10 @@ Settings (both already listed in T05 with this task as owner):
 | `queue.persist` | bool | `true` | T05 |
 | `queue.max_successful` | u32 | `1000` | 0–100 000; validation clamps, warns |
 
-**Snapshot blob** `device_blobs.name = "transfer-queue"`, plaintext before LMK sealing:
-`zstd(level 3, cbor(QueueSnapshotV1))`; decompressed size capped at 256 MiB.
+**Snapshot blob** `device_blobs.name = "transfer-queue"`, plaintext = `cbor(QueueSnapshotV1)`.
+T80's `seal_device_blob` compresses it (zstd level 3), encrypts it with the device key and
+binds the name in the AAD; `open_device_blob` caps the plaintext at 256 MiB (a 100 000-item
+queue is about 30 MiB).
 
 ```text
 QueueSnapshotV1 = {
@@ -400,7 +404,7 @@ ItemDto = { "id": u64, "s": uint /*server ref*/, "k": "f"|"d"|"r", "dir": 0|1 /*
             "dx": { "rp": text?, "lc": [text], "depth": u16 }? }
 ```
 
-The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output too.
+The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`.
 
 **Export JSON** (`*.cftp-queue.json`, UTF-8, pretty-printed):
 
@@ -436,7 +440,8 @@ The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output
 ### Security and logging
 
 - The snapshot contains hosts, user names, paths and ad-hoc passwords: it is only stored
-  LMK-sealed in `device_blobs` and never synced (D4). Plaintext buffers are `Zeroizing`.
+  sealed with the LMK-wrapped device key in `device_blobs` and never synced (D4).
+  Plaintext buffers are `Zeroizing`.
 - `QueueServer::Adhoc` holds `ConnectInfo` with `SecretString`; `Debug` for `QueueServer`
   and `QueueItem` is hand-written and prints `label` only for the server.
 - Export never contains a password, passphrase or key material (canary test, AC5). The
@@ -449,7 +454,7 @@ The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output
 
 ## Implementation steps
 
-1. `TransferId`, `Direction`, `Priority`, `ItemState` and friends, `RangeSet` with unit and
+1. `TransferId::UNASSIGNED`, `Priority`, `ItemState` and friends, `RangeSet` with unit and
    property tests.
 2. `QueueServer`, `GroupKey`, interning, `QueueItem` builders, hand-written `Debug`.
 3. `Queue` core: `add_batch`, `remove`, order keys with renumbering, `rows`/`row_count`,
@@ -459,8 +464,8 @@ The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output
 5. User operations: move, priority, pause/resume, requeue, clear lists, successful cap.
 6. Property test against a reference model; criterion benches + gates in
    `scripts/bench-gates.toml`.
-7. Snapshot encode/decode (CBOR + zstd), `DeviceBlobStore` trait, `VaultEngine` impl (T30
-   side, sealing with the LMK), `load_queue`.
+7. Snapshot encode/decode (CBOR), `DeviceBlobStore` trait (implemented by T30's
+   `VaultEngine`), `load_queue`.
 8. Persister task (debounce, locked-vault retry, `flush`, `has_unsaved_changes`).
 9. Export/import JSON with `SiteLookup`; fuzz target + property test.
 
@@ -532,9 +537,6 @@ Covered by T41/T76 scenarios (queue survives an app restart in `PtyApp`: quit wi
 
 1. Should FileZilla's exported queue XML be importable (FEATURES §5 says "import and
    export"; our export is courier-ftp JSON only)?
-2. Inconsistency for T30's owner: T30 lists "LMK → device-local encrypted data (queue)"
-   but defines no API; this task needs `DeviceBlobStore` (`put_blob`/`get_blob`/
-   `delete_blob`, AAD `"courier-ftp-device-blob-v1" || name`) implemented by `VaultEngine`.
-3. Inconsistency for T62's owner: T62 sets a field `is_dir_placeholder`; the item now has
+2. Inconsistency for T62's owner: T62 sets a field `is_dir_placeholder`; the item now has
    `kind: QueueItemKind` with builder `QueueItem::dir_placeholder(..)` and method
    `is_dir_placeholder()`. `delete_source_after` (T62 Open question 1) is added here.
