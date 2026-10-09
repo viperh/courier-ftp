@@ -44,8 +44,8 @@ Module `crates/courier-ftp/src/components/file_list/` with files `mod.rs` (compo
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Side { Local, Remote }
 
-/// Identifies one pane. `TabId` is defined here (`crate::tabs::TabId(u32)`);
-/// before T61 the only tab is `TabId(0)`. T61 reuses the type.
+/// Identifies one pane. `TabId` (`crate::tabs::TabId(u32)`) is created by T55;
+/// before T61 the only tab is `TabId(0)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PaneId { pub tab: TabId, pub side: Side }
 
