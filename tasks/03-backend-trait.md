@@ -35,11 +35,14 @@ Module `courier_ftp_core::backend` (`backend/{mod,types,connect_info,factory,ses
 1.75) is not dyn-compatible, and we need `Box<dyn Backend>` chosen at runtime; the boxed
 future per call is negligible next to network I/O. sverb uses the same approach.
 
-**Cancellation convention (applies to all of core):** `Backend` methods take no
-`CancellationToken`. An operation is cancelled by dropping its future. Top-level entry points
-(`SessionHandle` methods, engine tasks) take `&CancellationToken` and `select!` on it. Every
-backend must stay consistent when a future is dropped at any `.await`: afterwards it is
-either usable or reports `is_connected() == false` (the `SessionHandle` then reconnects).
+**Cancellation convention (applies to all of core):** the two long-running methods,
+`connect` (may wait for user prompts) and `list` (large directories), take a
+`CancellationToken` and must return `Error::Cancelled` within 100 ms of it firing. All other
+methods are cancelled by dropping their future. Top-level entry points (`SessionHandle`
+methods, engine tasks) take `&CancellationToken`, pass child tokens to `connect`/`list`, and
+`select!` on the token for the rest. Every backend must stay consistent when a future is
+dropped at any `.await`: afterwards it is either usable or reports
+`is_connected() == false` (the `SessionHandle` then reconnects).
 Every network wait inside a backend is bounded by `connection.timeout_secs` of inactivity
 (FileZilla semantics: no data for N seconds), so nothing hangs forever even without a token.
 
@@ -62,14 +65,14 @@ pub trait Backend: Send {
     fn security_info(&self) -> SessionSecurityInfo;
 
     /// Open the session: TCP/proxy (T07), TLS/SSH, host-key/cert trust and login prompts (T04).
-    async fn connect(&mut self) -> Result<()>;
+    async fn connect(&mut self, cancel: CancellationToken) -> Result<()>;
     /// Polite close (FTP QUIT with 2 s wait, SSH disconnect). Never fails because the peer is gone.
     async fn disconnect(&mut self) -> Result<()>;
 
     /// Initial directory after login (FTP PWD, SFTP realpath("."), local home).
     async fn home_dir(&mut self) -> Result<RemotePath>;
     /// List `dir`. NotFound / PermissionDenied when the server says so.
-    async fn list(&mut self, dir: &RemotePath) -> Result<Listing>;
+    async fn list(&mut self, dir: &RemotePath, cancel: CancellationToken) -> Result<Listing>;
     /// Metadata of one path. Does NOT follow a final symlink, but fills `target_kind`.
     async fn stat(&mut self, path: &RemotePath) -> Result<Entry>;
 

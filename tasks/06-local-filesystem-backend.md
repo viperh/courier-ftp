@@ -56,6 +56,10 @@ pub mod path_map {
 pub fn sanitize_local_name(name: &str, replacement: char) -> String;
 /// True if `name` needs no change on this OS (sanitize_local_name(name, _) == name).
 pub fn is_valid_local_name(name: &str) -> bool;
+/// Fuzz body `remote_name_sanitize` (T91 §7), also a property test: for any input the
+/// result is non-empty, not "."/"..", has no separator, NUL or control character and (on
+/// Windows) is not a reserved device name.
+pub fn fuzz_sanitize_local_name(data: &[u8]);
 
 /// Free bytes available to this user on the volume holding `path` (T42 preallocate
 /// warning, T41 disk-full handling). Uses `fs4::available_space`.
@@ -76,8 +80,10 @@ name containing '\' is just a character. Non-UTF-8 names cannot be represented (
 **home_dir:** `directories::BaseDirs::home_dir()` mapped with `from_native`; if unavailable,
 the root `/`.
 
-**list(dir):** whole listing in one `spawn_blocking` using `std::fs` (tokio's per-call
-blocking would cost two thread hops per entry):
+**list(dir, cancel):** whole listing in one `spawn_blocking` using `std::fs` (tokio's per-call
+blocking would cost two thread hops per entry). The blocking loop checks
+`cancel.is_cancelled()` every 256 entries and returns `Cancelled`; the async side also
+returns `Cancelled` as soon as the token fires (the blocking task finishes on its own):
 1. Windows virtual root `/`: probe drives `A:`–`Z:` concurrently (`Path::try_exists` on
    `X:\`, each in the blocking pool) with an overall limit of 1 s; drives that answer
    `true` in time are listed as `Dir` entries named `"C:"`; drives that time out are
@@ -154,9 +160,11 @@ partial file stays for resume, FileZilla behaviour). Transfer-in-progress rules 
 
 **sanitize_local_name(name, replacement)** (the replacement char is validated by T05 to be
 safe on every OS):
-1. Replace every character invalid on the current OS with `replacement`:
-   - Windows: `< > : " / \ | ? *` and U+0000–U+001F;
-   - Unix and macOS: `/` and NUL.
+1. Replace every character invalid or unsafe on the current OS with `replacement`:
+   - all OSes: C0 control characters U+0000–U+001F and DEL U+007F (a name with an escape
+     sequence must not reach a later `ls` in a terminal, T91);
+   - Windows additionally: `< > : " / \ | ? *`;
+   - Unix and macOS additionally: `/`.
 2. Windows only: replace trailing `.` and space characters (one replacement per char),
    because Windows strips them silently; reserved device names `CON`, `PRN`, `AUX`, `NUL`,
    `COM1`–`COM9`, `LPT1`–`LPT9` and `COM¹ COM² COM³ LPT¹ LPT² LPT³` — compared
@@ -221,8 +229,9 @@ The UI shows the Display text; for `Io` it is the OS message.
 - [ ] AC5 Windows: listing `/` returns existing drives within 1 s; `/C:/Windows` lists;
   `\\?\` and UNC paths map both ways.
 - [ ] AC6 `sanitize_local_name` covers every Windows reserved name case-insensitively, with
-  and without extension, trailing dots/spaces, and all invalid characters; `.`/`..`/empty
-  are never returned.
+  and without extension, trailing dots/spaces, all invalid characters and control
+  characters; `.`/`..`/empty are never returned; the `remote_name_sanitize` fuzz target
+  exists (T91 §7).
 - [ ] AC7 Non-UTF-8 names (Unix) are skipped with one Status line giving the count.
 - [ ] AC8 `ResumeAt(n)` produces byte-identical files; preallocation never changes the file
   length (Linux test checks `metadata.len()` after `open_write` with a hint).
@@ -235,11 +244,12 @@ The UI shows the Display text; for `Io` it is the OS message.
 - `#[cfg(windows)] path_map_windows_drives_and_unc` — `/C:/Users/u` ↔ `C:\Users\u`; `/UNC/srv/share/d` ↔ `\\srv\share\d`; `\\?\C:\x` → `/C:/x`; `/foo` → InvalidInput. (AC5)
 - `sanitize_unix_table` — `"a/b"`→`"a_b"`, `"a\0b"`→`"a_b"`, `"con.txt"` unchanged, `".."`→`"__"`, `""`→`"_"`. (AC6)
 - `#[cfg(windows)] sanitize_windows_table` — every char of `<>:"/\|?*`, `"\x01"`, `"name. "`→`"name__"`, `"CON"`→`"CON_"`, `"con.tar.gz"`→`"con_.tar.gz"`, `"Com1"`→`"Com1_"`, `"LPT¹"`→`"LPT¹_"`, `"CONSOLE"` unchanged. (AC6)
-- `prop_sanitized_name_is_valid` — random strings → `is_valid_local_name(sanitize(..))` and never `""`/`"."`/`".."` (property test, 10 000 cases). (AC6)
 - `capabilities_per_os`. (AC1)
+- `sanitize_replaces_control_chars_everywhere` — `"a\x1b[31mb"` → `"a_[31mb"`, `"\x7f"` → `"_"`. (AC6)
 
 ### Property / fuzz tests
-- `prop_sanitized_name_is_valid` (above). (AC6)
+- `prop_sanitized_name_is_valid` — random strings → `is_valid_local_name(sanitize(..))`, never `""`/`"."`/`".."`, no control chars (10 000 cases; body = `fuzz_sanitize_local_name`). (AC6)
+- `prop_sanitized_name_stays_inside_target` (T91 AC9) — arbitrary names; `target.join(sanitize_local_name(n))` normalised starts with `target` and has exactly one more component. (AC6)
 
 ### Snapshot tests
 Not applicable.

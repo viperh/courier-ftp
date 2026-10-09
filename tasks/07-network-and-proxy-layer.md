@@ -2,7 +2,7 @@
 
 **Phase:** A Foundation · **Milestone:** M2 · **Depends on:** T02, T04, T05 · **Crate(s):** `courier-ftp-core` (`net` module) · **Decisions:** D1, D2 · **FEATURES.md:** §1 (IPv6, HTTP/1.1 CONNECT and SOCKS4/5 proxies, timeouts)
 **Related (integrates with, not blocking):** T11, T31
-**Reference:** sverb `crates/sverb-conn/src/ssh/tcp.rs` (DNS, Happy Eyeballs, `STAGGER`), `crates/sverb-conn/src/proxy/{mod,http_connect,socks5}.rs` (HTTP CONNECT in-house with `PrefixedStream`, SOCKS5 via `tokio-socks`, readable error messages)
+**Reference:** sverb `crates/sverb-conn/src/ssh/tcp.rs` (DNS, Happy Eyeballs, `STAGGER`), `crates/sverb-conn/src/proxy/{mod,http_connect,socks5}.rs` (HTTP CONNECT in-house with `PrefixedStream`, SOCKS5 reply-code messages; courier-ftp hand-writes SOCKS instead of using `tokio-socks` so the reply parsers are fuzzable)
 
 ## Goal
 
@@ -97,13 +97,33 @@ impl NetStream {
     pub fn set_socket_buffer(&self, bytes: usize);
 }
 
-/// Dial `target` with `opts`, logging Status/debug lines to `log`.
-/// Cancel by dropping the future (T03 convention).
-pub async fn connect_tcp(target: &HostPort, opts: &NetOpts, log: &SessionLog) -> Result<NetStream>;
+/// Dial `target` with `opts`, logging Status/debug lines to `log` (T04 SessionLog: the
+/// session id plus the EventSender). Returns Cancelled within 100 ms of `cancel` firing;
+/// dropping the future cancels too (T03 convention).
+pub async fn connect_tcp(target: &HostPort, opts: &NetOpts, cancel: CancellationToken,
+                         log: &SessionLog) -> Result<NetStream>;
+/// Our end of the connection, for FTP active mode PORT/EPRT (T11) = stream.local_addr().
+pub fn local_addr_for(stream: &NetStream) -> SocketAddr;
 
 /// Pure parser for the proxy's CONNECT response head (fuzz target `http_connect_response`).
 pub fn parse_connect_response(head: &[u8]) -> Result<ConnectResponse, HttpConnectError>;
 pub struct ConnectResponse { pub code: u16, pub reason: String /* sanitised */, pub header_len: usize }
+/// HttpConnectError: AuthRequired { sent: bool } | Status { code, reason } | HeadersTooLarge |
+/// Timeout | Malformed(String) | Closed | Io(io::Error) — sverb's enum, mapped to core Error below.
+
+/// Pure SOCKS reply parsers (hand-written SOCKS client; fuzz target `socks_reply`).
+/// Ok(None) = need more bytes; Ok(Some((reply, consumed))) = complete.
+pub fn parse_socks5_method_reply(buf: &[u8]) -> Result<Option<(u8 /*method*/, usize)>, SocksError>;
+pub fn parse_socks5_auth_reply(buf: &[u8]) -> Result<Option<(bool /*ok*/, usize)>, SocksError>;
+pub fn parse_socks5_connect_reply(buf: &[u8]) -> Result<Option<(Socks5Reply, usize)>, SocksError>;
+pub fn parse_socks4_reply(buf: &[u8]) -> Result<Option<(u8 /*code 0x5A-0x5D*/, usize)>, SocksError>;
+pub struct Socks5Reply { pub code: u8, pub bound: SocketAddrOrDomain }
+pub enum SocketAddrOrDomain { Addr(SocketAddr), Domain(String, u16) }
+/// SocksError: BadVersion(u8) | Malformed(&'static str) | ReplyCode(u8) | NoAcceptableMethod.
+
+/// Fuzz bodies (T91 §7), also run as property tests: never panic on any input.
+pub fn fuzz_http_connect_response(data: &[u8]);   // whole input and every 2-way split
+pub fn fuzz_socks_reply(data: &[u8]);             // all four SOCKS parsers
 
 /// Minimal HTTP/1.0 GET over `connect_tcp` for `http://` URLs only (T11 "get external IP
 /// from URL"). Status 200 required, no redirects, body ≤ `max_body` bytes (≤ 4096),
@@ -149,21 +169,29 @@ pub async fn http_get_small(url: &str, opts: &NetOpts, log: &SessionLog, max_bod
      connection; otherwise `Proxy("authentication failed (407)")`. Other codes →
      `Proxy("CONNECT refused (<code> <reason>)")` with the reason sanitised (printable ASCII,
      ≤ 80 chars). A user name containing ':' → `InvalidInput` (Basic auth cannot encode it).
-   - **SOCKS5** (`tokio-socks`): the target is sent **by name** (ATYP domain, DNS at the
-     proxy; IP literals as addresses). Methods: no-auth, or RFC 1929 user/password when
-     credentials exist. Reply errors → `Proxy("<readable message>")` using sverb's
-     `socks_message` table (connection refused by destination, host unreachable, …).
-   - **SOCKS4/4a** (`tokio-socks`): IPv4 literal → SOCKS4; hostname → SOCKS4a (name sent to
-     the proxy); IPv6 literal → `Unsupported("SOCKS4 cannot connect to IPv6 addresses")`.
-     USERID = `user`. Reply 0x5B–0x5D → `Proxy("request rejected (<code>)")`.
+   - **SOCKS5** (RFC 1928, hand-written): greeting offers `0x00` (no auth) and, when
+     credentials exist, `0x02` (RFC 1929 user/password; user and password ≤ 255 bytes each,
+     else `InvalidInput`). Method `0xFF` → `Proxy("authentication required (no acceptable
+     method)")`. CONNECT with the target **by name** (ATYP `0x03`, ≤ 255 bytes; DNS at the
+     proxy), IP literals as ATYP `0x01`/`0x04`. Reply code ≠ 0 → `Proxy("<message>")` from
+     the table: 1 general SOCKS server failure, 2 connection not allowed by the proxy's
+     rules, 3 destination network unreachable, 4 destination host unreachable,
+     5 connection refused by destination, 6 TTL expired, 7 CONNECT not supported,
+     8 address type not supported (sverb `socks_message` wording). Bound-address bytes are
+     read and discarded; replies are parsed with the pure functions above.
+   - **SOCKS4/4a** (hand-written): IPv4 literal → SOCKS4; hostname → SOCKS4a (IP
+     `0.0.0.1`, name appended; DNS at the proxy); IPv6 literal →
+     `Unsupported("SOCKS4 cannot connect to IPv6 addresses")`. USERID = `user` (≤ 255 bytes,
+     NUL-terminated). Reply `0x5A` = granted; `0x5B`–`0x5D` →
+     `Proxy("request rejected (<code>)")`; any other byte → `Proxy("invalid SOCKS4 reply")`.
 4. Status `Connection established through proxy`. `target_ip()` is None.
 
 **Inbound connections:** `ProxyConfig::allows_inbound()` is false for every proxy. T11 must
 check it before active mode and return `Unsupported("active mode FTP does not work through
 an HTTP or SOCKS proxy; use passive mode")` and log it as an Error line.
 
-**Cancellation:** dropping the `connect_tcp` future drops all pending attempts and the
-proxy handshake immediately (no detached tasks). Callers with a token use `select!`.
+**Cancellation:** `cancel` firing, or dropping the `connect_tcp` future, drops all pending
+attempts and the proxy handshake immediately (no detached tasks) → `Error::Cancelled`.
 
 **Settings snapshot:** `NetOpts::from_settings` copies values at dial time; later setting
 changes affect only new connections.
@@ -177,7 +205,7 @@ changes affect only new connections.
 | `proxy.generic.kind/host/port/user/password_ref` | `ProxyConfig::from_settings` |
 
 Wire formats: HTTP CONNECT request/response as above; SOCKS4/4a (de facto spec),
-SOCKS5 (RFC 1928) + RFC 1929. New dependencies: `socket2`, `tokio-socks`, `base64`.
+SOCKS5 (RFC 1928) + RFC 1929. New dependencies: `socket2`, `base64` (no SOCKS crate).
 
 ### Errors
 
@@ -200,7 +228,8 @@ Messages name the proxy or target host (shown to the user and in the session log
   `ProxyCredentials`/`ProxyConfig` Debug is redacted.
 - Proxy responses are untrusted: header size cap 16 KiB, timeout, reason phrase sanitised;
   `parse_connect_response` is a fuzz target (T91 §7) whose body is also a property test.
-  SOCKS replies are parsed by `tokio-socks`; a hostile in-process SOCKS server test covers
+  SOCKS replies are parsed by the pure parsers (fuzz target `socks_reply`); a hostile
+  in-process SOCKS server test covers
   truncated and invalid replies.
 - `http_get_small` caps the body at 4 KiB, refuses redirects and `https://`, and its result
   is validated by the caller (T11 parses an `IpAddr`).
@@ -216,7 +245,7 @@ Messages name the proxy or target host (shown to the user and in the session log
    `NetStream` (`PrefixedStream` wrapper, addresses).
 3. `ProxyConfig`, `ProxyCredentials`, `from_settings`, `allows_inbound`.
 4. HTTP CONNECT: `parse_connect_response`, request builder, 407 prompt-and-retry.
-5. SOCKS5 and SOCKS4/4a via `tokio-socks` with readable errors.
+5. SOCKS5 and SOCKS4/4a (pure reply parsers + handshake) with readable errors.
 6. `http_get_small`.
 7. In-process fake proxies and tests; fuzz target `http_connect_response`.
 
@@ -229,7 +258,8 @@ Messages name the proxy or target host (shown to the user and in the session log
 - [ ] AC3 Happy Eyeballs: with a first address that hangs, the second attempt starts at
   250 ms and wins (paused time).
 - [ ] AC4 Timeout: a dial that never completes returns `Timeout` at `timeout` ± 100 ms; a
-  dial whose future is dropped (token fired) stops within 100 ms and leaves no task running.
+  dial whose `cancel` token fires returns `Cancelled` within 100 ms; a dropped dial future
+  leaves no task running.
 - [ ] AC5 HTTP CONNECT works against an in-process proxy with and without Basic auth,
   replays early bytes, maps 407/403/malformed/oversized responses to the listed errors, and
   asks for a password once on 407 when none is stored.
@@ -238,8 +268,9 @@ Messages name the proxy or target host (shown to the user and in the session log
 - [ ] AC7 `allows_inbound()` is false for every proxy kind.
 - [ ] AC8 Canary proxy password never appears in session log lines, `tracing` output or
   `Debug` output during the proxy tests.
-- [ ] AC9 `parse_connect_response` never panics (property test, 10 000 random inputs) and
-  the fuzz target exists in `fuzz/` (T91).
+- [ ] AC9 `fuzz_http_connect_response` and `fuzz_socks_reply` never panic (property tests,
+  10 000 random inputs each) and the fuzz targets `http_connect_response` and `socks_reply`
+  exist in `fuzz/` (T91 §7).
 - [ ] AC10 T00 CI gates pass.
 
 ## Tests
@@ -255,7 +286,8 @@ Messages name the proxy or target host (shown to the user and in the session log
 - `proxy_config_debug_redacted`. (AC8)
 
 ### Property / fuzz tests
-- `prop_parse_connect_response_never_panics` — body shared with the `http_connect_response` fuzz target. (AC9)
+- `prop_fuzz_http_connect_response_never_panics` and `prop_fuzz_socks_reply_never_panics` — the fuzz bodies on random bytes. (AC9)
+- `socks_parsers_table` — partial input → `Ok(None)`; complete replies for IPv4/IPv6/domain bound addresses; version byte ≠ 5 → BadVersion; domain length overflow → Malformed. (AC6, AC9)
 - `prop_happy_eyeballs_first_success_wins` — random per-address delays/failures with a mock dialer (paused time): result is the earliest successful address in start order. (AC3)
 
 ### Snapshot tests
@@ -267,7 +299,8 @@ Not applicable.
 - `status_lines_logged` — Resolving / Connecting / Connection established in order. (AC1)
 - `happy_eyeballs_stagger_250ms` — mock dialer where the first address never completes. (AC3)
 - `dial_timeout_returns_timeout` — mock dialer never completes, timeout 5 s, paused time. (AC4)
-- `dropped_dial_leaves_no_tasks` — select! with a token fired at 1 s; tokio `RuntimeMetrics::num_alive_tasks()` back to baseline. (AC4)
+- `cancel_token_returns_cancelled` — token fired at 1 s while the dial hangs → `Cancelled` by 1.1 s (paused time). (AC4)
+- `dropped_dial_leaves_no_tasks` — the dial future dropped mid-race; tokio `RuntimeMetrics::num_alive_tasks()` back to baseline. (AC4)
 - `blackhole_connect_times_out` — real dial to `10.255.255.1:9`, timeout 2 s; `#[ignore]` (depends on CI network). (AC4)
 - `http_connect_no_auth`, `http_connect_basic_auth`, `http_connect_replays_early_bytes` (proxy writes `220 hi\r\n` right after the 200 response), `http_connect_407_prompts_once_then_fails`, `http_connect_403_is_proxy_error`, `http_connect_oversized_headers`. (AC5)
 - `socks5_no_auth_domain_target` (fake proxy asserts ATYP 0x03 and the name), `socks5_user_password`, `socks5_host_unreachable_message`, `socks5_truncated_reply_is_proxy_error`. (AC6)
