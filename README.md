@@ -12,39 +12,51 @@ The workspace deliberately splits the UI from everything else:
 
 ```
 Cargo.toml              workspace manifest — all dependency versions live here
-.config/config.json     default keybindings and styles, baked into the binary
 .envrc                  direnv: keep config/data/logs inside the repo
 crates/
-  courier-ftp/          the binary: terminal, rendering, input, config, logging
-    build.rs            vergen — stamps git/build info into the version string
+  courier-ftp/            A terminal FTP, FTPS and SFTP client (the binary: terminal,
+                          rendering, input, config, logging, directory resolution)
+    build.rs              vergen — stamps git/build info into the version string
+    config/config.json    default keybindings and styles, baked into the binary
     src/
-      main.rs           entry point
-      app.rs            event loop, mode handling, component dispatch
-      action.rs         the Action enum every component speaks
-      components.rs     the Component trait
+      main.rs             entry point
+      app.rs              event loop, mode handling, component dispatch
+      action.rs           the Action enum every component speaks
+      components.rs       the Component trait
       components/
-        home.rs         default screen — copy this shape for new components
-      cli.rs            clap argument parsing
-      config.rs         layered config, keybinding and style parsing
-      errors.rs         panic hooks, color-eyre, human-panic
-      logging.rs        tracing subscriber writing to a log file
-      tui.rs            terminal setup/teardown and the crossterm event stream
-  courier-ftp-core/     domain logic: model, Backend trait, settings, vault, sites,
-                        queue and transfer engine, filters, compare, search, paths
-  courier-ftp-proto-ftp/  own FTP/FTPS client on tokio + rustls (Backend impl)
-  courier-ftp-proto-sftp/ SFTP client on russh + russh-sftp (Backend impl)
-  courier-ftp-crypto/   key hierarchy, item envelopes, HPKE, OPAQUE; pure, no I/O
-  courier-ftp-store/    local SQLite store of individually encrypted items
-  courier-ftp-proto/    sync wire types shared by the sync client and server
-  courier-ftp-sync/     sync client: account, devices, pull/push, live updates
-                        (optional: the binary's `sync` feature, on by default)
-  courier-ftp-server/   self-hosted, end-to-end encrypted sync server (binary)
+        home.rs           default screen — copy this shape for new components
+      cli.rs              clap argument parsing
+      config.rs           layered config, keybinding and style parsing
+      errors.rs           panic hooks, color-eyre, human-panic
+      logging.rs          tracing subscriber writing to a log file
+      paths.rs            AppPaths: config, data and cache directories
+      tui.rs              terminal setup/teardown and the crossterm event stream
+  courier-ftp-core/       Domain logic for courier-ftp, independent of any user interface
+  courier-ftp-proto-ftp/  FTP and FTPS client for courier-ftp
+  courier-ftp-proto-sftp/ SFTP client for courier-ftp, built on russh
+  courier-ftp-crypto/     Cryptography for the courier-ftp vault and sync (no I/O)
+  courier-ftp-store/      SQLite store for courier-ftp's encrypted items
+  courier-ftp-proto/      Wire types of the courier-ftp sync protocol
+  courier-ftp-sync/       Sync client for courier-ftp (optional: the binary's `sync`
+                          feature, on by default)
+  courier-ftp-server/     Self-hosted sync server for courier-ftp (binary)
 ```
 
-`courier-ftp-core`, the protocol crates, crypto, store, proto, sync and server
-never depend on `ratatui`, `crossterm` or `clap`. Keeping the domain there means
-it can be unit tested without a TTY. The server never depends on the client
-crates, so its heavy dependencies stay out of the client build.
+Dependency direction (`a ← b`: `b` depends on `a`):
+
+```
+crypto ← store ← core
+crypto ← proto ← core
+core ← {proto-ftp, proto-sftp} ← sync ← courier-ftp
+server ← {proto, crypto}
+```
+
+That is, core → store → crypto, and the store never depends on core. The server
+never depends on a client crate, so its heavy dependencies stay out of the client
+build. Only the `courier-ftp` binary may use `ratatui`, `crossterm` or `clap` (the
+server may use `clap` for its admin CLI): the core, the protocol crates, crypto,
+store, proto and sync stay UI-free and testable without a TTY.
+`scripts/check-layering.py` (CI job `layering`) enforces all of this.
 
 ## Running
 
@@ -53,7 +65,7 @@ cargo run -p courier-ftp
 ```
 
 `q`, `Ctrl-c` and `Ctrl-d` quit; `Ctrl-z` suspends. Rebind in
-`.config/config.json`.
+`crates/courier-ftp/config/config.json`.
 
 ```sh
 cargo run -p courier-ftp -- --tick-rate 4 --frame-rate 60
@@ -62,15 +74,30 @@ cargo run -p courier-ftp -- --version    # prints git info and the resolved dire
 
 ## Configuration
 
-Defaults are compiled in from `.config/config.json`. At startup the app also
-looks in the per-user config directory (printed by `--version`) for
-`config.json5`, `config.json`, `config.yaml`, `config.toml` or `config.ini`,
-and layers whatever it finds on top. Set `COURIER_FTP_CONFIG` to override that
-directory outright.
+Defaults are compiled in from `crates/courier-ftp/config/config.json`. At startup the
+app also looks in the config directory (printed by `--version`) for `config.json5`,
+`config.json`, `config.yaml`, `config.toml` or `config.ini`, and layers whatever it
+finds on top.
 
-`COURIER_FTP_HOME=P` moves everything under one root: the config directory
-becomes `P/config` and the data directory `P/data` (tests and CI use this).
-`COURIER_FTP_CONFIG` and `COURIER_FTP_DATA` still win over it.
+courier-ftp uses three directories: **config** (configuration files), **data** (vault,
+logs, crash reports) and **cache** (disposable files such as edit copies). These
+environment variables move them:
+
+| Variable | Effect |
+|---|---|
+| `COURIER_FTP_HOME=P` | Everything under one root: `P/config`, `P/data`, `P/cache` (tests and CI use this). |
+| `COURIER_FTP_CONFIG=D` | The config directory is `D` (wins over `COURIER_FTP_HOME`). |
+| `COURIER_FTP_DATA=D` | The data directory is `D` (wins over `COURIER_FTP_HOME`). |
+
+Precedence, per directory (first match wins): command-line flag (`--config-dir` /
+`--data-dir`, planned) > `COURIER_FTP_CONFIG` / `COURIER_FTP_DATA` >
+`COURIER_FTP_HOME` > the platform's per-user directories (XDG on Linux,
+`~/Library/Application Support` and `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on
+Windows). The cache directory has no variable of its own. Empty values count as unset;
+relative paths are made absolute against the current directory. If none applies (for
+example no `HOME`), courier-ftp exits with an error asking you to set
+`COURIER_FTP_HOME` instead of writing into the current directory. Missing directories
+are created (mode `0700` on Unix) when the TUI starts; `--version` creates nothing.
 
 Keybindings are keyed by mode, then by key sequence: `"<Ctrl-a>"` for a single
 chord, `"<g><g>"` for a sequence. Every value must name an `Action` variant.
