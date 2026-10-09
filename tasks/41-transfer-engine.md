@@ -430,7 +430,7 @@ invariant violations (`debug_assert!`) only log at `warn` in release.
 - [ ] AC9 A connect failure (`Auth`) blocks the group: no further connection attempts to that server until `Start`.
 - [ ] AC10 `QueueFinished` is emitted exactly once per run that started ≥ 1 item, never after `Stop`.
 - [ ] AC11 Bench `transfer_engine/mock_10k_small_files` (10 000 × 4 KiB, zero-latency mocks on both sides) < 500 ms on the reference machine; gate (CI 1000 ms) in `scripts/bench-gates.toml`.
-- [ ] AC12 Docker e2e: 50 mixed-size files (0 B – 64 MiB) up and down, SHA-256 verified, against vsftpd `plain` and `explicit-tls`, proftpd, pure-ftpd and sshd `password`; and back-off against `max-1-connection`.
+- [ ] AC12 Docker e2e: 50 mixed-size files (0 B – 8 MiB) up and down, SHA-256 verified, against `vsftpd-plain`, `vsftpd-explicit-tls`, `proftpd-plain`, `pureftpd-plain` and sshd `password`; and back-off against `vsftpd-maxconn1` and sshd `maxconn1`.
 - [ ] AC13 T00 jobs `clippy`, `test-local-only`, `test-os`, `bench-build`, `e2e` pass.
 
 ## Tests
@@ -473,14 +473,18 @@ All `#[tokio::test(start_paused = true)]` with a remote `MockServer` and a secon
 ### End-to-end tests
 `crates/courier-ftp-e2e/tests/transfers.rs`, `#[ignore]`, `require_docker!`, through
 `Headless` (T76):
-- `fn queue_50_files_roundtrip_<profile>` for vsftpd `plain`, `explicit-tls`, proftpd,
-  pure-ftpd, sshd `password` — upload 50 files, download them to a new dir, SHA-256
-  equal (AC12).
-- `fn backoff_on_max_one_connection` — vsftpd `max-1-connection`, `max_concurrent = 4`;
-  all 20 files arrive, the Status line about the limit is logged (AC12, AC5).
-- `fn resume_after_connection_cut` — toxiproxy `reset_peer` after 5 MiB of a 32 MiB
-  download; the transfer completes, hash equal, the second `RETR` is preceded by `REST` (AC3).
-- `fn cancel_on_slow_profile_within_one_second` — vsftpd `slow` (AC4).
+The test names are the ones T76 lists for `transfers.rs`; this task implements them:
+- `queue_50_mixed_files_up_and_down_<ftp|sftp>` — 50 files (0 B – 8 MiB) uploaded and
+  downloaded to a new dir, SHA-256 equal; the `ftp` variant runs against `vsftpd-plain`,
+  `vsftpd-explicit-tls`, `proftpd-plain` and `pureftpd-plain`, the `sftp` variant against
+  sshd `password` (AC12).
+- `connection_limit_backoff_<ftp|sftp>` — `vsftpd-maxconn1` / sshd `maxconn1`,
+  `max_concurrent = 4`; all 20 files arrive and the limit Notice is emitted once (AC5, AC12).
+- `resume_after_cut_<ftp|sftp>` — toxiproxy `LimitData { bytes: 5 MiB }` on the first
+  connection of a 32 MiB download, then removed; the transfer completes, hash equal, the
+  second read starts at the checkpointed offset (`REST` in the FTP server log) (AC3).
+- `cancel_on_slow_profile_leaves_session_usable` — `vsftpd-slow`; cancel reaches `Paused`
+  within 1 s and the next item reuses the connection (AC4).
 
 ### Benchmarks
 `crates/courier-ftp-core/benches/transfer_engine.rs`: `transfer_engine/mock_10k_small_files`
@@ -499,11 +503,8 @@ All `#[tokio::test(start_paused = true)]` with a remote `MockServer` and a secon
    421/"too many" 530, but T10 returns `Error::Protocol { code: Some(421 | 530) }`. This
    engine accepts both at connect time; T10 should switch to `ConnectionLimit`, and T20
    should map SSH disconnect reason 12 (`TOO_MANY_CONNECTIONS`) to it as well.
-2. Inconsistency for T76's owner: the sshd `MaxSessions 1` profile limits channels per SSH
-   connection; with one SSH connection per slot it never refuses a second connection. A
-   per-user limit needs `MaxStartups 1:100:1` (pre-auth) or PAM `maxlogins 1`.
-3. Product: should a learned connection limit be remembered across restarts (per site,
+2. Product: should a learned connection limit be remembered across restarts (per site,
    device-local)? This spec keeps it for the process lifetime only, like FileZilla.
-4. Product: when connecting to a server fails (after T03's connect retries), this spec
+3. Product: when connecting to a server fails (after T03's connect retries), this spec
    blocks the whole server group until the user presses Start again, instead of failing
    each item. FileZilla instead retries per item. Confirm.

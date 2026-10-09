@@ -185,9 +185,9 @@ All `#[tokio::test(start_paused = true)]`:
 - `async fn cancelled_acquire_refunds` (AC7).
 
 ### End-to-end tests
-`crates/courier-ftp-e2e/tests/speed_limit.rs` (`#[ignore]`, `require_docker!`, `Headless`):
-`fn sftp_download_limited_to_1mib` — 20 MiB download at 1 024 KiB/s from sshd
-`password` takes 20 s ±10 % wall time (generous for CI noise).
+T76's `transfers.rs::speed_limit_within_10_percent` (`#[ignore]`, `require_docker!`,
+`Headless`), implemented by this task: a 20 MiB download at 1 024 KiB/s from sshd
+`password` takes 20 s ±10 % wall time (AC1 on a real server; generous for CI noise).
 
 ### Benchmarks
 `crates/courier-ftp-core/benches/ratelimit.rs`: `rate_limit/acquire_unlimited_1m` (AC9,
