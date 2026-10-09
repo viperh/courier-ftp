@@ -83,7 +83,10 @@ pub trait Backend: Send {
     /// Remove a file or a symlink (never its target).
     async fn remove_file(&mut self, path: &RemotePath) -> Result<()>;
     /// `replace = false`: AlreadyExists if `to` exists (checked with stat where the protocol
-    /// has no atomic no-replace rename). `replace = true`: an existing file at `to` is replaced.
+    /// has no atomic no-replace rename). `replace = true`: an existing file at `to` is
+    /// overwritten where the protocol supports it (local, mock, SFTP posix-rename, FTP
+    /// RNFR/RNTO on servers that replace); a backend that cannot overwrite returns
+    /// AlreadyExists and leaves both files unchanged (same rule in T14 and T22).
     async fn rename(&mut self, from: &RemotePath, to: &RemotePath, replace: bool) -> Result<()>;
     /// `mode` & 0o7777. Unsupported unless capabilities().chmod.
     async fn chmod(&mut self, path: &RemotePath, mode: u32) -> Result<()>;
@@ -98,7 +101,8 @@ pub trait Backend: Send {
 
     /// Custom command (§4, FTP only). Returns the reply lines joined with '\n'.
     async fn raw_command(&mut self, cmd: &str) -> Result<String>;
-    /// Keep an idle connection alive (FTP T10 random command, SFTP no-op/realpath).
+    /// Keep an idle connection alive (FTP: `NOOP`, or a random harmless command when
+    /// `ftp.send_keepalive_command = random`, T10; SFTP: realpath(".")/no-op, T22).
     async fn keepalive(&mut self) -> Result<()>;
 }
 
@@ -131,6 +135,7 @@ pub struct TransferOpts {
     pub range_len: Option<u64>,
 }
 impl Default for TransferOpts; // Binary, None, None
+impl Listing { pub const RAW_MAX: usize = 16 * 1024 * 1024; }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Listing {
@@ -139,7 +144,10 @@ pub struct Listing {
     /// no duplicate names (first one kept).
     pub entries: Vec<Entry>,
     pub fetched_at: tokio::time::Instant,
-    /// Raw server text (FTP LIST/MLSD, SFTP longnames) for T71; None for local.
+    /// Raw server text (FTP LIST/MLSD, SFTP longnames) for T71 "show raw listing"; None
+    /// for local. The only place raw text lives (`Entry` has no `raw` field). Backends cap
+    /// it at 16 MiB (`Listing::RAW_MAX`): beyond that the text is truncated at a line
+    /// boundary and ends with `"\n[truncated]"`.
     pub raw: Option<String>,
 }
 
@@ -509,6 +517,7 @@ No files or wire formats. New dependencies: `async-trait`, `tokio-util` (Cancell
 - `connect_info_debug_redacted` — Normal password, proxy passwords. (AC7)
 - `transfer_opts_default_is_binary`. (AC1)
 - `dyn_backend_is_object_safe` — `let _: Box<dyn Backend> = Box::new(mock)`. (AC2)
+- `listing_raw_max_is_16_mib` — `Listing::RAW_MAX == 16 * 1024 * 1024`. (AC1)
 
 ### Property / fuzz tests
 - `prop_mock_write_read_roundtrip` — random sequences of WriteAt/ResumeAt/Append chunks vs a `Vec<u8>` model; contents equal. (AC2)
@@ -525,7 +534,9 @@ them for `LocalBackend`, T14/T22 via T76 for real servers) — all cover AC2:
 `stat_missing_is_not_found`, `list_missing_dir_is_not_found`,
 `names_with_spaces_unicode_and_leading_dash` (`" a"`, `"b "`, `"ü ñ 日本"`, `"-rf"`, `"#x"`, `"a;b"`),
 `dotfile_is_hidden`, `rename_in_same_dir`, `rename_across_dirs`,
-`rename_without_replace_fails_if_target_exists`, `rename_with_replace_overwrites`,
+`rename_without_replace_fails_if_target_exists`, `rename_with_replace_overwrites` (a backend
+whose protocol cannot overwrite passes only with `AlreadyExists` and both files unchanged;
+it lists the case in `skip` with the reason otherwise),
 `remove_file_then_stat_not_found`, `remove_symlink_keeps_target`, `rmdir_empty_dir`,
 `rmdir_non_empty_fails`, `read_from_offset`, `read_range_len_stops_at_length`,
 `abort_read_midway_leaves_session_usable`, `resume_write_at_offset`, `append_write`,

@@ -46,11 +46,11 @@ crates/courier-ftp-core/   placeholder `Core { ticks }` + `Error::InvalidState`
 | Crate | Kind | `description` | Internal deps (normal) | Owner tasks |
 |---|---|---|---|---|
 | `courier-ftp` | bin | "A terminal FTP, FTPS and SFTP client" | core, proto-ftp, proto-sftp, crypto, store, proto, sync (optional) | T50+ |
-| `courier-ftp-core` | lib | "Domain logic for courier-ftp, independent of any user interface" | crypto, proto (added when T30/T81 need them) | T02–T07, T30–T49, T81 |
+| `courier-ftp-core` | lib | "Domain logic for courier-ftp, independent of any user interface" | crypto, proto, store (added when T30/T81 need them) | T02–T07, T30–T49, T81 |
 | `courier-ftp-proto-ftp` | lib | "FTP and FTPS client for courier-ftp" | core | T10–T15 |
 | `courier-ftp-proto-sftp` | lib | "SFTP client for courier-ftp, built on russh" | core | T20–T22 |
 | `courier-ftp-crypto` | lib | "Cryptography for the courier-ftp vault and sync (no I/O)" | — | T80 |
-| `courier-ftp-store` | lib | "SQLite store for courier-ftp's encrypted items" | core, crypto | T82 |
+| `courier-ftp-store` | lib | "SQLite store for courier-ftp's encrypted items" | crypto (never core: layering is core → store → crypto) | T82 |
 | `courier-ftp-proto` | lib | "Wire types of the courier-ftp sync protocol" | crypto | T83 |
 | `courier-ftp-sync` | lib | "Sync client for courier-ftp" | core, store, proto, crypto | T87, T88 |
 | `courier-ftp-server` | bin | "Self-hosted sync server for courier-ftp" | proto, crypto | T84–T86 |
@@ -102,6 +102,7 @@ pub mod backend;    // T03
 pub mod bookmarks;  // T33
 pub mod cache;      // T46
 pub mod compare;    // T48
+pub mod error;      // T02 (`Error`, `Result`; re-exported at the crate root)
 pub mod events;     // T04
 pub mod filters;    // T47
 pub mod hardening;  // T91 (the only module allowed to use `unsafe`)
@@ -111,17 +112,20 @@ pub mod model;      // T02, T81 (`model::item`)
 pub mod net;        // T07
 pub mod queue;      // T40
 pub mod search;     // T49
-pub mod secret;     // T30/T91
+pub mod secret;     // T02 (`Secret<T>`, `SecretString`), T30/T91 extend it
 pub mod settings;   // T05
 pub mod sites;      // T31, T32
+pub mod text;       // T20 (`sanitize_server_text`), T75 (`Localizable`, `loc!`)
 pub mod transfer;   // T41–T44, T41b
 pub mod trust;      // T12, T21 (`CertTrustStore`, `HostKeyStore`)
 pub mod vault;      // T30
 
-/// Errors produced by the core (placeholder until T02 replaces it).
+// src/error.rs — errors produced by the core (placeholder until T02 replaces it).
 #[derive(Debug, thiserror::Error)]
 pub enum Error { /* InvalidState(String) kept as is */ }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+// src/lib.rs
+pub use error::{Error, Result};
 ```
 
 **`crates/courier-ftp/src/paths.rs`** (new in this task; T70 later adds the `--config-dir` /
@@ -211,13 +215,15 @@ printing the config and data directories.
   stays until T50 replaces it. `Action::Help` stays until T51 rewrites the action list.
 - **`courier-ftp-server` skeleton**: `src/main.rs` prints `courier-ftp-server <version>`
   for `--version` and otherwise prints "courier-ftp-server: not implemented yet (T84)" to
-  stderr and exits with code 2. No clap yet.
+  stderr and exits with code 2. No clap yet (the server crate may use `clap` for its admin
+  CLI from T86 on; layering rules in T00 allow it).
 - **Library skeletons**: `src/lib.rs` with a crate doc comment (purpose, layering rule,
   owner task) and nothing else. `courier-ftp-crypto` additionally has
   `#![forbid(unsafe_code)]` (T80).
 - **README "Layout"** lists every crate with the one-line purpose from the table above
   and the dependency direction
-  `crypto ← proto ← core ← {store, proto-ftp, proto-sftp} ← sync ← courier-ftp`,
+  `crypto ← store ← core`, `crypto ← proto ← core`, `core ← {proto-ftp, proto-sftp} ← sync ← courier-ftp`
+  (i.e. core → store → crypto; store never depends on core),
   `server ← {proto, crypto}`.
 
 ### Data formats and configuration
@@ -290,6 +296,7 @@ uses yet costs nothing. Template entries `config`, `json5` (D10) stay; `better-p
 - [ ] AC2 `python3 scripts/check-layering.py` exits 0 (all-features and no-default-features graphs); `cargo tree -p courier-ftp-core -p courier-ftp-proto-ftp -p courier-ftp-proto-sftp -e normal --locked | grep -E ' (ratatui|crossterm|clap) v'` prints nothing.
 - [ ] AC3 `cargo tree -p courier-ftp --no-default-features -e normal --locked` does not contain `courier-ftp-sync`; with default features it does.
 - [ ] AC4 `grep -rn "Core\b\|tick()" crates/courier-ftp/src crates/courier-ftp-core/src` finds no template placeholder; `app.rs` has no `core` field.
+- [ ] AC11 `courier-ftp-core/src/` contains the module files `error.rs`, `secret.rs`, `trust.rs`, `listing.rs` and `text.rs` (plus the other modules in the skeleton), `courier_ftp_core::Error` resolves through the crate-root re-export of `error::Error`, and `cargo tree -p courier-ftp-store -e normal --locked` does not contain `courier-ftp-core`.
 - [ ] AC5 `COURIER_FTP_HOME=/tmp/x cargo run -p courier-ftp -- --version` prints `/tmp/x/config` and `/tmp/x/data` (and creates neither); with `COURIER_FTP_CONFIG=/tmp/c` also set, the config line shows `/tmp/c`.
 - [ ] AC6 With no `HOME` and no override (`env -i cargo run …` on Linux) the binary exits 1 with the `COURIER_FTP_HOME` message and creates no `./.data`.
 - [ ] AC7 `courier-ftp-server --version` prints `courier-ftp-server 0.1.0`.
@@ -318,6 +325,7 @@ Not applicable (no UI change; `Home` stays).
 - `crates/courier-ftp/tests/version.rs::fn version_prints_overridden_dirs` — runs `env!("CARGO_BIN_EXE_courier-ftp") --version` with `COURIER_FTP_HOME` set to a temp dir and checks both paths in stdout (AC5).
 - `crates/courier-ftp/tests/version.rs::fn no_home_fails_without_writing_cwd` (`#[cfg(target_os = "linux")]`) — runs the binary with an empty environment in a temp cwd; exit code 1, stderr mentions `COURIER_FTP_HOME`, cwd still empty (AC6).
 - `crates/courier-ftp-server/tests/version.rs::fn server_version` (AC7).
+- `crates/courier-ftp-core/tests/skeleton.rs::fn core_modules_exist` — `use courier_ftp_core::{error, secret, trust, listing, text, Error, Result};` compiles, and `Error` is the same type as `error::Error` (AC11). The store-closure check is part of `check-layering.py` (T00) and the `layering` job (AC11).
 - AC1–AC3, AC8, AC10 are the CI jobs and commands themselves; AC4 and AC9 are checked in review.
 
 ### End-to-end tests
@@ -331,6 +339,7 @@ Not applicable (the e2e crate arrives with T76).
 
 ## Open questions
 
-- **Inconsistency (T30 vs T82, not owned here):** T30 puts `VaultEngine` in `courier-ftp-core` (`vault` module) and has it use the SQLite store, but T82's `courier-ftp-store` depends on `courier-ftp-core` (for `model::item`, T81). Cargo forbids the cycle, and the layering rules (T00) forbid core → store. One of them has to change: (a) `VaultEngine` in core works over a storage trait that `courier-ftp-store` implements, or (b) the engine moves to `courier-ftp-store` / the binary (sverb keeps it in `sverb-tui`). Owners of T30/T82 to decide.
-- **Inconsistency (README rule, not owned here):** the project rule says the server crate never depends on `clap`, but T86's admin CLI needs one (sverb-server uses clap). T00's layering rules allow `clap` in `courier-ftp-server`.
-- **Alignment with T70 (not owned here):** T70 declares `AppPaths { config_dir, data_dir }` with `resolve(...) -> Self`. This task adds `cache_dir` (T63 keeps edit copies under `$COURIER_FTP_HOME/cache`) and makes `resolve` return `Result<Self, PathsError>`, because without a home directory there is no safe fallback. T70 should adopt both.
+None. Resolved by the coordinator:
+- ~~T30 vs T82 layering~~ — layering is core → store → crypto: `courier-ftp-core` (vault engine) depends on `courier-ftp-store`, and the store does not depend on core.
+- ~~Server crate and `clap`~~ — the server crate may use `clap` (admin CLI); the README rule is updated.
+- ~~Alignment with T70~~ — T70 adopts `AppPaths::resolve -> Result<Self>` with `cache_dir` as specified here.

@@ -526,4 +526,7 @@ Not applicable (T76 Headless exercises the bus with real backends).
 
 ## Open questions
 
-None.
+- **File-exists answer scoped to the current queue run / session:** `ApplyTo` offers `Once`,
+  `AllInQueue` and `AllForDirection`. FileZilla's "apply only to current queue" checkbox
+  is removed from T69 unless a session scope is added here (e.g. `ApplyTo::Session`,
+  forgotten when the session ends). Add it, or keep the three scopes? (Assumed: keep three.)

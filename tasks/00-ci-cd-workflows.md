@@ -33,8 +33,8 @@ and checksums, and updates the package channels.
   CI gates pass").
 - `scripts/check-layering.py` and `scripts/check-unsafe.py` already knowing every planned
   crate (T01 creates them; T76 adds the second layering implementation).
-- `scripts/canary-scan.sh` (T91), `scripts/bench-gate.py` + `bench-gates.toml` (T41b,
-  T13, T53, T30, T80 add gates), `fuzz/` (first target from T91/T13), the `cd.yml`
+- `scripts/canary-scan.sh` (T91), `scripts/bench-gate.py` + `bench-gates.toml` (T13,
+  T30, T40, T41, T41b, T44, T53, T80 add gates), `fuzz/` (first target from T91/T13), the `cd.yml`
   release pipeline (T77, T86 add the server parts).
 - The `detect` job, which switches jobs on automatically when the files they need exist
   (no workflow edits are needed when a later task lands).
@@ -238,9 +238,19 @@ Admins are included; force pushes to `master` are blocked.
   | `index_build_10k/decrypt_and_index` | `max_ms = 75` | `ci_max_ms = 150` | T30 |
   | `transfer_schedule/plan_10k_files` | `max_ms = 20` | `ci_max_ms = 40` | T41b |
   | `ascii_convert/crlf_8MiB` | `min_mb_s = 500` | `ci_min_mb_s = 250` | T11 |
+  | `queue/add_100k` | `max_ms = 50` | `ci_max_ms = 100` | T40 |
+  | `queue/move_1k_to_top_of_100k` | `max_ms = 10` | `ci_max_ms = 20` | T40 |
+  | `queue/rows_window_100k` | `max_ms = 5` | `ci_max_ms = 10` | T40 |
+  | `queue/next_runnable_100k` | `max_ms = 0.02` | `ci_max_ms = 0.04` | T40 |
+  | `transfer_engine/mock_10k_small_files` | `max_ms = 500` | `ci_max_ms = 1000` | T41 |
+  | `transfer_engine/mock_single_stream_1gib` | `min_mb_s = 1000` | `ci_min_mb_s = 500` | T41b |
+  | `transfer_engine/mock_segmented_4x_1gib` | `min_mb_s = 1000` | `ci_min_mb_s = 500` | T41b |
+  | `segment_plan/claim_reserve_100k` | `max_ms = 10` | `ci_max_ms = 20` | T41b |
+  | `rate_limit/acquire_unlimited_1m` | `max_ms = 50` | `ci_max_ms = 100` | T44 |
 
   Informational benches without a gate (regressions still caught by `compare`):
-  `envelope/seal_open_1k`, `merge/1k_items`, `argon2/unlock_default`.
+  `envelope/seal_open_1k`, `merge/1k_items`, `argon2/unlock_default`,
+  `queue/snapshot_encode_100k`, `rate_limit/acquire_limited_contended`.
 
 #### 5. `cd.yml` (release)
 
@@ -286,14 +296,21 @@ by `if:` (the `meta` job outputs `has-generate` / `has-server-image` from `test 
   |---|---|---|
   | `courier-ftp-crypto` | none | UI, `clap`, `tokio`, `mio`, `hyper`, `reqwest`, `rusqlite`, `sqlx-core`, `russh` |
   | `courier-ftp-proto` | `courier-ftp-crypto` | UI, `clap`, `rusqlite`, `russh` |
-  | `courier-ftp-core` | `courier-ftp-crypto`, `courier-ftp-proto` | UI, `clap`, `russh`, `courier-ftp-store` |
-  | `courier-ftp-store` | `courier-ftp-core`, `courier-ftp-crypto` | UI, `clap`, `russh` |
-  | `courier-ftp-proto-ftp` | `courier-ftp-core` | UI, `clap`, `russh`, `rusqlite` |
-  | `courier-ftp-proto-sftp` | `courier-ftp-core` | UI, `clap`, `rusqlite` |
+  | `courier-ftp-store` | `courier-ftp-crypto` | UI, `clap`, `russh`, `courier-ftp-core`, `courier-ftp-proto-ftp`, `courier-ftp-proto-sftp`, `courier-ftp-sync` |
+  | `courier-ftp-core` | `courier-ftp-crypto`, `courier-ftp-proto`, `courier-ftp-store` | UI, `clap`, `russh` |
+  | `courier-ftp-proto-ftp` | `courier-ftp-core` | UI, `clap`, `russh` |
+  | `courier-ftp-proto-sftp` | `courier-ftp-core` | UI, `clap` |
   | `courier-ftp-sync` | `courier-ftp-core`, `courier-ftp-store`, `courier-ftp-proto`, `courier-ftp-crypto` | UI, `clap`, `russh` |
   | `courier-ftp-server` | `courier-ftp-proto`, `courier-ftp-crypto` | UI, `russh`, `rusqlite`, `courier-ftp-core`, `courier-ftp-store`, `courier-ftp-proto-ftp`, `courier-ftp-proto-sftp`, `courier-ftp-sync`, `courier-ftp` |
   | `courier-ftp` | any | `courier-ftp-server` |
   | `courier-ftp-e2e` | any | — |
+
+  Layering direction (coordinator decision): **core → store → crypto**. `courier-ftp-core`
+  may depend on `courier-ftp-store` (the vault engine uses it); `courier-ftp-store` never
+  depends on `courier-ftp-core` (no cycle). Because core's closure therefore contains
+  `rusqlite`, the protocol crates do not forbid `rusqlite`. `clap` is allowed in
+  `courier-ftp-server` (admin CLI, T86) and in `courier-ftp`; it is forbidden in every
+  library crate.
 
   Plus: `courier-ftp-sync` may be a dependency of `courier-ftp` (and dev-dependency of
   `courier-ftp-e2e`) only with `optional = true`, and the `--no-default-features` closure of
@@ -435,7 +452,8 @@ Not applicable to Rust code. Failure reporting rules for workflows and scripts:
 - [ ] AC3 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, the `docs` command and `cargo test --workspace --all-features --locked` pass locally on the template with the new lints.
 - [ ] AC4 The `msrv` job installs the toolchain read from `rust-version` (1.95) and `cargo check` passes; making one crate declare a different `rust-version` makes the job fail with "workspace crates disagree".
 - [ ] AC5 `python3 scripts/check-unsafe.py` exits 0 on the tree, and exits 1 when a scratch file `crates/courier-ftp-core/src/x.rs` contains `#![allow(unsafe_code)]` or a crate drops `[lints] workspace = true`.
-- [ ] AC6 `python3 scripts/check-layering.py` exits 0; adding `ratatui` to `courier-ftp-core` makes it exit 1 with the dependency path in the message.
+- [ ] AC6 `python3 scripts/check-layering.py` exits 0; adding `ratatui` to `courier-ftp-core` makes it exit 1 with the dependency path in the message; adding `courier-ftp-core` as a dependency of `courier-ftp-store` makes it exit 1 (core → store → crypto direction); `clap` in `courier-ftp-server` is accepted, `clap` in `courier-ftp-core` is rejected.
+- [ ] AC15 `scripts/bench-gates.toml` format accepts every planned gate in §4 (including `queue/*`, `transfer_engine/*`, `rate_limit/acquire_unlimited_1m`, `segment_plan/claim_reserve_100k`, fractional `max_ms` such as `0.02`, and `min_mb_s` throughput gates); `bench-gate.py self-test` covers a fractional and a throughput gate.
 - [ ] AC7 `scripts/canary-scan.sh --self-test` passes (clean tree accepted, all nine dirty cases detected).
 - [ ] AC8 `python3 scripts/bench-gate.py self-test`, `python3 scripts/update-packaging.py --self-test` pass; `bench-gate.py gate` exits 0 with the empty gates file.
 - [ ] AC9 `cargo deny --all-features check advisories bans licenses sources` and `cargo vet --locked` pass.
@@ -449,9 +467,9 @@ Not applicable to Rust code. Failure reporting rules for workflows and scripts:
 
 ### Unit tests
 - `scripts/canary-scan.sh --self-test` — the nine dirty cases and the clean case (AC7).
-- `scripts/bench-gate.py self-test` — 5 % passes, 20 % flagged, CI vs local gates, empty gates file (AC8).
+- `scripts/bench-gate.py self-test` — 5 % passes, 20 % flagged, CI vs local gates, empty gates file (AC8); a fractional `max_ms = 0.02` gate and a `min_mb_s` throughput gate parse and evaluate correctly (AC15).
 - `scripts/update-packaging.py --self-test` — version and checksum rewriting of all four channel files (AC8).
-- Manual negative checks for `check-unsafe.py` and `check-layering.py` recorded in the PR description (AC5, AC6); T76's `workspace_metadata.rs` / `forbid_unsafe.rs` later make them automatic.
+- Manual negative checks for `check-unsafe.py` and `check-layering.py` (including store → core and `clap` in core) recorded in the PR description (AC5, AC6); T76's `workspace_metadata.rs` / `forbid_unsafe.rs` later make them automatic.
 
 ### Property / fuzz tests
 Not applicable in this task (the fuzz harness is set up; targets come with T91/T13).
@@ -478,4 +496,5 @@ Not applicable.
 - **i686 Linux builds**: the template builds `i686-unknown-linux-gnu`; sverb parity drops it. Keep dropped? (Assumed: dropped.)
 - **Nix flake**: sverb ships `flake.nix` and a `nix` CI job; courier-ftp has no flake planned. Add one for parity?
 - **Package channel names**: the Homebrew tap `<owner>/homebrew-courier-ftp` and Scoop bucket `<owner>/scoop-courier-ftp` repositories must be created by the owner before the first release.
-- Inconsistency (not owned here): the project rule in `tasks/README.md` lists the server crate among crates that never depend on `clap`, but T86's admin CLI (`serve`, `admin …`) needs an argument parser and sverb-server uses `clap`. The layering rules above allow `clap` in `courier-ftp-server`; the README rule should be updated, or T86 must parse arguments by hand.
+- ~~Server crate and `clap`~~ — **Resolved** (coordinator): the server crate may use `clap` for its admin CLI; the README rule is updated accordingly. The layering rules above allow it.
+- ~~Store/core layering~~ — **Resolved** (coordinator): core → store → crypto; store does not depend on core (rules in §6).

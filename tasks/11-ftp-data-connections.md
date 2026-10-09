@@ -1,6 +1,6 @@
 # T11 — FTP data connections and transfer modes
 
-**Phase:** B FTP · **Milestone:** M3 · **Depends on:** T10 · **Crate(s):** `courier-ftp-proto-ftp` (`data`, `passive`, `active`, `ascii`, `transfer` modules), `courier-ftp-core` (`settings::file_types::decide_transfer_type`) · **Decisions:** D1, D11 · **FEATURES.md:** §1 (active/passive, fallback to active, external IP, port range, IP lookup), §5 (resume, > 4 GB), §6 (ASCII/binary, file type list)
+**Phase:** B FTP · **Milestone:** M3 · **Depends on:** T10 · **Crate(s):** `courier-ftp-proto-ftp` (`data`, `passive`, `active`, `ascii`, `transfer` modules), uses `courier-ftp-core` `settings::decide_transfer_type` (T05) · **Decisions:** D1, D11 · **FEATURES.md:** §1 (active/passive, fallback to active, external IP, port range, IP lookup), §5 (resume, > 4 GB), §6 (ASCII/binary, file type list)
 **Related (integrates with, not blocking):** T76
 **Reference:** sverb `fuzz/fuzz_targets/socks5_request.rs` (fuzz body shared with a property test).
 
@@ -17,8 +17,8 @@ T12 wraps in TLS, T13 parses, T14 returns from `open_read`/`open_write` and T41 
 **Exists before this task:** T10's `ControlConnection` (`send`, `write_command`,
 `read_reply`, `features()`, `peer_addr()`/`local_addr()`, `current_type()`,
 `mark_transfer_open`, `FakeServer`), T07's `net::connect_tcp` and `local_addr_for`,
-T05's `ftp.*` and `file_types.*` settings, T02 errors, T03 `TransferType` (`Ascii`/`Binary`)
-and `WriteMode`.
+T05's `ftp.*` and `file_types.*` settings and `decide_transfer_type`, T02 errors and
+`TransferType` (`Ascii`/`Binary`), T03 `WriteMode` and `TransferOpts` (incl. `range_len`).
 
 **Later tasks need from this one:**
 - T12: a hook to wrap every data socket in TLS after it is connected/accepted
@@ -27,7 +27,6 @@ and `WriteMode`.
 - T14: `open_download`, `open_upload`, `finish`, `abort`, `ensure_type`.
 - T41/T41b: cancellation semantics (drop the stream, then `finish_transfer` aborts),
   `u64` offsets, socket buffer sizes (T41b raises them).
-- T42: `decide_transfer_type` in core.
 - T72: `PassiveProbe`/`ActiveProbe` (connect, `PASV`/`EPSV` + `LIST`, `PORT`/`EPRT` + `LIST`).
 
 ## Technical specification
@@ -35,10 +34,8 @@ and `WriteMode`.
 ### Types and APIs
 
 ```rust
-// courier_ftp_core::settings::file_types ------------------------------------------------
-/// FileZilla's Auto type rule (FEATURES §6). Pure, case-insensitive.
-pub fn decide_transfer_type(name: &str, cfg: &FileTypesSettings,
-                            choice: TransferTypeChoice) -> TransferType;
+// Uses T05's courier_ftp_core::settings::decide_transfer_type(file_name, choice, ft)
+// (not redefined here); T14 calls it per file and passes the result to `open`.
 
 // courier_ftp_proto_ftp::data -----------------------------------------------------------
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,8 +47,12 @@ pub struct DataConfig {
     pub fallback_to_active: bool,              // ftp.fallback_to_active (true)
     pub ignore_unroutable_pasv_ip: bool,       // ftp.passive_ignore_unroutable_ip (true)
     pub external_ip: ActiveExternalIp,         // ftp.active_external_ip (Auto)
+    /// ftp.active_no_external_ip_on_local (true): local server → advertise the local IP.
+    pub no_external_ip_on_local: bool,
     pub port_range: Option<(u16, u16)>,        // ftp.active_port_range (None)
-    pub through_generic_proxy: bool,           // T07 proxy in use → active impossible
+    /// `!net.proxy.allows_inbound()` (T07): active mode impossible.
+    pub through_generic_proxy: bool,
+    pub net: NetOpts,                          // T07 options for data dials (Purpose::Data)
     pub control_host: String,                  // host name dialled (used with proxies)
     pub timeout: Duration,                     // connection.timeout_secs
     pub socket_buffer: usize,                  // 256 KiB here; T41b raises to 4 MiB
@@ -66,18 +67,23 @@ pub struct DataState {
     pub external_ip_cache: Option<IpAddr>,
 }
 
+/// A connected data socket before TLS: dialled through T07 (passive; may be proxied) or
+/// accepted from our listener (active). Implements AsyncRead + AsyncWrite + Unpin + Send.
+pub enum RawData { Dialed(NetStream), Accepted(tokio::net::TcpStream) }
+
 /// Wraps a freshly connected data socket (TLS, T12). Plain FTP passes `None`.
 #[async_trait]
 pub trait DataTlsHook: Send + Sync {
-    async fn wrap(&self, tcp: TcpStream) -> Result<DataIo>;
+    async fn wrap(&self, raw: RawData) -> Result<DataIo>;
 }
-pub enum DataIo { Plain(TcpStream), Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>) }
+pub enum DataIo { Plain(RawData), Tls(Box<tokio_rustls::client::TlsStream<RawData>>) }
 
 /// What the transfer command is.
 pub enum TransferCommand {
     List { args: Option<String> },  // LIST [-a]       (T14/T13)
     Mlsd,                           // MLSD            (T14/T13)
-    Retr { path: String, offset: u64 },
+    /// `range_len` = `TransferOpts.range_len` (T03): stop after this many bytes.
+    Retr { path: String, offset: u64, range_len: Option<u64> },
     Stor { path: String, offset: u64 },   // offset > 0 → REST n + STOR
     Appe { path: String },
 }
@@ -181,21 +187,28 @@ Active: §3
 
 **3. Active mode.**
 
-- Through a generic proxy (T07) → `Error::Unsupported("active mode does not work through
-  an HTTP or SOCKS proxy")`, logged; no fallback attempt.
+- Through a generic proxy (T07, `ProxyConfig::allows_inbound() == false`) →
+  `Error::Unsupported("active mode FTP does not work through an HTTP or SOCKS proxy; use
+  passive mode")`, logged as an Error line; no fallback attempt.
 - Listener: bind on the control connection's **local IP** (same family). Port:
   `port_range = Some((lo, hi))` → start at a random port in `lo..=hi`, try each port in the
   range once (wrapping), first successful bind wins; none free →
   `Error::Connection("no free port in active mode port range lo–hi")`. `None` → port 0
   (ephemeral). Backlog 1.
 - Advertised address:
+  - `no_external_ip_on_local` (`ftp.active_no_external_ip_on_local`, default true) and the
+    control peer IP is private, loopback, link-local or unspecified (`is_unroutable`) → the
+    listener's local IP, whatever `external_ip` says (FileZilla "Don't use external IP
+    address on local connections"); no URL lookup is made.
   - `Auto` → the listener's local IP.
   - `Fixed(ip)` → `ip` if same family as the control connection, else local IP (Status
     warning).
-  - `FromUrl(url)` → HTTP(S) GET once per session (cached in `DataState.external_ip_cache`),
-    via `reqwest` (rustls, D9) with 10 s timeout, body ≤ 1 KiB, trimmed, parsed as `IpAddr`
-    of the control family; any failure → local IP + Status warning "Failed to retrieve
-    external IP address, using local address". Only `http`/`https` URLs accepted.
+  - `FromUrl(url)` → GET once per session (cached in `DataState.external_ip_cache`) via
+    T07 `net::http_get_small(url, &opts, log, 1024)` (direct, 10 s timeout, body ≤ 1 KiB),
+    trimmed, parsed as `IpAddr` of the control family; any failure → local IP + Status
+    `Warning: Failed to retrieve external IP address, using local address`. T07's helper
+    supports `http://` only; an `https://` URL fails the same way (logged) until T74's
+    HTTP client exists (same rule as T72).
 - Command:
   - IPv4: `PORT h1,h2,h3,h4,p1,p2` → 200. Reply 500/501/502 → try
     `EPRT |1|a.b.c.d|port|` (unless `eprt_failed`); that failing too → `eprt_failed = true`
@@ -205,8 +218,8 @@ Active: §3
     not support active mode over IPv6")`.
 - After 200, send the transfer command, then concurrently wait for the 1xx reply and
   `accept()` (bounded by `timeout`). Accepted peer IP must equal the control peer IP;
-  otherwise the socket is closed, a Status warning logged ("rejected data connection from
-  unexpected address"), and accepting continues until the timeout. With an FTP proxy (T15)
+  otherwise the socket is closed, a Status line `Warning: rejected data connection from
+  unexpected address` logged, and accepting continues until the timeout. With an FTP proxy (T15)
   the control peer is the proxy, so the rule is unchanged. The listener is closed after the
   first accepted connection.
 - Accept timeout → `Error::Connection("server did not connect to the data port")`, then the
@@ -234,16 +247,18 @@ finish(): upload → TLS close_notify (T12) + TCP shutdown(Write); read final re
   EOF is normal (server finished writing, bytes still in flight): `finish` drains/awaits
   data EOF first and only then evaluates the already-buffered reply.
 - MODE and STRU are never sent (defaults `S`, `F`). `TYPE A` means `TYPE A N`.
+- **Ranged reads** (`Retr { range_len: Some(n) }`, T41b segments): the `DataStream`
+  returns EOF after exactly `n` bytes (fewer only if the server ends the data first).
+  If the server's data has not ended at that point, `finish` runs the abort sequence (§8)
+  but treats the transfer's `426`/`451`/`226` reply as success (the requested range was
+  delivered); the bytes counted are `n`. If the data ended exactly at `n`, the normal
+  `226` path applies.
 
 **5. Transfer type and ASCII conversion.**
 
-- `decide_transfer_type(name, cfg, choice)`:
-  `Ascii`/`Binary` choice → that type. `Auto`:
-  1. extension = text after the last `.` when that `.` is not the first character;
-     ASCII if it is in `cfg.ascii_extensions` (case-insensitive);
-  2. no extension and name starts with `.` (dotfile) → ASCII if `cfg.dotfiles_ascii`;
-  3. no extension → ASCII if `cfg.no_extension_ascii`;
-  4. otherwise Binary.
+- The type per file is decided by T05's `decide_transfer_type(file_name, choice,
+  &settings.file_types)` (rules owned and tested there); T14 passes the result to `open`,
+  which calls `ensure_type`.
 - Listings are read in whatever type is current (no extra `TYPE` round trip; T13 accepts
   CRLF and LF).
 - `AsciiDecode` (download, Unix/macOS): `CR LF` → `LF`; lone `CR` passes through; a `CR`
@@ -297,7 +312,8 @@ offsets are `u64` everywhere.
 
 Settings (T05, none added): `ftp.transfer_mode` (`Passive`), `ftp.fallback_to_active`
 (true), `ftp.active_external_ip` (`Auto` \| `Fixed(IpAddr)` \| `FromUrl(String)`),
-`ftp.active_port_range` (`None`; validated `1024 ≤ lo ≤ hi ≤ 65535` in T05),
+`ftp.active_no_external_ip_on_local` (true), `ftp.active_port_range` (`None`; validated
+`1024 ≤ lo ≤ hi ≤ 65535` in T05),
 `ftp.passive_ignore_unroutable_ip` (true), `file_types.default_type` (`Auto`),
 `file_types.ascii_extensions`, `file_types.dotfiles_ascii` (true),
 `file_types.no_extension_ascii` (true), `connection.timeout_secs` (20). Site override:
@@ -333,16 +349,17 @@ Settings (T05, none added): `ftp.transfer_mode` (`Passive`), `ftp.fallback_to_ac
 
 ## Implementation steps
 
-1. `decide_transfer_type` in core with table tests.
+1. `ensure_type` (TYPE only on change, using T05's `decide_transfer_type` result).
 2. `parse_pasv`, `parse_epsv`, `format_port`, `format_eprt`, `parse_eprt`, `is_unroutable`
    + property tests + `fuzz/fuzz_targets/ftp_pasv.rs`.
 3. `AsciiDecode`/`AsciiEncode` with chunk-boundary handling and property tests.
 4. `FakeServer` data steps (`PasvListen`, `EpsvListen`, `ExpectPortThenConnect`,
    `SendData`, `RecvData`, `CloseData`, `ExpectAbor`) over loopback TCP.
 5. Passive open (`EPSV`→`PASV`, address rules, ordering) + `finish` + listing reader.
-6. Active open (listener, port range, external IP sources, `PORT`/`EPRT`, accept check).
+6. Active open (listener, port range, external IP sources incl.
+   `active_no_external_ip_on_local`, `PORT`/`EPRT`, accept check).
 7. Fallback passive → active and `DataState` memory.
-8. `REST` handling, upload shutdown, `226`-before-EOF race.
+8. `REST` handling, `range_len` ranged reads, upload shutdown, `226`-before-EOF race.
 9. Abort + resync; inactivity timer.
 10. Docker e2e against vsftpd profiles.
 
@@ -358,7 +375,10 @@ Settings (T05, none added): `ftp.transfer_mode` (`Passive`), `ftp.fallback_to_ac
 - [ ] AC4 Passive failure with `fallback_to_active` retries once in active mode, succeeds,
   and the next transfer uses active mode without trying passive.
 - [ ] AC5 Active mode honours the port range (bound port within range) and rejects a data
-  connection from an unexpected IP; through a generic proxy it fails with `Unsupported`.
+  connection from an unexpected IP; through a generic proxy it fails with `Unsupported`;
+  with `active_no_external_ip_on_local` on and a loopback/private control peer, `PORT`/`EPRT`
+  carries the local IP even when `external_ip` is `Fixed`/`FromUrl` (no URL request made),
+  and with it off the external IP is sent.
 - [ ] AC6 `AsciiDecode`/`AsciiEncode` output is independent of chunking (CR at chunk end)
   and `decode(encode(x)) == x` for LF-only text.
 - [ ] AC7 Resume via `REST` produces byte-identical files for download and upload, including
@@ -366,8 +386,9 @@ Settings (T05, none added): `ftp.transfer_mode` (`Passive`), `ftp.fallback_to_ac
 - [ ] AC8 Cancelling a transfer mid-stream runs ABOR + resync and the next `PWD` succeeds
   within 1 s (paused time) for each server reply variant (426+226, 226 only, 225, 500).
 - [ ] AC9 A `226` received before the data EOF does not cause an error or data loss.
-- [ ] AC10 `decide_transfer_type` table passes (extensions, upper-case, dotfiles,
-  no-extension, forced types).
+- [ ] AC10 `ensure_type` sends `TYPE A`/`TYPE I` only when the requested type differs from
+  the tracked type; a `Retr` with `range_len: Some(n)` yields exactly `n` bytes, then the
+  abort sequence leaves the control usable and `finish` returns Ok.
 - [ ] AC11 Docker e2e: passive and active downloads/uploads (SHA-256 verified) against
   vsftpd `plain`, `active-only` and `passive-unroutable` profiles.
 - [ ] AC12 CI gates (T00) pass, including the `ftp_pasv` fuzz target (30 s).
@@ -382,7 +403,7 @@ Settings (T05, none added): `ftp.transfer_mode` (`Passive`), `ftp.fallback_to_ac
   `epsv_rejects_mixed_delimiters`, `epsv_rejects_port_65536`. AC1.
 - `eprt_formats_ipv4_and_ipv6`, `port_formats_high_port`. AC2.
 - `unroutable_ranges_table` (every listed range + public examples). AC3.
-- `decide_transfer_type_table`. AC10.
+- `ensure_type_sends_type_only_on_change`. AC10.
 - `ascii_decode_cr_at_chunk_end`, `ascii_decode_lone_cr_kept`,
   `ascii_encode_existing_crlf_kept`, `ascii_windows_is_identity` (`#[cfg(windows)]`). AC6.
 - `ascii_resume_refused`.
@@ -407,7 +428,12 @@ Not applicable (no UI, no corpus).
 - `passive_failure_falls_back_to_active_and_remembers`. AC4.
 - `active_port_range_respected`, `active_rejects_foreign_peer`,
   `active_through_proxy_unsupported`, `active_external_ip_from_url_cached_once`,
-  `active_external_ip_url_failure_uses_local`. AC5.
+  `active_external_ip_url_failure_uses_local`,
+  `active_local_peer_uses_local_ip_when_setting_on` (Fixed 203.0.113.5, loopback server →
+  `PORT 127,0,0,1,…`; setting off → `203,0,113,5`). AC5.
+- `retr_range_len_stops_after_n_bytes_and_aborts` (server sends 1 MiB, range 100 KiB →
+  100 KiB read, ABOR + resync, `finish` Ok, next `PWD` works),
+  `retr_range_len_reaching_file_end_reads_226`. AC10.
 - `rest_resume_download_over_4gib_offset`, `rest_resume_upload_byte_identical`,
   `rest_unsupported_reports_unsupported`. AC7.
 - `abort_variants_leave_control_usable` (table over 426+226 / 226 / 225 / 500),

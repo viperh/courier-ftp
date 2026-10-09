@@ -14,13 +14,17 @@ list shows every open edit, and temporary copies are cleaned up reliably.
 ## Context
 
 Before this task:
-- T62 gives `OpSource`, `PaneSide`, `PanePath`, the new-file dialog and the
-  clipboard service; T53 gives the pane cursor; T50 gives the app loop and `Tui`
-  (`enter`/`exit`, the event-loop task, modal stack); T52 gives dialogs.
-- T03 gives `SessionHandle`, `BackendFactory`, `ConnectInfo`, `WriteMode`,
-  `TransferOpts`; T11 provides `decide_transfer_type`; T44 provides the shared
-  rate limiter used by T41; T46 provides the cache upload patch.
-- T05 has the `editing` section (`editor`, `associations`,
+- T62 gives `OpSource`, `PaneSide`, `PanePath` and the new-file dialog; T53 gives the
+  pane cursor; T50 gives the app loop, `Tui` (`enter`/`exit`, the event-loop task,
+  modal stack) and `tabs::TabId(u32)`; T52 gives dialogs (`confirm` with
+  `ConfirmOpts`; destructive confirmations here use `ConfirmOpts::danger(..)`).
+- T01 gives `AppPaths` (`cache_dir` holds the edit temp tree).
+- T03 gives `SessionHandle`, `BackendFactory::create(Arc<ConnectInfo>, BackendContext)`,
+  `ConnectInfo`, `WriteMode`, `TransferOpts`; T05 provides
+  `settings::decide_transfer_type` (used by T11 too); T44 provides the shared rate
+  limiter used by T41; T46 provides the cache upload patch.
+- T05 has the `editing` section (`editor: EditorChoice`, `associations:
+  Vec<Association>` — both types defined here — `viewer`,
   `watch_and_prompt_upload`, `max_size_mib`).
 
 Later tasks use from this task: T65 (open search results), T68 (editing settings
@@ -47,7 +51,7 @@ pub struct Association {
     pub terminal: bool,
 }
 
-/// `editing.editor` (T05).
+/// `editing.editor` (T05). `Command.terminal` replaces a separate terminal flag.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum EditorChoice {
     /// $VISUAL, then $EDITOR, then the platform default.
@@ -164,7 +168,7 @@ pub const WATCH_DEBOUNCE: Duration = Duration::from_millis(500);
 pub const POLL_INTERVAL: Duration = Duration::from_secs(2);
 ```
 
-New `Action` variants: `View`, `Edit`, `EditedFiles`, `EditFileChanged(EditId)`,
+New `Action` variants: `View`, `Edit`, `EditedFilesList`, `EditFileChanged(EditId)`,
 `EditProgramExited { id, status }`, `EditTransferFinished { id, result }`.
 
 ### Behaviour
@@ -175,9 +179,9 @@ New `Action` variants: `View`, `Edit`, `EditedFiles`, `EditFileChanged(EditId)`,
 |---|---|---|---|
 | `F3`, `o` | View | download to temp, open viewer, no upload | open the file directly with the viewer |
 | `F4`, `e` | Edit | download to temp, open editor, watch, offer upload | open the file directly with the editor; no watch, no upload |
-| `Ctrl-x e` * | EditedFiles | "Files being edited" dialog | — |
+| `Ctrl-x e` | EditedFilesList | "Files being edited" dialog | — |
 
-(* added to T51's table by this task.) Only the cursor entry is opened (marked
+(`Ctrl-x e` is in T51's `Ctrl-x` prefix table, owner T63.) Only the cursor entry is opened (marked
 entries are ignored; status message says so when more are marked). Directories →
 status "Can't open a directory"; symlinks are resolved with `stat` first; `Other`
 entries refused.
@@ -187,18 +191,19 @@ entries refused.
 1. **Already open**: the same `(connection identity, remote path)` is in the
    registry → dialog "index.html is already open for editing. [Reopen] [Download
    again] [Cancel]". *Reopen* starts the program on the existing temp file;
-   *Download again* asks for confirmation if the edit is `Modified`, then replaces
-   the temp copy.
+   *Download again* asks for confirmation (`ConfirmOpts::danger("Download again")`)
+   if the edit is `Modified`, then replaces the temp copy.
 2. **Size check**: if `entry.size > editing.max_size_mib × 1 MiB` (default 50) →
-   `confirm("Large file", "index.log is 312 MiB. Download it to open it?", default No)`.
+   `confirm("Large file", "index.log is 312 MiB. Download it to open it?",
+   ConfirmOpts { default_yes: false, ..ConfirmOpts::new() })`.
    Unknown size → no check.
 3. **Resolve program** (below). Failure → error dialog "No editor configured. Set
    one in Settings → Editing or set $EDITOR." and stop.
 4. **Download** to `TempLayout::file_path(id, name)` with a direct transfer
    (`edit::transfer`), not through the queue, so it works while the queue is
-   stopped: a dedicated `SessionHandle` from `BackendFactory::create` with the
-   tab's `ConnectInfo` (when the site's `limit_connections == Some(1)`, the browsing
-   session is used instead). Transfer type from `decide_transfer_type` (T11) unless
+   stopped: a dedicated `SessionHandle` from `BackendFactory::create(info, ctx)` with
+   the tab's `Arc<ConnectInfo>` (when the site's `limit_connections == Some(1)`, the browsing
+   session is used instead). Transfer type from `decide_transfer_type` (T05) unless
    `file_types.default_type` forces one; bytes go through the shared rate limiter
    (T44). A `ProgressDialog` "Downloading index.html… 45 %" with Cancel appears after
    300 ms. Session timeout `connection.timeout_secs`; one retry on a transient error
@@ -229,14 +234,15 @@ entries refused.
    - *Upload* → upload flow. *Always upload this file* → `auto_upload = true`, upload
      now and later changes upload without a prompt (state still visible in the
      list). *Not now* → stays `Modified`, upload later from the list. *Stop editing*
-     → if unsaved changes would be lost, confirm; then stop watching and delete the
-     temp file. `Esc` = *Not now*.
+     → if unsaved changes would be lost, confirm (`ConfirmOpts::danger("Stop
+     editing")`); then stop watching and delete the temp file. `Esc` = *Not now*.
 8. **Upload flow**:
    - Conflict check: `stat(remote_path)`. If size differs from
      `remote_at_sync.size`, or mtime differs (compared at the coarser precision,
      T02) → state `Conflict` and dialog "index.html was changed on the server since
      you opened it (12 034 → 12 410 bytes, modified 10:02 → 10:17). [Overwrite]
-     [Cancel]" (default Cancel). `NotFound` → "index.html no longer exists on the
+     [Cancel]" (`ConfirmOpts::danger("Overwrite")`, default Cancel). `NotFound` →
+     "index.html no longer exists on the
      server. [Upload anyway] [Cancel]". `stat` unsupported or no mtime/size known →
      skip the check (log `Status:` "Can't check for changes on the server").
    - Upload with `WriteMode::Truncate` on a dedicated session from the stored
@@ -278,9 +284,11 @@ Edit (`EditMode::Edit`), first hit wins:
 
 View (`EditMode::View`):
 1. Association (same list; a match means "open with that program").
-2. Text file (`looks_like_text` on the first 8 KiB): `$PAGER` (terminal), then
+2. `editing.viewer` (T05, String) when non-empty: split with `build_argv`;
+   `terminal = true` unless its basename is in `KNOWN_GUI_EDITORS`.
+3. Text file (`looks_like_text` on the first 8 KiB): `$PAGER` (terminal), then
    `less` (Unix, in `PATH`, terminal), then `more.com` (Windows, terminal).
-3. Otherwise the platform opener (GUI): `xdg-open %f` (Linux/BSD), `open %f`
+4. Otherwise the platform opener (GUI): `xdg-open %f` (Linux/BSD), `open %f`
    (macOS), `cmd /C start "" %f` (Windows — the only case that goes through a
    shell; the path is passed as a separate argument after the empty title, and
    temp paths contain no shell metacharacters because names are sanitised).
@@ -368,8 +376,9 @@ CREATE_NEW_PROCESS_GROUP)`. The `Child` is reaped by a background thread
 ```
 At 80 columns the Server column is dropped and shown under the selected row.
 - `u` upload now (conflict check applies); `r` reopen in the program; `s` stop
-  editing (confirm when `Modified`); `d` discard changes: confirm, then
-  delete the temp file and remove the entry.
+  editing (confirm with `ConfirmOpts::danger("Stop editing")` when `Modified`); `d`
+  discard changes: confirm with `ConfirmOpts::danger("Discard")`, then delete the
+  temp file and remove the entry.
 - Empty list → "No files are being edited."
 
 #### Quit with edits
@@ -395,9 +404,10 @@ failure the dialog returns with the remaining count.
     <edit id, 16 hex>/                         0700  one per edit
       <sanitised remote file name>             0600  (View: 0400)
 ```
-- `<cache dir>` = `$COURIER_FTP_HOME/cache` when `COURIER_FTP_HOME` is set (tests,
-  T76), else `directories::ProjectDirs::cache_dir()` (Linux `~/.cache/courier-ftp`,
-  macOS `~/Library/Caches/<project>`, Windows `%LOCALAPPDATA%\<project>\cache`).
+- `<cache dir>` = `AppPaths.cache_dir` (T01): `$COURIER_FTP_HOME/cache` when
+  `COURIER_FTP_HOME` is set (tests, T76), else `directories::ProjectDirs::cache_dir()`
+  (Linux `~/.cache/courier-ftp`, macOS `~/Library/Caches/<project>`, Windows
+  `%LOCALAPPDATA%\<project>\cache`).
   On Windows the directories inherit the per-user ACL of `%LOCALAPPDATA%`.
 - The remote name is sanitised with `sanitize_local_name` (T06) using
   `transfers.invalid_char_replacement`, and capped at 200 bytes (stem cut,
@@ -421,8 +431,9 @@ failure the dialog returns with the remaining count.
 |---|---|---|---|
 | `editing.editor` | `EditorChoice` | `"Auto"` | default editor when no association matches |
 | `editing.associations` | `Vec<Association>` | `[]` | first match wins |
+| `editing.viewer` | String | `""` | viewer command for View; `""` = `$PAGER`, `less`, platform opener |
 | `editing.watch_and_prompt_upload` | bool | `true` | prompt to upload on change; false = only mark `Modified` in the list |
-| `editing.max_size_mib` | u32 | `50` | ask before downloading larger files; `0` = never ask |
+| `editing.max_size_mib` | u32 | `50` | 1–10240 (T05); ask before downloading larger files |
 | `file_types.default_type` | `TransferTypeChoice` | `Auto` | transfer type for edit downloads/uploads |
 | `transfers.invalid_char_replacement` | char | `'_'` | temp file name sanitising |
 | `connection.timeout_secs` | u32 | `20` | edit transfer timeout |
@@ -496,7 +507,7 @@ that `shell-words` can't split → warning, entry dropped (not the whole list).
 - [ ] AC3 While a terminal program runs, courier-ftp reads no keys from stdin and Ctrl-C inside the program doesn't quit courier-ftp (e2e test sends Ctrl-C to a fake editor).
 - [ ] AC4 A save by a GUI program (simulated by writing the watched file, including write-to-temp-and-rename) produces exactly one prompt within 3 s; writes with identical content produce none.
 - [ ] AC5 Associations: first match wins, globs are case-insensitive, `%f` substitution and appending work (unit tests).
-- [ ] AC6 Resolution order association → `editing.editor` → `$VISUAL` → `$EDITOR` → platform default, with GUI detection for known editors (unit tests).
+- [ ] AC6 Resolution order association → `editing.editor` → `$VISUAL` → `$EDITOR` → platform default for Edit, and association → `editing.viewer` → `$PAGER`/`less` → platform opener for View, with GUI detection for known editors (unit tests).
 - [ ] AC7 Conflict check blocks a silent overwrite when the remote size or mtime changed since download.
 - [ ] AC8 Temp layout: dirs `0700`, files `0600` (View `0400`) on Unix; a pre-planted symlink at the edit dir is refused; temp dirs are removed on stop editing, on normal exit, and stale instances are found at startup.
 - [ ] AC9 Quit with unuploaded edits shows the guard dialog; "keep" leaves exactly those files.
@@ -514,7 +525,7 @@ that `shell-words` can't split → warning, entry dropped (not the whole list).
 - `fn build_argv_appends_path_without_placeholder`; `fn build_argv_rejects_unbalanced_quotes` (AC5).
 - `fn resolve_edit_order_association_setting_visual_editor_default` — table with injected env and `which` (AC6).
 - `fn resolve_known_gui_editor_from_env_is_not_terminal` — `EDITOR="code --wait"` → GUI (AC6).
-- `fn resolve_view_text_uses_pager_then_less`, `fn resolve_view_binary_uses_platform_opener` (AC6).
+- `fn resolve_view_text_uses_pager_then_less`, `fn resolve_view_binary_uses_platform_opener`, `fn resolve_view_uses_editing_viewer_before_pager` (AC6).
 - `fn looks_like_text_cases` — UTF-8, NUL byte, cut multi-byte at 8 KiB boundary.
 - `fn fingerprint_detects_same_length_same_mtime_change` — content differs, len and mtime forced equal (AC4).
 - `fn temp_file_name_sanitised_and_capped_keeps_extension` (AC8).
@@ -579,6 +590,9 @@ macOS (Terminal, iTerm2), Windows (Windows Terminal, conhost with `notepad.exe`,
 
 1. Should FileZilla-style default associations ship (e.g. images → platform opener),
    or stay empty as specified?
-2. **Inconsistency**: T51 doesn't list `Ctrl-x e` (Files being edited); T05 doesn't
-   define the type of `editing.editor` — this task defines `EditorChoice` and
-   `Association`, which T05 should adopt.
+2. With `editing.editor: EditorChoice` (its `Command` carries `terminal`), T05's
+   separate `editing.editor_terminal` key is redundant; T05's owner should drop it.
+
+Resolved (reconciliation): `Ctrl-x e` = `EditedFilesList` is in T51's table; T05 uses
+`EditorChoice` and `Association` from this task for `editing.editor` /
+`editing.associations`.

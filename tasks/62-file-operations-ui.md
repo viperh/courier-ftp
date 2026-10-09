@@ -23,15 +23,22 @@ Before this task:
   (`Start`, `Stop`, …); T43 gives the walker plus recursive delete and chmod; T46
   gives `ListingCache` with patch operations and `CoreEvent::ListingUpdated`.
 - T52 gives the modal stack, widgets (`TextInput`, `PathInput`, `TriStateCheckbox`,
-  `RadioGroup`, `Select`, `ProgressDialog`) and standard dialogs (`confirm`,
-  `message`, `error`, `prompt_text`, `choose`).
+  `RadioGroup`, `Select`, `ProgressDialog`) and standard dialogs (`confirm` with
+  `ConfirmOpts`, `message`, `error`, `prompt_text`, `choose`). Every destructive
+  confirmation in this task uses `ConfirmOpts::danger(..)` (default and initial focus on
+  the safe button).
+- T43 gives `delete_recursive`, `chmod_recursive`, `ChmodSpec`, `ChmodScope` and
+  `compute_mode` (the chmod rule); T40 gives `QueueItemKind` (`File`,
+  `DirPlaceholder`, `RemoveSourceDir`) and `QueueItem.delete_source_after`.
+- T50 gives `tabs::TabId(u32)`; T55 owns `crate::ui::clipboard` (OSC 52 + platform
+  clipboard tools, sverb approach, 100 KiB cap, no `arboard`), which this task uses.
 - T53 gives the file list pane (cursor, marked selection, `Entry` rows, address bar,
   quick filter) and emits operation actions; T51 provides the key bindings.
 
 Later tasks use from this task:
 - T63 adds "open in editor after creating" to the new-file dialog and reuses
-  `FileOpsController::source()` and the clipboard service.
-- T55 uses `ClipboardService` (copy log lines). T65 and T66 reuse the transfer
+  `FileOpsController::source()`.
+- T65 and T66 reuse the transfer
   builder (`build_transfer_items`) and the delete flow. T45 relies on cache
   invalidation done here for its "refresh after queue".
 
@@ -41,7 +48,7 @@ Later tasks use from this task:
 
 Module `crates/courier-ftp/src/file_ops/` (`mod.rs`, `source.rs`, `transfer.rs`,
 `rename.rs`, `mkdir.rs`, `delete.rs`, `chmod.rs`, `url.rs`, `command.rs`,
-`manual.rs`, `clipboard.rs`, `dialogs/*.rs`).
+`manual.rs`, `dialogs/*.rs`).
 
 ```rust
 /// Which pane of a tab an operation starts from.
@@ -56,7 +63,7 @@ pub enum PanePath { Local(LocalPath), Remote(RemotePath) }
 /// Later changes to the pane (navigation, refresh) don't affect a running operation.
 #[derive(Debug, Clone)]
 pub struct OpSource {
-    pub tab: TabId,
+    pub tab: TabId,             // T50 `tabs::TabId(u32)`
     pub side: PaneSide,
     pub dir: PanePath,          // pane's current directory
     pub entries: Vec<Entry>,    // marked entries, or the cursor entry; never ".."
@@ -94,28 +101,34 @@ pub fn availability(op: FileOp, side: PaneSide, caps: &Capabilities,
                     connected: bool, src: &OpSource) -> Result<(), Unavailable>;
 
 /// Builds queue items for a transfer from `src` to `dest_dir` on the other side.
-/// Files become normal items; directories become placeholders (T43 lazy expansion).
+/// Files become `QueueItemKind::File` items; directories become
+/// `QueueItemKind::DirPlaceholder` items with depth 0 (T40; T43 expands them lazily).
 pub fn build_transfer_items(src: &OpSource, dest_dir: &PanePath, server: &QueueServer,
                             transfer_type: TransferTypeChoice,
                             delete_source_after: bool) -> Vec<QueueItem>;
 
-/// Computes the new mode for one entry (T43 rule): `(old & !mask) | (value & mask)`.
-/// Returns `None` when `old` is unknown and `mask` is not `0o7777` (some bits must be kept).
-pub fn apply_chmod(old: Option<u32>, value: u32, mask: u32) -> Option<u32>;
+// The new mode per entry is computed by T43 `compute_mode(old, ChmodSpec { value, mask })`
+// (`(old & !mask) | (value & mask)`; unknown old mode → Some only for a full mask).
+// This task does not duplicate it.
 
 /// Parses the numeric chmod field: 3 or 4 characters, each `0-7` or `x`
-/// (`x` = leave unchanged). Returns `(value, mask)` over 12 bits.
-pub fn parse_mode_field(s: &str) -> Result<(u32, u32), ModeFieldError>;
-pub fn format_mode_field(value: u32, mask: u32, four_digits: bool) -> String;
+/// (`x` = leave unchanged). Returns a T43 `ChmodSpec` (value and mask over 12 bits).
+pub fn parse_mode_field(s: &str) -> Result<ChmodSpec, ModeFieldError>;
+pub fn format_mode_field(spec: ChmodSpec, four_digits: bool) -> String;
 
 /// Validates a single path component typed by the user for `side`.
 pub fn validate_name(name: &str, side: PaneSide) -> Result<(), NameError>;
 
-/// Builds the URL for a remote entry (see "Copy URL").
-pub fn entry_url(addr: &ServerAddress, path: &RemotePath, opts: UrlOptions,
+/// Builds the URL for a remote entry (see "Copy URL") with T02
+/// `ServerAddress::to_url(&UrlOptions { password, path, force_port })`.
+/// `PortChoice::Always` → `force_port = true`; `Never` → formats a copy of the address
+/// with `port = None`; `PathChoice::ServerOnly` → `path = None`.
+pub fn entry_url(addr: &ServerAddress, path: &RemotePath, opts: CopyUrlChoice,
                  password: Option<&SecretString>) -> SecretString;
+/// Dialog choices (named `CopyUrlChoice` so it clashes neither with T02 `UrlOptions` nor
+/// with the `CopyUrlOptions` action).
 #[derive(Debug, Clone, Copy, Default)]
-pub struct UrlOptions { pub with_password: bool, pub with_port: PortChoice, pub path: PathChoice }
+pub struct CopyUrlChoice { pub with_password: bool, pub with_port: PortChoice, pub path: PathChoice }
 #[derive(Debug, Clone, Copy, Default)] pub enum PortChoice { #[default] IfNotDefault, Always, Never }
 #[derive(Debug, Clone, Copy, Default)] pub enum PathChoice { #[default] Full, ServerOnly }
 
@@ -125,14 +138,6 @@ pub const BLOCKED_RAW_COMMANDS: &[&str] = &[
     "APPE", "REST", "ABOR", "CWD", "CDUP", "XCWD", "XCUP", "QUIT", "REIN", "USER",
     "PASS", "AUTH", "PROT", "PBSZ", "CCC", "TYPE", "MODE", "STRU",
 ];
-
-/// Clipboard (ported from sverb `services/clipboard.rs`).
-pub struct ClipboardService { /* osc52 writer, optional LocalClipboard */ }
-impl ClipboardService {
-    pub fn detect() -> Self;
-    pub fn copy(&mut self, text: &str) -> CopyReport;
-}
-pub const OSC52_MAX_PAYLOAD: usize = 100 * 1024;
 
 /// Owns per-tab operation state (custom-command history, busy flag) and runs flows.
 pub struct FileOpsController { /* … */ }
@@ -144,8 +149,8 @@ impl FileOpsController {
 
 `OpContext` gives the controller the tab's two `SessionHandle`s, `Capabilities`,
 `ConnectInfo` (for URLs and queue servers), `Arc<ListingCache>`, the
-`TransferEngine` command sender, `Arc<Mutex<Queue>>`, the `EventSender` and the
-`Settings` snapshot. Network work runs in spawned tasks that send
+`TransferEngine` command sender, `Arc<Mutex<Queue>>`, the `EventSender`, the
+`Settings` snapshot and the T55 clipboard handle. Network work runs in spawned tasks that send
 `Action::FileOpFinished { tab, op, outcome }` back (T50 §7); `update`/`draw` never await.
 
 ### Behaviour
@@ -213,7 +218,8 @@ Flow:
    `priority = Normal`, `on_exists = None` (engine defaults from
    `transfers.on_exists_*`, T42), `transfer_type` from the dialog or
    `file_types.default_type`, `size = entry.size`, `state = Queued`,
-   `is_dir_placeholder = entry.kind == Dir` (symlinks to dirs follow
+   `kind = QueueItemKind::DirPlaceholder(..)` (depth 0) when `entry.kind == Dir`,
+   otherwise `QueueItemKind::File` (symlinks to dirs follow
    `transfers.follow_symlinks`; when false a symlinked dir is skipped with a log line).
    `QueueServer` = the tab's site id, or the inline quickconnect address.
 4. `Queue::add_batch(items)`; unless queue-only, send `Start` to the engine.
@@ -242,11 +248,12 @@ always the other side.
 │                     [ Move ]    [ Cancel ]                    │
 └───────────────────────────────────────────────────────────────┘
 ```
-- **Other side**: like Transfer with `delete_source_after = true` on each item; the
-  engine deletes the source after state `Done` (T40/T41 field, see Open questions).
-  Directory placeholders propagate the flag to expanded children; the source
-  directory itself is removed (`rmdir`) only when it is empty after its children
-  were moved. Failed items keep their source.
+- **Other side**: like Transfer with `delete_source_after = true` on each item
+  (T40 `QueueItem.delete_source_after`); the engine deletes the source after state
+  `Done` (T41). Directory placeholders propagate the flag to expanded children; T43
+  appends a `QueueItemKind::RemoveSourceDir` item that removes (`rmdir`) the source
+  directory only when it is empty after its children were moved. Failed items keep
+  their source.
 - **This side**: a `PathInput` (local completion, or remote completion via the
   pane's cached listings) prefilled with the current directory. Each entry is
   renamed to `<dest>/<name>` with `rename`. The destination directory must exist
@@ -271,13 +278,16 @@ Dialog (inline list editing is out of scope):
 - Initial selection covers the stem (`index` of `index.html`); dotfiles and
   directories select the whole name.
 - Input containing `/` is a relative or absolute path: the target is
-  `dir.join_path(input)` normalised (T02); the parent of the target must exist; on
+  `dir.resolve(input)` (T02 `RemotePath::resolve`); the parent of the target must exist; on
   remote a different parent requires `server_side_rename_across_dirs`.
 - Unchanged name → dialog closes with no action.
-- Target exists (checked in the current cached listing, and `rename` failing with
-  `AlreadyExists`) → `confirm("Overwrite?", "\"x\" already exists. Replace it?",
-  default = No)`; on Yes remove target file first (never a directory: renaming onto
-  an existing directory is an error "A directory with that name exists").
+- Target exists (checked in the current cached listing, and `rename(from, to,
+  replace = false)` failing with `AlreadyExists`) → `confirm("Overwrite?", "\"x\"
+  already exists. Replace it?", ConfirmOpts::danger("Overwrite"))`; on Yes call
+  `rename(from, to, replace = true)` (T03); if the backend cannot replace (T14/T22:
+  `AlreadyExists` again), remove the target file and retry with `replace = false`.
+  Never a directory: renaming onto an existing directory is an error "A directory
+  with that name exists".
 - Case-only rename on a case-insensitive local filesystem (Windows, macOS default):
   rename via a temporary name `<name>.courier-tmp-<4 random hex>` then to the final
   name.
@@ -320,7 +330,7 @@ Dialog (inline list editing is out of scope):
 ```
 - Name validated with `validate_name`; existing name (cache or `stat` OK) → inline
   error "A file with that name already exists".
-- Remote: `open_write(path, WriteMode::Create, &TransferOpts { Binary, None })`,
+- Remote: `open_write(path, WriteMode::Create, &TransferOpts::default())` (Binary),
   shut down the writer without data, `finish_transfer()`. Local: same through
   `LocalBackend`. Cache insert patch with size 0. Cursor on the new file.
 - T63 adds a checkbox "Open in editor after creating".
@@ -343,14 +353,16 @@ Dialog (inline list editing is out of scope):
 └──────────────────────────────────────────────────────────────┘
 ```
 - Local wording: "Really delete … permanently from this computer?" (no trash, see
-  Open questions). The default button is **Cancel**; `Enter` on the opened dialog
-  cancels, `d` / `Alt-d` or moving to *Delete* confirms.
+  Open questions). The dialog is `confirm(.., ConfirmOpts::danger("Delete"))` (T52):
+  the default button is **Cancel**; `Enter` on the opened dialog cancels, `d` /
+  `Alt-d` or moving to *Delete* confirms.
 - Up to 5 names listed (sanitised for display, T53 control-char rule), then
   "… and N more" (line omitted when N = 0).
 - `interface.confirm_delete = false` skips the dialog.
 - Files only: `remove_file` each, sequentially on the browsing session.
-- Any directory: T43 recursive delete (post-order, filters from T47 applied when
-  `filters.apply_to_transfers` is on — filtered entries and their parents stay).
+- Any directory: T43 `delete_recursive(session, targets, RecursiveCtx { .. })`
+  (post-order; filters from T47 applied when `filters.apply_to_transfers` is on —
+  filtered entries and their parents stay; result `DeleteReport`).
   A `ProgressDialog` appears if the operation is still running after 300 ms:
   ```
   ┌ Deleting ────────────────────────────────────────────┐
@@ -402,12 +414,14 @@ Dialog (inline list editing is out of scope):
   shows an inline error and disables OK.
 - The recursion block appears only if the source contains a directory; the radio
   group is enabled only when "Recurse" is ticked.
-- Apply: for each target entry `apply_chmod(old, value, mask)`; `None` (unknown old
+- Apply: for each target entry T43 `compute_mode(old, spec)`; `None` (unknown old
   mode with partial mask) → entry skipped and counted, log `Error:` "Permissions of
   X are unknown; set all bits or none to change them". If the computed mode equals
   the old mode, no call is made.
-- Non-recursive: `chmod` each selected entry. Recursive: T43 recursive chmod with
-  the chosen scope (selected directories themselves are included unless "files only").
+- Non-recursive: `chmod` each selected entry. Recursive: T43 `chmod_recursive(session,
+  targets, spec, scope, recurse = true, ctx)` with the chosen `ChmodScope` (`All`,
+  `FilesOnly`, `DirsOnly`; selected directories themselves are included unless
+  `FilesOnly`).
 - Cache: `chmod` patch per entry.
 
 #### 8. Copy URL (`y u`) and copy URL with options (`y U`)
@@ -427,16 +441,13 @@ Dialog (inline list editing is out of scope):
   ```
   "Include password" is disabled when the connection has no password in memory.
   Ticking it shows a second `confirm` ("The clipboard will contain your password.
-  Other programs can read it.", default No).
+  Other programs can read it.", `ConfirmOpts::danger("Include")`).
 - Local pane: copies native absolute paths (one per line), no URL.
-- Clipboard (ported from sverb): when `SSH_CONNECTION` or `SSH_TTY` is set, OSC 52
-  only (`ESC ] 52 ; c ; <base64> BEL`); otherwise the platform tool
-  (`wl-copy`, `xclip -selection clipboard`, `xsel --clipboard --input`, `pbcopy`,
-  `clip.exe`, first found in `PATH`) **and** OSC 52 when no tool is found.
-  Payload capped at 100 KiB base64 (cut at a char boundary, status message says
-  "Clipboard text truncated"). Inside tmux the sequence is sent as is (tmux forwards
-  it with `set-clipboard on`). The tool runs on a background thread; failures are
-  logged at debug and fall back to OSC 52.
+- Clipboard: the text goes through T55's `crate::ui::clipboard` (OSC 52 over SSH,
+  otherwise the platform tool with OSC 52 fallback; 100 KiB cap; tool on a background
+  thread). This task does not implement a clipboard. When T55 reports that the text
+  was truncated, the status message says "Clipboard text truncated"; a clipboard
+  error becomes the status message `Could not copy: <reason>`.
 - Status message "Copied 3 URLs to the clipboard" (3 s, T57). The copied text is
   never logged.
 
@@ -480,7 +491,8 @@ Dialog (inline list editing is out of scope):
   under the cursor), local file = local pane dir + same name.
 - "Current connection" is disabled when the tab is not connected. "Site" needs the
   vault unlocked (T30); when locked the option shows "(unlock the vault to choose a
-  site)" and `Ctrl-u` opens the unlock overlay (T60).
+  site)" and an `[ Unlock vault ]` button next to it calls `App::request_unlock()`
+  (T60). (`Ctrl-u` is not used: in text fields it deletes to the start of the line.)
 - Validation: upload → local file exists and is a regular file; download → local
   parent directory exists and the local path is not an existing directory; remote
   path non-empty, relative paths resolved against the remote pane's directory.
@@ -546,7 +558,8 @@ Default bindings (T51 table; the two marked * are added there by this task):
 | Capability missing at call time | `Error::Unsupported(_)` | message dialog (same text as the pre-check) |
 | Timeout / connection lost | `Error::Timeout`, `Error::Connection` | `SessionHandle` reconnects once (T03); if it still fails: error dialog, tab shows disconnected |
 | User cancelled | `Error::Cancelled` | status "Cancelled after N entries" |
-| Clipboard tool failed | — | silently falls back to OSC 52; debug log only |
+| Vault locked (manual transfer to a site) | `Error::VaultLocked` | the Site option shows the unlock button; no queue item |
+| Clipboard tool failed | — | T55 falls back to OSC 52; debug log only |
 
 ### Security and logging
 
@@ -554,8 +567,9 @@ Default bindings (T51 table; the two marked * are added there by this task):
   kinds at `debug`; never paths, hostnames or user names at `info`+ (T91 §4).
 - The session log (T55) shows paths as FileZilla does; command lines go through
   `mask_command` (T04).
-- Copy URL with password: password exists only in a `SecretString`; the clipboard
-  payload buffer is `Zeroizing<Vec<u8>>`; the text is never logged.
+- Copy URL with password: password exists only in a `SecretString` until it is handed
+  to T55's clipboard (which keeps its payload buffer in `Zeroizing<Vec<u8>>`); the text
+  is never logged.
 - Server-provided names are displayed only after control-character stripping
   (T53); names that can't be valid path components are never used to build paths.
 - Custom command history stays in memory and is dropped with the tab.
@@ -573,10 +587,10 @@ Default bindings (T51 table; the two marked * are added there by this task):
 5. Rename dialog (stem selection, path targets, overwrite confirm, case-only rename).
 6. Delete: confirmation, file deletes, recursive delete with delayed
    `ProgressDialog`, cancel, partial-failure report.
-7. Chmod: `parse_mode_field`, `format_mode_field`, `apply_chmod`, tri-state dialog,
-   recursive scope.
+7. Chmod: `parse_mode_field`, `format_mode_field` (over T43 `ChmodSpec`), tri-state
+   dialog, `compute_mode` / `chmod_recursive` from T43, recursive scope.
 8. Move: other side (`delete_source_after`) and this side (rename into dir).
-9. Clipboard service port and Copy URL (default and options).
+9. Copy URL (default and options) through T55's `ui::clipboard`.
 10. Custom command line with history and blocked commands.
 11. Manual transfer dialog.
 12. Snapshot tests for every dialog at both sizes; UI-flow tests; e2e scenario.
@@ -588,10 +602,10 @@ Default bindings (T51 table; the two marked * are added there by this task):
 - [ ] AC3 F5 on 3 files + 1 directory adds exactly 3 file items and 1 placeholder item with correct local/remote paths and direction; Shift-F5 adds them without sending `Start`.
 - [ ] AC4 Mkdir of `a/b/c` where only `a` exists issues exactly 2 `mkdir` calls in order `a/b`, `a/b/c`.
 - [ ] AC5 Delete confirmation defaults to Cancel; `interface.confirm_delete = false` skips it; recursive delete can be cancelled within 1 s and reports how many entries were deleted.
-- [ ] AC6 `parse_mode_field` / `apply_chmod` match the table tests (including `x` digits, 4-digit special bits, unknown old mode); the dialog's checkboxes and numeric field stay in sync.
+- [ ] AC6 `parse_mode_field` matches the table tests (including `x` digits and 4-digit special bits); the dialog builds the `ChmodSpec` passed to T43 `compute_mode`/`chmod_recursive` (entries with unknown mode and a partial mask are skipped); the dialog's checkboxes and numeric field stay in sync.
 - [ ] AC7 Rename onto an existing file asks before overwriting; rename onto an existing directory is refused; case-only rename works on a case-insensitive filesystem (macOS/Windows CI job `test-os`).
 - [ ] AC8 Copy URL produces the exact strings in the URL table test; the password is included only after the extra confirm; copied text never appears in logs (canary test).
-- [ ] AC9 OSC 52 sequence is emitted when `SSH_TTY` is set and payloads over 100 KiB are truncated at a char boundary. Manual check: in tmux 3.x with `set-clipboard on`, `y u` puts the URL into the outer terminal's clipboard.
+- [ ] AC9 Copy URL hands its text to T55's `ui::clipboard` (no other clipboard code in `file_ops`, checked by `grep -r "osc52\|wl-copy\|pbcopy" crates/courier-ftp/src/file_ops` → empty) and shows "Clipboard text truncated" when T55 reports truncation. Manual check: in tmux 3.x with `set-clipboard on`, `y u` puts the URL into the outer terminal's clipboard.
 - [ ] AC10 Blocked raw commands are refused without a backend call; an accepted command's reply appears in the log and the remote pane is re-listed.
 - [ ] AC11 Manual transfer validates its fields and queues one item with the chosen transfer type.
 - [ ] AC12 Hostile entry names (`../x`, `a/b`, ESC sequences) in a source are skipped and never reach a backend call or the terminal unescaped.
@@ -605,23 +619,22 @@ Default bindings (T51 table; the two marked * are added there by this task):
 - `fn availability_table_matches_capabilities` — every `FileOp` × side × capability flag combination against the table (AC2).
 - `fn source_uses_marked_entries_else_cursor_and_never_dotdot` (AC1).
 - `fn validate_name_rejects_slash_nul_control_dot_dotdot_and_long_names`; `#[cfg(windows)] fn validate_name_rejects_windows_reserved_names_case_insensitive` (AC12).
-- `fn build_transfer_items_files_and_dir_placeholder` — 3 files + 1 dir → 4 items, paths joined correctly, placeholder flag set (AC3).
+- `fn build_transfer_items_files_and_dir_placeholder` — 3 files + 1 dir → 4 items, paths joined correctly, 3 × `QueueItemKind::File` and 1 × `QueueItemKind::DirPlaceholder` with depth 0 (AC3).
 - `fn build_transfer_items_skips_hostile_names` (AC12).
 - `fn build_transfer_items_sets_delete_source_after_for_move`.
 - `fn parse_mode_field_table` — `"644"`, `"6x4"`, `"0755"`, `"4755"`, `"xxx"`, `"x7"` (error), `"8"` (error), `"77777"` (error) (AC6).
-- `fn apply_chmod_table` — known/unknown old × full/partial mask (AC6).
+- `fn chmod_dialog_builds_spec_and_skips_unknown_partial` — tri-state bits → `ChmodSpec`; with T43 `compute_mode`, an entry with `permissions: None` and a partial mask is skipped and counted (AC6).
 - `fn initial_tristate_from_mixed_entries` (AC6).
 - `fn entry_url_table` — SFTP default port omitted, FTP port 2121 kept, anonymous FTP, IPv6 literal, user with `@`, path with spaces and `#`, directory trailing slash, server-only, with password (AC8).
-- `fn osc52_sequence_truncates_at_char_boundary` (port of sverb test) (AC9).
-- `fn clipboard_over_ssh_uses_osc52_only` — with a fake `LocalClipboard` and env injected (AC9).
+- `fn copy_url_goes_through_ui_clipboard_and_reports_truncation` — fake clipboard handle records the text; a truncated report produces the status message (AC9).
 - `fn blocked_raw_commands_case_insensitive` (AC10).
 - `fn mkdir_plan_creates_missing_components_only` — pure planner over a fake "exists" oracle (AC4).
 - `fn rename_target_parsing_relative_absolute_and_parent_dir`.
 
 ### Property / fuzz tests
 
-- `proptest fn mode_field_roundtrip` — for any `(value, mask)` over 12 bits, `parse_mode_field(format_mode_field(v, m, true)) == (v & m, m)` (AC6).
-- `proptest fn apply_chmod_keeps_unmasked_bits` — `(result & !mask) == (old & !mask)` (AC6).
+- `proptest fn mode_field_roundtrip` — for any `ChmodSpec { value, mask }` over 12 bits, `parse_mode_field(&format_mode_field(spec, true)) == ChmodSpec { value: value & mask, mask }` (AC6).
+  (`compute_mode` properties are tested in T43.)
 
 ### Snapshot tests
 
@@ -674,14 +687,11 @@ Manual check (AC9): tmux clipboard with `set-clipboard on`, documented in
 
 ## Open questions
 
-1. **`delete_source_after` on `QueueItem`**: T40 doesn't have this field yet; Move
-   to the other side needs it (and T41 must delete the source after `Done`). Owner
-   of T40/T41 to add it, or decide Move across sides is dropped.
-2. **Local delete to trash**: FileZilla on Windows uses the recycle bin. Should
+1. **Local delete to trash**: FileZilla on Windows uses the recycle bin. Should
    local deletes go to the OS trash (`trash` crate) instead of deleting
    permanently? Current spec: permanent delete with explicit wording.
-3. **Signatures of T43/T46 APIs** (recursive delete/chmod entry points, cache patch
-   method names) are not fixed in those tasks; this task uses them by description
-   and must follow whatever T43/T46 define.
-4. **`filters.apply_to_transfers`** is introduced by T67 and is not in T05's planned
-   key list; T05 should list it under the `filters` section.
+
+Resolved (reconciliation): `QueueItem.delete_source_after` and
+`QueueItemKind::RemoveSourceDir` exist in T40/T43; recursive delete/chmod use T43's
+`delete_recursive`/`chmod_recursive`/`compute_mode`; `filters.apply_to_transfers` is a T05
+key; the clipboard is T55's `ui::clipboard`.

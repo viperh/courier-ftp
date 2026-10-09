@@ -400,7 +400,9 @@ pub enum TransferType { Ascii, Binary }       // resolved type; the Auto choice 
 pub enum Error {
     /// Could not connect, or the connection was lost (incl. FTP 421). SessionHandle reconnects (T03).
     #[error("connection error: {0}")]            Connection(String),
-    /// Server accepted no more connections from us (FTP 421/530 "too many", SSH MaxSessions). T41 lowers the limit.
+    /// Server accepted no more connections from us: FTP 421/530 replies whose text says
+    /// "too many connections" (T10), SSH disconnect reason 12 TOO_MANY_CONNECTIONS (T20).
+    /// T41 lowers the per-server connection limit.
     #[error("too many connections: {0}")]        ConnectionLimit(String),
     /// No data for `connection.timeout_secs`.
     #[error("timed out")]                        Timeout,

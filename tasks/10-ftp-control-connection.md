@@ -16,16 +16,20 @@ network wizard) is built on the `ControlConnection` and the scripted fake server
 ## Context
 
 **Exists before this task:**
-- T02: `RemotePath`, `Credentials`/`LogonType` (with `SecretString` passwords), `Charset`,
-  `FtpEncryption`, `ServerAddress`, `courier_ftp_core::Error` (`Connection`, `Timeout`,
+- T02: `RemotePath`, `ServerAddress` (incl. `user`), `LogonType` (with `SecretString`
+  passwords; "credentials" = `ServerAddress.user` + `LogonType`), `Charset`, `Protocol` +
+  `FtpEncryption`, `courier_ftp_core::Error` (`Connection`, `ConnectionLimit`, `Timeout`,
   `Cancelled`, `Auth`, `Protocol { code, message }`, `Unsupported`, `InvalidInput`, `Io`…)
   and `Error::is_transient()`.
-- T04: `EventSender`, `LogMessage`/`LogKind` (`Status`, `Command`, `Response`, `Error`,
-  `ListingRaw`, `Debug(u8)`), `mask_command`, `PromptRequest` (`Password { for_ }`).
+- T04: `EventSender`, `SessionLog`, `LogMessage`/`LogKind` (`Status`, `Command`, `Response`,
+  `Error`, `ListingRaw`, `Debug(u8)`; no warning kind — warnings are `Status` lines prefixed
+  `Warning: `), `mask_command`, `PromptKind::Password(PasswordPrompt)` with
+  `PasswordPurpose::{Login, Account}`, `EventSender::prompt_tracked` /
+  `credential_accepted` (`CoreEvent::CredentialAccepted`).
 - T05: `Settings` (`connection.timeout_secs` = 20, `connection.keepalive_interval_secs` = 30,
-  `ftp.send_keepalive_command` = `NOOP`).
-- T07: `net::connect_tcp(&HostPort, &NetOpts, CancellationToken, &EventSender) -> Result<TcpStream>`
-  (DNS, IPv6 preference, per-attempt timeout, HTTP/SOCKS proxies), `local_addr_for`.
+  `ftp.send_keepalive_command: KeepaliveCommand` = `noop`).
+- T07: `net::connect_tcp(&HostPort, &NetOpts, CancellationToken, &SessionLog) -> Result<NetStream>`
+  (DNS, IPv6 preference, Happy Eyeballs, timeout, HTTP/SOCKS proxies), `local_addr_for`.
 
 **Later tasks need from this one:**
 - T11: `ControlConnection::send`/`read_reply`, `Features` (`epsv`, `eprt`, `rest_stream`),
@@ -138,13 +142,11 @@ pub struct ControlParams {
     pub net: NetOpts,                 // from T07 (timeouts, proxy, prefer_ipv6)
     pub charset: Charset,             // T02
     pub timeout: Duration,            // connection.timeout_secs
+    /// `courier_ftp_core::settings::KeepaliveCommand` (T05: Noop*, Pwd, Type, Random),
+    /// from `ftp.send_keepalive_command`. Not redefined here.
     pub keepalive_command: KeepaliveCommand,
-    pub session: SessionId,           // for LogMessage
-    pub events: EventSender,
+    pub log: SessionLog,              // T04: session id + EventSender
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeepaliveCommand { Noop, Pwd, Type, Random }   // from ftp.send_keepalive_command
 
 pub enum ControlState { Greeting, LoggingIn, Ready, Busy, TransferOpen, Broken, Closed }
 
@@ -215,8 +217,9 @@ impl SessionEncoding {
 pub struct LineDecoder;
 
 // login.rs ------------------------------------------------------------------------------
-/// An ordered login sequence. The default is built from `Credentials`; T15 builds proxy
-/// scripts. Secrets are resolved lazily so a prompt only appears when the server asks.
+/// An ordered login sequence. The default is built from `ServerAddress.user` + `LogonType`
+/// (T02); T15 builds proxy scripts. Secrets are resolved lazily so a prompt only appears
+/// when the server asks.
 pub struct LoginScript { pub steps: Vec<LoginStep> }
 pub struct LoginStep {
     pub kind: StepKind,                 // User | Pass | Acct | Other
@@ -229,10 +232,19 @@ pub struct LoginStep {
 pub enum StepKind { User, Pass, Acct, Other(&'static str) }
 pub enum StepValue { Plain(String), Secret(SecretString), AskPassword, AskAccount, Line(SecretString) }
 pub enum LoginTarget { Proxy, Server }
+/// Prompt metadata for AskPassword/AskAccount steps (filled by T14 from ConnectInfo).
+pub struct LoginPromptInfo {
+    pub target: String,                 // PasswordPrompt.target, "user@host:port"
+    pub cache_key: SecretCacheKey,      // T04 Password { protocol: Ftp, host, port, user }
+    /// T04 `can_save`: saved site (`ConnectInfo.site_id.is_some()`) and
+    /// `vault.store_passwords`; T69 also disables it while the vault is locked.
+    pub can_save: bool,
+}
 impl LoginScript {
-    /// USER/PASS[/ACCT] for T02 `Credentials`. KeyFile/Agent → `Error::InvalidInput`
-    /// ("key-based logon is SFTP only").
-    pub fn for_credentials(c: &Credentials) -> Result<Self>;
+    /// USER/PASS[/ACCT] for `ServerAddress.user` + `LogonType` (T02). `user` None with a
+    /// non-anonymous logon → `Error::InvalidInput("user name required")`.
+    /// KeyFile/Agent → `Error::InvalidInput` ("key-based logon is SFTP only").
+    pub fn for_logon(user: Option<&str>, logon: &LogonType, prompt: LoginPromptInfo) -> Result<Self>;
 }
 
 // testing.rs (feature `test-util`, also used by T11–T15, T72, T76) -----------------------
@@ -332,7 +344,7 @@ code         = %x31-35 2DIGIT                                   ; 1yz … 5yz
 - Logging: every command → `LogKind::Command` with `Command::log_text()` (secrets
   `****`; T04 `mask_command` is applied on top as a second guard). Every reply line →
   `LogKind::Response`.
-- The wire buffer holding a secret is `Zeroizing<Vec<u8>>`; `SecretString::expose_secret`
+- The wire buffer holding a secret is `Zeroizing<Vec<u8>>`; `SecretString::expose()`
   happens only inside `Command::encode`.
 
 **4. Charset (`SessionEncoding`, RFC 2640).**
@@ -352,7 +364,8 @@ Disconnected ─connect_tcp─▶ [implicit TLS hook, T12] ─▶ Greeting
 Greeting: read reply
    120            → log "server busy, ready in N min", keep reading (≤ 5 × 120 accepted)
    220            → continue
-   421            → Error::Protocol{421}  (usually "too many connections"; T41 backs off)
+   421            → Error::ConnectionLimit(text) if the text matches the "too many" pattern
+                    (§6), else Error::Connection(text); T41 lowers the limit on ConnectionLimit
    other          → Error::Connection("unexpected greeting: <text>")
 [explicit TLS, T12: AUTH TLS → 234 → handshake]
 LoggingIn: run LoginScript (below)
@@ -399,8 +412,9 @@ Ready ─quit()─▶ Closed
 | `PASS x` | 230, 202, 232 | logged in for this target |
 | | 332 | send `ACCT` |
 | `ACCT x` | 230, 202 | logged in |
-| any | 421 | `Error::Protocol { code: 421 }` |
-| any | 530 + text matching `/too many\|maximum\|connections/i` | `Error::Protocol { code: 530 }` (T41 back-off, not a credential error) |
+| any | 421 + text matching `/too many\|maximum\|connections\|limit/i` | `Error::ConnectionLimit(text)` (T41 lowers the limit; not retried by T03) |
+| any | other 421 | `Error::Connection(text)` |
+| any | 530 + text matching the same pattern | `Error::ConnectionLimit(text)` (not a credential error) |
 | any | 530, 430 | `Error::Auth(server text)` |
 | any | other 4xx | `Error::Protocol` (transient) |
 | any | other 5xx | `Error::Auth(server text)` |
@@ -408,15 +422,20 @@ Ready ─quit()─▶ Closed
 
 - After the last step the last reply must be 2xx (`230`/`202`), otherwise
   `Error::Auth("login incomplete: <text>")`.
-- `LoginScript::for_credentials`:
+- `LoginScript::for_logon` (user from `ServerAddress.user`):
   - `Anonymous` → `USER anonymous`, `PASS anonymous@example.com`.
-  - `Normal { user, password }` / `Account { user, password, account }` → `USER`, `PASS`,
-    `ACCT` (only when 332 is received).
-  - `AskForPassword { user }` / `Interactive { user }` → `PASS` value `AskPassword`: a
-    `Prompt(Password { for_: server })` (T04) is sent **only when 331 arrives**; the
+  - `Normal { password: Some(p) }` / `Account { password: Some(p), account }` → `USER`,
+    `PASS`, `ACCT` (only when 332 is received; `account` None → `AskAccount`).
+  - `Normal { password: None }` (not stored), `AskForPassword`, `Interactive`, `Account
+    { password: None, .. }` → `PASS` value `AskPassword`: a
+    `PromptKind::Password(PasswordPrompt { purpose: Login, target, retry: false, attempt: 1,
+    max_attempts: 1, cache_key, can_save })` (T04) is sent via `prompt_tracked` **only when
+    331 arrives**; `AskAccount` uses `purpose: Account` and `SecretCacheKey::Account`. The
     inactivity timer is paused while waiting; a cancelled/dropped prompt → `Error::Cancelled`.
-    `AskForPassword` keeps the answer in the `ConnectInfo` for this backend instance (T14);
-    `Interactive` asks on every login.
+    When the login reaches 230/202, the crate calls `credential_accepted(session, prompt_id)`
+    for every prompt answered during this login (T69 then caches/saves the value).
+    `AskForPassword` keeps the answer for this backend instance (T14); `Interactive` asks
+    on every login.
   - `KeyFile` / `Agent` → `Error::InvalidInput`.
 - No reply to a step within the timeout → `Error::Timeout`.
 
@@ -461,7 +480,7 @@ Settings read (all from T05, none added here):
 |---|---|---|---|
 | `connection.timeout_secs` | u32 | 20 | inactivity timeout |
 | `connection.keepalive` / `keepalive_interval_secs` | bool / u32 | true / 30 | `SessionHandle` schedule |
-| `ftp.send_keepalive_command` | string `NOOP`\|`PWD`\|`TYPE`\|`random` | `NOOP` | §7; other values → warning + `NOOP` |
+| `ftp.send_keepalive_command` | `KeepaliveCommand` (`noop`\|`pwd`\|`type`\|`random`) | `noop` | §7; invalid values are reset by T05 |
 | `logging.level` | u8 0–4 | 2 | `Debug(n)` lines dropped above it (T04) |
 
 Wire formats: RFC 959 commands `VERB SP arg CRLF`; replies per §1. Status-line texts used
@@ -477,7 +496,8 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 | Inactivity timeout | `Timeout` | "Connection timed out after 20 seconds of inactivity" |
 | EOF / reset while waiting | `Connection("connection closed by server")` | same |
 | 421 after login | `Connection(text)` | server text; `SessionHandle` reconnects once |
-| 421 / "too many" 530 at greeting/login | `Protocol { code: Some(421 \| 530), message }` | server text |
+| "too many connections" 421/530 at greeting/login | `ConnectionLimit(text)` | server text; T41 lowers the per-server limit |
+| other 421 at greeting/login | `Connection(text)` | server text |
 | Bad credentials | `Auth(text)` | "Authentication failed: <text>" |
 | Malformed / oversized reply | `Protocol { code: None, message }` | "Invalid reply from server" |
 | CR/LF/NUL in argument, refused raw command, unmappable char | `InvalidInput(..)` | the message |
@@ -528,8 +548,9 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 - [ ] AC4 Login works for: normal (331→230), anonymous, `230` straight after `USER`, `332`
   account required after `PASS`, ask-for-password (prompt only after 331; no prompt when
   `USER` gets 230), and cancelled prompt → `Error::Cancelled`.
-- [ ] AC5 530 → `Error::Auth`; 421 at greeting and "530 too many connections" →
-  `Error::Protocol` with the code; 421 after login → `Error::Connection`.
+- [ ] AC5 530 → `Error::Auth`; "421 Too many connections" at greeting and "530 too many
+  connections" → `Error::ConnectionLimit`; any other 421 at greeting and 421 after login →
+  `Error::Connection`.
 - [ ] AC6 `FEAT` parsed into `Features` (MLST facts with `*`, `REST STREAM`, `AUTH TLS;SSL`,
   `UTF8`, `HASH`); `500` reply to FEAT leaves all flags false and login still succeeds.
 - [ ] AC7 Charset: `OPTS UTF8 ON` sent only for Auto/Utf8 with `UTF8` advertised; Auto
@@ -595,8 +616,11 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 - `login_normal_331_230`, `login_anonymous_sends_default_password`,
   `login_230_after_user_skips_pass`, `login_332_sends_acct`,
   `login_ask_password_prompts_only_after_331`, `login_prompt_cancelled_returns_cancelled`. AC4.
-- `login_530_is_auth_error`, `greeting_421_is_protocol_421`,
-  `login_530_too_many_connections_is_protocol_530`, `reply_421_after_login_is_connection`. AC5.
+- `login_530_is_auth_error`, `greeting_421_too_many_is_connection_limit`,
+  `greeting_421_other_text_is_connection`, `login_530_too_many_connections_is_connection_limit`,
+  `reply_421_after_login_is_connection`. AC5.
+- `login_prompt_accepted_emits_credential_accepted` — ask-for-password login → 230 →
+  `CoreEvent::CredentialAccepted` with the prompt's id; a 530 emits none. AC4.
 - `greeting_120_then_220_succeeds`. 
 - `negotiate_without_feat_uses_defaults`, `negotiate_sends_opts_utf8_only_when_advertised`,
   `negotiate_sends_opts_mlst_with_advertised_facts`. AC6, AC7.
@@ -626,12 +650,8 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 
 ## Open questions
 
-- T05 keeps `ftp.send_keepalive_command` default `NOOP`. FileZilla rotates `NOOP`/`PWD`/
+- T05 keeps `ftp.send_keepalive_command` default `noop`. FileZilla rotates `NOOP`/`PWD`/
   `TYPE` because some servers don't count `NOOP` as activity. Should the default be
   `random`? (Setting owner: T05.)
-- T04's `LogKind` has no `Warning` kind; user-visible warnings from the FTP crate (e.g.
-  charset switch, plain-text fallback in T12) are logged as `Status` with a `Warning: ` prefix
-  plus `Debug(1)`. Should T04 add `LogKind::Warning` (FileZilla shows them coloured)?
-- T02/T41: "too many connections" is reported as `Error::Protocol { code: Some(421 | 530) }`
-  and recognised by T41 from the code + text. A dedicated `Error::TooManyConnections` in T02
-  would make T41's detection protocol-independent (SFTP `MaxSessions` too).
+- Resolved: warnings are `Status` lines prefixed `Warning: ` (T04 has no `LogKind::Warning`);
+  "too many connections" maps to `Error::ConnectionLimit` (T02).
