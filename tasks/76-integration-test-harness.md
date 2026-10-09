@@ -32,7 +32,7 @@ T41b, T71), `PtyApp` (T53, T60, T62, T63, T70), toxiproxy (T41, T41b, T42), the 
 server fixture (T84–T90), the in-process hostile FTP server (T13, T42, T53, T55, T91),
 the TUI snapshot helper (all T5x/T6x UI tasks), the startup benchmark test (T00 bench gate).
 
-### Testing strategy per layer (SPEC §19 equivalent)
+**Testing strategy per layer (SPEC §19 equivalent):**
 
 | Layer | Approach | Where |
 |---|---|---|
@@ -669,7 +669,7 @@ every row exists (AC8).
 | `sync.rs` | `register_and_second_device_login_with_preview`, `offline_edits_on_both_devices_merge`, `same_field_conflict_newest_wins`, `password_change_logs_out_other_device`, `recovery_with_24_words`, `server_410_triggers_resync` | M7, T84–T88 |
 | `teams.rs` | `invite_accept_and_share_site`, `member_removal_rotates_key`, `safety_number_change_blocks_grants` | M8, T89 |
 
-## Running locally
+**Running locally:**
 
 ```sh
 cargo test --workspace                                 # fast suite, no Docker
