@@ -85,14 +85,14 @@ pub enum QueueItemKind {
 
 /// State carried by a directory placeholder (meaning defined by T43; serialised here).
 pub struct DirExpansion {
-    /// Remote: real path when the directory was reached through a followed symlink.
+    /// Real path when the directory was reached through a followed symlink (None = same as
+    /// its logical path).
     pub real_path: Option<RemotePath>,
-    /// Symlink-loop detection (T43): remote real paths / local (dev, inode) or canonical paths.
-    pub link_chain: Vec<LinkId>,
+    /// Symlink-loop detection (T43): real paths (local ones in T06 `path_map` form).
+    pub link_chain: Vec<RemotePath>,
     /// 0 = selected directory; hard limit 64 (T43).
     pub depth: u16,
 }
-pub enum LinkId { Remote(RemotePath), LocalInode { dev: u64, ino: u64 }, LocalPath(LocalPath) }
 
 pub struct QueueItem {
     pub id: TransferId,
@@ -397,7 +397,7 @@ ItemDto = { "id": u64, "s": uint /*server ref*/, "k": "f"|"d"|"r", "dir": 0|1 /*
             "tt": 0|1|2, "p": 0..4, "ox": text?, "del": bool, "cp": u64?,
             "st": "q"|"p"|"f"|"d", "att": u8, "err": text?, "done": [[u64,u64]],
             "added": i64, "fin": i64?, "bytes": u64?, "dur_ms": u64?, "out": text?,
-            "dx": { "rp": text?, "lc": [LinkIdDto], "depth": u16 }? }
+            "dx": { "rp": text?, "lc": [text], "depth": u16 }? }
 ```
 
 The CBOR buffer holding exposed secrets is `Zeroizing<Vec<u8>>`; the zstd output too.

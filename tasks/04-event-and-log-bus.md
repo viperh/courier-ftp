@@ -44,7 +44,7 @@ pub struct TransferId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OperationId(pub u64);       // OperationId::next() like SessionId
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct PromptId(u64);
+pub struct PromptId(u64);             // assigned by EventSender from a process-wide counter
 
 // ---- message log ----
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +93,9 @@ pub enum CoreEvent {
     /// sync clock skew, resurrected item (T41, T88).
     Notice { level: NoticeLevel, text: String },
     Prompt(PromptRequest),
+    /// The secret given for prompt `prompt_id` was accepted by the server (T20, T10):
+    /// the UI may now cache/save what the user typed (T69). Carries no secret.
+    CredentialAccepted { session: SessionId, prompt_id: PromptId },
     // T88 adds `Sync(SyncStatus)`; the enum is non_exhaustive for that reason.
 }
 
@@ -136,73 +139,141 @@ impl fmt::Debug for PromptRequest;   // id, session, kind (kinds hold no secrets
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum PromptKind {
-    TrustHostKey(HostKeyPrompt),                 // T21
-    TrustCertificate(Box<CertificatePrompt>),    // T12
-    Password(PasswordPrompt),                    // T15, T20, T07, T10
-    KeyPassphrase(PassphrasePrompt),             // T20
-    KeyboardInteractive(KbdInteractivePrompt),   // T20
-    FileExists(Box<FileExistsPrompt>),           // T42
-    Message(MessagePrompt),                      // informational, answered with Ack
+    TrustHostKey(HostKeyPrompt),                    // T21
+    TrustCertificate(Box<CertPromptDetails>),       // T12
+    Password(PasswordPrompt),                       // T07, T10, T15, T20
+    KeyPassphrase(PassphrasePrompt),                // T20
+    KeyboardInteractive(KbdInteractivePrompt),      // T20
+    FileExists(Box<FileExistsPrompt>),              // T42
+    Message(MessagePrompt),                         // informational, answered with Ack
 }
+
+// -- host keys (payload produced by T21) --
 #[derive(Clone, Debug, PartialEq)]
 pub struct HostKeyPrompt {
     pub host: String, pub port: u16,
     pub key_type: String,                 // "ssh-ed25519"
-    pub key_bits: Option<u32>,
+    pub bits: u32,
     pub fingerprint_sha256: String,       // "SHA256:<base64, no padding>"
     pub fingerprint_md5: String,          // "MD5:aa:bb:…"
-    /// Set when a different key of the same type is stored: the changed-key warning (T69).
-    pub known: Option<KnownHostKey>,
-    /// false when the vault is locked: "Always trust" is disabled (T21 §4).
-    pub can_store: bool,
+    /// Some → the key changed: the stored/known keys of the same type (T69 red warning).
+    pub changed: Option<Vec<OldKey>>,
+    /// Unknown key, but other key types are trusted for this host (shown as a note).
+    pub other_known_types: Vec<String>,
+    /// false (vault locked / in-memory store) → "Always trust" disabled (T21 §4).
+    pub can_save: bool,
 }
 #[derive(Clone, Debug, PartialEq)]
-pub struct KnownHostKey { pub key_type: String, pub fingerprint_sha256: String }
+pub struct OldKey { pub fingerprint_sha256: String, pub source: OldKeySource }
 #[derive(Clone, Debug, PartialEq)]
-pub struct CertificatePrompt {
-    pub host: String, pub port: u16,
-    pub chain: Vec<CertificateInfo>,      // leaf first
-    pub tls_version: String,              // "TLS 1.3"
-    pub cipher_suite: String,
-    pub hostname_matches: bool,
-    /// Human-readable verification problems: "expired", "self-signed", "unknown issuer", …
-    pub problems: Vec<String>,
-    /// SHA-256 of a previously "always trusted" certificate for this host:port (changed-cert warning).
-    pub previously_trusted_sha256: Option<String>,
-    pub can_store: bool,
+pub enum OldKeySource {
+    /// A `known-host` vault item (id = its item id, T81; T21's KnownHostId wraps it).
+    Vault { id: uuid::Uuid, added_at: OffsetDateTime },
+    OpenSshFile { path: PathBuf, line: usize },
 }
+/// Host key summary for the server info dialog (T57).
 #[derive(Clone, Debug, PartialEq)]
-pub struct CertificateInfo {
-    pub subject: String, pub issuer: String,
-    pub not_before: OffsetDateTime, pub not_after: OffsetDateTime,
-    pub serial_hex: String,
-    pub sha256: String, pub sha1: String,  // "AB:CD:…"
-    pub subject_alt_names: Vec<String>,
-    pub key_algorithm: String, pub key_bits: Option<u32>,
+pub struct HostKeyInfo { pub key_type: String, pub bits: u32, pub fingerprint_sha256: String }
+
+// -- TLS certificates (payload produced by T12; T12's `courier_ftp_core::trust`
+//    re-exports these types instead of defining its own) --
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CertificateDetails {
+    pub subject: String,           // RFC 4514, e.g. "CN=ftp.example.com,O=Example"
+    pub subject_cn: Option<String>,
+    pub issuer: String,
+    pub serial: String,            // upper-case hex, colon separated
+    pub not_before: OffsetDateTime,
+    pub not_after: OffsetDateTime,
+    pub sha256: [u8; 32],
+    pub sha1: [u8; 20],            // display only
+    pub sans: Vec<String>,         // "DNS:ftp.example.com", "IP:192.0.2.1"
+    pub public_key: String,        // "RSA 2048", "EC P-256", "Ed25519"
     pub signature_algorithm: String,
+    pub is_ca: bool,
+    pub self_signed: bool,
+    pub parse_error: Option<String>,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CertProblem { UnknownIssuer, SelfSigned, Expired, NotYetValid, NotValidForName,
+                       Revoked, InvalidPurpose, BadSignature, Other(String) }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TlsSessionInfo {
+    pub protocol: String,          // "TLSv1.3"
+    pub cipher_suite: String,      // "TLS13_AES_128_GCM_SHA256"
+    pub server_name: String,
+    pub chain: Vec<CertificateDetails>,   // leaf first
+    pub trusted_by: TrustSource,
+    pub data_protection: DataProtection,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum TrustSource { Platform, Stored, Once }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum DataProtection { Private, Clear }
+#[derive(Clone, Debug, PartialEq)]
+pub struct CertPromptDetails {
+    pub host: String, pub port: u16,
+    pub session: TlsSessionInfo,
+    pub problems: Vec<CertProblem>,
+    pub hostname_matches: bool,
+    /// Another certificate is stored as "always trusted" for host:port → changed-cert warning.
+    pub previous: Option<PreviousCert>,
+    /// false (vault locked / in-memory store) → "Always trust" disabled.
+    pub can_save: bool,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviousCert { pub sha256: [u8; 32], pub subject: String, pub not_after: OffsetDateTime, pub added_at: OffsetDateTime }
+
+// -- secrets (payloads produced by T07, T10, T15, T20) --
 #[derive(Clone, Debug, PartialEq)]
 pub struct PasswordPrompt {
     pub purpose: PasswordPurpose,
-    /// "user@host:port" or the proxy "host:port" (shown in the dialog).
+    /// "alice@web01.example.com:22", or the proxy "host:port".
     pub target: String,
-    pub can_remember: bool,               // "Remember for this session"
-    pub can_save: bool,                   // "Save in vault" (vault unlocked and store_passwords)
+    /// The previous answer was rejected (T69 shows the retry line, never answers from cache).
+    pub retry: bool,
+    pub attempt: u8,                      // 1-based
+    pub max_attempts: u8,                 // 3 for SSH (T20)
+    /// Key for T69's "remember for this session" cache.
+    pub cache_key: SecretCacheKey,
+    /// "Save in the vault" offered (saved site, vault unlocked, vault.store_passwords).
+    pub can_save: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PasswordPurpose { Login, Account, Proxy, FtpProxy }
 #[derive(Clone, Debug, PartialEq)]
-pub struct PassphrasePrompt { pub key: String /* path or "vault key <name>" */, pub attempt: u8 /* 1..=3 */, pub can_save: bool }
+pub struct PassphrasePrompt {
+    pub key_label: String,                // path or "vault key <name>"
+    pub retry: bool, pub attempt: u8, pub max_attempts: u8,
+    pub cache_key: SecretCacheKey,
+    pub can_save: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SecretCacheKey {
+    /// host ASCII-lowercased.
+    Password { protocol: Protocol, host: String, port: u16, user: String },
+    Account { host: String, port: u16, user: String },
+    Proxy { host: String, port: u16, user: String },
+    Passphrase { key: String },
+}
 #[derive(Clone, Debug, PartialEq)]
-pub struct KbdInteractivePrompt { pub name: String, pub instructions: String, pub fields: Vec<KbdField> }
+pub struct KbdInteractivePrompt {
+    pub host: String,                     // "web01.example.com:22"
+    pub name: String, pub instructions: String,   // untrusted server text
+    pub prompts: Vec<KbdField>,
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct KbdField { pub text: String, pub echo: bool }
+
+// -- file exists (payload produced by T42) --
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileExistsPrompt {
     pub direction: Direction,
+    /// Display strings (RemotePath::as_str / LocalPath::to_display).
     pub source_path: String, pub source: Entry,
     pub target_path: String, pub target: Entry,
-    pub can_resume: bool,                 // backend capability + binary type (T42)
+    /// Resume offered (capability + binary type + target smaller, T42).
+    pub can_resume: bool,
+    /// Prefill for the rename field ("name (1).ext", T42's first free name), if computed.
+    pub suggested_name: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessagePrompt { pub level: NoticeLevel, pub title: String, pub text: String }
@@ -210,16 +281,21 @@ pub struct MessagePrompt { pub level: NoticeLevel, pub title: String, pub text: 
 /// The user's answer. Must match the prompt kind (see Behaviour).
 #[non_exhaustive]
 pub enum PromptResponse {
-    Trust(TrustDecision),                                      // TrustHostKey, TrustCertificate
-    Secret { value: SecretString, remember: Remember },        // Password, KeyPassphrase
-    KeyboardInteractive(Vec<SecretString>),                    // one per field, same order
+    HostKey(TrustAnswer),                                      // TrustHostKey
+    Certificate(TrustAnswer),                                  // TrustCertificate
+    /// Password / KeyPassphrase. The UI keeps the typed value and caches/saves it only
+    /// after CoreEvent::CredentialAccepted for this prompt (T69).
+    Secret { value: SecretString, remember_session: bool, save_in_vault: bool },
+    /// KeyboardInteractive: one answer per field, same order.
+    Answers(Vec<SecretString>),
     FileExists { action: ExistsAction, apply_to: ApplyTo, new_name: Option<String> },
     Ack,                                                       // Message
     Cancel,                                                    // any kind
 }
 impl fmt::Debug for PromptResponse;   // secrets as [REDACTED]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum TrustDecision { Once, Always, Reject }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum Remember { No, Session, Vault }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum TrustAnswer { TrustOnce, AlwaysTrust, Reject }
+/// T21's name for the host-key answer.
+pub type HostKeyAnswer = TrustAnswer;
 /// Scope of a file-exists answer (T42).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum ApplyTo { Once, AllInQueue, AllForDirection }
 
@@ -248,6 +324,12 @@ impl EventSender {
     /// As `prompt`, but also returns Cancelled as soon as `cancel` fires.
     pub async fn prompt_with_cancel(&self, session: SessionId, kind: PromptKind,
                                     cancel: &CancellationToken) -> Result<PromptResponse>;
+    /// As `prompt_with_cancel`, also returning the PromptId (secret prompts, so the
+    /// producer can later call `credential_accepted`).
+    pub async fn prompt_tracked(&self, session: SessionId, kind: PromptKind,
+                                cancel: Option<&CancellationToken>) -> Result<(PromptId, PromptResponse)>;
+    /// Send CoreEvent::CredentialAccepted.
+    pub fn credential_accepted(&self, session: SessionId, prompt_id: PromptId);
     pub fn is_closed(&self) -> bool;
 }
 pub struct EventReceiver { /* … */ }
@@ -328,12 +410,17 @@ events are never dropped (they are low-rate by design).
    closes the oneshot; `PromptRequest::is_withdrawn()` becomes true and the UI removes the
    dialog (T69). `prompt_with_cancel` does the same when the token fires.
 5. No timeout: the user may be away.
-6. Answer/kind compatibility: `Trust` ↔ TrustHostKey/TrustCertificate; `Secret` ↔
-   Password/KeyPassphrase; `KeyboardInteractive` ↔ KeyboardInteractive with exactly
-   `fields.len()` values; `FileExists` ↔ FileExists with `action ≠ Ask` and `new_name`
-   present iff `action = Rename`; `Ack` ↔ Message; `Cancel` ↔ any. Anything else →
-   `Err(Internal)` and an `error!` trace.
-7. Ordering and one-at-a-time display are the UI's job (T69); the bus delivers in send order.
+6. Answer/kind compatibility: `HostKey` ↔ TrustHostKey; `Certificate` ↔ TrustCertificate;
+   `Secret` ↔ Password/KeyPassphrase; `Answers` ↔ KeyboardInteractive with exactly
+   `prompts.len()` values; `FileExists` ↔ FileExists with `action ≠ Ask` and `new_name`
+   present iff `action = Rename`; `Ack` ↔ Message; `Cancel` ↔ any. `AlwaysTrust` when
+   `can_save` is false is treated as `TrustOnce`. Anything else → `Err(Internal)` and an
+   `error!` trace.
+7. **Credential acceptance:** producers of secret prompts call
+   `credential_accepted(session, id)` once the server accepted the answer (T20 after auth
+   success, T10 after `230`); rejected answers produce no event. The UI must not cache or
+   save a typed secret before this event (T69).
+8. Ordering and one-at-a-time display are the UI's job (T69); the bus delivers in send order.
 
 **Bridge:** the binary's main loop (T50) owns the `EventReceiver` and `select!`s on it; this
 task only provides the receiver. Headless users (T76) drain it in a task and answer prompts
@@ -391,7 +478,7 @@ with a scripted responder.
   within one scheduler tick.
 - [ ] AC8 Control characters in log text are rendered in caret notation; multi-line text
   becomes one message per line; lines are capped at 4096 chars.
-- [ ] AC9 `format!("{:?}", PromptResponse::Secret{..})` does not contain the secret.
+- [ ] AC9 `format!("{:?}", ..)` of `PromptResponse::Secret{..}` and `Answers(..)` does not contain the secrets.
 - [ ] AC10 T00 CI gates pass.
 
 ## Tests
@@ -420,7 +507,9 @@ Not applicable.
 - `progress_coalescing_bounds_memory` — 10 000 updates × 3 ids, then drain: 3 progress events with the last values. (AC4)
 - `transfer_state_discards_stale_progress`. (AC5)
 - `log_flood_is_bounded_and_reported`. (AC6)
-- `prompt_roundtrip_answer` — a responder task answers `Trust(Always)`. (AC7)
+- `prompt_roundtrip_answer` — a responder task answers `HostKey(AlwaysTrust)`. (AC7)
+- `prompt_tracked_returns_id_and_credential_accepted_event` — the id in the answer equals the request id; `credential_accepted` emits `CredentialAccepted` with it. (AC7)
+- `always_trust_without_can_save_downgraded_to_once`. (AC7)
 - `prompt_dropped_request_is_cancelled`, `prompt_cancel_response_is_cancelled`, `prompt_without_receiver_is_cancelled`, `prompt_with_cancel_token_fires`. (AC7)
 - `dropping_prompt_future_withdraws_request` — `is_withdrawn()` true after the requester future is dropped. (AC7)
 - `prompt_mismatched_response_is_internal_error`. (AC7)

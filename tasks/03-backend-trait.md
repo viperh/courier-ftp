@@ -20,8 +20,9 @@ conformance suite.
   `connection.*` keys).
 - After: T06 (`LocalBackend`), T14 (`FtpBackend`), T22 (`SftpBackend`) implement `Backend`;
   T58 implements `BackendFactory` in the binary (SFTP arm), T14 adds the FTP arm; T31
-  builds `ConnectInfo` from a saved site; T41/T41b open several `SessionHandle`s per
-  server; T43/T46/T48/T49/T53/T62 use `SessionHandle` operations; T76 runs the conformance
+  builds `ConnectInfo` from a saved site; T41/T41b create backends through the factory and
+  pool `Box<dyn Backend>` directly (their own retry/limit logic); browsing, search and
+  recursive operations (T43/T46/T48/T49/T53/T62) use `SessionHandle`; T76 runs the conformance
   suite against every real server profile.
 
 ## Technical specification
@@ -56,8 +57,9 @@ pub trait Backend: Send {
     /// None for the local backend.
     fn address(&self) -> Option<&ServerAddress>;
     fn is_connected(&self) -> bool;
-    /// For the status-bar lock and the server info dialog (T57).
-    fn security_info(&self) -> SecurityInfo;
+    /// For the status-bar lock and the server info dialog (T57). Before connect:
+    /// `SessionSecurityInfo::default()`.
+    fn security_info(&self) -> SessionSecurityInfo;
 
     /// Open the session: TCP/proxy (T07), TLS/SSH, host-key/cert trust and login prompts (T04).
     async fn connect(&mut self) -> Result<()>;
@@ -161,17 +163,24 @@ pub struct Capabilities {
 }
 impl Capabilities { pub const NONE: Capabilities; /* all false, Unix */ }
 
+/// What the status-bar lock and the server info dialog (T57) show for a session.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct SecurityInfo {
+pub struct SessionSecurityInfo {
+    /// Control/SSH channel encrypted.
     pub encrypted: bool,
     /// Short label: "TLS 1.3", "SSH", "plain", "local".
     pub summary: String,
-    /// FTP greeting/SYST, SSH server version string.
+    /// The connected peer (server, or the proxy when proxied, T07). None for local.
+    pub peer_addr: Option<SocketAddr>,
+    /// FTP greeting / SYST, SSH version string (sanitised).
     pub server_software: Option<String>,
-    /// Label/value rows: protocol, cipher, kex, MAC, compression, …
+    /// FTPS: negotiated TLS session incl. certificate chain (T12; T04 type).
+    pub tls: Option<TlsSessionInfo>,
+    /// SFTP: host key summary (T21; T04 type).
+    pub host_key: Option<HostKeyInfo>,
+    /// Other label/value rows in display order: FEAT summary, SSH kex/cipher/MAC/compression,
+    /// data-channel protection, auth method.
     pub details: Vec<(String, String)>,
-    pub certificates: Vec<CertificateInfo>,     // FTPS chain, leaf first (T04 type)
-    pub host_key: Option<KnownHostKey>,         // SFTP (T04 type)
 }
 ```
 
@@ -269,7 +278,7 @@ impl SessionHandle {
     pub fn watch_state(&self) -> tokio::sync::watch::Receiver<SessionState>;
     /// Copy refreshed after every operation.
     pub fn capabilities(&self) -> Capabilities;
-    pub fn security_info(&self) -> SecurityInfo;
+    pub fn security_info(&self) -> SessionSecurityInfo;
 
     /// Connect with retries (see Behaviour).
     pub async fn connect(&self, cancel: &CancellationToken) -> Result<()>;
@@ -286,8 +295,9 @@ impl SessionHandle {
     pub async fn set_mtime(&self, path: &RemotePath, time: OffsetDateTime, cancel: &CancellationToken) -> Result<()>;
     pub async fn raw_command(&self, cmd: &str, cancel: &CancellationToken) -> Result<String>;
 
-    /// Exclusive access for multi-step work (a transfer: open → copy → finish). Connects /
-    /// reconnects first if needed; no automatic retry while the guard is held.
+    /// Exclusive access for multi-step work (e.g. a transfer started from the pane, T63
+    /// view/edit download). Connects / reconnects first if needed; no automatic retry
+    /// while the guard is held.
     pub async fn lock(&self, cancel: &CancellationToken) -> Result<BackendGuard>;
 }
 /// Owned guard (tokio OwnedMutexGuard); DerefMut to dyn Backend; marks activity on drop.
@@ -456,7 +466,7 @@ No files or wire formats. New dependencies: `async-trait`, `tokio-util` (Cancell
 ## Implementation steps
 
 1. `backend::types`: `Backend` trait, `ReadStream`/`WriteStream`, `TransferEnd`,
-   `WriteMode`, `TransferOpts`, `Listing`, `Capabilities`, `SecurityInfo`; module docs with
+   `WriteMode`, `TransferOpts`, `Listing`, `Capabilities`, `SessionSecurityInfo`; module docs with
    the async-trait and cancellation conventions.
 2. `backend::connect_info` and `backend::factory`: `ConnectInfo` (+ validate, redacted
    Debug), `TransferModeOverride`, `ProxyChoice`, `BackendContext`, `BackendFactory`.
@@ -469,7 +479,7 @@ No files or wire formats. New dependencies: `async-trait`, `tokio-util` (Cancell
 ## Acceptance criteria
 
 - [ ] AC1 Trait, `Capabilities`, `Listing`, `WriteMode`, `TransferOpts`, `TransferEnd`,
-  `SecurityInfo`, `ConnectInfo`, `BackendContext`, `BackendFactory`, `SessionHandle`,
+  `SessionSecurityInfo`, `ConnectInfo`, `BackendContext`, `BackendFactory`, `SessionHandle`,
   `SessionState`, `MockServer`, `MockBackend`, conformance module exist with rustdoc; the
   module docs state the async-trait choice and the cancellation convention.
 - [ ] AC2 `Box<dyn Backend>` compiles and `MockBackend` passes every conformance case
