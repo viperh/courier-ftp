@@ -32,6 +32,7 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 | D12 | Sync | Device sync through **courier-ftp's own self-hosted server** (`courier-ftp-server`: axum + PostgreSQL), end-to-end encrypted, OPAQUE login with the master password, based on sverb's design. Sync is optional; everything works offline without an account. |
 | D13 | sverb code | sverb's vault, crypto, store, protocol and sync code is **copied and adapted** into courier-ftp crates (no dependency on sverb). |
 | D14 | Teams | **Team/shared vaults are included** (orgs, invites, grants, safety numbers, key rotation). |
+| D15 | CI and tests | **Same workflows and test approach as sverb** (T92, T76): full CI job set, nightly fuzz and benchmarks, reproducible releases, Docker e2e crate with server profiles, snapshot tests at 80×24 and 160×48. Plus a Windows/macOS test job (our addition). |
 
 ## Phases and tasks
 
@@ -105,7 +106,7 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 - [73 Settings import / export](73-settings-import-export.md)
 - [74 Update check and splash screen](74-update-check-and-splash.md)
 - [75 Internationalisation](75-i18n.md)
-- [76 Integration test harness](76-integration-test-harness.md)
+- [76 Test strategy and e2e harness](76-integration-test-harness.md)
 - [77 Documentation and release](77-docs-and-release.md)
 
 ### H. Sync, accounts and teams (sverb-based)
@@ -122,10 +123,11 @@ T80–T82 are also needed by the local vault (T30), so they come early.
 - [89 Teams and shared vaults](89-team-vaults.md)
 - [90 Sync and teams UI](90-sync-ui.md)
 - [91 Security hardening and threat model](91-security-hardening.md)
+- [92 CI/CD workflows](92-ci-cd-workflows.md)
 
 ## Suggested order / milestones
 
-1. **M1 – Browse locally:** 01–06, 50–53, 55, 57.
+1. **M1 – Browse locally:** 01, 92 (CI from day one), 76 (test crate skeleton), 02–06, 50–53, 55, 57.
 2. **M2 – Vault and SFTP:** 80–82, 30, 60, 91 (hardening, unsafe/canary/deny CI from the start), 07, 20–22, 69, 58.
 3. **M3 – FTP/FTPS:** 10–14, 76.
 4. **M4 – Transfers:** 40–46, 41b, 56, 62.

@@ -45,9 +45,8 @@ crates/courier-ftp-core/   placeholder Core { ticks } + Error::InvalidState
    - Replace `Core { ticks }` in `courier-ftp-core/src/lib.rs` with module declarations (empty modules are fine): `model`, `backend`, `events`, `settings`, `local`, `net`, `queue`, `transfer`, `filters`, `compare`, `search`, `cache`, `vault`, `sites`. Keep the crate-level doc comment but rewrite it for courier-ftp.
    - Keep `Home` component until T50 replaces it; remove `Action::Help` only if unused after T51.
    - Update the `description` of the binary crate in its `Cargo.toml` to "A terminal FTP, FTPS and SFTP client" (setup kept the template default).
-4. **CI**
-   - Change the `push` trigger in `ci.yml` from `main` to `master`.
-   - Add a job (or extend `test`) that runs on `windows-latest` and `macos-latest` too — at least `cargo check --workspace --locked`.
+4. **CI**: set up the full sverb-style CI from T92 (at least `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `deny`, `unsafe-check`, `layering` in this task; the rest as their features land). Replace the template's `ci.yml`, which triggers on `main` while the default branch is `master`.
+4b. **`COURIER_FTP_HOME`**: one env var that overrides both the config and data directories (like sverb's `SVERB_HOME`), used by tests (T76) and CI. The existing `COURIER_FTP_CONFIG`/`COURIER_FTP_DATA` keep working and win over it.
 5. **README**: update the "Layout" tree with the new crates and a one-line purpose for each.
 6. `cargo check --workspace`, then commit the refreshed `Cargo.lock`.
 
@@ -61,7 +60,8 @@ crates/courier-ftp-core/   placeholder Core { ticks } + Error::InvalidState
 - [ ] `crates/courier-ftp-proto-ftp` and `crates/courier-ftp-proto-sftp` exist and build.
 - [ ] Neither new crate nor core pulls in `ratatui`/`crossterm`/`clap` (`cargo tree -p <crate> -i ratatui` returns nothing).
 - [ ] Placeholder `Core`/ticks code is gone; `app.rs` no longer calls `core.tick()`.
-- [ ] CI triggers on `master` and checks Linux, macOS and Windows.
+- [ ] The initial T92 CI jobs exist and pass on `master` and on PRs.
+- [ ] `COURIER_FTP_HOME` redirects config and data.
 - [ ] README layout section reflects the new crates.
 - [ ] All four CI gates pass locally.
 

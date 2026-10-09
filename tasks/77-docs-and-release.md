@@ -14,7 +14,7 @@ User-facing docs and a release pipeline good enough for a 1.0.
 4. `docs/security.md`: vault format (T30), threat model, what is and isn't encrypted, reporting vulnerabilities (`SECURITY.md`).
 5. Man page via `clap_mangen` (`courier-ftp.1`) included in release archives.
 6. `CHANGELOG.md` (Keep a Changelog format) maintained per release.
-7. **Release workflow** (existing `cd.yml`): verify it still builds all targets after the new deps (russh, rustls, bundled SQLite, zstd — verify for each target incl. i686 and arm64 cross builds), and add the server image and binaries from T86. Also a `--no-default-features` (no sync) build in CI.
+7. **Release workflow**: the sverb-style `cd.yml` from T92 §5 (musl static Linux, macOS universal, Windows, server image, SBOM, checksums, reproducibility, package channels). Additionally verify it still builds all targets after the new deps (russh, rustls, bundled SQLite, zstd — verify for each target incl. i686 and arm64 cross builds), and add the server image and binaries from T86. Also a `--no-default-features` (no sync) build in CI.
 8. Packaging follow-ups (separate later tasks): crates.io publish order (core → proto crates → binary), Homebrew tap, AUR, Scoop/winget.
 
 ## Acceptance criteria
