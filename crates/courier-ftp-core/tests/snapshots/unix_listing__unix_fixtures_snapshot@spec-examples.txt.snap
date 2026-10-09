@@ -1,0 +1,120 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/spec-examples.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: header
+  - line: 2
+    outcome: entry
+    entry:
+      name: public_html
+      kind: dir
+      size: 4096
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rwxr-xr-x (755)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: big.iso
+      kind: file
+      size: 5368709120
+      modified: "2023-01-31T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: " leading space.txt"
+      kind: file
+      size: 12
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: "1000"
+      group: "1000"
+      hidden: false
+  - line: 5
+    outcome: entry
+    entry:
+      name: www
+      kind: symlink
+      target: /var/www
+      size: 11
+      modified: "2024-02-03T09:15:00Z (Minute)"
+      permissions: rwxrwxrwx (777)
+      owner: root
+      group: root
+      hidden: false
+  - line: 6
+    outcome: entry
+    entry:
+      name: "null"
+      kind: other
+      size: ~
+      modified: "2024-01-01T00:00:00Z (Day)"
+      permissions: rw-rw-rw- (666)
+      owner: root
+      group: root
+      hidden: false
+  - line: 7
+    outcome: entry
+    entry:
+      name: no-group.txt
+      kind: file
+      size: 42
+      modified: "2024-03-15T08:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: ftp
+      group: ~
+      hidden: false
+  - line: 8
+    outcome: entry
+    entry:
+      name: iso.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 9
+    outcome: entry
+    entry:
+      name: full-iso.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T11:00:05.123Z (Millis)"
+      permissions: rw-r--r-- (644)
+      owner: alice
+      group: staff
+      hidden: false
+  - line: 10
+    outcome: entry
+    entry:
+      name: datei.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: hans
+      group: users
+      hidden: false
+  - line: 11
+    outcome: entry
+    entry:
+      name: windows-nt.txt
+      kind: file
+      size: 1234
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: "--------- (000)"
+      owner: owner
+      group: group
+      hidden: false

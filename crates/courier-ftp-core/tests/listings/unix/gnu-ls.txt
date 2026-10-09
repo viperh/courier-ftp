@@ -1,0 +1,13 @@
+total 52
+drwxr-xr-x  5 alice alice  4096 Jun 14 18:22 .
+drwxr-xr-x 12 root  root   4096 Feb  1  2023 ..
+-rw-------  1 alice alice   220 Jan  6  2022 .bash_logout
+-rw-r--r--  1 alice alice  3771 Jan  6  2022 .bashrc
+drwx------  3 alice alice  4096 Dec 24 10:01 .cache
+drwxrwsr-x  2 alice www    4096 May  2 07:45 shared
+drwxrwxrwt 10 root  root   4096 Jun 15 11:59 tmp
+-rwsr-xr-x  1 root  root  59976 Nov 29  2022 passwd
+-rw-r--r--  1 alice alice     0 Jun 16 01:00 tomorrow-skew.txt
+-rw-r--r--  1 alice alice  1337 Jun 17 01:00 future-is-last-year.txt
+-rw-r--r--  1 alice alice 18446744073709551615 Jan  1  2024 max-u64.bin
+-rw-r--r--  1 alice alice 18446744073709551616 Jan  1  2024 overflow.bin

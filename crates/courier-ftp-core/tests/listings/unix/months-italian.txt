@@ -1,0 +1,8 @@
+-rw-r--r--    1 gianni   users        100 gen 31 12:00 gennaio.txt
+-rw-r--r--    1 gianni   users        100 mag  5 10:00 maggio.txt
+-rw-r--r--    1 gianni   users        100 giu  1 2023 giugno.txt
+-rw-r--r--    1 gianni   users        100 lug 14 2023 luglio.txt
+-rw-r--r--    1 gianni   users        100 ago 15 2023 agosto.txt
+-rw-r--r--    1 gianni   users        100 set  9 2023 settembre.txt
+-rw-r--r--    1 gianni   users        100 ott 31 2023 ottobre.txt
+-rw-r--r--    1 gianni   users        100 dic 24 2023 dicembre.txt

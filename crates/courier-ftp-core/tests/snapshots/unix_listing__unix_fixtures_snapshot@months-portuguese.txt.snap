@@ -1,0 +1,51 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/months-portuguese.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: fevereiro.txt
+      kind: file
+      size: 100
+      modified: "2024-02-14T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: joao
+      group: users
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: setembro.txt
+      kind: file
+      size: 100
+      modified: "2023-09-07T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: joao
+      group: users
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: outubro.txt
+      kind: file
+      size: 100
+      modified: "2023-10-12T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: joao
+      group: users
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: dezembro.txt
+      kind: file
+      size: 100
+      modified: "2023-12-25T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: joao
+      group: users
+      hidden: false

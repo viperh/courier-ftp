@@ -1,0 +1,2 @@
+-rw-r--r--    1 sato     users        100  3月 14 09:00 ホワイトデー.txt
+-rw-r--r--    1 sato     users        100 11月  3 2023年 文化の日.txt

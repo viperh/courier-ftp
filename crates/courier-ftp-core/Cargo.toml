@@ -28,6 +28,7 @@ uuid = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+insta = { workspace = true, features = ["glob", "yaml"] }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
