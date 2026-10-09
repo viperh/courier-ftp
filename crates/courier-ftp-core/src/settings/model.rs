@@ -18,6 +18,7 @@ use super::enums::{
     NotifyMethod, OnComplete, ProxyKind, SizeFormat, Theme, TransferTypeChoice, UnicodeSymbols,
 };
 use crate::edit::{Association, EditorChoice};
+use crate::filters::FilterSettings;
 
 /// All settings. A partial user object works: every section and field has a default.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -50,6 +51,9 @@ pub struct Settings {
     pub vault: VaultSettings,
     /// Device sync tuning. The server URL and tokens are not settings.
     pub sync: SyncSettings,
+    /// Directory listing filters and filter sets (FileZilla: View → Directory listing
+    /// filters).
+    pub filters: FilterSettings,
 }
 
 /// `connection`.

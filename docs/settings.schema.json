@@ -37,6 +37,26 @@
         }
       ]
     },
+    "AppliesTo": {
+      "description": "Entry kinds a filter applies to.",
+      "oneOf": [
+        {
+          "const": "files",
+          "description": "Files (and everything that is not a directory).",
+          "type": "string"
+        },
+        {
+          "const": "dirs",
+          "description": "Directories and symlinks to directories.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "Everything.",
+          "type": "string"
+        }
+      ]
+    },
     "Argon2Preset": {
       "description": "Argon2id cost preset for the vault (T30, T60). Parameters are owned by T30\n(`Argon2Cost::from_preset`).",
       "oneOf": [
@@ -79,6 +99,21 @@
         "terminal"
       ],
       "type": "object"
+    },
+    "AttrFlag": {
+      "description": "File attributes a condition can test.",
+      "oneOf": [
+        {
+          "const": "hidden",
+          "description": "`entry.hidden`.",
+          "type": "string"
+        },
+        {
+          "const": "read_only",
+          "description": "No write permission (Unix mode) or the Windows `R` attribute.",
+          "type": "string"
+        }
+      ]
     },
     "BurstTolerance": {
       "description": "How far the speed limiter may burst above the limit (T44).",
@@ -178,6 +213,152 @@
       ],
       "type": "object"
     },
+    "Condition": {
+      "description": "One condition of a filter.",
+      "oneOf": [
+        {
+          "description": "Compares the entry name.",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/StringOp",
+              "description": "String operation."
+            },
+            "type": {
+              "const": "name",
+              "type": "string"
+            },
+            "value": {
+              "description": "Operand (pattern for `regex` and `glob`), at most 1024 characters.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "op",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Matches the path of the directory that contains the entry (not including the name).",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/StringOp",
+              "description": "String operation."
+            },
+            "type": {
+              "const": "path",
+              "type": "string"
+            },
+            "value": {
+              "description": "Operand (pattern for `regex` and `glob`), at most 1024 characters.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "op",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Compares the size in bytes; directories never match.",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/NumOp",
+              "description": "Numeric operation."
+            },
+            "type": {
+              "const": "size",
+              "type": "string"
+            },
+            "value": {
+              "description": "Bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "op",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Tests a file attribute.",
+          "properties": {
+            "attr": {
+              "$ref": "#/$defs/AttrFlag",
+              "description": "`hidden` or `read_only`."
+            },
+            "set": {
+              "description": "Expected value.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "attribute",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "attr",
+            "set"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Tests one Unix permission bit.",
+          "properties": {
+            "bit": {
+              "$ref": "#/$defs/PermBit",
+              "description": "The bit."
+            },
+            "set": {
+              "description": "Expected value.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "permission",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "bit",
+            "set"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Calendar day (whole day, no time of day, no offset); `equals` = the entry was\nmodified on that day. Serialised as `\"YYYY-MM-DD\"`.",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/DateOp",
+              "description": "Date operation."
+            },
+            "type": {
+              "const": "date",
+              "type": "string"
+            },
+            "value": {
+              "description": "The day.",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "op",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ConnectTarget": {
       "description": "Where a connect request opens (T58, T59, T61).",
       "oneOf": [
@@ -247,6 +428,31 @@
         }
       },
       "type": "object"
+    },
+    "DateOp": {
+      "description": "Date operations of `Date` conditions (whole days).",
+      "oneOf": [
+        {
+          "const": "equals",
+          "description": "Same day.",
+          "type": "string"
+        },
+        {
+          "const": "not_equals",
+          "description": "Another day.",
+          "type": "string"
+        },
+        {
+          "const": "before",
+          "description": "A strictly earlier day.",
+          "type": "string"
+        },
+        {
+          "const": "after",
+          "description": "A strictly later day.",
+          "type": "string"
+        }
+      ]
     },
     "DebugLevel": {
       "description": "0 = none, 1 = warning, 2 = info, 3 = verbose, 4 = debug.",
@@ -482,6 +688,250 @@
           "default": true,
           "description": "FileZilla: \"Treat files without extension as ASCII file\".",
           "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Filter": {
+      "description": "One named filter. A filter **excludes** an entry when it applies to the entry's kind\nand its conditions match according to `match_mode` (FileZilla semantics).",
+      "properties": {
+        "applies_to": {
+          "$ref": "#/$defs/AppliesTo",
+          "description": "Entry kinds the filter applies to: `files`, `dirs` or `both`."
+        },
+        "builtin": {
+          "default": false,
+          "description": "A shipped default filter (the filter editor shows a tag and offers restore).",
+          "type": "boolean"
+        },
+        "case_sensitive": {
+          "description": "Case-sensitive string conditions.",
+          "type": "boolean"
+        },
+        "conditions": {
+          "description": "At most 32 conditions.",
+          "items": {
+            "$ref": "#/$defs/Condition"
+          },
+          "type": "array"
+        },
+        "match_mode": {
+          "$ref": "#/$defs/MatchMode",
+          "description": "How the conditions combine: `all`, `any`, `none` or `not_all`."
+        },
+        "name": {
+          "description": "Unique name, 1–64 characters, no control characters.",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/FilterScope",
+          "description": "Sides the filter may be used on: `both`, `local_only` or `remote_only`."
+        }
+      },
+      "required": [
+        "name",
+        "applies_to",
+        "match_mode",
+        "case_sensitive",
+        "scope",
+        "conditions"
+      ],
+      "type": "object"
+    },
+    "FilterScope": {
+      "description": "Sides a filter may be used on.",
+      "oneOf": [
+        {
+          "const": "both",
+          "description": "Local and remote.",
+          "type": "string"
+        },
+        {
+          "const": "local_only",
+          "description": "The local side only.",
+          "type": "string"
+        },
+        {
+          "const": "remote_only",
+          "description": "The remote side only.",
+          "type": "string"
+        }
+      ]
+    },
+    "FilterSet": {
+      "description": "A named selection of filters per side (FileZilla \"filter sets\").",
+      "properties": {
+        "local": {
+          "description": "Names of the filters enabled for the local side.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "Set name.",
+          "type": "string"
+        },
+        "remote": {
+          "description": "Names of the filters enabled for the remote side.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "local",
+        "remote"
+      ],
+      "type": "object"
+    },
+    "FilterSettings": {
+      "description": "`filters` (T47): directory listing filters (FileZilla: View → Directory listing\nfilters).",
+      "properties": {
+        "active_set": {
+          "default": "default",
+          "description": "Name of the set in effect.",
+          "type": "string"
+        },
+        "apply_to_transfers": {
+          "default": true,
+          "description": "Skip excluded entries (and do not descend excluded directories) in recursive\ntransfers and operations.",
+          "type": "boolean"
+        },
+        "filters": {
+          "default": [
+            {
+              "applies_to": "dirs",
+              "builtin": true,
+              "case_sensitive": true,
+              "conditions": [
+                {
+                  "op": "equals",
+                  "type": "name",
+                  "value": "CVS"
+                },
+                {
+                  "op": "equals",
+                  "type": "name",
+                  "value": ".svn"
+                }
+              ],
+              "match_mode": "any",
+              "name": "CVS and SVN directories",
+              "scope": "both"
+            },
+            {
+              "applies_to": "dirs",
+              "builtin": true,
+              "case_sensitive": true,
+              "conditions": [
+                {
+                  "op": "equals",
+                  "type": "name",
+                  "value": ".git"
+                }
+              ],
+              "match_mode": "any",
+              "name": "Git directories",
+              "scope": "both"
+            },
+            {
+              "applies_to": "files",
+              "builtin": true,
+              "case_sensitive": false,
+              "conditions": [
+                {
+                  "op": "ends_with",
+                  "type": "name",
+                  "value": "~"
+                },
+                {
+                  "op": "ends_with",
+                  "type": "name",
+                  "value": ".bak"
+                },
+                {
+                  "op": "ends_with",
+                  "type": "name",
+                  "value": ".tmp"
+                },
+                {
+                  "op": "ends_with",
+                  "type": "name",
+                  "value": ".swp"
+                },
+                {
+                  "op": "glob",
+                  "type": "name",
+                  "value": "#*#"
+                }
+              ],
+              "match_mode": "any",
+              "name": "Temporary and backup files",
+              "scope": "both"
+            },
+            {
+              "applies_to": "both",
+              "builtin": true,
+              "case_sensitive": true,
+              "conditions": [
+                {
+                  "op": "begins_with",
+                  "type": "name",
+                  "value": "."
+                }
+              ],
+              "match_mode": "any",
+              "name": "Configuration files",
+              "scope": "both"
+            },
+            {
+              "applies_to": "files",
+              "builtin": true,
+              "case_sensitive": false,
+              "conditions": [
+                {
+                  "op": "equals",
+                  "type": "name",
+                  "value": "Thumbs.db"
+                },
+                {
+                  "op": "equals",
+                  "type": "name",
+                  "value": ".DS_Store"
+                },
+                {
+                  "op": "equals",
+                  "type": "name",
+                  "value": "desktop.ini"
+                }
+              ],
+              "match_mode": "any",
+              "name": "OS metadata files",
+              "scope": "both"
+            }
+          ],
+          "description": "Every filter, built-in and user-defined. Default: the five built-ins.",
+          "items": {
+            "$ref": "#/$defs/Filter"
+          },
+          "type": "array"
+        },
+        "sets": {
+          "default": [
+            {
+              "local": [],
+              "name": "default",
+              "remote": []
+            }
+          ],
+          "description": "Filter sets; at least one. Default: one empty set named `default`.",
+          "items": {
+            "$ref": "#/$defs/FilterSet"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -971,6 +1421,31 @@
       },
       "type": "object"
     },
+    "MatchMode": {
+      "description": "How the conditions of a filter combine.",
+      "oneOf": [
+        {
+          "const": "all",
+          "description": "Every condition is true.",
+          "type": "string"
+        },
+        {
+          "const": "any",
+          "description": "At least one condition is true.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "No condition is true.",
+          "type": "string"
+        },
+        {
+          "const": "not_all",
+          "description": "At least one condition is false.",
+          "type": "string"
+        }
+      ]
+    },
     "NotifyMethod": {
       "description": "How the user is notified when the queue has finished (T45).",
       "oneOf": [
@@ -987,6 +1462,31 @@
         {
           "const": "osc",
           "description": "OSC 9 / 777 desktop notification (some terminals print the sequence).",
+          "type": "string"
+        }
+      ]
+    },
+    "NumOp": {
+      "description": "Numeric operations of `Size` conditions.",
+      "oneOf": [
+        {
+          "const": "equals",
+          "description": "Equal.",
+          "type": "string"
+        },
+        {
+          "const": "not_equals",
+          "description": "Not equal.",
+          "type": "string"
+        },
+        {
+          "const": "greater",
+          "description": "Strictly greater.",
+          "type": "string"
+        },
+        {
+          "const": "less",
+          "description": "Strictly less.",
           "type": "string"
         }
       ]
@@ -1114,6 +1614,56 @@
         }
       },
       "type": "object"
+    },
+    "PermBit": {
+      "description": "Unix permission bits.",
+      "oneOf": [
+        {
+          "const": "user_read",
+          "description": "0o400.",
+          "type": "string"
+        },
+        {
+          "const": "user_write",
+          "description": "0o200.",
+          "type": "string"
+        },
+        {
+          "const": "user_exec",
+          "description": "0o100.",
+          "type": "string"
+        },
+        {
+          "const": "group_read",
+          "description": "0o040.",
+          "type": "string"
+        },
+        {
+          "const": "group_write",
+          "description": "0o020.",
+          "type": "string"
+        },
+        {
+          "const": "group_exec",
+          "description": "0o010.",
+          "type": "string"
+        },
+        {
+          "const": "other_read",
+          "description": "0o004.",
+          "type": "string"
+        },
+        {
+          "const": "other_write",
+          "description": "0o002.",
+          "type": "string"
+        },
+        {
+          "const": "other_exec",
+          "description": "0o001.",
+          "type": "string"
+        }
+      ]
     },
     "PortRange": {
       "description": "A port range, `1024 ≤ min ≤ max ≤ 65535`.",
@@ -1324,6 +1874,51 @@
         }
       },
       "type": "object"
+    },
+    "StringOp": {
+      "description": "String operations of `Name` and `Path` conditions.",
+      "oneOf": [
+        {
+          "const": "contains",
+          "description": "Substring present.",
+          "type": "string"
+        },
+        {
+          "const": "not_contains",
+          "description": "Substring absent.",
+          "type": "string"
+        },
+        {
+          "const": "equals",
+          "description": "Whole string equal.",
+          "type": "string"
+        },
+        {
+          "const": "not_equals",
+          "description": "Whole string not equal.",
+          "type": "string"
+        },
+        {
+          "const": "begins_with",
+          "description": "Prefix.",
+          "type": "string"
+        },
+        {
+          "const": "ends_with",
+          "description": "Suffix.",
+          "type": "string"
+        },
+        {
+          "const": "regex",
+          "description": "Unanchored regular expression.",
+          "type": "string"
+        },
+        {
+          "const": "glob",
+          "description": "Glob over the whole string.",
+          "type": "string"
+        }
+      ]
     },
     "SyncSettings": {
       "description": "`sync` (T88).",
@@ -1644,6 +2239,133 @@
         "no_extension_ascii": true
       },
       "description": "ASCII / binary detection (FileZilla: Transfers → FTP: File Types)."
+    },
+    "filters": {
+      "$ref": "#/$defs/FilterSettings",
+      "default": {
+        "active_set": "default",
+        "apply_to_transfers": true,
+        "filters": [
+          {
+            "applies_to": "dirs",
+            "builtin": true,
+            "case_sensitive": true,
+            "conditions": [
+              {
+                "op": "equals",
+                "type": "name",
+                "value": "CVS"
+              },
+              {
+                "op": "equals",
+                "type": "name",
+                "value": ".svn"
+              }
+            ],
+            "match_mode": "any",
+            "name": "CVS and SVN directories",
+            "scope": "both"
+          },
+          {
+            "applies_to": "dirs",
+            "builtin": true,
+            "case_sensitive": true,
+            "conditions": [
+              {
+                "op": "equals",
+                "type": "name",
+                "value": ".git"
+              }
+            ],
+            "match_mode": "any",
+            "name": "Git directories",
+            "scope": "both"
+          },
+          {
+            "applies_to": "files",
+            "builtin": true,
+            "case_sensitive": false,
+            "conditions": [
+              {
+                "op": "ends_with",
+                "type": "name",
+                "value": "~"
+              },
+              {
+                "op": "ends_with",
+                "type": "name",
+                "value": ".bak"
+              },
+              {
+                "op": "ends_with",
+                "type": "name",
+                "value": ".tmp"
+              },
+              {
+                "op": "ends_with",
+                "type": "name",
+                "value": ".swp"
+              },
+              {
+                "op": "glob",
+                "type": "name",
+                "value": "#*#"
+              }
+            ],
+            "match_mode": "any",
+            "name": "Temporary and backup files",
+            "scope": "both"
+          },
+          {
+            "applies_to": "both",
+            "builtin": true,
+            "case_sensitive": true,
+            "conditions": [
+              {
+                "op": "begins_with",
+                "type": "name",
+                "value": "."
+              }
+            ],
+            "match_mode": "any",
+            "name": "Configuration files",
+            "scope": "both"
+          },
+          {
+            "applies_to": "files",
+            "builtin": true,
+            "case_sensitive": false,
+            "conditions": [
+              {
+                "op": "equals",
+                "type": "name",
+                "value": "Thumbs.db"
+              },
+              {
+                "op": "equals",
+                "type": "name",
+                "value": ".DS_Store"
+              },
+              {
+                "op": "equals",
+                "type": "name",
+                "value": "desktop.ini"
+              }
+            ],
+            "match_mode": "any",
+            "name": "OS metadata files",
+            "scope": "both"
+          }
+        ],
+        "sets": [
+          {
+            "local": [],
+            "name": "default",
+            "remote": []
+          }
+        ]
+      },
+      "description": "Directory listing filters and filter sets (FileZilla: View → Directory listing\nfilters)."
     },
     "ftp": {
       "$ref": "#/$defs/FtpSettings",
