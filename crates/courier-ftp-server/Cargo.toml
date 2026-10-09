@@ -1,6 +1,6 @@
 [package]
 name = "courier-ftp-server"
-description = "Self-hosted, end-to-end encrypted sync server for courier-ftp"
+description = "Self-hosted sync server for courier-ftp"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -15,9 +15,8 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
-# No ratatui, no crossterm, and no client crates (core, protocol crates,
-# store, sync): the server's heavy dependencies must not leak into the
-# client build, and the client's must not leak into the server.
+# No ratatui, no crossterm, no russh, no rusqlite; no client crates
+# (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
 courier-ftp-crypto = { workspace = true }
 courier-ftp-proto = { workspace = true }

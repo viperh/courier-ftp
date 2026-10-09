@@ -16,6 +16,9 @@ build = "build.rs"
 [features]
 default = ["sync"]
 sync = ["dep:courier-ftp-sync"]
+# Crash-path and startup hooks for the binary's PTY tests (T76, T91). Never in
+# release builds (the T00 `packaging` job checks it).
+test-hooks = []
 
 [dependencies]
 courier-ftp-core = { workspace = true }
@@ -29,6 +32,7 @@ clap = { workspace = true }
 color-eyre = { workspace = true }
 config = { workspace = true }
 crossterm = { workspace = true }
+directories = { workspace = true }
 futures = { workspace = true }
 human-panic = { workspace = true }
 json5 = { workspace = true }
@@ -37,6 +41,7 @@ ratatui = { workspace = true }
 serde = { workspace = true }
 strip-ansi-escapes = { workspace = true }
 strum = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
@@ -53,6 +58,7 @@ vergen-gix = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

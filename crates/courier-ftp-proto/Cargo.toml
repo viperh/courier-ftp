@@ -1,6 +1,6 @@
 [package]
 name = "courier-ftp-proto"
-description = "Sync wire types shared by the courier-ftp client and server"
+description = "Wire types of the courier-ftp sync protocol"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -11,7 +11,7 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
-# Everything here should be testable without a terminal.
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
+# (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
 courier-ftp-crypto = { workspace = true }

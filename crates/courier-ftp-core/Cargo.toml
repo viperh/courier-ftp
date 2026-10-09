@@ -8,11 +8,13 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
-# Everything here should be testable without a terminal.
+[features]
+# `MockBackend` and the backend conformance suite (T03, T06).
+test-util = []
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
+# (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
-# Platform per-user directories (paths.rs).
-directories = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

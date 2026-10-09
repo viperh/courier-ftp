@@ -2,17 +2,16 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
 
-use courier_ftp_core::paths::AppPaths;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, de::Deserializer};
 use tracing::error;
 
-use crate::{action::Action, app::Mode};
+use crate::{action::Action, app::Mode, paths::AppPaths};
 
 /// The default config, baked into the binary at compile time. User config
-/// files found in [`get_config_dir`] are layered on top of it.
-const CONFIG: &str = include_str!("../../../.config/config.json");
+/// files found in [`AppPaths::config_dir`] are layered on top of it.
+const CONFIG: &str = include_str!("../config/config.json");
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub(crate) struct AppConfig {
@@ -36,16 +35,13 @@ pub(crate) struct Config {
 /// and `*_LOG_LEVEL` environment variables (see `.envrc`).
 pub(crate) static PROJECT_NAME: LazyLock<String> =
     LazyLock::new(|| env!("CARGO_CRATE_NAME").to_uppercase().to_string());
-/// The config and data directories, resolved once from `COURIER_FTP_CONFIG`,
-/// `COURIER_FTP_DATA`, `COURIER_FTP_HOME` and the platform defaults.
-pub(crate) static PATHS: LazyLock<AppPaths> = LazyLock::new(AppPaths::from_env);
 
 impl Config {
-    pub(crate) fn new() -> color_eyre::Result<Self, config::ConfigError> {
+    pub(crate) fn new(paths: &AppPaths) -> color_eyre::Result<Self, config::ConfigError> {
         let default_config: Config = json5::from_str(CONFIG)
             .map_err(|e| config::ConfigError::Message(format!("built-in config: {e}")))?;
-        let data_dir = get_data_dir();
-        let config_dir = get_config_dir();
+        let data_dir = &paths.data_dir;
+        let config_dir = &paths.config_dir;
         let mut builder = config::Config::builder()
             .set_default("data_dir", data_dir.to_string_lossy().into_owned())?
             .set_default("config_dir", config_dir.to_string_lossy().into_owned())?;
@@ -90,14 +86,6 @@ impl Config {
 
         Ok(cfg)
     }
-}
-
-pub(crate) fn get_data_dir() -> PathBuf {
-    PATHS.data_dir().to_path_buf()
-}
-
-pub(crate) fn get_config_dir() -> PathBuf {
-    PATHS.config_dir().to_path_buf()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -486,7 +474,13 @@ mod tests {
 
     #[test]
     fn test_config() -> color_eyre::Result<()> {
-        let c = Config::new()?;
+        let tmp = tempfile::TempDir::new()?;
+        let paths = AppPaths {
+            config_dir: tmp.path().join("config"),
+            data_dir: tmp.path().join("data"),
+            cache_dir: tmp.path().join("cache"),
+        };
+        let c = Config::new(&paths)?;
         assert_eq!(
             c.keybindings
                 .0
