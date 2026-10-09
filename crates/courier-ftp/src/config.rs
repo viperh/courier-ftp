@@ -20,7 +20,7 @@ const APP_QUALIFIER: &str = "com";
 const APP_ORGANIZATION: &str = "viperh";
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct AppConfig {
+pub(crate) struct AppConfig {
     #[serde(default)]
     pub data_dir: PathBuf,
     #[serde(default)]
@@ -28,7 +28,7 @@ pub struct AppConfig {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     #[serde(default, flatten)]
     pub config: AppConfig,
     #[serde(default)]
@@ -39,27 +39,28 @@ pub struct Config {
 
 /// Upper-cased crate name, used as the prefix for the `*_DATA`, `*_CONFIG`
 /// and `*_LOG_LEVEL` environment variables (see `.envrc`).
-pub static PROJECT_NAME: LazyLock<String> =
+pub(crate) static PROJECT_NAME: LazyLock<String> =
     LazyLock::new(|| env!("CARGO_CRATE_NAME").to_uppercase().to_string());
-pub static DATA_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
+pub(crate) static DATA_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
     env::var(format!("{}_DATA", PROJECT_NAME.clone()))
         .ok()
         .map(PathBuf::from)
 });
-pub static CONFIG_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
+pub(crate) static CONFIG_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
     env::var(format!("{}_CONFIG", PROJECT_NAME.clone()))
         .ok()
         .map(PathBuf::from)
 });
 
 impl Config {
-    pub fn new() -> color_eyre::Result<Self, config::ConfigError> {
-        let default_config: Config = json5::from_str(CONFIG).unwrap();
+    pub(crate) fn new() -> color_eyre::Result<Self, config::ConfigError> {
+        let default_config: Config = json5::from_str(CONFIG)
+            .map_err(|e| config::ConfigError::Message(format!("built-in config: {e}")))?;
         let data_dir = get_data_dir();
         let config_dir = get_config_dir();
         let mut builder = config::Config::builder()
-            .set_default("data_dir", data_dir.to_str().unwrap())?
-            .set_default("config_dir", config_dir.to_str().unwrap())?;
+            .set_default("data_dir", data_dir.to_string_lossy().into_owned())?
+            .set_default("config_dir", config_dir.to_string_lossy().into_owned())?;
 
         let config_files = [
             ("config.json5", config::FileFormat::Json5),
@@ -103,7 +104,7 @@ impl Config {
     }
 }
 
-pub fn get_data_dir() -> PathBuf {
+pub(crate) fn get_data_dir() -> PathBuf {
     if let Some(s) = DATA_FOLDER.clone() {
         s
     } else if let Some(proj_dirs) = project_directory() {
@@ -113,7 +114,7 @@ pub fn get_data_dir() -> PathBuf {
     }
 }
 
-pub fn get_config_dir() -> PathBuf {
+pub(crate) fn get_config_dir() -> PathBuf {
     if let Some(s) = CONFIG_FOLDER.clone() {
         s
     } else if let Some(proj_dirs) = project_directory() {
@@ -128,7 +129,7 @@ fn project_directory() -> Option<ProjectDirs> {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct KeyBindings(pub HashMap<Mode, HashMap<Vec<KeyEvent>, Action>>);
+pub(crate) struct KeyBindings(pub HashMap<Mode, HashMap<Vec<KeyEvent>, Action>>);
 
 impl<'de> Deserialize<'de> for KeyBindings {
     fn deserialize<D>(deserializer: D) -> color_eyre::Result<Self, D::Error>
@@ -142,11 +143,15 @@ impl<'de> Deserialize<'de> for KeyBindings {
             .map(|(mode, inner_map)| {
                 let converted_inner_map = inner_map
                     .into_iter()
-                    .map(|(key_str, cmd)| (parse_key_sequence(&key_str).unwrap(), cmd))
-                    .collect();
-                (mode, converted_inner_map)
+                    .map(|(key_str, cmd)| {
+                        parse_key_sequence(&key_str)
+                            .map(|keys| (keys, cmd))
+                            .map_err(serde::de::Error::custom)
+                    })
+                    .collect::<Result<_, D::Error>>()?;
+                Ok((mode, converted_inner_map))
             })
-            .collect();
+            .collect::<Result<_, D::Error>>()?;
 
         Ok(KeyBindings(keybindings))
     }
@@ -221,8 +226,10 @@ fn parse_key_code_with_modifiers(
         "hyphen" => KeyCode::Char('-'),
         "minus" => KeyCode::Char('-'),
         "tab" => KeyCode::Tab,
-        c if c.len() == 1 => {
-            let mut c = c.chars().next().unwrap();
+        c if c.chars().count() == 1 => {
+            let Some(mut c) = c.chars().next() else {
+                return Err(format!("Unable to parse {raw}"));
+            };
             if modifiers.contains(KeyModifiers::SHIFT) {
                 c = c.to_ascii_uppercase();
             }
@@ -233,7 +240,7 @@ fn parse_key_code_with_modifiers(
     Ok(KeyEvent::new(c, modifiers))
 }
 
-pub fn key_event_to_string(key_event: &KeyEvent) -> String {
+pub(crate) fn key_event_to_string(key_event: &KeyEvent) -> String {
     let char;
     let key_code = match key_event.code {
         KeyCode::Backspace => "backspace",
@@ -296,7 +303,7 @@ pub fn key_event_to_string(key_event: &KeyEvent) -> String {
     key
 }
 
-pub fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String> {
+pub(crate) fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String> {
     if raw.chars().filter(|c| *c == '>').count() != raw.chars().filter(|c| *c == '<').count() {
         return Err(format!("Unable to parse `{raw}`"));
     }
@@ -323,7 +330,7 @@ pub fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Styles(pub HashMap<Mode, HashMap<String, Style>>);
+pub(crate) struct Styles(pub HashMap<Mode, HashMap<String, Style>>);
 
 impl<'de> Deserialize<'de> for Styles {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -347,7 +354,7 @@ impl<'de> Deserialize<'de> for Styles {
     }
 }
 
-pub fn parse_style(line: &str) -> Style {
+pub(crate) fn parse_style(line: &str) -> Style {
     let (foreground, background) =
         line.split_at(line.to_lowercase().find("on ").unwrap_or(line.len()));
     let foreground = process_color_string(foreground);
@@ -452,6 +459,7 @@ fn parse_color(s: &str) -> Option<Color> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use pretty_assertions::assert_eq;
 
@@ -512,7 +520,7 @@ mod tests {
                 .0
                 .get(&Mode::Normal)
                 .unwrap()
-                .get(&parse_key_sequence("<q>").unwrap_or_default())
+                .get(&parse_key_sequence("<Ctrl-q>").unwrap())
                 .unwrap(),
             &Action::Quit
         );

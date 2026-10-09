@@ -4,7 +4,7 @@ use crate::config::{get_config_dir, get_data_dir};
 
 #[derive(Parser, Debug)]
 #[command(author, version = version(), about)]
-pub struct Cli {
+pub(crate) struct Cli {
     /// Tick rate, i.e. number of ticks per second
     #[arg(short, long, value_name = "FLOAT", default_value_t = 4.0)]
     pub tick_rate: f64,
@@ -23,7 +23,7 @@ const VERSION_MESSAGE: &str = concat!(
     ")"
 );
 
-pub fn version() -> String {
+pub(crate) fn version() -> String {
     let author = clap::crate_authors!();
 
     // let current_exe_path = PathBuf::from(clap::crate_name!()).display().to_string();
