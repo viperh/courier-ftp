@@ -636,7 +636,7 @@ All with `ratatui::backend::TestBackend` + `insta` (`crates/courier-ftp/src/snap
 - `snap_widescreen_160x48`, `snap_widescreen_80x24_falls_back` — AC1.
 - `snap_compact_60x16_remote_focused`, `snap_compact_60x16_log_focused`, `snap_too_small_30x8` — AC2.
 - `snap_help_overlay_80x24`, `snap_help_overlay_160x48` — AC8.
-- `snap_ascii_symbols_classic_80x24` — `unicode_symbols = Off`.
+- `snap_ascii_symbols_classic_80x24` — `unicode_symbols = never`.
 - `snap_status_message_sanitised_80x24` — AC12.
 - `no_color_buffer_has_no_colours` — buffer style assertions (not a text snapshot). AC7.
 
