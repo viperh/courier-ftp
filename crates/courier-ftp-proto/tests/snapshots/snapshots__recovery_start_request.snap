@@ -1,0 +1,9 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RecoveryStartRequest\n{\n    email: \"alice@example.com\".into(), code: \"ABCD-EFGH-JKMN-PQRS\".into(),\n    registration_request: vec![1],\n})"
+---
+{
+  "email": "alice@example.com",
+  "code": "ABCD-EFGH-JKMN-PQRS",
+  "registration_request": "AQ"
+}

@@ -27,6 +27,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4.13"
 courier-ftp-crypto = { path = "../crates/courier-ftp-crypto" }
+courier-ftp-proto = { path = "../crates/courier-ftp-proto" }
 
 # Not part of the root workspace.
 [workspace]
@@ -61,6 +62,13 @@ bench = false
 [[bin]]
 name = "grant_open"
 path = "fuzz_targets/grant_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_dto_decode"
+path = "fuzz_targets/sync_dto_decode.rs"
 test = false
 doc = false
 bench = false

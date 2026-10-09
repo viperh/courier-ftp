@@ -1,0 +1,14 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&LoginFinishRequest\n{\n    login_state_id: id(3), credential_finalization: vec![9], totp:\n    Some(\"123456\".into()), device: LoginDevice\n    { id: Some(id(4)), name: None, platform: Some(\"macos\".into()), }, purpose:\n    LoginPurpose::Reauth,\n})"
+---
+{
+  "login_state_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e03",
+  "credential_finalization": "CQ",
+  "totp": "123456",
+  "device": {
+    "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e04",
+    "platform": "macos"
+  },
+  "purpose": "reauth"
+}

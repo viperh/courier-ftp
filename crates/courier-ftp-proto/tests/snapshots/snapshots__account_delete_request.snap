@@ -1,0 +1,7 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&AccountDeleteRequest { reauth_token: \"t\".repeat(43), })"
+---
+{
+  "reauth_token": "ttttttttttttttttttttttttttttttttttttttttttt"
+}

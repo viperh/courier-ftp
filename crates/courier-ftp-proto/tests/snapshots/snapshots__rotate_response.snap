@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RotateResponse\n{\n    key_version: 2, new_key_version: 3, head_revision: 42, staged: 10,\n    resumed: true, replaced_abandoned: false,\n})"
+---
+{
+  "key_version": 2,
+  "new_key_version": 3,
+  "head_revision": 42,
+  "staged": 10,
+  "resumed": true,
+  "replaced_abandoned": false
+}

@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&vec![MemberView\n{ user_id: id(8), email: \"bob@example.com\".into(), role: Role::Member, }])"
+---
+[
+  {
+    "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e08",
+    "email": "bob@example.com",
+    "role": "member"
+  }
+]

@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&CreateInviteRequest\n{ email: Some(\"bob@example.com\".into()), role: Role::Member, })"
+---
+{
+  "email": "bob@example.com",
+  "role": "member"
+}

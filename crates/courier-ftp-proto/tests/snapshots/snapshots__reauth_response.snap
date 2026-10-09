@@ -1,0 +1,9 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&ReauthResponse\n{ user_id: id(1), reauth_token: \"t\".repeat(43), reauth_expires_in_s: 300, })"
+---
+{
+  "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+  "reauth_token": "ttttttttttttttttttttttttttttttttttttttttttt",
+  "reauth_expires_in_s": 300
+}

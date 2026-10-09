@@ -1,0 +1,7 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&KeyVersionResponse { version: 3 })"
+---
+{
+  "version": 3
+}

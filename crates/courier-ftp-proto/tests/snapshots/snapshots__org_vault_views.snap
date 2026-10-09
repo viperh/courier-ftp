@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&vec![OrgVaultView\n{\n    id: id(6), name_enc: vec![7], key_version: 2, permission:\n    Permission::Write, has_key: true,\n}])"
+---
+[
+  {
+    "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e06",
+    "name_enc": "Bw",
+    "key_version": 2,
+    "permission": "write",
+    "has_key": true
+  }
+]
