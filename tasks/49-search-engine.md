@@ -17,7 +17,7 @@ recursive operations.
 
 - Before: T43 provides the async depth-first `Walker` over a `Backend` with bounded
   memory, symlink-loop protection and per-directory error skipping; T46 provides
-  `ListingCache::get_or_fetch` with `ListMode::FreshOnly` and `ServerKey`; T47 provides
+  `ListingCache::get_or_fetch` with `ListMode::FreshOnly` and `ServerIdentity` (T02); T47 provides
   `Condition`, `MatchMode`, `AppliesTo`, `Filter`, `CompiledFilter::matches`; T03
   provides `BackendFactory`, `ConnectInfo`, `SessionHandle`; T06 `LocalBackend`.
 - After: T65 builds the query form, shows streamed results, and uses the plan helpers
@@ -32,7 +32,7 @@ Module `courier_ftp_core::search`.
 ```rust
 pub enum SearchRoot {
     Local(LocalPath),
-    Remote { dir: RemotePath, server: ServerKey, connect: ConnectInfo },
+    Remote { dir: RemotePath, server: ServerIdentity, connect: ConnectInfo },
 }
 
 #[derive(Debug, Clone)]
@@ -41,10 +41,13 @@ pub struct SearchQuery {
     pub conditions: Vec<Condition>,   // T47 types; 1..=32
     pub match_mode: MatchMode,        // All | Any | None | NotAll
     pub case_sensitive: bool,
-    pub search_type: AppliesTo,       // Files | Dirs | Both
+    pub search_type: SearchType,      // Files | Dirs | Both
     pub max_depth: Option<u32>,       // None = unlimited; 0 = root directory only
     pub max_results: usize,           // default 100_000
 }
+
+/// Same values as T47 `AppliesTo`; the alias keeps T65's naming.
+pub type SearchType = AppliesTo;
 
 #[derive(Debug, Clone)]
 pub struct SearchHit {
@@ -52,7 +55,7 @@ pub struct SearchHit {
     pub entry: Entry,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]   // Clone: T65 carries it in `Action::SearchEvent(TabId, SearchEvent)`
 pub enum SearchEvent {
     /// Up to 256 hits; sent when 256 accumulate or 100 ms after the first unsent hit.
     Found(Vec<SearchHit>),
@@ -92,7 +95,7 @@ impl SearchEngine {
 
 // ---- plans for result actions (pure functions) ----
 
-pub enum ResultLayout { KeepStructure, Flatten }
+pub enum TransferLayout { KeepStructure, Flatten }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedDownload { pub remote: RemotePath, pub local: LocalPath, pub is_dir: bool }
@@ -103,9 +106,9 @@ pub struct PlanSkip { pub hit_dir: String, pub name: String, pub reason: SkipRea
 pub enum SkipReason { UnsafeName, NestedInSelectedDir, OutsideRoot }
 
 pub fn plan_downloads(hits: &[SearchHit], root: &RemotePath, target: &LocalPath,
-                      layout: ResultLayout) -> (Vec<PlannedDownload>, Vec<PlanSkip>);
+                      layout: TransferLayout) -> (Vec<PlannedDownload>, Vec<PlanSkip>);
 pub fn plan_uploads(hits: &[SearchHit], root: &LocalPath, target: &RemotePath,
-                    layout: ResultLayout) -> (Vec<PlannedUpload>, Vec<PlanSkip>);
+                    layout: TransferLayout) -> (Vec<PlannedUpload>, Vec<PlanSkip>);
 /// Order for deletion: files first, then directories deepest first.
 pub fn plan_delete(hits: &[SearchHit]) -> (Vec<SearchHit>, Vec<PlanSkip>);
 /// `name (1).ext`, `name (2).ext`, …: the same format as T42's Rename action.
@@ -271,6 +274,14 @@ Not applicable (UI in T65).
 
 ## Open questions
 
+- **Inconsistency with T65 (not owned):** T65 was written against the previous draft:
+  it expects `SearchEvent::Found(path, Entry)` (this task sends batches
+  `Found(Vec<SearchHit>)`, flushed every 100 ms, to keep UI updates cheap) and
+  `SearchEvent::Error` (here `DirError` plus `Done(SearchSummary)` with an outcome).
+  T65's `parse_date` produces a date-time with minute precision, while T47's
+  `Condition::Date` holds a calendar `time::Date` (FileZilla's filter and search dates
+  are day-granular). T65 should build `Condition::Date { value: Date }`; if minute
+  precision in search is wanted, T47 needs a `DateTime` variant (product decision).
 - **Dependency seam with T43 (not owned):** this task needs T43's `Walker` to list
   directories through a caller-supplied lister (a `DirLister` trait or closure) so
   listings can go through the T46 cache. T43 currently describes the walker "over any

@@ -425,6 +425,9 @@ stderr is closed). Nothing is printed to stdout except `--help`, `--version` and
 - `site_suggestions_ranked_and_capped_at_5`, `site_lookup_unique_case_insensitive_match` (AC5).
 - `help_mentions_every_visible_flag` — iterates `Cli::command().get_arguments()` and checks each long name is in the rendered help (AC1).
 
+### Property / fuzz tests
+- `prop_parse_launch_url_never_panics_and_never_leaks` — proptest over arbitrary strings and generated `scheme://user:pass@host:port/path` values: no panic, and the error text and `Debug` output never contain the generated password (AC2, AC4).
+
 ### Snapshot tests
 - `help_long_snapshot` — `Cli::command().term_width(100).render_long_help()` with insta (AC1).
 - `man_page_snapshot` — rendered man page (AC1, AC6).

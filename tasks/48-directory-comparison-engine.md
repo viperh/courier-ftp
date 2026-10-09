@@ -13,7 +13,7 @@ no entry. The engine is pure (no I/O) and fast enough for 100 000 entries per si
 
 ## Context
 
-- Before: T02 gives `Entry`, `EntryKind`, `Timestamp { datetime, precision }` with
+- Before: T02 gives `Entry`, `EntryKind`, `SymlinkTarget`, `Timestamp { time, precision }` (helpers `truncated`, `cmp_coarse`, `abs_diff_coarse`) with
   `Precision { Day, Minute, Second, Millis }`; T13 already converted LIST times to UTC
   using the site's time zone offset (MLSD is UTC); T47 gives `FilterEngine::equivalent`.
 - After: T66 renders the rows in both panes (colours, lockstep cursor, "select all rows
@@ -56,7 +56,7 @@ pub struct CompareOpts {
 /// Row order; the panes use the same order while comparison is on (T66).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NameOrder {
-    pub dirs_first: bool,             // interface.dirs_first
+    pub dirs_first: DirsFirst,        // interface.dirs_first (T05: Prioritize | AlwaysOnTop | Mixed)
     pub natural: bool,                // interface.natural_sort (file2 < file10)
     pub case_sensitive: bool,         // interface.sort_case_sensitive
 }
@@ -110,7 +110,7 @@ pub fn name_sort_key(name: &str, order: NameOrder) -> NameKey;
 `name_case == Insensitive`, lower-cased with `str::to_lowercase`. Entries named `.` or
 `..` are ignored (the UI adds `..`).
 
-**2. Kind class.** `Dir` and symlinks with `target_kind = Some(Dir)` are *dirs*;
+**2. Kind class.** `Dir` and symlinks with `target_kind = Some(SymlinkTarget::Dir)` are *dirs*;
 everything else is a *file* (same rule as T47).
 
 **3. Pairing.** Group both sides by key (`HashMap<Key, SmallVec<[usize; 1]>>`). For each
@@ -139,13 +139,16 @@ key present on both sides:
 
 `trunc(t)` truncates the UTC datetime to precision `p` (`Day` → 00:00:00 of the UTC
 date, `Minute` → seconds = 0, `Second` → nanoseconds = 0, `Millis` → to the
-millisecond). `threshold = threshold_minutes × 60 s`. With `Day` precision and the
+millisecond); this is T02's `Timestamp::truncated`, and `|d|` is
+`Timestamp::abs_diff_coarse`, with the sign from `Timestamp::cmp_coarse`. `threshold = threshold_minutes × 60 s`. With `Day` precision and the
 default threshold, dates one day apart are newer and same-day times are equal: the
 engine never reports "newer" from precision noise. A one-sided entry is `OnlyLeft` /
 `OnlyRight` regardless of kind.
 
 **5. Order.** Rows are sorted by `(class_rank, name_sort_key(display_name), tie)` where
-`class_rank` is 0 for dirs and 1 for files when `dirs_first`, else 0 for all;
+`class_rank` is 0 for dirs and 1 for files when `dirs_first` is `Prioritize` or
+`AlwaysOnTop` (identical for the ascending name order used here), and 0 for all when
+`Mixed`;
 `display_name` is the left name when present, else the right one; for a
 `KindDiffers` pair the class is the left entry's class. `name_sort_key` implements
 natural ordering (digit runs compared numerically, leading zeros as a tiebreak) and
@@ -163,8 +166,10 @@ entries per side compared in < 50 ms (release).
 
 ### Data formats and configuration
 
-The compare options are UI state persisted by T66 in the settings section
-`compare` (added to T05 by this task, saved with `Settings::save_user`):
+The compare options are UI state persisted by T66 as `CompareSettings
+{ mode, threshold_minutes, hide_identical }` in the settings section `compare`
+(the section is added to T05's `Settings` by this task, so T48 and T66 share one
+definition; saved with `Settings::save_user`):
 
 | Key | Type | Default |
 |---|---|---|
@@ -200,7 +205,7 @@ by T05 validation (fallback to defaults).
 - [ ] AC1 Every `RowStatus` is produced by at least one table test, and every row of the status table (rules 1–11) has a test.
 - [ ] AC2 Precision: Minute vs Second timestamps 40 s apart → `Equal` with threshold 0; Day precision on one side and the same UTC date on the other → `Equal`; dates one day apart → newer.
 - [ ] AC3 Threshold: 61 s difference with Second precision → newer at threshold 1, `Equal` at threshold 2.
-- [ ] AC4 Rows are aligned: every row has at least one side, each input index appears exactly once, and the row order matches `NameOrder` with and without `dirs_first` and natural sort.
+- [ ] AC4 Rows are aligned: every row has at least one side, each input index appears exactly once, and the row order matches `NameOrder` for `DirsFirst::Prioritize` and `Mixed`, with and without natural sort.
 - [ ] AC5 Case-insensitive matching pairs `Index.HTML` with `index.html`; with `A` and `a` on one side and `a` on the other, `a`/`a` pair and `A` is one-sided.
 - [ ] AC6 NFD `é` (local) pairs with NFC `é` (remote).
 - [ ] AC7 `hide_identical` removes `Equal` rows only and `counts` still include them.
@@ -249,6 +254,13 @@ None (T66 covers comparison against real listings).
 
 ## Open questions
 
+- **Inconsistency with T66 (not owned):** T66 was written against the previous T48 draft:
+  it expects `CompareOpts { dirs_first, case_sensitive_names, .. }`, a two-argument-plus-opts
+  `compare`, no `KindDiffers` status, and case-insensitive names only for Windows local /
+  `Dos` remote. This revision uses `CompareOpts { order: NameOrder, name_case: NameCase, .. }`,
+  a `filters` argument for the warning flag, adds `RowStatus::KindDiffers` (render it like
+  `SizeDiffers`, red, marker `≠`), and also treats macOS local and `Vms` remote as
+  case-insensitive. T66's owner should adopt these names.
 - FileZilla's time mode, as far as documented, compares only dates; rule 8 (equal time
   but different size → `SizeDiffers`) is an addition that flags truncated uploads. Keep
   it, or report `Equal` as FileZilla does? Product decision for the owner.

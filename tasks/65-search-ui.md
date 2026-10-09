@@ -33,7 +33,9 @@ Later: T63 (Related) provides View/Edit for results; T76 snapshot coverage.
 ### Types and APIs
 
 Module `crates/courier-ftp/src/components/search/` (`view.rs`, `form.rs`,
-`results.rs`, `actions.rs`, `parse.rs`).
+`results.rs`, `actions.rs`). `parse_size` and `parse_date` live in the shared
+`crates/courier-ftp/src/components/forms/units.rs` (created by whichever of
+T65/T67 lands first, used by both).
 
 ```rust
 /// Field offered in the condition builder (FileZilla's search fields).

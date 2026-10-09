@@ -209,7 +209,10 @@ impl SessionEncoding {
     pub fn encode(&self, s: &str) -> Result<Vec<u8>>;        // unmappable → InvalidInput
     pub fn name(&self) -> &'static str;
 }
-pub struct LineDecoder; // shared decode logic used by ReplyParser and T13
+/// Reply-line decoding; built on `courier_ftp_core::listing::TextDecoder` (T13, milestone
+/// M2, so it already exists). T14 configures the listing decoder from the same
+/// `SessionEncoding`, so replies and listings always agree.
+pub struct LineDecoder;
 
 // login.rs ------------------------------------------------------------------------------
 /// An ordered login sequence. The default is built from `Credentials`; T15 builds proxy

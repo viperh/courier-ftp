@@ -82,8 +82,8 @@ pub struct FilterSet {
 #[serde(default)]
 pub struct FilterSettings {
     pub filters: Vec<Filter>,         // default: builtin_filters()
-    pub sets: Vec<FilterSet>,         // default: one empty set named "Default"
-    pub active_set: String,           // default: "Default"
+    pub sets: Vec<FilterSet>,         // default: one empty set named "default"
+    pub active_set: String,           // default: "default"
     pub apply_to_transfers: bool,     // default: true
 }
 
@@ -156,7 +156,7 @@ pub enum FilterError {
 
 ### Behaviour
 
-**Kind resolution.** `EntryKind::Dir` → dir. `Symlink { target_kind: Some(Dir), .. }` →
+**Kind resolution.** `EntryKind::Dir` → dir. `Symlink { target_kind: Some(SymlinkTarget::Dir), .. }` →
 dir. Every other kind (`File`, `Other`, symlink to file or unknown target) → file.
 `applies_to` mismatch → the filter does not match.
 
@@ -187,9 +187,9 @@ skipped for that name with `UnknownFilter`.
 | `Path` | `parent` as passed by the caller (remote: `RemotePath` display, `/a/b`; local: native display path, `C:\x` or `/home/u`) | String op table below |
 | `Size` | `entry.size` | Directories never match (`false`). `Greater`/`Less` strict. |
 | `Attribute Hidden` | `entry.hidden` | `set` = expected value |
-| `Attribute ReadOnly` | permissions | read-only = `mode & 0o222 == 0`, or `raw` contains `R` (Windows local); unknown permissions → `false` |
-| `Permission` | `permissions.mode` bit (`UserRead` = 0o400 … `OtherExec` = 0o001) | unknown mode → `false` |
-| `Date` | `entry.modified` converted with `local_offset` to a calendar date | `Before`/`After` strict; precision `Day` or finer all compare by date |
+| `Attribute ReadOnly` | permissions | read-only = `mode` is `Some(m)` with `m & 0o222 == 0`, or `raw` contains `R` (Windows local); unknown permissions → `false` |
+| `Permission` | `permissions.mode` (`Option<u32>`) bit (`UserRead` = 0o400 … `OtherExec` = 0o001) | unknown mode → `false` |
+| `Date` | `entry.modified` (`Timestamp.time`) converted with `local_offset` to a calendar date | `Before`/`After` strict; precision `Day` or finer all compare by date |
 
 String operations (`ci` = `!case_sensitive`; case folding with `str::to_lowercase`
 computed once per entry and cached for all conditions of all filters):
@@ -244,8 +244,8 @@ through `Settings::save_user`, T05):
       "case_sensitive": true, "scope": "both", "builtin": true,
       "conditions": [ { "type": "name", "op": "equals", "value": ".git" } ] }
   ],
-  "sets": [ { "name": "Default", "local": [], "remote": [] } ],
-  "active_set": "Default",
+  "sets": [ { "name": "default", "local": [], "remote": [] } ],
+  "active_set": "default",
   "apply_to_transfers": true
 }
 ```
@@ -253,8 +253,8 @@ through `Settings::save_user`, T05):
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `filters.filters` | array of `Filter` | the five built-ins | Enum values serialise in `snake_case`. Dates as `"YYYY-MM-DD"`. |
-| `filters.sets` | array of `FilterSet` | `[{"name":"Default","local":[],"remote":[]}]` | At least one set; empty array → default restored with a warning. |
-| `filters.active_set` | string | `"Default"` | Unknown name → first set, warning. |
+| `filters.sets` | array of `FilterSet` | `[{"name":"default","local":[],"remote":[]}]` | At least one set; empty array → default restored with a warning. |
+| `filters.active_set` | string | `"default"` | Unknown name → first set, warning. |
 | `filters.apply_to_transfers` | bool | `true` | T43 skips excluded entries in recursive operations. |
 
 `local_offset` is not a setting: the binary computes the local UTC offset once at
@@ -292,7 +292,7 @@ variant except `NoConditions`.
 - [ ] AC1 Every `Condition` variant and every operator is covered by table-driven tests, including case-sensitive and case-insensitive variants of each string op.
 - [ ] AC2 Match modes All/Any/None/NotAll give the results in the combining table for 0, 1, 2 and 3 true conditions out of 3.
 - [ ] AC3 `applies_to` Files/Dirs/Both respected, including symlinks to directories (treated as dirs) and unknown symlink targets (treated as files).
-- [ ] AC4 A fresh config (`{}`) yields the five built-in filters and one empty `Default` set; `restore_builtins` re-adds a deleted built-in and resets an edited one without touching user filters.
+- [ ] AC4 A fresh config (`{}`) yields the five built-in filters and one empty `default` set; `restore_builtins` re-adds a deleted built-in and resets an edited one without touching user filters.
 - [ ] AC5 Missing data (no size, no mtime, no permissions) makes the condition false, never panics.
 - [ ] AC6 An invalid regex is reported by `validate_filter` as `InvalidRegex`; at load, the filter is disabled, a warning is logged, and other filters still apply.
 - [ ] AC7 `equivalent` is true for identical selections on both sides and false when a `LocalOnly` filter is active on the local side only.

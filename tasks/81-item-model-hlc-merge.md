@@ -20,7 +20,7 @@ also fixes the canonical field list of every item kind (the courier-ftp equivale
   `LogonType`, `Charset` used by typed views.
 - After: T82 stores the sealed bytes; T30 (`VaultEngine`) stamps writes, decrypts, migrates
   and serves typed views; T31 (`Site`, `SiteFolder`, `CredentialOverride` views), T33
-  (`Bookmark`, `HistoryEntry` views), T21/T12 (`KnownHost`, `TrustedCert`, implemented here)
+  (`Bookmark`, `HistoryEntry` views), T21/T12 (`KnownHostItem`, `TrustedCertItem`, implemented here)
   build on the `ItemView` trait; T88 calls `merge` and `HlcClock::observe`; T89 relies on the
   cross-vault reference rules.
 
@@ -28,9 +28,11 @@ also fixes the canonical field list of every item kind (the courier-ftp equivale
 
 ### Types and APIs
 
-Module `courier_ftp_core::model::item` (files `ids.rs`, `kinds.rs`, `body.rs`, `hlc.rs`,
-`merge.rs`, `migrate.rs`, `view.rs`, `views/{known_host,trusted_cert,ssh_key,proxy_credential}.rs`,
-`refs.rs`), re-exported from `model::item`.
+Ids live in `courier_ftp_core::model::ids` (file `model/ids.rs`, as T02 announces); everything
+else in `courier_ftp_core::model::item` (files `kinds.rs`, `body.rs`, `hlc.rs`, `merge.rs`,
+`migrate.rs`, `view.rs`, `views/{known_host,trusted_cert,ssh_key,proxy_credential}.rs`,
+`refs.rs`). `model::item` re-exports the ids. T02's `KeySource::VaultItem(uuid::Uuid)` holds
+`ItemId::uuid()`.
 
 ```rust
 // ids.rs — UUIDv7 newtypes. CBOR: 16-byte byte string. JSON/Display: hyphenated.
@@ -76,7 +78,7 @@ impl ItemBody {
     pub fn to_cbor(&self) -> Result<Vec<u8>, BodyCodecError>;
     pub fn from_cbor(bytes: &[u8]) -> Result<Self, BodyCodecError>;
 }
-pub const SECRET_FIELDS: [&str; 4] = ["password", "private_key", "passphrase", "key_passphrase"];
+pub const SECRET_FIELDS: [&str; 5] = ["password", "private_key", "passphrase", "key_passphrase", "account"];
 pub fn is_secret_field(field: &str) -> bool;   // last dotted segment in SECRET_FIELDS
 pub enum BodyCodecError { Decode(String), Encode(String), UnknownKind(String) }
 
@@ -130,8 +132,8 @@ pub enum ViewError { WrongKind { expected: ItemKind, found: ItemKind },
 pub trait WireEnum: Sized { fn as_wire(&self) -> &'static str; fn from_wire(s: &str) -> Option<Self>; }
 
 // views implemented in this task
-pub struct KnownHost { .. }  pub struct TrustedCert { .. }
-pub struct SshKey { .. }     pub struct ProxyCredential { .. }
+pub struct KnownHostItem { .. }  pub struct TrustedCertItem { .. }
+pub struct SshKeyItem { .. }  pub struct ProxyCredentialItem { .. }
 
 // refs.rs — cross-vault reference rule (§13.4)
 pub fn references(body: &ItemBody) -> Vec<(String, ItemId)>;   // every id-typed field
@@ -228,10 +230,10 @@ unknown string is a `ViewError::FieldType` on read.
 | `encryption` | text `plain-only`/`explicit-if-available`/`require-explicit`/`require-implicit` | `FtpEncryption` (T02) | `explicit-if-available` | General (FTP only) |
 | `host` | text | `String` | `""` | General |
 | `port` | uint | `Option<u16>` | `None` = protocol default (21, 990 implicit, 22) | General |
-| `logon_type` | text `anonymous`/`normal`/`ask`/`interactive`/`key-file`/`account`/`agent` | `SiteLogonType` | `normal` | General |
+| `logon_type` | text `anonymous`/`normal`/`ask-for-password`/`interactive`/`key-file`/`account`/`agent` (T02 `LogonKind` serde strings) | `LogonKind` (T02) | `normal` | General |
 | `user` | text | `String` | `""` | General |
 | `password` | text (secret) | `Option<SecretString>` | `None` | General |
-| `account` | text | `Option<String>` | `None` | General (Account logon) |
+| `account` | text | `Option<SecretString>` (T02 keeps it secret) | `None` | General (Account logon) |
 | `key_file` | text (local path, `~` allowed) | `Option<String>` | `None` | General (SFTP key file) |
 | `ssh_key_id` | id | `Option<ItemId>` (an `ssh-key` item; wins over `key_file`) | `None` | General |
 | `key_passphrase` | text (secret) | `Option<SecretString>` (for `key_file`) | `None` | General |
@@ -261,39 +263,39 @@ bookmark); `local_dir` text (optional, local path, may be overridden per device 
 set); `sync_browsing` bool (`false`); `directory_comparison` bool (`false`); `position` int
 (`0`; sort key within its list, gaps of 1024).
 
-**`known-host`** (view `KnownHost`, this task; used by T21): `host` text (lowercase, no
+**`known-host`** (view `KnownHostItem`, this task; T30 converts it to and from `trust::KnownHost` of T21): `host` text (lowercase, no
 brackets), `port` uint (default 22), `key_type` text (`ssh-ed25519`, `ecdsa-sha2-nistp256`,
 `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521`, `ssh-rsa`, …), `public_key` text (OpenSSH base64
 blob without type or comment), `added_at` UnixMillis, `comment` text (optional). One item per
 `(host, port, key_type)`; lookups compare host case-insensitively.
 
-**`trusted-cert`** (view `TrustedCert`, this task; used by T12): `host` text (lowercase),
+**`trusted-cert`** (view `TrustedCertItem`, this task; used by T12): `host` text (lowercase),
 `port` uint, `sha256` bytes(32) (fingerprint of the leaf DER), `cert_der` bytes (leaf
 certificate, ≤ 16 KiB), `subject` text, `issuer` text, `not_after` UnixMillis, `added_at`
 UnixMillis. One item per `(host, port)`: "Always trust" of a changed certificate replaces the
 fingerprint in the existing item.
 
-**`ssh-key`** (view `SshKey`, this task; used by T20/T31): `label` text; `algorithm` text
+**`ssh-key`** (view `SshKeyItem`, this task; used by T20/T31): `label` text; `algorithm` text
 (`ed25519`, `ecdsa-p256`, `ecdsa-p384`, `ecdsa-p521`, `rsa`, `dsa`); `private_key` text (secret;
 the key file content as imported, ≤ 64 KiB); `format` text (`openssh`, `pem`, `pkcs8`,
 `ppk2`, `ppk3`); `public_key` text (OpenSSH one-line form, optional when it could not be
 derived from an encrypted key without a `.pub` file); `passphrase` text (secret, optional);
 `comment` text (optional); `added_at` UnixMillis.
 
-**`proxy-credential`** (view `ProxyCredential`, this task; referenced from settings by id,
+**`proxy-credential`** (view `ProxyCredentialItem`, this task; referenced from settings by id,
 T05/T07/T15): `label` text; `scope` text `generic`/`ftp-proxy`; `user` text; `password` text
 (secret, optional).
 
 **`credential-override`** (view `CredentialOverride`, T31; personal vault only, T89):
 `shared_site_id` id (required, points into a team vault); `user` text (optional);
-`password` text (secret, optional); `account` text (optional); `logon_type` text (optional,
+`password` text (secret, optional); `account` text (secret, optional); `logon_type` text (optional,
 same strings as `site`); `key_file` text (optional); `ssh_key_id` id (optional, personal
 vault); `key_passphrase` text (secret, optional). If several exist for one site, the smallest
 item id wins (deterministic on every device).
 
 **`history-entry`** (view `HistoryEntry`, T33): `protocol` text (`ftp`/`sftp`);
 `encryption` text (FTP only, as `site`); `host` text; `port` uint (optional); `user` text;
-`logon_type` text (`anonymous`/`normal`/`ask`/`interactive`/`key-file`/`agent`);
+`logon_type` text (T02 `LogonKind` strings except `account`);
 `password` text (secret, optional; only when `vault.store_passwords`); `remote_dir` text
 (optional); `last_used_at` UnixMillis.
 
@@ -333,7 +335,7 @@ No settings keys in this task.
 5. `merge.rs` and `tests/merge_props.rs` (algebraic properties + N-device simulation).
 6. `migrate.rs` with the step-runner and read-only rule.
 7. `view.rs` (`ItemView`, `FieldWriter`, `ViewError`, `WireEnum`) and the four views of this
-   task (`KnownHost`, `TrustedCert`, `SshKey`, `ProxyCredential`).
+   task (`KnownHostItem`, `TrustedCertItem`, `SshKeyItem`, `ProxyCredentialItem`).
 8. `refs.rs` and `docs/data-model.md`.
 
 ## Acceptance criteria

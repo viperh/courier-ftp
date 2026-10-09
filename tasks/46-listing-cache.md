@@ -12,7 +12,8 @@ is shared by every tab connected to the same server, and is bounded in size.
 
 ## Context
 
-- Before: T03 provides `Backend::list(&mut self, dir, cancel) -> Result<Listing>` with
+- Before: T02 provides `ServerIdentity` (`ServerAddress::identity()`), the key for
+  caches; T03 provides `Backend::list(&mut self, dir, cancel) -> Result<Listing>` with
   `Listing { dir: RemotePath, entries: Vec<Entry>, fetched_at: Instant, raw: Option<String> }`
   and `SessionHandle`; T02 provides `ServerAddress`, `Protocol`, `RemotePath`, `Entry`,
   `Timestamp`, `Permissions`; T04 provides `EventSender` and `CoreEvent`; T05 provides
@@ -30,20 +31,10 @@ is shared by every tab connected to the same server, and is bounded in size.
 Module `courier_ftp_core::cache`.
 
 ```rust
-/// Identifies one server for caching. Two tabs with equal keys share cached listings.
-/// Built from the session's `ServerAddress`; the host is lower-cased and the port
-/// resolved to the protocol default when absent, so `HOST:21` and `host` are equal.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ServerKey {
-    pub protocol: Protocol,   // FtpsExplicit and Ftp are different keys (different sessions)
-    pub host: String,
-    pub port: u16,
-    pub user: String,
-}
-
-impl ServerKey {
-    pub fn from_address(addr: &ServerAddress) -> Self;
-}
+// Cache key: `ServerIdentity` from T02 (`ServerAddress::identity()`): protocol +
+// lower-case host + effective port + user. Encryption is not part of it, so plain and
+// TLS sessions to one server share listings. Two tabs with equal identities share
+// cached listings.
 
 /// How a caller wants a listing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,22 +91,22 @@ impl ListingCache {
     pub fn new(policy: CachePolicy, events: EventSender) -> Self;
     /// Apply new settings (enable/disable, TTL). Disabling clears everything.
     pub fn set_policy(&self, policy: CachePolicy);
-    pub fn lookup(&self, server: &ServerKey, dir: &RemotePath) -> Lookup;
-    /// Store a listing just fetched. Strips `Listing.raw` and every `Entry.raw`.
-    pub fn store(&self, server: &ServerKey, listing: Listing) -> Arc<Listing>;
+    pub fn lookup(&self, server: &ServerIdentity, dir: &RemotePath) -> Lookup;
+    /// Store a listing just fetched. Drops `Listing.raw` (the raw server text).
+    pub fn store(&self, server: &ServerIdentity, listing: Listing) -> Arc<Listing>;
     /// Fetch through the cache. Concurrent calls for the same (server, dir) are
     /// coalesced: only one runs `fetch`, the others wait and reuse its result.
     pub async fn get_or_fetch<F, Fut>(
-        &self, server: &ServerKey, dir: &RemotePath, mode: ListMode, fetch: F,
+        &self, server: &ServerIdentity, dir: &RemotePath, mode: ListMode, fetch: F,
     ) -> Result<CachedListing>
     where F: FnOnce() -> Fut, Fut: Future<Output = Result<Listing>>;
-    pub fn patch(&self, server: &ServerKey, patch: CachePatch);
+    pub fn patch(&self, server: &ServerIdentity, patch: CachePatch);
     /// Drop one directory (used when a fetch says NotFound, or after an operation
     /// whose result is unknown, e.g. a failed rename).
-    pub fn invalidate(&self, server: &ServerKey, dir: &RemotePath);
+    pub fn invalidate(&self, server: &ServerIdentity, dir: &RemotePath);
     /// Drop `dir` and every cached directory below it.
-    pub fn invalidate_subtree(&self, server: &ServerKey, dir: &RemotePath);
-    pub fn clear_server(&self, server: &ServerKey);
+    pub fn invalidate_subtree(&self, server: &ServerIdentity, dir: &RemotePath);
+    pub fn clear_server(&self, server: &ServerIdentity);
     /// Called on vault lock (T60) and on quit.
     pub fn clear_all(&self);
     pub fn stats(&self) -> CacheStats;   // dirs, entries, hits, misses, evictions
@@ -125,20 +116,20 @@ impl ListingCache {
 pub struct CachePolicy {
     pub enabled: bool,               // cache.listing_cache
     pub ttl: Option<Duration>,       // cache.listing_cache_ttl_secs; 0 → None (no expiry)
+    pub max_dirs: usize,             // cache.listing_cache_max_dirs (default 200)
 }
 
-/// Hard limits (constants, not settings).
-pub const MAX_CACHED_DIRS: usize = 200;
+/// Hard limit on cached entries over all directories (constant, not a setting).
 pub const MAX_CACHED_ENTRIES: usize = 500_000;
 ```
 
 ### Behaviour
 
 **Storage.** `Inner` holds a `std::sync::Mutex<State>`:
-`State { dirs: HashMap<(ServerKey, RemotePath), Slot>, total_entries: usize, clock: u64 }`,
+`State { dirs: HashMap<(ServerIdentity, RemotePath), Slot>, total_entries: usize, clock: u64 }`,
 `Slot { listing: Arc<Listing>, cached_at: tokio::time::Instant, unsure: bool, last_used: u64 }`.
 `clock` increments on every lookup hit or store; `last_used` is set from it (LRU order).
-A separate `fetch_locks: Mutex<HashMap<(ServerKey, RemotePath), Arc<tokio::sync::Mutex<()>>>>`
+A separate `fetch_locks: Mutex<HashMap<(ServerIdentity, RemotePath), Arc<tokio::sync::Mutex<()>>>>`
 provides single-flight fetching; an entry is removed when its last waiter finishes.
 
 **Freshness.** A slot is *fresh* when `!unsure` and (`ttl` is `None` or
@@ -164,12 +155,12 @@ the error; on any other error leave the cache unchanged and return the error.
 Cancellation: dropping the future releases the lock; the next waiter fetches itself.
 Cache disabled → `fetch()` is always called and nothing is stored.
 
-**`store`**: replaces the slot, sets `unsure = false`, strips raw text, updates
+**`store`**: replaces the slot, sets `unsure = false`, drops `Listing.raw`, updates
 `total_entries`, emits `ListingUpdated`, then evicts.
 
-**Eviction.** After every insert, while `dirs.len() > MAX_CACHED_DIRS` or
+**Eviction.** After every insert, while `dirs.len() > max_dirs` or
 `total_entries > MAX_CACHED_ENTRIES`, remove the slot with the smallest `last_used`
-(linear scan, at most 200 slots). The slot just inserted is never evicted in the same
+(linear scan over at most `max_dirs` slots). The slot just inserted is never evicted in the same
 pass, so a single directory larger than `MAX_CACHED_ENTRIES` is still served (it
 evicts everything else). Eviction is silent (no event).
 
@@ -194,14 +185,15 @@ next `PreferCache` read tells the pane to revalidate in the background (FileZill
 `ListingUpdated` for the affected parent directory, so panes re-list after our own
 operations even without caching.
 
-**Events.** The cache emits `CoreEvent::ListingUpdated` (T04) on store, patch and
-invalidate. Panes showing `(server, dir)` re-read the cache (never refetch because of
-the event alone, which prevents refresh loops). See Open questions about the event's
-key.
+**Events.** The cache emits `CoreEvent::ListingUpdated { server: Some(identity), dir }`
+(T04) on store, patch and invalidate. Every pane in every tab whose session has that
+`ServerIdentity` and shows `dir` re-reads the cache (never refetches because of the
+event alone, which prevents refresh loops). `server: None` (local filesystem) is never
+emitted by the cache; T62 sends it for local operations.
 
 **Complexity limits.** `lookup`: O(1) average plus O(path length) hashing.
-`store`: O(entries) for raw stripping plus O(200) eviction scan. Patches: O(entries in
-the parent directory). Memory: bounded by `MAX_CACHED_ENTRIES` entries plus 200
+`store`: O(entries) for counting plus O(`max_dirs`) eviction scan. Patches: O(entries in
+the parent directory). Memory: bounded by `MAX_CACHED_ENTRIES` entries plus `max_dirs`
 `Listing` headers.
 
 ### Data formats and configuration
@@ -211,7 +203,8 @@ Settings (defined in T05, consumed here):
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `cache.listing_cache` | bool | `true` | Use the cache. `false` = always list (FileZilla "don't cache"). |
-| `cache.listing_cache_ttl_secs` | u64 | `0` | Seconds a listing stays fresh; `0` = until refreshed or patched. Values above 86 400 are clamped to 86 400 with a warning (T05 validation). |
+| `cache.listing_cache_ttl_secs` | u32 | `0` | Seconds a listing stays fresh; `0` = until refreshed or patched. Range 0–86 400 (T05 validation: out of range → default + warning). |
+| `cache.listing_cache_max_dirs` | u32 | `200` | LRU capacity in directories. Range 10–10 000 (T05). |
 
 Nothing is persisted. There is no on-disk format.
 
@@ -226,8 +219,8 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 - Listings contain file names, which are user data: memory only, never written to disk,
   never synced. `clear_all` runs on vault lock (T60) so a locked app holds no remote
   file names, and on quit.
-- `Listing.raw` / `Entry.raw` are stripped before caching (less memory; the raw view of
-  T71 always uses a fresh listing).
+- `Listing.raw` is dropped before caching (less memory; the raw view of T71 always uses
+  a fresh listing).
 - Logging: `debug!` may include the directory path and server key (debug-only per T91);
   `trace!` for hit/miss per lookup. At `info` and above only counts (`evicted 3 dirs`),
   never hosts, users or paths.
@@ -236,8 +229,8 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 
 ## Implementation steps
 
-1. `cache` module skeleton: `ServerKey`, `CachePolicy`, `ListMode`, `Lookup`, `ListingSource`, constants; `ServerKey::from_address` with tests.
-2. `ListingCache::new/lookup/store/clear_*`, freshness and TTL with `tokio::time::Instant`.
+1. `cache` module skeleton: `CachePolicy`, `ListMode`, `Lookup`, `ListingSource`, `CachePatch`, constants; keying by `ServerIdentity`.
+2. `ListingCache::new/lookup/store/clear_*`, `CachePolicy::from_settings`, freshness and TTL with `tokio::time::Instant`.
 3. LRU eviction with both limits; `stats()`.
 4. `get_or_fetch` with per-key single-flight lock and the mode table.
 5. `CachePatch` and `patch()`; `invalidate`, `invalidate_subtree`.
@@ -250,7 +243,7 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 - [ ] AC2 `Refresh` always calls the backend exactly once and replaces the cached listing.
 - [ ] AC3 Ten concurrent `get_or_fetch` calls for the same uncached directory run `fetch` exactly once.
 - [ ] AC4 Every `CachePatch` variant produces the listing described in the patch table (one test per variant and per edge case listed there).
-- [ ] AC5 Never more than 200 directories or 500 000 entries cached after any sequence of stores; the least recently used directory is evicted first.
+- [ ] AC5 Never more than `cache.listing_cache_max_dirs` (default 200) directories or 500 000 entries cached after any sequence of stores; the least recently used directory is evicted first.
 - [ ] AC6 With `cache.listing_cache = false`, every read calls the backend, nothing is stored, and patches still emit `ListingUpdated`.
 - [ ] AC7 With TTL 30 s, a listing is fresh at 29 s and stale at 30 s (paused tokio time).
 - [ ] AC8 A fetch returning `NotFound` removes that directory and its cached subtree.
@@ -261,7 +254,7 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 ## Tests
 
 ### Unit tests
-- `server_key_normalises_host_case_and_default_port` — `FTP://HOST` and `ftp://host:21` give equal keys; `sftp` vs `ftp` differ.
+- `identity_key_shares_plain_and_tls_sessions` — listings stored under the identity of `ftp://host` are found for `ftpes://HOST:21`; `sftp://host` is a different key (T02 `ServerIdentity` rules).
 - `prefer_cache_hit_makes_no_backend_call` — AC1.
 - `refresh_always_fetches_and_replaces` — AC2.
 - `fresh_only_refetches_stale_listing` — mode table row for `FreshOnly`.
@@ -281,12 +274,12 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 - `single_huge_listing_still_served` — one 600 000-entry listing kept alone. AC5.
 - `disabled_cache_always_fetches_and_stores_nothing` — AC6.
 - `not_found_invalidates_subtree` — AC8.
-- `store_strips_raw_text` — `Listing.raw` and `Entry.raw` are `None` after store.
+- `store_strips_raw_text` — `Listing.raw` is `None` after store.
 - `clear_all_empties_cache` — AC9.
 - `listing_updated_emitted_once_per_changed_dir` — event receiver from T04 counts events.
 
 ### Property / fuzz tests
-- `prop_cache_never_exceeds_limits` — random sequences of store/lookup/patch/invalidate (proptest, 256 cases) keep `dirs <= 200`, `entries <= 500_000` (allowing the single-huge-listing exception) and `total_entries` equal to the real sum. AC5.
+- `prop_cache_never_exceeds_limits` — random sequences of store/lookup/patch/invalidate (proptest, 256 cases) keep `dirs <= max_dirs` (random `max_dirs` in 10..=300), `entries <= 500_000` (allowing the single-huge-listing exception) and `total_entries` equal to the real sum. AC5.
 - `prop_patches_match_reference_model` — random patch sequences applied to the cache and to a plain `BTreeMap` model give the same entry names per directory. AC4.
 
 ### Snapshot tests
@@ -309,5 +302,4 @@ None specific; T53/T62 e2e flows exercise the cache against real servers (T76).
 
 ## Open questions
 
-- **Inconsistency with T04 (not owned):** T04 defines `CoreEvent::ListingUpdated { session, dir }`, but the cache is shared per server and does not know which sessions show a directory. This task needs `ListingUpdated { server: ServerKey, dir: RemotePath }` (or both fields). T04's owner should change the variant; until then the cache emits one event with `session` set to the session id of the operation's origin and the UI must refresh every tab whose `ServerKey` matches.
 - Should the cache also be cleared when the last session to a server disconnects? FileZilla keeps it so reconnecting is instant; this task keeps it (cleared only on lock and quit). Product decision for the owner.
