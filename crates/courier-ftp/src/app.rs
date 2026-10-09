@@ -8,6 +8,7 @@ use crate::{
     action::Action,
     components::{Component, home::Home},
     config::Config,
+    paths::AppPaths,
     tui::{Event, Tui},
 };
 
@@ -24,7 +25,7 @@ pub(crate) struct App {
     action_rx: mpsc::UnboundedReceiver<Action>,
 }
 
-/// Input modes. Keybindings and styles in `.config/config.json` are keyed by
+/// Input modes. Keybindings and styles in `config/config.json` (this crate) are keyed by
 /// these names, so adding a variant here means adding a section there too.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Mode {
@@ -33,7 +34,11 @@ pub(crate) enum Mode {
 }
 
 impl App {
-    pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
+    pub(crate) fn new(
+        tick_rate: f64,
+        frame_rate: f64,
+        paths: &AppPaths,
+    ) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Ok(Self {
             tick_rate,
@@ -41,7 +46,7 @@ impl App {
             components: vec![Box::new(Home::new())],
             should_quit: false,
             should_suspend: false,
-            config: Config::new()?,
+            config: Config::new(paths)?,
             mode: Mode::Normal,
             last_tick_key_events: Vec::new(),
             action_tx,

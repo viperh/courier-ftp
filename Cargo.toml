@@ -45,6 +45,7 @@ courier-ftp-proto-ftp = { path = "crates/courier-ftp-proto-ftp", version = "0.1.
 courier-ftp-proto-sftp = { path = "crates/courier-ftp-proto-sftp", version = "0.1.0" }
 courier-ftp-store = { path = "crates/courier-ftp-store", version = "0.1.0" }
 courier-ftp-sync = { path = "crates/courier-ftp-sync", version = "0.1.0" }
+courier-ftp-server = { path = "crates/courier-ftp-server", version = "0.1.0" }
 
 # --- tui / terminal ---
 crossterm = { version = "0.29.0", features = ["serde", "event-stream"] }
@@ -87,8 +88,16 @@ tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "serde"] }
 
 # --- misc ---
-libc = "0.2.186"
+hex = "0.4.3"
+libc = "0.2.189"
 strum = { version = "0.28.0", features = ["derive"] }
+# Log file rotation (T71).
+tracing-appender = "0.2.5"
+# Process hardening on Windows (T91).
+windows-sys = "0.61.2"
+# Shell completions and the man page (T70, T77).
+clap_complete = "4.6"
+clap_mangen = "0.2"
 
 # --- tls (D9: rustls with the `ring` provider, no OpenSSL) ---
 rustls = { version = "0.23.43", default-features = false, features = ["logging", "ring", "std", "tls12"] }
@@ -97,6 +106,7 @@ rustls-platform-verifier = "0.7.1"
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["logging", "ring", "tls12"] }
 # Certificate details for the trust prompt (T12, T69).
 x509-parser = "0.18.1"
+webpki-roots = "1.0.9"
 
 # --- ssh / sftp (D2) ---
 russh = "0.64.1"
@@ -145,6 +155,8 @@ tokio-tungstenite = { version = "0.29.0", default-features = false, features = [
     "handshake",
     "rustls-tls-webpki-roots",
 ] }
+# Retry jitter (T88).
+fastrand = "2.3.0"
 
 # --- server only (T84-T86; never a dependency of a client crate) ---
 axum = { version = "0.8.9", features = ["macros"] }
@@ -159,7 +171,12 @@ lettre = { version = "0.11.23", default-features = false, features = [
     "tokio1-rustls",
     "webpki-roots",
 ] }
+base64 = "0.22.1"
+# Server only, for sqlx (the client uses `time`).
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+ipnet = "2.12.2"
 metrics = "0.24.6"
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 # Not the `sqlx` facade: its optional sqlx-sqlite pins a libsqlite3-sys that
 # conflicts (`links = "sqlite3"`) with rusqlite even when unused.
 sqlx-core = { version = "0.8.6", default-features = false, features = [
@@ -177,6 +194,7 @@ sqlx-postgres = { version = "0.8.6", default-features = false, features = [
     "uuid",
 ] }
 totp-rs = { version = "5.7.0", default-features = false }
+tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.6.11", features = [
     "compression-gzip",
     "cors",
@@ -218,6 +236,18 @@ insta = "1.49.0"
 pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
 tokio-test = "0.4.6"
+proptest = "1.11.0"
+trybuild = "1.0.121"
+criterion = "0.8.2"
+# Test certificates (T12).
+rcgen = "0.14"
+cargo_metadata = "0.23.1"
+toml = "1.1.6"
+# Docker e2e tests (T76).
+testcontainers = { version = "0.28.0", default-features = false }
+# PTY tests of the binary (T76).
+portable-pty = "0.9.0"
+vt100 = "0.16"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 # opt-level 3, not "s": transfer throughput (T41b) and render targets (T53) matter

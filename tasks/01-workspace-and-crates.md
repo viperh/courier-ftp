@@ -293,16 +293,16 @@ uses yet costs nothing. Template entries `config`, `json5` (D10) stay; `better-p
 
 ## Acceptance criteria
 
-- [ ] AC1 All nine crates in the table exist and `cargo build --workspace --all-features --locked` and `cargo build -p courier-ftp --no-default-features --locked` succeed.
-- [ ] AC2 `python3 scripts/check-layering.py` exits 0 (all-features and no-default-features graphs); `cargo tree -p courier-ftp-core -p courier-ftp-proto-ftp -p courier-ftp-proto-sftp -e normal --locked | grep -E ' (ratatui|crossterm|clap) v'` prints nothing.
-- [ ] AC3 `cargo tree -p courier-ftp --no-default-features -e normal --locked` does not contain `courier-ftp-sync`; with default features it does.
-- [ ] AC4 `grep -rn "Core\b\|tick()" crates/courier-ftp/src crates/courier-ftp-core/src` finds no template placeholder; `app.rs` has no `core` field.
-- [ ] AC11 `courier-ftp-core/src/` contains the module files `error.rs`, `secret.rs`, `trust.rs`, `listing.rs` and `text.rs` (plus the other modules in the skeleton), `courier_ftp_core::Error` resolves through the crate-root re-export of `error::Error`, and `cargo tree -p courier-ftp-store -e normal --locked` does not contain `courier-ftp-core`.
-- [ ] AC5 `COURIER_FTP_HOME=/tmp/x cargo run -p courier-ftp -- --version` prints `/tmp/x/config` and `/tmp/x/data` (and creates neither); with `COURIER_FTP_CONFIG=/tmp/c` also set, the config line shows `/tmp/c`.
-- [ ] AC6 With no `HOME` and no override (`env -i cargo run …` on Linux) the binary exits 1 with the `COURIER_FTP_HOME` message and creates no `./.data`.
-- [ ] AC7 `courier-ftp-server --version` prints `courier-ftp-server 0.1.0`.
-- [ ] AC8 `cargo package --workspace --exclude courier-ftp-e2e --locked` succeeds (internal deps carry versions).
-- [ ] AC9 README "Layout" lists every crate with its purpose; README "Configuration" documents `COURIER_FTP_HOME`, `COURIER_FTP_CONFIG`, `COURIER_FTP_DATA` and their precedence.
+- [x] AC1 All nine crates in the table exist and `cargo build --workspace --all-features --locked` and `cargo build -p courier-ftp --no-default-features --locked` succeed.
+- [x] AC2 `python3 scripts/check-layering.py` exits 0 (all-features and no-default-features graphs); `cargo tree -p courier-ftp-core -p courier-ftp-proto-ftp -p courier-ftp-proto-sftp -e normal --locked | grep -E ' (ratatui|crossterm|clap) v'` prints nothing.
+- [x] AC3 `cargo tree -p courier-ftp --no-default-features -e normal --locked` does not contain `courier-ftp-sync`; with default features it does.
+- [x] AC4 `grep -rn "Core\b\|tick()" crates/courier-ftp/src crates/courier-ftp-core/src` finds no template placeholder; `app.rs` has no `core` field.
+- [x] AC11 `courier-ftp-core/src/` contains the module files `error.rs`, `secret.rs`, `trust.rs`, `listing.rs` and `text.rs` (plus the other modules in the skeleton), `courier_ftp_core::Error` resolves through the crate-root re-export of `error::Error`, and `cargo tree -p courier-ftp-store -e normal --locked` does not contain `courier-ftp-core`.
+- [x] AC5 `COURIER_FTP_HOME=/tmp/x cargo run -p courier-ftp -- --version` prints `/tmp/x/config` and `/tmp/x/data` (and creates neither); with `COURIER_FTP_CONFIG=/tmp/c` also set, the config line shows `/tmp/c`.
+- [x] AC6 With no `HOME` and no override (`env -i cargo run …` on Linux) the binary exits 1 with the `COURIER_FTP_HOME` message and creates no `./.data`.
+- [x] AC7 `courier-ftp-server --version` prints `courier-ftp-server 0.1.0`.
+- [x] AC8 `cargo package --workspace --exclude courier-ftp-e2e --locked` succeeds (internal deps carry versions).
+- [x] AC9 README "Layout" lists every crate with its purpose; README "Configuration" documents `COURIER_FTP_HOME`, `COURIER_FTP_CONFIG`, `COURIER_FTP_DATA` and their precedence.
 - [ ] AC10 All T00 CI jobs pass on the PR (`fmt`, `clippy`, `docs`, `test`, `test-os`, `test-local-only`, `msrv`, `deny`, `vet`, `layering`, `unsafe-check`, `canary` self-test, `packaging`).
 
 ## Tests
@@ -347,36 +347,66 @@ None. Resolved by the coordinator:
 
 ## Implementation notes
 
-- **CI (scope 4) not done here.** T00 is implemented concurrently in its own lane, so this
-  task wrote no workflows or scripts; the "T00 CI jobs exist" criterion stays open until
-  T00 lands.
-- **`[workspace.lints]`** was added to the root `Cargo.toml` (the T00 set, copied from sverb)
-  so the new crates can use `[lints] workspace = true`. The existing `courier-ftp` and
-  `courier-ftp-core` crates do not opt in yet (T00 does that and fixes the template's
-  `unwrap()`s); the new core code is clean under those lints.
-- **`AppPaths`** lives in a new `courier_ftp_core::paths` module (not in the scope's module
-  list): `AppPaths::from_env()` / `AppPaths::resolve(env_fn, DefaultDirs)`, with
-  `config_dir()` / `data_dir()`. Order: `COURIER_FTP_CONFIG`/`COURIER_FTP_DATA`, then
-  `COURIER_FTP_HOME/{config,data}`, then the platform dirs, then `./.config`/`./.data`;
-  empty variables count as unset. The binary's `config::get_config_dir`/`get_data_dir`
-  delegate to it (`config::PATHS`), and the binary no longer depends on `directories`.
-- The placeholder `Error`/`Result` in core stay until T02 replaces them.
-- **New crates are skeletons** (crate doc only). Internal path deps follow the layering:
-  proto-ftp/proto-sftp -> core; store, proto -> crypto; sync -> core, crypto, proto, store;
-  server -> crypto, proto (no client crates). The binary depends on both protocol crates
-  and optionally on `courier-ftp-sync` (`sync` feature, default on).
-- **Dependency versions:** crypto, storage, sync-client and server deps use sverb's
-  versions (a known-compatible set: rustls 0.23 with `ring`, reqwest 0.12, tokio-tungstenite
-  0.29, sqlx 0.8.6, tower-http 0.6, totp-rs 5.7) rather than newest majors; the rest are
-  the latest stable releases from `cargo search`. `time` was picked over `chrono`, so the
-  sqlx features use `time` instead of sverb's `chrono`. `ssh-key` has `ppk` and
-  `encryption`. The whole set was checked to resolve together (`cargo metadata` with a
-  throwaway crate depending on all of them). `russh` keeps its default features
-  (`aws-lc-rs`, like sverb); switch to `default-features = false, features = ["ring", ...]`
-  in T20 if the C build of aws-lc becomes a problem.
-- **MSRV:** several pinned deps need a newer Rust than the current `rust-version = "1.85"`
-  (`encoding_rs` 0.8.42 and `keyring` 4.2 need 1.88, `uuid` 1.27 needs 1.89). Unused
-  workspace deps are not resolved, so nothing breaks yet; the first task that uses them must
-  raise `rust-version` (sverb uses 1.95).
+Final state (two passes: the first was built against an older revision of this file,
+the second, lane `t01b`, closed the gaps to the current specification).
+
+- **Crates.** The nine crates of the table exist, with the descriptions, UI comments
+  and features from the specification (`courier-ftp`: `default = ["sync"]`, `sync`,
+  `test-hooks`; core `test-util`; proto-sftp `test-util`; crypto `insecure-test-ksf`).
+  Internal path deps follow the layering (proto-ftp/proto-sftp → core; store, proto →
+  crypto; sync → core, store, proto, crypto; server → proto, crypto). Core has no
+  internal deps yet (T30/T81 add crypto/proto/store). `courier-ftp-e2e` is not created
+  (T76, out of scope). All nine internal `[workspace.dependencies]` entries carry
+  `version = "0.1.0"` (server included). Every crate has `[lints] workspace = true`
+  (T00 opted the existing ones in). Crypto has `#![forbid(unsafe_code)]`.
+- **Core skeleton** as specified: `error` (placeholder `Error::InvalidState`, `Result`,
+  re-exported at the crate root), `secret`, `trust`, `listing`, `text`, `bookmarks`,
+  `edit`, `hardening` plus the earlier modules; each module file is a `//!` line naming
+  its tasks. `hardening.rs` is a file for now; `scripts/check-unsafe.py` allows
+  `src/hardening/`, so T91 turns it into a directory module when it adds `unsafe`.
+  The first pass's `courier_ftp_core::paths` module is **removed**: paths live in the
+  binary (`crates/courier-ftp/src/paths.rs`), core no longer depends on `directories`.
+- **`AppPaths`** (binary crate, `pub(crate)`): `AppPaths::resolve(cli_config,
+  cli_data, &dyn Env) -> Result<Self, PathsError>` with public fields `config_dir`,
+  `data_dir`, `cache_dir`, `ensure_dirs()` (`0o700` on creation, Unix), `SystemEnv`,
+  `MapEnv` (`#[cfg(test)]`, nothing else uses it yet), `PathsError::{NoHome,
+  NotAbsolute}`, private `resolve_with(.., platform)`. The CLI-flag arguments are
+  already honoured (T70 only has to pass them). `main` resolves before parsing the
+  arguments (the `--version` text names the directories; clap's version is set at
+  runtime with `Cli::command().version(cli::version(&paths))`), then `ensure_dirs()`,
+  `logging::init(&paths)`, `App::new(.., &paths)` → `Config::new(&paths)`. `--version`
+  also prints the cache directory. The `LazyLock` paths static and
+  `get_config_dir`/`get_data_dir` are gone.
+- **Deviation: no `HOME` on Unix.** `directories` falls back to the password database
+  when `HOME` is unset, so `env -i courier-ftp` would still find a home. To meet AC6 the
+  platform lookup treats an unset or empty `HOME` as "no home directory" on Unix.
+- **Deviation: the resolution error is printed by `main` directly** (`courier-ftp:
+  <message>` on stderr, `exit(1)`) instead of going through a `color_eyre` report, so
+  the user sees exactly one line. Exit code and message are as specified.
+- **Cache dir and `NoHome`.** The cache dir has no variable of its own, so with only
+  `COURIER_FTP_CONFIG` + `COURIER_FTP_DATA` set and no home directory, resolution
+  still fails with `NoHome` (the message tells the user to set `COURIER_FTP_HOME`).
+- **Deviation: the baked-in defaults moved** from `.config/config.json` to
+  `crates/courier-ftp/config/config.json`, because `include_str!` of a file outside
+  the crate made the verified `cargo package` (AC8) fail. `.envrc` now points
+  `COURIER_FTP_CONFIG` at that directory (same behaviour as before: the dev config dir
+  is the defaults' directory), and the T00 `packaging` job no longer passes
+  `--no-verify`. Task files that still say `.config/config.json` (T05, T47, T50, T51,
+  T58, T77, README of `tasks/`) mean this file.
+- **`courier-ftp-server`**: `--version` prints `courier-ftp-server 0.1.0`; anything
+  else prints "courier-ftp-server: not implemented yet (T84)" to stderr, exit 2. No clap.
+- **Dependency versions.** All entries of the specification's table are present.
+  Where the first pass had already pinned a newer compatible release than the table
+  (e.g. `russh-sftp = "3.0.1"`, `rustls-platform-verifier = "0.7.1"`,
+  `quick-xml = "0.42.0"`, `ssh-key` with `ppk`), it was kept; `cargo tree -d` shows a
+  single `russh` once T20 uses it. `time` is the client's date/time crate; `chrono` is
+  server-only (for sqlx). Unused entries are not resolved, so `Cargo.lock` only changed
+  for the crates actually used (`directories`, `thiserror`, `tempfile` in the binary).
+  `russh` keeps its default features (`aws-lc-rs`, like sverb); T20 may switch to
+  `ring`.
+- **MSRV** 1.95 (`workspace.package.rust-version`, set by T00).
+- **AC4**: the only `tick()` hits left are tokio `Interval::tick()` in `tui.rs`, not the
+  template placeholder.
+- **AC10** (GitHub CI) is checked on the PR, not in this lane.
 - Fixed the template's `config::tests::test_config`, which looked up `<q>` while the
-  default config binds `<Ctrl-q>` (it failed on the base commit too).
+  default config binds `<Ctrl-q>`; it now uses a temporary `AppPaths`.

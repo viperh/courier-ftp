@@ -3,3 +3,6 @@
 //!
 //! Optional: the `courier-ftp` binary only links it with its `sync` feature
 //! (on by default). Everything works offline without it.
+//!
+//! Layering: depends on `core`, `store`, `proto` and `crypto`; only the
+//! binary depends on it.

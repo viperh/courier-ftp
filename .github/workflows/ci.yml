@@ -597,8 +597,7 @@ jobs:
           done
           cmp out1/courier-ftp-0.0.0-linux-x86_64.tar.gz out2/courier-ftp-0.0.0-linux-x86_64.tar.gz
           (cd out1 && sha256sum -c ./*.sha256)
-      # `--no-verify` until the baked-in defaults (`.config/config.json`, outside the
-      # crate directory) move into crates/courier-ftp: a verified build of the packaged
-      # binary crate cannot read them (tasks/00-ci-cd-workflows.md, Implementation notes).
+      # Verified: the baked-in defaults live inside the crate
+      # (crates/courier-ftp/config/config.json, T01), so the packaged crate builds.
       - name: crates package (cargo install courier-ftp)
-        run: cargo package --workspace --exclude courier-ftp-e2e --locked --no-verify
+        run: cargo package --workspace --exclude courier-ftp-e2e --locked

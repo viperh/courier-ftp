@@ -1,6 +1,6 @@
 [package]
 name = "courier-ftp-proto-sftp"
-description = "SFTP client for courier-ftp on russh, implementing the core Backend trait"
+description = "SFTP client for courier-ftp, built on russh"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -11,7 +11,11 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
-# Everything here should be testable without a terminal.
+[features]
+# In-process russh SFTP server for harness self-tests (T22, T76).
+test-util = []
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
+# (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
 courier-ftp-core = { workspace = true }

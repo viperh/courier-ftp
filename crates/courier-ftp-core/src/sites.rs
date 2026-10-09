@@ -1,2 +1,2 @@
-//! The site model and its storage in the vault, plus bookmarks and
-//! connection history (T31 to T33).
+//! The site model and its storage in the vault (T31) and site import /
+//! export (T32).

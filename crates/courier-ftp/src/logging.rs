@@ -3,17 +3,16 @@ use std::sync::LazyLock;
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use crate::config;
+use crate::{config, paths::AppPaths};
 
 pub(crate) static LOG_ENV: LazyLock<String> =
     LazyLock::new(|| format!("{}_LOG_LEVEL", config::PROJECT_NAME.clone()));
 pub(crate) static LOG_FILE: LazyLock<String> =
     LazyLock::new(|| format!("{}.log", env!("CARGO_PKG_NAME")));
 
-pub(crate) fn init() -> color_eyre::Result<()> {
-    let directory = config::get_data_dir();
-    std::fs::create_dir_all(directory.clone())?;
-    let log_path = directory.join(LOG_FILE.clone());
+pub(crate) fn init(paths: &AppPaths) -> color_eyre::Result<()> {
+    // `AppPaths::ensure_dirs` has created the data directory (0o700 on Unix).
+    let log_path = paths.data_dir.join(LOG_FILE.clone());
     let log_file = std::fs::File::create(log_path)?;
     let env_filter = EnvFilter::builder().with_default_directive(tracing::Level::INFO.into());
     // If the `RUST_LOG` environment variable is set, use that as the default, otherwise use the
