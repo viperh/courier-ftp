@@ -203,9 +203,9 @@ pub struct ConnectInfo {
     pub timezone_offset_minutes: i32,
     pub transfer_mode: TransferModeOverride,   // FTP
     pub proxy: ProxyChoice,
-    /// Generic proxy password from the vault (proxy.generic.credential_id), if any.
+    /// Generic proxy password from the vault (proxy.generic.password_ref), if any.
     pub proxy_password: Option<SecretString>,
-    /// FTP proxy password (proxy.ftp_proxy.credential_id), if any (T15).
+    /// FTP proxy password (proxy.ftp_proxy.password_ref), if any (T15).
     pub ftp_proxy_password: Option<SecretString>,
     /// Per-site connection limit, 1..=10 (T31, T41). None = global limits only.
     pub limit_connections: Option<u8>,

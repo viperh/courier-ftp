@@ -24,7 +24,7 @@ instead of corrupting them.
   TUI crate). Typed ids are converted with `ItemId::as_bytes()` / `ItemId::from_bytes()` in
   core and in `courier-ftp-sync`.
 - After: T30 is the only caller in core (meta, vaults, items, device blobs); T40 stores the
-  queue as the device blob `queue`; T61 stores tabs as `tabs`; T31/T33 use `device_local`;
+  queue as the device blob `transfer-queue`; T61 stores tabs as `tabs`; T31/T33 use `device_local`;
   T87 uses `sync_state` and `meta`; T88 uses `items`, `outbox`, `vaults.sync_cursor`; T89 uses
   `pinned_keys`; T91 §8 uses `local_approvals`.
 
@@ -167,8 +167,8 @@ in an envelope and never touch the outbox. `touch_connected(id, at)` updates
 `DeviceLocal::score_at(now)` decays the stored value to `now` for ranking. Rows whose item no
 longer exists are deleted by `purge_item` and ignored by readers.
 
-**Device blobs**: named, LMK-protected blobs (T80 `device_blob` format, sealed by T30): `queue`
-(T40) and `tabs` (T61). Max blob size 256 MiB (`InvalidInput`-style `StoreError::TooLarge`).
+**Device blobs**: named, LMK-protected blobs (T80 `device_blob` format, sealed by T30):
+`transfer-queue` (T40) and `tabs` (T61). Max blob size 256 MiB (`InvalidInput`-style `StoreError::TooLarge`).
 
 **Change detection across processes**: `data_version()` runs `PRAGMA data_version` on the writer
 connection. Its value changes only when *another* connection commits, so T30 polls it every 2 s
@@ -219,7 +219,7 @@ CREATE TABLE device_local(item_id BLOB PRIMARY KEY,                       -- no 
                           local_dir_override TEXT,
                           tree_expanded INTEGER);
 
-CREATE TABLE device_blobs(name TEXT PRIMARY KEY,                          -- 'queue', 'tabs'
+CREATE TABLE device_blobs(name TEXT PRIMARY KEY,                          -- 'transfer-queue', 'tabs'
                           blob BLOB NOT NULL,                             -- T80 device_blob format
                           updated_at INTEGER NOT NULL);
 

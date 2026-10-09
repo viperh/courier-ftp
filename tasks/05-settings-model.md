@@ -102,25 +102,26 @@ all are `Copy`, `#[serde(rename_all = "kebab-case")]`, and have the default mark
 | `ExistsAction` | `Ask` *, `Overwrite`, `OverwriteIfNewer`, `OverwriteIfSizeDiffers`, `OverwriteIfNewerOrSizeDiffers`, `Resume`, `Rename`, `Skip` | T04, T40, T42 |
 | `TransferTypeChoice` | `Auto` *, `Ascii`, `Binary` | T11, T40, T57 |
 | `FtpTransferMode` | `Passive` *, `Active` | T11 |
-| `ActiveIpMode` | `Auto` *, `Fixed`, `FromUrl` | T11, T72 |
-| `FtpKeepalive` | `Random` * (NOOP/PWD/TYPE, T10), `Noop`, `Pwd`, `Type` | T10 |
+| `ActiveExternalIp` | `Auto` *, `Fixed(IpAddr)`, `FromUrl(String)` — JSON `"auto"`, `{"fixed":"203.0.113.5"}`, `{"from-url":"http://…"}` | T11, T72 |
+| `KeepaliveCommand` | `Noop` *, `Pwd`, `Type`, `Random` (rotates NOOP/PWD/TYPE, T10) | T10 |
 | `ProxyKind` | `None` *, `Http`, `Socks4`, `Socks5` | T07 |
 | `FtpProxyKind` | `None` *, `UserAtHost`, `Site`, `Open`, `Custom` | T15 |
 | `BurstTolerance` | `Normal` * (1 s), `High` (2 s), `VeryHigh` (5 s) | T44 |
 | `EmptyDirs` | `Create` *, `Skip` | T43 |
 | `Layout` | `Classic` *, `Explorer`, `Widescreen` | T50 |
 | `SizeFormat` | `Bytes`, `Iec` *, `Si` | T53, T56, T57 |
-| `DirsFirst` | `Prioritize` * (dirs first per sort direction), `AlwaysOnTop`, `Mixed` | T53 |
-| `FileColumn` | `Name`, `Size`, `Type`, `Modified`, `Permissions`, `OwnerGroup` | T53 |
-| `FileEnterAction` | `Transfer` *, `View`, `Edit` | T51, T53 |
-| `UnicodeSymbols` | `Auto` *, `On`, `Off` | T57 |
+| `Column` | `Name`, `Size`, `Type`, `Modified`, `Permissions`, `OwnerGroup` (FileZilla order) | T53 |
+| `EnterOnFile` | `Transfer` *, `View`, `Edit`, `None` | T51, T53 |
+| `UnicodeSymbols` | `Auto` *, `Always`, `Never` | T57 |
 | `Theme` | `Default` *, `HighContrast`, `Monochrome` | T50, T68 |
 | `OnComplete` | `None` *, `ShowMessage`, `RunCommand`, `Disconnect`, `CloseApp` (sound/sleep/shutdown dropped, D8) | T45 |
 | `NotifyMethod` | `None`, `Bell` *, `Osc` | T45 |
-| `Argon2Preset` | `Low` (m=64 MiB,t=3,p=1), `Default` * (256 MiB,3,1), `High` (1 GiB,4,1) | T30, T60 |
+| `Argon2Preset` | `Light` (m=64 MiB,t=3,p=1), `Standard` * (256 MiB,3,1), `Strong` (1 GiB,4,1) — parameters owned by T30 (`Argon2Cost::from_preset`) | T30, T60 |
 
-Helper structs: `PortRange { min: u16, max: u16 }`, `ColumnSpec { column: FileColumn,
-visible: bool, width: Option<u16> }`, `FileColumns { local: Vec<ColumnSpec>, remote: Vec<ColumnSpec> }`,
+Helper structs: `PortRange { min: u16, max: u16 }`, `ColumnSpec { column: Column,
+visible: bool }`, `PaneColumns { local: Vec<ColumnSpec>, remote: Vec<ColumnSpec> }`,
+`SortSpec { column: Column, descending: bool }`, `PaneSort { local: SortSpec, remote: SortSpec }`
+(T53 uses these core types; it does not define its own),
 `FileAssociation { pattern: String /* glob */, command: String, terminal: bool }`,
 `SegmentedSettings` (below), `GenericProxySettings`, `FtpProxySettings` (below).
 
@@ -151,9 +152,8 @@ the full table. Then `validate()`.
 **Validation rules** (`validate`): each failing field is reset to its default and a warning
 is added. Ranges are in the tables below; additionally:
 - `ftp.active_port_range`: `1024 ≤ min ≤ max ≤ 65535`.
-- `ftp.active_ip` must parse as `IpAddr` when `active_ip_mode = fixed`; `ftp.active_ip_url`
-  must start with `http://` or `https://` when `active_ip_mode = from-url`; otherwise the
-  mode falls back to `auto`.
+- `ftp.active_external_ip`: `from-url` needs a URL starting with `http://` or `https://`
+  (≤ 512 chars); `fixed` must be a valid IP (enforced by deserialisation); otherwise `auto`.
 - `proxy.generic` and `proxy.ftp_proxy` both not `none` → warning, `proxy.ftp_proxy.kind`
   reset to `none` (T15). A proxy with `kind ≠ none` needs a non-empty valid host
   (`ServerAddress` host rules) else its kind is reset to `none`.
@@ -215,25 +215,24 @@ every field, its default and validation now; `filters` is the only section added
 |---|---|---|---|---|---|
 | `transfer_mode` | FtpTransferMode | passive | — | "Default transfer mode" | T11 |
 | `fallback_to_active` | bool | true | — | "Allow fall back to other transfer mode on failure" | T11 |
-| `active_ip_mode` | ActiveIpMode | auto | — | "Active mode IP" | T11 |
-| `active_ip` | String | "" | IpAddr when mode = fixed | | T11 |
-| `active_ip_url` | String | "" | http(s) URL when mode = from-url | no default service (FileZilla's own must not be used) | T11 |
-| `active_ip_ignore_local` | bool | true | — | "Don't use external IP address on local connections" | T11 |
+| `active_external_ip` | ActiveExternalIp | auto | see validation | "Active mode IP": ask the OS / fixed / get from URL; no default URL (FileZilla's own service must not be used) | T11, T72 |
+| `active_no_external_ip_on_local` | bool | true | — | "Don't use external IP address on local connections" | T11, T72 |
 | `active_port_range` | Option\<PortRange\> | null | 1024 ≤ min ≤ max ≤ 65535 | null = OS ephemeral port | T11 |
 | `passive_ignore_unroutable_ip` | bool | true | — | use the control peer IP when PASV returns a private address | T11 |
 | `use_mlsd` | bool | true | — | use MLSD when FEAT lists it | T13 |
-| `keepalive_command` | FtpKeepalive | random | — | | T10 |
+| `send_keepalive_command` | KeepaliveCommand | noop | — | command used by keep-alive (T10 asks whether `random` should be the default) | T10 |
 
 #### `sftp`
 | Key | Type | Default | Range | Notes | Owner |
 |---|---|---|---|---|---|
 | `max_outstanding_requests` | u16 | 64 | 1–1024 | pipelined requests per file | T41b |
 | `request_size` | u32 | 32768 | 1024–262144 | bytes per read/write request (raised to the server's `limits@openssh.com` value, capped at 262144) | T41b |
+| `use_openssh_known_hosts` | bool | true | — | also trust keys from the OpenSSH known_hosts files (read-only) | T21 |
 
 #### `proxy`
 `proxy.generic` (`GenericProxySettings`) and `proxy.ftp_proxy` (`FtpProxySettings`).
 Proxy passwords are **never** in settings: they are `proxy-credential` vault items (T81)
-referenced by `credential_id`; the binary resolves them when building `ConnectInfo` (T03).
+referenced by `password_ref`; the binary resolves them when building `ConnectInfo` (T03).
 
 | Key | Type | Default | Rule | Owner |
 |---|---|---|---|---|
@@ -241,12 +240,12 @@ referenced by `credential_id`; the binary resolves them when building `ConnectIn
 | `generic.host` | String | "" | required when kind ≠ none | T07 |
 | `generic.port` | u16 | 0 | 0 = kind default (HTTP 8080, SOCKS 1080) | T07 |
 | `generic.user` | String | "" | "" = no authentication (SOCKS4: sent as user id) | T07 |
-| `generic.credential_id` | Option\<Uuid\> | null | vault item id | T07, T30 |
+| `generic.password_ref` | Option\<Uuid\> | null | `proxy-credential` item id | T07, T30 |
 | `ftp_proxy.kind` | FtpProxyKind | none | not together with generic | T15 |
 | `ftp_proxy.host` | String | "" | required when kind ≠ none | T15 |
 | `ftp_proxy.port` | u16 | 21 | 1–65535 | T15 |
 | `ftp_proxy.user` | String | "" | `%s` | T15 |
-| `ftp_proxy.credential_id` | Option\<Uuid\> | null | `%w` from the vault | T15 |
+| `ftp_proxy.password_ref` | Option\<Uuid\> | null | `%w` from the vault | T15 |
 | `ftp_proxy.custom_script` | Vec\<String\> | [] | ≤ 32 lines, each ≤ 512 chars | T15 |
 
 #### `transfers`
@@ -292,15 +291,16 @@ referenced by `credential_id`; the binary resolves them when building `ConnectIn
 | `theme` | Theme | default | `NO_COLOR` forces monochrome | T50 |
 | `unicode_symbols` | UnicodeSymbols | auto | — | T57 |
 | `key_sequence_timeout_ms` | u32 | 1000 | 200–5000 | T51 |
-| `file_enter_action` | FileEnterAction | transfer | — | T51, T53 |
+| `enter_on_file` | EnterOnFile | transfer | — | T51, T53 |
 | `size_format` | SizeFormat | iec | — | T53 |
 | `thousands_separator` | bool | true | — | T53 |
 | `date_format` | String | "%Y-%m-%d" | token subset | T53 |
 | `time_format` | String | "%H:%M" | token subset | T53 |
-| `dirs_first` | DirsFirst | prioritize | — | T53 |
+| `dirs_first` | bool | true | — | T53 |
 | `sort_case_sensitive` | bool | false | — | T53 |
 | `natural_sort` | bool | true | — | T53 |
-| `columns` | FileColumns | local: Name, Size, Type, Modified visible; Permissions, OwnerGroup hidden. remote: all six visible. widths null (auto) | each column at most once; Name always visible | T53 |
+| `columns` | PaneColumns | local: Name, Size, Type, Modified visible; Permissions, OwnerGroup hidden. remote: all six visible | each column at most once (duplicates dropped); unknown names skipped; Name always present and visible | T53 |
+| `sort` | PaneSort | local and remote `{column: Name, descending: false}` | — | saved on quit (T53) |
 | `show_hidden_local` | bool | false | — | T53 |
 | `force_show_hidden_remote` | bool | false | sends `LIST -a` (T13) | T13, T53 |
 | `confirm_delete` | bool | true | — | T62 |
@@ -317,7 +317,7 @@ referenced by `credential_id`; the binary resolves them when building `ConnectIn
 | `level` | DebugLevel | 2 | 0–4 | T04, T71 |
 | `show_timestamps` | bool | true | — | T55 |
 | `show_raw_listing` | bool | false | — | T71 |
-| `lines_per_tab` | u32 | 5000 | 500–100000 | T55 |
+| `pane_max_lines` | u32 | 5000 | 500–100000 | T55 |
 | `log_to_file` | bool | false | — | T71 |
 | `log_file` | Option\<PathBuf\> | null = `<data dir>/session.log` | absolute | T71 |
 | `log_file_max_mib` | u32 | 10 | 1–1024 | T71 |
@@ -357,7 +357,7 @@ referenced by `credential_id`; the binary resolves them when building `ConnectIn
 | `auto_lock_minutes` | u32 | 15 | 0–1440 (0 = off) | T30 |
 | `lock_on_suspend` | bool | true | — | T30 |
 | `lock_disconnects` | bool | false | — | T30 |
-| `argon2_cost` | Argon2Preset | default | applied at the next password change or unlock re-wrap | T30, T60 |
+| `argon2_cost` | Argon2Preset | standard | applied at the next password change or unlock re-wrap | T30, T60 |
 
 Keyring unlock is per device and lives in the vault DB (`meta.lmk_wrapped_keyring`, T30),
 not in settings.
@@ -391,7 +391,7 @@ The server URL and tokens are not settings (T87 stores them in `sync_state`).
 
 ### Security and logging
 
-- No secrets in settings: proxy passwords are vault items (`credential_id`). A key named
+- No secrets in settings: proxy passwords are vault items (`password_ref`). A key named
   `password`/`pass` anywhere under `settings` is reported as unknown with the extra hint
   "passwords are stored in the vault, not in the config file" and its value is never logged.
 - Warnings logged at `warn` contain only the key path, never the value (values can be hosts
@@ -437,7 +437,7 @@ The server URL and tokens are not settings (T87 stores them in `sync_state`).
 - `empty_and_null_settings_give_defaults` — `{}`, `null`, missing key. (AC2)
 - `partial_override_changes_only_that_leaf` — `{"connection":{"timeout_secs":30}}`. (AC2)
 - `wrong_type_leaf_is_dropped_with_warning` — `{"transfers":{"max_concurrent":"many"}}` → default 4, warning path `transfers.max_concurrent`. (AC3)
-- `validation_table` — one row per rule: port range (6000,5000), max_concurrent 0 and 17, timeout 2, replacement `/`, active_ip "nope" with fixed mode, both proxies set, proxy kind without host, date format `%Q`, relative log_file. Each: one warning, field = default. (AC3)
+- `validation_table` — one row per rule: port range (6000,5000), max_concurrent 0 and 17, timeout 2, replacement `/`, active_external_ip `{"from-url":"ftp://x"}`, both proxies set, proxy kind without host, date format `%Q`, relative log_file. Each: one warning, field = default. (AC3)
 - `unknown_key_warns` and `password_key_gets_vault_hint`. (AC4)
 - `ascii_extensions_are_normalised` — `[".PHP","php","a b"]` → `["php"]` + one warning. (AC3)
 - `decide_transfer_type_table` — `index.HTML`→Ascii, `photo.jpg`→Binary, `.bashrc`→Ascii, `Makefile`→Ascii, both flags off → Binary, choice Binary overrides, default_type Binary overrides Auto. (AC7)

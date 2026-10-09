@@ -179,7 +179,7 @@ blob = 0x01 ‖ nonce(24) ‖ XChaCha20-Poly1305(device_key, nonce, aad, zstd_le
 
 No padding (the blob never leaves the device). `open_device_blob` caps the decompressed size
 at `MAX_BLOB_PLAINTEXT = 256 MiB` (a 100 000-item queue is about 30 MiB). The name binding
-stops a `queue` blob from being opened as `tabs`.
+stops a `transfer-queue` blob from being opened as `tabs`.
 
 **HPKE sealed message**: `u32 BE len(enc)=32 ‖ enc(32) ‖ u32 BE len(ct) ‖ ct` (88 bytes for a
 32-byte VK); HPKE AAD always empty; context goes in `info`. Strict decoder: `enc` length must

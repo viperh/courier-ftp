@@ -52,7 +52,7 @@ pub enum ProxyConfig {
 impl ProxyConfig {
     /// `bypass` (site "Bypass proxy": `ConnectInfo.proxy == ProxyChoice::Bypass`, T03) or
     /// `settings.kind = none` → Direct. Port 0 → 8080 (HTTP) / 1080 (SOCKS).
-    /// `password` comes from the vault item `settings.credential_id`
+    /// `password` comes from the vault item `settings.password_ref`
     /// (`ConnectInfo.proxy_password`, resolved by the caller).
     pub fn from_settings(settings: &GenericProxySettings, bypass: bool,
                          password: Option<SecretString>) -> Result<Self>;
@@ -174,7 +174,7 @@ changes affect only new connections.
 |---|---|
 | `connection.timeout_secs` | `NetOpts.timeout` (DNS, TCP race, proxy handshake) |
 | `connection.prefer_ipv6`, `connection.ipv6` | address order / filtering |
-| `proxy.generic.kind/host/port/user/credential_id` | `ProxyConfig::from_settings` |
+| `proxy.generic.kind/host/port/user/password_ref` | `ProxyConfig::from_settings` |
 
 Wire formats: HTTP CONNECT request/response as above; SOCKS4/4a (de facto spec),
 SOCKS5 (RFC 1928) + RFC 1929. New dependencies: `socket2`, `tokio-socks`, `base64`.

@@ -225,7 +225,7 @@ pub enum VaultError {
     Backoff { retry_after: Duration },
     WeakPassword(WeakPassword),
     Keyring(String), KeyringNotEnabled, KeyringUnavailable,
-    Locked, ReadOnlyItem(ItemId), ReadOnlyVault(VaultId), NotFound(ItemId),
+    Locked, UnlockInProgress, ReadOnlyItem(ItemId), ReadOnlyVault(VaultId), NotFound(ItemId),
     ItemTooLarge { bytes: usize }, CrossVaultReference(String),
     Busy, Corrupt(String), Storage(String),
 }
@@ -263,7 +263,7 @@ hash is stored. The engine **never contacts the sync server** (works offline in 
 **State machine**: `Uninitialised` (no `meta.kdf`) → `initialize` → `Unlocked{Created}`;
 `Locked` → `unlock`/`unlock_with_keyring` → `Unlocking` → `Unlocked` or back to `Locked`;
 `Unlocked` → `lock` → `Locked`. Only one unlock runs at a time (`Unlocking` refuses a second
-with `VaultError::Busy`). Item and blob operations in any state but `Unlocked` return
+with `VaultError::UnlockInProgress`). Item and blob operations in any state but `Unlocked` return
 `VaultError::Locked`. Every transition is broadcast as `VaultChange`.
 
 **`initialize(password, enable_keyring)`**: `check_strength(password, USER_INPUTS)` (zxcvbn
@@ -327,8 +327,9 @@ enabled T87 runs the server flow first and then calls this.
   permission), `ReadOnlyItem` (newer schema). Inside **one** IMMEDIATE write transaction:
   read `meta.hlc_last` and the current row; decrypt it (or start `ItemBody::new(V::KIND, current)`);
   `clock.observe` the stored `hlc_last` so stamps stay monotonic across processes; `view.apply_to`
-  with a `FieldWriter` (device id, clock); if `vault.store_passwords` is false, secret fields of
-  `site`, `credential-override` and `history-entry` are not written; check cross-vault references
+  with a `FieldWriter` (device id, clock); if `vault.store_passwords` is false, new secret
+  values (`SecretField::Value`) of `site`, `credential-override` and `history-entry` are not
+  written (clearing to `Absent` still is); check cross-vault references
   (T81 `check_vault_refs`); if nothing changed return `changed = false` without writing;
   otherwise encode, reject bodies > 1 MiB (`ItemTooLarge`), seal under the vault's current key,
   `put_item(mark_dirty = policy::mark_dirty(kind))`, write `hlc_last`. After commit update the
@@ -475,6 +476,7 @@ Binary: `keyring 4.2.0`.
 | `WeakPassword` | zxcvbn < 3 | meter + zxcvbn feedback |
 | `Keyring(reason)` / `KeyringUnavailable` / `KeyringNotEnabled` | keyring paths | one-line reason, password screen |
 | `Locked` | operation while locked | unlock prompt; maps to `Error::VaultLocked` |
+| `UnlockInProgress` | second unlock while one runs | ignored by T60 (button disabled) |
 | `ReadOnlyItem` / `ReadOnlyVault` | newer schema / `read` permission | "Update courier-ftp to edit this item" / "Read-only vault" |
 | `NotFound` | id not in vault | — |
 | `ItemTooLarge { bytes }` | body > 1 MiB | "This entry is too large to save" |
