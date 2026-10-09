@@ -88,8 +88,13 @@ impl AsyncRead for DataStream {}   // downloads, listings
 impl AsyncWrite for DataStream {}  // uploads
 impl DataStream { pub fn bytes_transferred(&self) -> u64; }
 
-/// Session-level operations used by T14.
-impl FtpData<'_> {   // borrows &mut ControlConnection + &DataConfig + &mut DataState
+/// Session-level operations used by T14 (a short-lived borrow bundle).
+pub struct FtpData<'a> {
+    pub ctrl: &'a mut ControlConnection,
+    pub cfg: &'a DataConfig,
+    pub state: &'a mut DataState,
+}
+impl FtpData<'_> {
     /// Send `TYPE A`/`TYPE I` only when it differs from `ctrl.current_type()`.
     pub async fn ensure_type(&mut self, t: TransferType, cancel: &CancellationToken) -> Result<()>;
     /// Opens the data connection, sends REST (if offset>0) and the command, waits for

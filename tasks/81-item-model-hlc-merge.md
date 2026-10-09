@@ -265,15 +265,19 @@ unknown string is a `ViewError::FieldType` on read.
 
 Not item fields: default local directory (device-local `local_dir_override`), last connected
 time and frecency (`device_local`), tree expansion (`device_local.tree_expanded`).
+Values of `server_type`, `color`, `transfer_mode` and `encryption` are the serde kebab-case
+strings of the Rust enums named in the table.
 
 **`site-folder`** (view `SiteFolder`, T31): `name` text (required), `parent_id` id (optional,
 `None` = vault root), `created_at` UnixMillis.
 
 **`bookmark`** (view `Bookmark`, T33): `name` text; `site_id` id (optional; `None` = global
-bookmark); `local_dir` text (optional, local path, may be overridden per device in
-`device_local.local_dir_override`); `remote_dir` text (optional; required when `site_id` is
-set); `sync_browsing` bool (`false`); `directory_comparison` bool (`false`); `position` int
-(`0`; sort key within its list, gaps of 1024).
+bookmark, which lives in the personal vault; a site bookmark lives in its site's vault);
+`local_dir` text (local path; written **only for global bookmarks** — a site bookmark's local
+dir is device-local in `device_local.local_dir_override` keyed by the bookmark id, like a site's
+default local dir); `remote_dir` text (absolute; required when `site_id` is set);
+`sync_browsing` bool (`false`); `directory_comparison` bool (`false`); `position` float (f64,
+fractional index within its list: global list or one site's list; default `0.0`).
 
 **`known-host`** (view `KnownHostItem`, this task; T30 converts it to and from `trust::KnownHost` of T21): `host` text (lowercase, no
 brackets), `port` uint (default 22), `key_type` text (`ssh-ed25519`, `ecdsa-sha2-nistp256`,

@@ -51,9 +51,9 @@ pub struct PromptId(u64);
 pub enum LogKind {
     Status, Command, Response, Error,
     /// Raw listing line (only produced when logging.show_raw_listing, T71).
-    Listing,
-    /// FileZilla "Trace" lines; the level is Warning..=Debug (never None).
-    Debug(DebugLevel),
+    ListingRaw,
+    /// FileZilla "Trace" lines; level 1..=4 (= DebugLevel Warning..=Debug as u8).
+    Debug(u8),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogMessage {
@@ -236,7 +236,7 @@ impl EventSender {
     /// `log(Command, mask_command(cmd))`.
     pub fn log_command(&self, session: SessionId, cmd: &str);
     /// Cheap check before formatting expensive debug text.
-    pub fn enabled(&self, level: DebugLevel) -> bool;
+    pub fn enabled(&self, level: u8) -> bool;           // same rule as Debug(level)
     pub fn set_level(&self, level: DebugLevel);      // runtime change (T68, T71)
     pub fn level(&self) -> DebugLevel;
     pub fn progress(&self, p: TransferProgress);     // coalescing slot
@@ -265,8 +265,8 @@ impl SessionLog {
     pub fn command(&self, cmd: &str);         // masked
     pub fn response(&self, t: impl AsRef<str>);
     pub fn listing(&self, t: impl AsRef<str>);
-    pub fn debug(&self, level: DebugLevel, t: impl AsRef<str>);
-    pub fn enabled(&self, level: DebugLevel) -> bool;
+    pub fn debug(&self, level: u8, t: impl AsRef<str>);   // 1..=4
+    pub fn enabled(&self, level: u8) -> bool;           // same rule as Debug(level)
 }
 
 // ---- masking (events::mask) ----
@@ -282,10 +282,15 @@ All public types are `Send + 'static`; `EventSender` and `SessionLog` are `Sync`
 ### Behaviour
 
 **Log levels** (FileZilla semantics): `Status`, `Command`, `Response`, `Error` and
-`Listing` lines are always delivered. `Debug(l)` lines are delivered only when
-`l ≤ current level` and the level is not `None`; filtered lines are dropped inside
-`EventSender::log` before any allocation of the `LogMessage`. The level is an `AtomicU8`
-shared by all clones; `set_level` takes effect for the next call.
+`ListingRaw` lines are always delivered. `Debug(l)` lines are delivered only when
+`l ≤ current level as u8` (so level 0 = `None` delivers none); `Debug(0)` and values > 4
+are clamped to 1 and 4. Filtered lines are dropped inside `EventSender::log` before any
+allocation of the `LogMessage`. The level is an `AtomicU8` shared by all clones;
+`set_level` takes effect for the next call.
+
+**Warnings:** there is no separate warning kind (FileZilla has none either). User-visible
+warnings (plain-text fallback T12, charset switch T10, …) are logged as `Status` with the
+text prefixed `Warning: `; T55 may colour lines with that prefix.
 
 **Sanitising** (in `log`, so the UI, the session log file (T71) and copies are safe):
 1. Split the text on `'\n'`; strip one trailing `'\r'` per line; each line becomes its own
@@ -373,8 +378,8 @@ with a scripted responder.
 - [ ] AC2 `mask_command` covers `PASS`, `ACCT` (any case), empty arguments and
   `Proxy-Authorization`, and leaves `PASV`, `PWD`, `USER` untouched; `mask_secret` masks every
   occurrence.
-- [ ] AC3 With level 2, `Debug(Verbose)` and `Debug(Debug)` lines are not delivered and
-  `Debug(Warning)`/`Debug(Info)` are; level 0 delivers no debug lines; Status/Command/Response/
+- [ ] AC3 With level 2, `Debug(3)` and `Debug(4)` lines are not delivered and
+  `Debug(1)`/`Debug(2)` are; level 0 delivers no debug lines; Status/Command/Response/
   Error always delivered.
 - [ ] AC4 10 000 progress updates for 3 transfers without a consumer leave at most 3 pending
   progress values; the consumer then receives exactly the latest value per transfer.
@@ -396,7 +401,7 @@ with a scripted responder.
 - `mask_command_leaves_other_commands` — `PASV`, `PWD`, `USER alice`, `SITE CHMOD 644 PASS` unchanged. (AC2)
 - `mask_command_masks_proxy_authorization`. (AC2)
 - `mask_secret_replaces_all_occurrences` and `mask_secret_empty_secret_noop`. (AC2)
-- `log_level_filter_table` — levels 0..=4 × LogKind. (AC3)
+- `log_level_filter_table` — levels 0..=4 × LogKind (incl. `Debug(0)`/`Debug(9)` clamping). (AC3)
 - `set_level_applies_to_clones`. (AC3)
 - `sanitise_control_chars_caret_notation` — `"a\x1b[31mb"` → `"a^[[31mb"`, `"\u{9b}"` → `"\u{9b}"` escape text, TAB kept. (AC8)
 - `multiline_text_splits_into_messages` — `"a\r\nb\n"` → two messages. (AC8)
