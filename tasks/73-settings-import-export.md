@@ -21,8 +21,13 @@ create a new vault from it.
   `.sverb-backup`: `BackupFile`, `KdfHeader`, `BackupError`, `encrypt`, `decrypt`,
   `read_header`, `kdf_params`, `FORMAT`, `VERSION`, `AAD`, `EXTENSION`, `MAX_PAYLOAD`,
   `BackupPayload { vaults, items }`. This task defines the payload sections on top.
-- T05: `Settings`, the user config file, `Settings::save_user`; keybindings, styles and
-  filters (T47 `filters`) live in the same config.
+- T05: `Settings`, the user config file, `Settings::save_user`, `SettingsStore`
+  (publishes live settings); keybindings and styles live in the same config, and the
+  `settings` object includes `filters.*` (T47) and `compare.*` (T48). Settings enum values
+  are snake_case in JSON (T05).
+- T32 writes its encrypted site export with this same T30 container, with
+  `"format": "courier-ftp-sites"` instead of `"courier-ftp-backup"`; the two formats are
+  told apart by the header's `format` field.
 - T30/T81/T82: `VaultEngine` (`list`, `put`, item merge), item kinds `site`,
   `site-folder`, `bookmark`, `known-host`, `trusted-cert`, `ssh-key`, `proxy-credential`,
   `history-entry`, `credential-override`; HLC-stamped `ItemBody`.
@@ -38,11 +43,11 @@ create a new vault from it.
 `courier_ftp_core::backup` (core; no UI deps):
 
 ```rust
-/// Sections a backup can contain. Serialised kebab-case.
+/// Sections a backup can contain. Serialised snake_case (project convention).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum BackupSection {
-    Settings,       // user config: settings, keybindings, styles, filters
+    Settings,       // user config: settings (incl. filters, compare), keybindings, styles
     Sites,          // site, site-folder, bookmark, ssh-key, proxy-credential items
     Trust,          // known-host, trusted-cert items
     History,        // history-entry items
@@ -112,7 +117,8 @@ pub struct ImportOptions {
     pub sections: BTreeSet<BackupSection>,
     pub settings_mode: SettingsImportMode,
     pub items_mode: ItemImportMode,
-    /// Import settings that run programs (editor, associations, queue command). Default false.
+    /// Import settings that run programs (`editing.editor`, `editing.associations`,
+    /// `queue.on_complete_command`). Default false.
     pub allow_commands: bool,
 }
 
@@ -198,8 +204,9 @@ sections are disabled with "Unlock the vault to export sites".
 **Import** (Settings → *Import…*, or a `.cftp-backup`/`.json` path):
 1. Choose file. Size > 1 GiB → `TooLarge` error before reading. `.json` with
    `format = "courier-ftp-settings"` → settings-only flow (no password). Otherwise read
-   the header (`read_header`): wrong `format` → `NotABackup`; `version > 1` →
-   `UnsupportedVersion`.
+   the header (`read_header`): wrong `format` → `NotABackup` (a T32 site export,
+   `"format": "courier-ftp-sites"`, gets the hint "this is a site export; import it from
+   the Site Manager"); `version > 1` → `UnsupportedVersion`.
 2. Password prompt; Argon2 in the background with a progress dialog; wrong password →
    `Decrypt` error, prompt again (no lockout; the file is offline data).
 3. Preview (`summarize` + `plan_import` dry run): created date, writer version, sections
@@ -208,21 +215,23 @@ sections are disabled with "Unlock the vault to export sites".
    - Settings: (•) Merge ( ) Replace.
    - Items: (•) Merge with existing items ( ) Import as copies.
    - [ ] Also import settings that run programs: shows each such value in full
-     (`editing.editor`, every `editing.associations[].command`, `queue.on_complete` when it
-     is `RunCommand`). Unchecked → those keys keep their current local values and are
-     listed under *skipped*.
+     (`editing.editor` when it is `{"command": …}`, every `editing.associations[].command`,
+     `queue.on_complete_command` when `queue.on_complete` is `run_command`). Unchecked →
+     those keys keep their current local values and are listed under *skipped*.
    The dry-run counts update when options change: `+12 new, 3 updated, 1 merged, 40 unchanged`.
 4. Apply → report dialog with counts, skipped entries and warnings.
 
 **Settings import modes:**
 - **Merge**: deep-merge the backup's JSON into the current user config: objects merge
   recursively, scalars and arrays from the backup replace local ones, keys absent from the
-  backup stay. Then validate (T05 rules: invalid values warn and fall back) and write via
-  the same code path as `Settings::save_user` (unknown keys preserved).
+  backup stay. Then validate (T05 `Settings::from_json_lenient`: invalid values warn and
+  fall back) and write via `SettingsStore::update` (→ `Settings::save_user`, unknown keys
+  preserved; published to all components after the save).
 - **Replace**: the user config becomes exactly the backup's settings plus the local
   device-specific keys listed above. The previous file is kept as
   `config.json.bak-<YYYYmmddTHHMMSSZ>` in the config dir.
-- Both apply live where T68 supports live apply; others show "restart or reconnect to apply".
+- Both apply live where T68 supports live apply (the new `Settings` is published through
+  `SettingsStore`); others show "restart or reconnect to apply".
 
 **Item import modes:**
 - **Merge** (default): for each backup item of a selected section:
@@ -372,6 +381,7 @@ No new settings keys.
 - `plain_settings_json_has_no_canary`, `encrypted_file_has_no_plaintext_canary` (AC6).
 - `decrypt_wrong_password`, `decrypt_tampered_byte`, `header_version_2_rejected`, `kdf_bounds_checked_before_argon2`, `zstd_bomb_rejected`, `file_over_1gib_rejected_before_read` (AC7; Argon2 test cost, sparse file for size).
 - `unknown_section_and_key_skipped_with_warning` (AC8).
+- `site_export_file_is_not_a_backup_with_hint` — a `"format": "courier-ftp-sites"` header → `NotABackup` with the Site Manager hint (AC7).
 - `command_settings_filtered_without_allow_commands` (AC9).
 - `weak_export_password_rejected` (zxcvbn).
 
@@ -401,8 +411,7 @@ No new settings keys.
 
 ## Open questions
 
-- T32 describes its encrypted site export as "same container format as T30, separate
-  magic `CFTPEXP\0`", but T30's container is JSON with a `format` field, not a binary
-  magic. Proposed for T32: a JSON header with `"format": "courier-ftp-sites"` and AAD
-  `"courier-ftp-sites-v1"`, reusing this module's container code. (T32 is not owned by
-  this task; flagged for its owner.)
+None.
+
+Resolved (reconciliation): T32's encrypted export uses the T30 backup container with
+`"format": "courier-ftp-sites"` (no `CFTPEXP` magic).

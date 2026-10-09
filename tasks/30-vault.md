@@ -46,12 +46,14 @@ impl Argon2Cost {
     pub const LIGHT: Self    = Self { m_kib: 65_536,    t: 3, p: 1 };   // 64 MiB
     pub const STANDARD: Self = Self { m_kib: 262_144,   t: 3, p: 1 };   // 256 MiB (default)
     pub const STRONG: Self   = Self { m_kib: 1_048_576, t: 4, p: 1 };   // 1 GiB
-    pub const TEST: Self     = Self { m_kib: 19_456,    t: 1, p: 1 };   // tests only
+    /// Tests only. Equals T80's minimum bounds (m_kib 19 456, t 1, p 1), so a vault
+    /// created with it passes `KdfParams::from_cbor` / `Argon2Params::validate` on load.
+    pub const TEST: Self     = Self { m_kib: 19_456,    t: 1, p: 1 };
     pub fn from_preset(p: Argon2Preset) -> Self;
     pub const fn with_salt(self, salt: [u8; 16]) -> KdfParams;
 }
-#[derive(Serialize, Deserialize)] #[serde(rename_all = "kebab-case")]
-pub enum Argon2Preset { Light, #[default] Standard, Strong }
+// Argon2Preset { Light, Standard*, Strong } is T05's settings enum (`vault.argon2_cost`,
+// snake_case values `light` | `standard` | `strong`); not redefined here.
 /// `meta.kdf`: CBOR map {alg: "argon2id", m_kib, t, p, salt: bstr(16)}.
 pub struct KdfParams { pub m_kib: u32, pub t: u32, pub p: u32, pub salt: [u8; 16] } // Debug hides salt
 impl KdfParams { pub fn to_cbor(&self) -> Vec<u8>; pub fn from_cbor(&[u8]) -> Result<Self, VaultError>; pub fn cost(&self) -> Argon2Cost; }
@@ -85,7 +87,12 @@ pub trait KeyringStore: Send + Sync + Debug {
 }
 pub struct NoKeyring;  pub struct MemKeyring { .. }   // MemKeyring: set_unavailable, remove, get_calls
 // courier-ftp/src/services/keyring.rs (binary): OsKeyring (keyring crate) and
-pub fn keyring_from_env() -> Arc<dyn KeyringStore>;  // NoKeyring if COURIER_FTP_KEYRING=off|0|none|disabled|false
+/// `COURIER_FTP_KEYRING`: unset → OsKeyring; `off|0|none|disabled|false` → NoKeyring;
+/// `file:<dir>` → FileKeyring(dir) **only in builds with the `test-hooks` feature** (T76 PTY
+/// tests); in other builds `file:<dir>` → NoKeyring + one `warn` log.
+pub fn keyring_from_env() -> Arc<dyn KeyringStore>;
+/// Test-hooks only: one file per account in `dir` (0600), contents = the secret bytes.
+#[cfg(feature = "test-hooks")] pub struct FileKeyring { dir: PathBuf }
 
 // ---- lock.rs ----
 pub enum LockReason { Manual, Idle, Suspend, Shutdown }
@@ -168,9 +175,29 @@ impl VaultEngine {
     // trust stores
     pub fn host_key_store(&self) -> Arc<SwitchableHostKeyStore>;
 
-    // sync and other crates (T87/T88/T89)
+    // sync and other crates (T87/T88/T89) — signatures fixed here; T87/T88/T89 implement
+    // the bodies in this module (no network code). VaultCrypto covers seal/open/wrap only;
+    // the methods below are the rest of the sync-facing surface.
     pub fn crypto(&self) -> Result<VaultCrypto, VaultError>;
     pub async fn reload_items(&self, ids: Vec<ItemId>) -> Result<(), VaultError>;
+    /// T87: store handle, LMK clone, shared HLC, device id, personal vault id. Locked when locked.
+    pub fn sync_handles(&self) -> Result<SyncHandles, VaultError>;
+    /// T87: new salt + KEK for `password`; returns the meta rows (`kdf`, `lmk_wrapped_pw`)
+    /// for the caller's transaction. Keyring wrap unchanged.
+    pub async fn lmk_rewrap_rows(&self, password: &SecretString) -> Result<Vec<(String, Vec<u8>)>, VaultError>;
+    /// T87: re-read vaults and all items after an external transaction (login, logout).
+    pub async fn reload(&self) -> Result<(), VaultError>;
+    /// T88: bumped after every committed local write (put/delete/import/transfer).
+    pub fn local_changes(&self) -> tokio::sync::watch::Receiver<u64>;
+    /// T88: `reload_items(items)` for one vault after a pull, then `ItemsChanged`.
+    pub async fn apply_remote(&self, vault: VaultId, items: &[ItemId]) -> Result<(), VaultError>;
+    /// T89: permission of a vault (personal → Manage). Read-only check: put/delete/move-out
+    /// on a `Read` vault → `ReadOnlyVault(id)` (enforced in put/put_many/delete/transfer).
+    pub fn vault_permission(&self, vault: VaultId) -> VaultPermission;
+    /// T89: copy or move items between vaults in one transaction. Cross-vault reference
+    /// check: a team-vault item referencing an item in another vault →
+    /// `CrossVaultReference(msg)` (also enforced by put/put_many).
+    pub async fn transfer(&self, plan: TransferPlan) -> Result<Vec<ItemId>, VaultError>;
 
     // test hooks (always compiled, cheap)
     pub fn kdf_runs(&self) -> usize;
@@ -229,7 +256,8 @@ pub enum VaultError {
     ItemTooLarge { bytes: usize }, CrossVaultReference(String),
     Busy, Corrupt(String), Storage(String),
 }
-impl From<VaultError> for crate::Error;   // Locked → VaultLocked; others → Vault(to_string())
+impl From<VaultError> for crate::Error;   // Locked → VaultLocked; CrossVaultReference →
+                                           // InvalidInput(msg); others → Vault(to_string())
 ```
 
 `courier_ftp_core::hardening` (sverb `hardening/`):
@@ -302,7 +330,9 @@ initialise.
 `meta.db_id`; reads `keyring_account(db_id)` in `spawn_blocking`; missing entry, cancelled OS
 prompt, unavailable service or an entry that does not unwrap → `Keyring(reason)`. No backoff
 (the OS gates the keyring). Then steps 4–8 with method `Keyring`. T60 falls back to the password
-screen on any error. `COURIER_FTP_KEYRING=off` (CI, tests) selects `NoKeyring`.
+screen on any error. `COURIER_FTP_KEYRING=off` (CI, tests) selects `NoKeyring`;
+`COURIER_FTP_KEYRING=file:<dir>` selects `FileKeyring` in `test-hooks` builds only (T76 PTY
+tests of keyring unlock).
 
 **`set_keyring_unlock(enable)`** (only while unlocked): enable = `probe()` must succeed
 (`KeyringUnavailable` otherwise) → random KEK_kr → keyring `set` → write
@@ -440,7 +470,9 @@ Settings (T05 `Settings.vault`, `#[serde(default)]`):
 | `vault.lock_disconnects` | bool | `false` | close sessions on lock |
 | `vault.argon2_cost` | `light` \| `standard` \| `strong` | `standard` | applied on next password unlock or change |
 
-Environment: `COURIER_FTP_KEYRING` (`off`/`0`/`none`/`disabled`/`false` → no keyring).
+Environment: `COURIER_FTP_KEYRING` (`off`/`0`/`none`/`disabled`/`false` → no keyring;
+`file:<dir>` → file-backed test keyring, `test-hooks` builds only, ignored with a warning
+otherwise).
 
 Backup container (`.cftp-backup`, sverb `.sverb-backup`), one JSON document:
 
@@ -517,7 +549,8 @@ else → `Error::Vault(err.to_string())`.
    (`store_passwords`, `mark_dirty`), change poller, `VaultChange` broadcast.
 6. Device-local helpers and `DeviceBlobStore` impl.
 7. `VaultHostKeyStore` and the switch on unlock/lock.
-8. `VaultCrypto` for T87/T88/T89.
+8. `VaultCrypto` for T87/T88/T89. The other sync-facing methods are added by T87/T88/T89
+   with exactly the signatures listed above (not stubbed here).
 9. Backup container (`backup.rs`) with KAT, tamper and fuzz tests (`fuzz/fuzz_targets/backup_decrypt.rs`).
 10. `Settings.vault` section in T05's struct with validation and docs.
 
@@ -564,6 +597,11 @@ else → `Error::Vault(err.to_string())`.
   release-mode bench `vault_unlock_10k` (gated in `bench-gates.toml`).
 - [ ] AC16 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `unsafe-check`,
   `canary`, `fuzz` pass.
+- [ ] AC17 `Argon2Cost::TEST` and all presets pass T80's `Argon2Params::validate`; a vault
+  initialised with `TEST` unlocks again (load-time bound check passes).
+- [ ] AC18 `keyring_from_env`: `off` → `NoKeyring`; `file:<dir>` → `FileKeyring` with the
+  `test-hooks` feature (keyring unlock works across two engine instances) and `NoKeyring`
+  without it.
 
 ## Tests
 
@@ -572,6 +610,9 @@ else → `Error::Vault(err.to_string())`.
 - `vault::unlock::tests::{backoff_schedule, state_roundtrip_and_gate}` — table of AC4 (AC4).
 - `vault::password::tests::{weak_password_is_rejected_with_feedback, strong_password_is_accepted}` (AC8).
 - `vault::keyring::tests::{mem_keyring_roundtrip_and_probe, accounts_differ_per_db}`.
+- `vault::kdf::tests::test_cost_within_load_bounds` (AC17).
+- binary `services::keyring::tests::{env_off_is_no_keyring, env_file_requires_test_hooks}`
+  (`#[cfg(feature = "test-hooks")] file_keyring_roundtrip`) (AC18).
 - `vault::lock::tests::{auto_lock_due_after_timeout, input_resets, zero_disables,
   suspend_detected_by_wall_jump, frozen_process_detected, backwards_wall_jump_ignored}` (AC5).
 - `vault::backup::tests::{roundtrip, wrong_password, kdf_bounds_before_argon2, bomb_rejected,
@@ -628,7 +669,5 @@ Not applicable (screens are T60).
    (FileZilla asks and deletes them)? Current spec: they are kept but ignored until the user
    runs "Delete saved passwords" (a T68 button calling `put` with secrets cleared). Owner to
    decide whether turning the setting off should offer deletion immediately.
-2. Inconsistency for T12's owner: T12 says "the vault-backed implementation (`trusted-cert`
-   items) is added by T30", but T12 is in M3 and T30 in M2, so `CertTrustStore` does not exist
-   yet when T30 is built. This spec provides `TrustedCertItem` (T81) and the vault API; T12
-   should implement `VaultCertTrustStore` itself.
+2. Resolved: T12 implements `VaultCertTrustStore` itself on this API and T81's
+   `TrustedCertItem`.

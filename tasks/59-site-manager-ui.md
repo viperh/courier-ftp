@@ -110,18 +110,20 @@ pub struct SitePicker { query: String, results: Vec<PickerHit>, cursor: usize }
 pub fn fuzzy_score(query: &str, name: &str, path: &str) -> Option<i32>;
 ```
 
-Actions (T51 names): `SiteManager` (`Ctrl-s`, global), `SitePicker` (`Ctrl-x s`,
-global), and in mode `SiteManager`: `SmNewSite`, `SmNewFolder`, `SmDuplicate`,
-`SmRename`, `SmDelete`, `SmMark`, `SmPaste`, `SmFind`, `SmConnect`,
-`SmConnectNewTab`, `SmSave`, `SmImport`, `SmExport`, `SmClose`, `SmNextTab`,
-`SmPrevTab`. Emitted: `Action::Connect(ConnectRequest)` (T61),
+Actions (T51 names and keys): `SiteManager` (`ctrl-s`, global), `SitePicker`
+(`ctrl-x s`, global), and in mode `SiteManager` (T51 `Mode::SiteManager`, chain
+`[SiteManager]`; the tree has focus — the editor and buttons use `Dialog`):
+`SmNewSite`, `SmNewFolder`, `SmDuplicate`, `SmRename`, `SmDelete`, `SmMark`, `SmPaste`,
+`SmCopyToVault`, `SmMoveToVault`, `SmFind`, `SmConnect`, `SmConnectNewTab`, `SmEdit`,
+`SmSave`, `SmImport`, `SmExport`, `SmClose`, `SmNextTab`, `SmPrevTab`, plus the shared
+`CursorDown`, `CursorUp`, `Top`, `Bottom`, `TreeExpand`, `TreeCollapse`, `Help`, `Quit`. Emitted: `Action::Connect(ConnectRequest)` (T61),
 `Action::StatusMessage` (T57).
 
 ### Behaviour
 
 #### Opening and the vault
 
-- `Ctrl-s` opens the Site Manager as a full-screen view (everything except the
+- `ctrl-s` (`SiteManager`) opens the Site Manager as a full-screen view (everything except the
   status bar; T50 modal layer). The cursor starts on the site of the active tab, else
   on the last selected site of this run, else the first row.
 - Vault locked (T60 "continue without vault" or after lock): `request_unlock()`; on
@@ -144,7 +146,8 @@ global), and in mode `SiteManager`: `SmNewSite`, `SmNewFolder`, `SmDuplicate`,
 
 Editor tab headers: `[General] Advanced Transfer Charset Bookmarks` (active in
 brackets and `sm.tab_active`); ≥ 100 columns the third is `Transfer settings`.
-`[` / `]` or `Ctrl-PageUp` / `Ctrl-PageDown` switch tabs (T52 `TabbedForm`).
+`[` / `]` or `ctrl-pageup` / `ctrl-pagedown` switch tabs (`SmPrevTab` / `SmNextTab`;
+T52 `TabbedForm`).
 The editor title shows the site name and ` *` when dirty. Hidden fields take no rows;
 the field order is fixed (as in the tables).
 
@@ -360,11 +363,13 @@ Kerberos/GSS is not offered (D8).
 
 #### Protocol and logon changes
 
-- `ProtocolChoice::apply` mapping to T31 `protocol` + `encryption`:
-  SFTP → (`Sftp`, none); FTP + Only use plain FTP → (`Ftp`, `PlainOnly`);
+- `ProtocolChoice::apply` mapping to T31 `protocol` (T02 `Protocol { Ftp, Sftp }`) +
+  `encryption` (T02 `FtpEncryption`), the same encoding T31 and T32 use:
+  SFTP → (`Sftp`, `ExplicitIfAvailable` — normalised, ignored for SFTP);
+  FTP + Only use plain FTP → (`Ftp`, `PlainOnly`);
   FTP + Use explicit FTP over TLS if available (default) → (`Ftp`, `ExplicitIfAvailable`);
-  FTP + Require explicit FTP over TLS → (`FtpsExplicit`, `RequireExplicit`);
-  FTP + Require implicit FTP over TLS → (`FtpsImplicit`, `RequireImplicit`).
+  FTP + Require explicit FTP over TLS → (`Ftp`, `RequireExplicit`);
+  FTP + Require implicit FTP over TLS → (`Ftp`, `RequireImplicit`).
 - Port: `None` shows `21 (default)` / `990 (default)` / `22 (default)`; an explicit port
   equal to the old protocol's default becomes `None` when the protocol changes.
 - A logon type invalid for the new protocol becomes `Normal` (user and password kept;
@@ -382,22 +387,24 @@ colour). Children sorted folders first, then name (T31; no manual order). Root l
 
 | Key | Action |
 |---|---|
-| `j` `k` `↓` `↑`, `gg` `G` | move |
-| `l` `→` / `h` `←` | expand / collapse (or parent) |
-| `Enter` | site: connect (target rules of T61); folder: toggle |
-| `e`, `Tab` | focus the editor (`Tab` cycles tree → editor → buttons) |
-| `n` / `f` | new site / new folder in the cursor's folder (name prompt inline, default `New site`/`New folder`, made unique with ` (2)` …) |
-| `d` | duplicate (T31 deep copy, ` (copy)`) |
-| `r` `F2` | rename inline (Enter apply, Esc cancel; `/` rejected with an inline error) |
-| `x` `Delete` | delete with confirm; folders: `Delete folder "Work" with 12 sites and 3 folders?` (default Cancel) |
-| `m` / `p` | mark for move / move the marked item into the cursor's folder (moving into its own descendant → error from T31) |
-| `/` | filter: substring on names (case-insensitive), shows matches with ancestors |
-| `c` / `C` | connect / connect in new tab |
-| `Ctrl-s` | save the draft |
-| `i` / `E` | import / export |
-| `Esc` `q` | close (unsaved-changes guard) |
+| `j` `k` `↓` `↑`, `g g` `G` | `CursorDown` / `CursorUp` / `Top` / `Bottom` — move |
+| `l` `→` / `h` `←` | `TreeExpand` / `TreeCollapse` — expand / collapse (or parent) |
+| `Enter`, `o` | `SmConnect` — site: open/connect (target rules of T61); folder: toggle |
+| `O` | `SmConnectNewTab` — connect in a new tab |
+| `e`, `Tab` | `SmEdit` — focus the editor (`Tab` cycles tree → editor → buttons) |
+| `n` / `f` | `SmNewSite` / `SmNewFolder` — new site / new folder in the cursor's folder (name prompt inline, default `New site`/`New folder`, made unique with ` (2)` …) |
+| `d` | `SmDuplicate` — duplicate (T31 deep copy, ` (copy)`) |
+| `r` `F2` | `SmRename` — rename inline (Enter apply, Esc cancel; `/` rejected with an inline error) |
+| `x` `Delete` | `SmDelete` — delete with `confirm(.., ConfirmOpts::danger("Delete"))`; folders: `Delete folder "Work" with 12 sites and 3 folders?` |
+| `m` / `p` | `SmMark` / `SmPaste` — mark for move / move the marked item into the cursor's folder (moving into its own descendant → error from T31) |
+| `C` / `M` | `SmCopyToVault` / `SmMoveToVault` — copy / move the cursor item to another vault (team vaults; implemented by T90 stage B, until then status `Copy to vault is not available yet`) |
+| `/` | `SmFind` — filter: substring on names (case-insensitive), shows matches with ancestors |
+| `ctrl-s` | `SmSave` — save the draft |
+| `i` / `E` | `SmImport` / `SmExport` — import / export |
+| `Esc` `q` | `SmClose` — close (unsaved-changes guard) |
+| `F1` `?` / `F10` `ctrl-q` | `Help` / `Quit` (quit runs the unsaved-changes guard first) |
 
-`Ctrl-x` and `Ctrl-v` are not used for cut/paste because `Ctrl-x` is the global prefix (T51).
+`ctrl-x` and `ctrl-v` are not used for cut/paste because `ctrl-x` is the global prefix (T51).
 
 #### Editor keys
 
@@ -463,7 +470,7 @@ browsing and comparison after connect). The Site Manager closes; the site's
   (`PathInput`, default `~/courier-ftp-sites-YYYYMMDD.json`); existing file → confirm
   overwrite. Success message names the file.
 
-#### Fuzzy site picker (`Ctrl-x s`)
+#### Fuzzy site picker (`ctrl-x s`, `SitePicker`)
 
 A 60-column popup (T52 `ListView`, up to 12 rows) over the current screen:
 
@@ -496,7 +503,7 @@ picker keystroke ≤ 10 ms (bench `site_picker_5000`). Rendering is virtualised 
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `vault.store_passwords` | bool | `true` | T30/T31; disables password fields when false |
-| `interface.connect_target` | enum | `ask` | T61 |
+| `interface.connect_target` | `ask` \| `new_tab` \| `replace` | `ask` | T05 `ConnectTarget`; applied by T61 |
 
 No new settings. Items written: `site`, `site-folder` (T31), `bookmark` (T64);
 device-local: `device_local.local_dir_override` for the default local dir,
@@ -526,7 +533,7 @@ Style keys: `sm.border`, `sm.border_focused`, `sm.tab_active`, `sm.label`, `sm.f
 - Local-acting synced fields (T91 §8): fields synced from another device and not yet
   approved show `needs approval on this device` next to the value; approval happens at
   connect time (T91 prompt), not silently on open.
-- Imported data is untrusted: names and comments are sanitised for display (T55);
+- Imported data is untrusted: names and comments are sanitised for display (T50 `sanitize`);
   `Name` with `/` is rejected/renamed by T31/T32.
 - Export with passwords is always encrypted (T32); plain export strips secrets.
 - `tracing` at `info`+ logs only item ids and counts (`site saved id=<uuid>`,
@@ -550,19 +557,21 @@ Style keys: `sm.border`, `sm.border_focused`, `sm.tab_active`, `sm.label`, `sm.f
 - [ ] AC3 Leaving a dirty site (cursor move, close, connect another site) always shows Save / Discard / Cancel; each choice behaves as specified.
 - [ ] AC4 Validation errors block Save and Connect and focus the first invalid field.
 - [ ] AC5 FileZilla import (T32 fixture) and courier-ftp export → import round-trip (with and without passwords) work end-to-end through the UI flow; the report lists skipped entries.
-- [ ] AC6 Fuzzy picker: with the 20-site fixture, `Ctrl-x s`, `w`, `0`, `Enter` connects to `web01`; empty query + `Enter` connects to the most recent site.
+- [ ] AC6 Fuzzy picker: with the 20-site fixture, `ctrl-x s`, `w`, `0`, `Enter` connects to `web01`; empty query + `Enter` connects to the most recent site.
 - [ ] AC7 Snapshot tests at 80×24 and 160×48 for each editor tab, SFTP key-file and FTP account variants, a validation error, the narrow single-column mode, the unsaved-changes dialog, the import report and the picker; `NO_COLOR` + ASCII variants all ASCII.
 - [ ] AC8 With `vault.store_passwords = false`, password fields are disabled with the reason and no password is written (item inspected).
 - [ ] AC9 Opening the Site Manager while the vault is locked asks to unlock; cancelling shows the message and opens nothing; a lock while open closes it and shows the discard toast if dirty.
 - [ ] AC10 No password or passphrase appears in `Debug` output, snapshots or logs (canary).
 - [ ] AC11 CI gates `fmt`, `clippy`, `test-local-only`, `test-os`, `canary` pass.
+- [ ] AC12 In mode `SiteManager` the default keys produce exactly the actions of the tree key table (`o`/`Enter` connect, `O` new tab, `m`/`p` mark/paste, `C`/`M` copy/move to vault, `ctrl-s` save, `Esc`/`q` close).
 
 ## Tests
 
 ### Unit tests
 - `field_state_matches_general_table` (AC2), `field_state_matches_other_tabs_table` (AC2).
 - `logon_types_per_protocol`.
-- `protocol_mapping_to_t31_fields` — five UI choices → (`Protocol`, `FtpEncryption`).
+- `protocol_mapping_to_t31_fields` — five UI choices → (`Protocol`, `FtpEncryption`): SFTP → (`Sftp`, `ExplicitIfAvailable`), the four FTP choices → `Ftp` with `PlainOnly` / `ExplicitIfAvailable` / `RequireExplicit` / `RequireImplicit`.
+- `site_manager_mode_keys` — `AppHarness` with the default keymap: every row of the tree key table → its action; `C` before T90 shows the "not available yet" status (AC12).
 - `port_default_follows_protocol_change`, `invalid_logon_falls_back_to_normal`.
 - `password_removal_warning_on_logon_change`.
 - `dirty_detection_including_secrets` (AC3).
@@ -594,7 +603,7 @@ UI-flow tests with a real `VaultEngine` (`Argon2Cost::TEST`) and a mock backend 
 - Bench `site_picker_5000`.
 
 ### End-to-end tests
-- T76 PtyApp `first_run_add_site_quit_unlock_connect` (T76 scenario list): create vault, add an SFTP site with password in the Site Manager, quit, start, unlock, `Ctrl-x s` + name + `Enter` connects without a password prompt.
+- T76 PtyApp `first_run_add_site_quit_unlock_connect` (T76 scenario list): create vault, add an SFTP site with password in the Site Manager, quit, start, unlock, `ctrl-x s` + name + `Enter` connects without a password prompt.
 
 ## Out of scope
 
@@ -604,5 +613,7 @@ UI-flow tests with a real `VaultEngine` (`Argon2Cost::TEST`) and a mock backend 
 
 ## Open questions
 
-1. T31 stores both `protocol` (`Ftp`/`FtpsExplicit`/`FtpsImplicit`/`Sftp`) and `encryption` (FTP only), which can disagree; this task writes them with the canonical mapping above. Should T31 drop one of the two?
-2. Default local dir is device-local (T31 §4), so on a second device the field is empty. Should the editor show the value from the device that created the site as a hint?
+1. Default local dir is device-local (T31 §4), so on a second device the field is empty. Should the editor show the value from the device that created the site as a hint?
+
+(Resolved by the coordinator: T31 stores `Protocol { Ftp, Sftp }` + `FtpEncryption` with the
+mapping above; Site Manager keys `m`/`p`/`C`/`M`/`o` as in T51.)

@@ -161,7 +161,7 @@ pub fn recent_servers(vault: &VaultEngine, tree: &SiteTree) -> Result<Vec<Recent
   listed; T30 removes their device-local rows).
 - Label: the site's tree path (T31 `path_of`) or the history entry's `ServerAddress` URL
   without password.
-- "Reconnect to last server" (T58) uses entry 0. With the vault locked the list is empty; T58
+- "Reconnect to last server" (T58, `Ctrl-x r` ReconnectLast) uses entry 0. With the vault locked the list is empty; T58
   then reconnects to the in-memory last `ConnectInfo` of this process if there is one.
 
 ### Data formats and configuration

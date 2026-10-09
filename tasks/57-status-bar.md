@@ -9,13 +9,17 @@ A one-line bottom bar that always tells the user how secure the current connecti
 is, whether limits, filters, synchronized browsing or comparison are active, what
 the queue is doing and which keys are pending — and that degrades predictably on
 narrow terminals. It also provides the server information dialog, the transfer
-type and speed-limit toggles, transient messages, and the shared `Symbols` glyph
-sets (Unicode/ASCII) every TUI component uses.
+type and speed-limit toggles and transient messages. It adds the status-bar glyphs to
+T50's shared `Symbols` (T50 owns `Symbols`, `TermEnv`, `UnicodeSymbols` and the
+`auto` detection).
 
 ## Context
 
 **Before this task:** T50 provides the main screen (the status bar is its last row),
-`Theme` with `NO_COLOR` handling, focus and the modal stack. T51 provides the
+`Theme` with `NO_COLOR` handling, focus, the modal stack, `ui::text::sanitize` and
+`ui::symbols::{Symbols, TermEnv, UnicodeSymbols}` with `Symbols::resolve`. T03 provides
+`Backend::security_info() -> SessionSecurityInfo` (also on `SessionHandle`). T69 provides
+`PromptQueue::badge(unicode) -> Option<String>`. T51 provides the
 keymap, the pending-key sequence (showcmd) and key-name rendering. T52 provides
 dialogs (`TabbedForm`-free plain dialog, buttons, scrollable content). In M1 there
 is no remote protocol, queue or vault yet: every segment is fed from an optional
@@ -24,64 +28,29 @@ data source and is hidden while its source does not exist.
 **Later tasks feed it:** T12/T20 (connection security details), T40/T41 (queue
 summary), T44 (effective speed limits), T47/T53/T67 (filters active), T60 (vault
 locked), T66 (sync browsing / comparison), T69 (pending prompts badge), T90 (sync
-status). T53, T54, T55, T56, T59, T60, T61 use `Symbols`.
+status).
 
 ## Technical specification
 
 ### Types and APIs
 
 ```rust
-// crates/courier-ftp/src/ui/symbols.rs
-/// `interface.unicode_symbols`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum UnicodeSymbols { #[default] Auto, Always, Never }
-
-/// Terminal facts read once at startup (no env access after that).
-#[derive(Debug, Clone, Default)]
-pub struct TermEnv {
-    pub term: Option<String>,        // TERM
-    pub locale: Option<String>,      // first non-empty of LC_ALL, LC_CTYPE, LANG
-    pub wt_session: bool,            // WT_SESSION set (Windows Terminal)
-    pub term_program: Option<String>,// TERM_PROGRAM
-    pub no_color: bool,              // NO_COLOR set and non-empty (also used by T50)
-}
-impl TermEnv { pub fn from_env() -> Self; }
-
-/// Glyphs used by every component. Two constant sets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// crates/courier-ftp/src/ui/symbols.rs — owned by T50. This task only adds these
+// status-bar fields to T50's `Symbols` (both the Unicode and the ASCII set); it defines
+// no `UnicodeSymbols`, `TermEnv` or selection logic of its own.
 pub struct Symbols {
-    pub ascii: bool,
+    // … T50 base set and fields added by other tasks …
     pub lock: &'static str,          // "🔒"  | "[TLS]" style handled per segment
     pub unlock: &'static str,        // "🔓"
     pub vault_locked: &'static str,  // "🔐"
     pub sep: &'static str,           // " │ " | " | "
-    pub ellipsis: &'static str,      // "…"  | "~"
-    pub link_arrow: &'static str,    // "→"  | "->"
-    pub up: &'static str, pub down: &'static str,      // "↑" "↓" | "^" "v"
-    pub left: &'static str, pub right: &'static str,   // "←" "→" | "<" ">"
-    pub sort_asc: &'static str, pub sort_desc: &'static str, // "▲" "▼" | "^" "v"
-    pub expanded: &'static str, pub collapsed: &'static str, // "▾" "▸" | "-" "+"
-    pub tree_branch: &'static str, pub tree_last: &'static str, pub tree_pipe: &'static str, // "├─" "└─" "│ " | "|-" "`-" "| "
-    pub connected: &'static str, pub disconnected: &'static str, pub connecting: &'static str, // "●" "○" "◌" | "*" "o" "."
-    pub error_mark: &'static str,    // "!"
-    pub paused: &'static str,        // "‖"  | "||"
-    pub bar_full: &'static str, pub bar_empty: &'static str, // "█" "░" | "#" "-"
-    pub scroll_left: &'static str, pub scroll_right: &'static str, // "«" "»" | "<<" ">>"
     pub speed: &'static str,         // "⇅"  | "lim"
     pub filter: &'static str,        // "⚑"  | "[F]"
     pub sync: &'static str,          // "⇄"  | "<>"
     pub compare: &'static str,       // "≠"  | "!="
     pub sync_status: &'static str,   // "⟳"  | "sync"
-    pub check: &'static str, pub cross: &'static str, // "✓" "✗" | "ok" "x"
     pub dash: &'static str,          // "–"  | "-"
-    pub spinner: &'static [&'static str], // braille ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ | | / - \
-}
-impl Symbols {
-    pub const UNICODE: Symbols;
-    pub const ASCII: Symbols;
-    /// `Always` → UNICODE, `Never` → ASCII, `Auto` → rules in Behaviour.
-    pub fn select(setting: UnicodeSymbols, env: &TermEnv) -> &'static Symbols;
+    pub rate_down: &'static str, pub rate_up: &'static str, // "↓" "↑" | "v" "^"
 }
 
 // crates/courier-ftp/src/components/status_bar.rs
@@ -91,7 +60,7 @@ impl Symbols {
 pub struct StatusInfo<'a> {
     pub security: SecurityIndicator,
     pub vault: Option<VaultIndicator>,          // T60
-    pub prompts_pending: u32,                   // T69
+    pub prompts_badge: Option<String>,          // T69 `PromptQueue::badge(sym.unicode)`
     pub transfer_type: Option<TransferTypeChoice>, // T05 file_types.default_type
     pub speed: Option<SpeedLimitIndicator>,     // T44
     pub filters_active: bool,                   // T47/T53
@@ -155,16 +124,19 @@ impl ServerInfoView {
 }
 ```
 
-`SessionSecurityInfo` is the data the dialog needs from the connection: protocol and
-encryption mode, resolved IP, FTP greeting/`SYST`/`FEAT` summary or SSH version string,
-TLS version, cipher suite, key exchange group, data-channel TLS/resumption, peer
-certificate chain (DER), host-name match, trust source; or SSH kex, host key type and
-bits, SHA-256 fingerprint, trust state, cipher, MAC, compression. T03's `Backend` has no
-method that returns it yet (see Open questions); until it exists the dialog shows the
-rows it can build from `ServerAddress` and `Capabilities` and `Not available` for the rest.
+`SessionSecurityInfo` (T03) comes from `SessionHandle::security_info()` /
+`Backend::security_info()` of the tab's browsing session: `encrypted`, `summary`
+(`"TLS 1.3"`, `"SSH"`, `"plain"`, `"local"`), `peer_addr`, `server_software`, `tls:
+Option<TlsSessionInfo>` (T04 type: version, cipher suite, key exchange, data-channel
+protection, certificate chain, host-name match, trust source), `host_key:
+Option<HostKeyInfo>` (T04 type: key type and bits, SHA-256 fingerprint, trust state) and
+`details` (label/value rows: FEAT summary, SSH kex/cipher/MAC/compression, auth
+method). The dialog rows are built only from these fields plus `ServerAddress`; fields
+that are `None` are omitted. The security segment is derived from `encrypted` and
+`summary` (`encrypted == false` with an FTP address → `Plain`).
 
-Actions (T51 names): `ServerInfo` (`Ctrl-x i`), `CycleTransferType` (`Ctrl-x m`),
-`ToggleSpeedLimit` (`Ctrl-x b`), and the non-key `Action::StatusMessage(TransientMessage)`
+Actions (T51 names and keys): `ServerInfo` (`ctrl-x i`), `CycleTransferType`
+(`ctrl-x a`), `ToggleSpeedLimit` (`ctrl-x k`), and the non-key `Action::StatusMessage(TransientMessage)`
 any component may send. Handling `ToggleSpeedLimit` sends T41's
 `EngineCommand::SettingsChanged` after updating `Settings`.
 
@@ -176,14 +148,14 @@ any component may send. Handling `ToggleSpeedLimit` sends T41's
 |---|---|---|---|---|---|
 | Security | `🔒 TLS 1.3`, `🔒 SSH`, `🔓 plain FTP`, `– not connected`, `local`, `◌ connecting` | `🔒TLS`, `🔒SSH`, `🔓FTP`, `–`, `local`, `◌` | `[TLS 1.3]` / `[TLS]`, `[SSH]`, `[PLAIN FTP]` / `[FTP!]`, `[not connected]` / `[-]` | 8 | always |
 | Vault | `🔐 vault locked`, `no vault` | `🔐`, `novault` | `[vault locked]` / `[L]`, `[no vault]` / `[NV]` | 10 | vault locked or "continue without vault" (T60) |
-| Prompts | `! 2 prompts` | `!2` | same | 10 | `prompts_pending > 0` (T69) |
+| Prompts | `PromptQueue::badge` text: `⚠ 2 prompts` (ASCII `! 2 prompts`) | `⚠2` / `!2` | `! 2 prompts` / `!2` | 10 | `prompts_badge` is `Some` (T69) |
 | Transfer type | `Type: Auto` / `Binary` / `ASCII` | `Auto` … | same | 2 | source exists |
 | Speed limit | `⇅ off`, `⇅ ↓500 KiB/s ↑100 KiB/s` (`↓∞` for 0) | `⇅off`, `⇅↓500K↑100K` | `lim off`, `lim D:500K U:100K` / `L:off`, `L:500K/100K` | 6 | source exists |
 | Filters | `⚑ filters` | `⚑` | `[filters]` / `[F]` | 5 | any side filtered |
 | Sync/compare | `⇄ sync`, `≠ compare`, `⇄ sync ≠ compare` | `⇄`, `≠`, `⇄≠` | `<> sync != compare` / `<>!=` | 4 | either on |
 | Sync status | `⟳ synced`, `⟳ syncing`, `⟳ offline (3)`, `⟳ error`, `⟳ login needed` | `⟳`, `⟳3`, `⟳!` | `sync ok`… / `S` | 3 | T90 |
 | Queue | `Queue: 12 files, 30.2 MiB, ↓1.20 MiB/s, ~00:00:25` (rates only when > 0, ETA when known), `Queue: empty` | `Q: 12, 30.2 MiB`, `Q: 0` | `v`/`^` for arrows | 7 | source exists |
-| Pending keys | `g`, `s`, `Ctrl-x` | same | same | 10 | sequence pending |
+| Pending keys | `g`, `s`, `Ctrl-x` (T51 `pending_display()`, modifiers title-cased for display) | same | same | 10 | sequence pending |
 | Message | text (prefixed `Error: ` for errors) | text cut with `…` | same | 9 | message active |
 | Hints | `F1 help  F5 copy  F6 move  F7 mkdir  F8 delete  F10 quit` | dropped one by one from the right | same | 1 | no message active |
 
@@ -207,7 +179,7 @@ two spaces between the groups.
 
 Hints are generated from the effective keymap of the focused mode (T51), listing these
 actions in this order when bound: `Help`, `Transfer`, `Move`, `Mkdir`, `Delete`, `Quit`.
-Keys shown with T51's display names (`F5`, `Ctrl-q`).
+Keys shown with T51's display names (`f5`, `ctrl-q`, rendered `F5`, `Ctrl-q` in hints).
 
 #### Mock-ups
 
@@ -234,7 +206,7 @@ State A in ASCII mode (160, 80, 40):
  [TLS] | L:500K/100K | Q: 12, 30.2 MiB  
 ```
 State B: plain FTP (fell back from "explicit TLS if available"), limits off, empty
-queue, `Ctrl-x` pending (160, 80, 40):
+queue, `ctrl-x` pending (160, 80, 40):
 ```
  🔓 plain FTP │ Type: Binary │ ⇅ off │ Queue: empty                                           Ctrl-x │ F1 help  F5 copy  F6 move  F7 mkdir  F8 delete  F10 quit 
  🔓 plain FTP │ Type: Binary │ ⇅ off │ Queue: empty   Ctrl-x │ F1 help  F5 copy 
@@ -242,9 +214,9 @@ queue, `Ctrl-x` pending (160, 80, 40):
 ```
 State C: vault locked, 2 prompts waiting, transient message (160, 80, 40):
 ```
- – not connected │ 🔐 vault locked │ ! 2 prompts │ Type: Auto │ ⇅ off │ Queue: 3 files, 1.21 GiB, ↓8.40 MiB/s, ~00:02:27                Copied URL to clipboard 
- – │ 🔐 │ ! 2 prompts │ Auto │ ⇅ off │ Q: 3, 1.21 GiB   Copied URL to clipboard 
- – │ 🔐 │ !2    Copied URL to clipboard 
+ – not connected │ 🔐 vault locked │ ⚠ 2 prompts │ Type: Auto │ ⇅ off │ Queue: 3 files, 1.21 GiB, ↓8.40 MiB/s, ~00:02:27                Copied URL to clipboard 
+ – │ 🔐 │ ⚠ 2 prompts │ Auto │ ⇅ off │ Q: 3, 1.21 GiB   Copied URL to clipboard 
+ – │ 🔐 │ ⚠2    Copied URL to clipboard 
 ```
 
 #### Styles and colour rules
@@ -281,7 +253,7 @@ No state is shown by colour only: every segment carries text.
 
 #### Server information dialog
 
-`Ctrl-x i` opens a T52 dialog for the focused tab. Size: width `clamp(W − 4, 40, 100)`, height
+`ctrl-x i` (`ServerInfo`) opens a T52 dialog for the focused tab. Size: width `clamp(W − 4, 40, 100)`, height
 content + 2 capped at `H − 2` (content scrolls with `j`/`k`), centred. Buttons
 `[ Details ]` (TLS only: opens the certificate chain view built by T69) and `[ Close ]`
 (`Esc`, `Enter`). Not connected: the dialog says `Not connected to any server.`
@@ -329,20 +301,18 @@ All values are sanitised; fingerprints are wrapped at byte boundaries.
 │                                                                                                  │
 ```
 
-#### `Symbols::select` for `Auto`
+#### Glyph set selection
 
-ASCII when any of: `TERM` is `linux`, `dumb` or `vt100`; on Unix the locale (first
-non-empty of `LC_ALL`, `LC_CTYPE`, `LANG`) does not contain `UTF-8`/`utf8`
-(case-insensitive) or is unset; on Windows neither `WT_SESSION` nor `TERM_PROGRAM` is
-set (classic console). Otherwise Unicode. The choice is made once at startup and on
-settings change.
+`interface.unicode_symbols` (`auto` | `always` | `never`) is resolved by T50's
+`Symbols::resolve(setting, &TermEnv)`; the bar uses whichever set T50 selected and
+never inspects the environment itself.
 
 ### Data formats and configuration
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `interface.unicode_symbols` | `auto` \| `always` \| `never` | `auto` | added here (T05 §1c) |
-| `file_types.default_type` | `Auto` \| `Ascii` \| `Binary` | `Auto` | T05, toggled here |
+| `interface.unicode_symbols` | `auto` \| `always` \| `never` | `auto` | T05; resolved by T50 |
+| `file_types.default_type` | `auto` \| `ascii` \| `binary` | `auto` | T05, toggled here |
 | `transfers.speed_limit_enabled` | bool | `false` | T05, toggled here |
 | `transfers.download_limit_kib` / `upload_limit_kib` | u32 | 0 | T05, displayed |
 
@@ -366,12 +336,12 @@ No other fallible operations; rendering never fails.
 
 ## Implementation steps
 
-1. `ui/symbols.rs`: `Symbols::UNICODE`, `Symbols::ASCII`, `TermEnv`, `select` with tests.
+1. Add the status-bar glyph fields to T50's `Symbols` (Unicode and ASCII sets) with a test that every new ASCII glyph is ASCII.
 2. Segment formatting functions (one per kind) + `fit_segments` with unit/property tests.
 3. `StatusBar` component, `StatusInfo` assembly in `App` (security = `NotConnected`/`Local` in M1), styles, snapshot tests.
 4. Transient messages (`Action::StatusMessage`, expiry on `Tick`).
-5. Toggles `CycleTransferType`, `ToggleSpeedLimit` (engine message once T41/T44 exist).
-6. Server info dialog with `ServerInfoView`; fill protocol rows as T12/T20/T22 land.
+5. Toggles `CycleTransferType` (`ctrl-x a`), `ToggleSpeedLimit` (`ctrl-x k`) (engine message once T41/T44 exist).
+6. Server info dialog (`ctrl-x i`) with `ServerInfoView` built from `security_info()`; prompts badge from `PromptQueue::badge()`.
 
 ## Acceptance criteria
 
@@ -382,14 +352,17 @@ No other fallible operations; rendering never fails.
 - [ ] AC5 Transient messages expire after 3/5/8 s (paused-time test) and Info messages clear on the next key after 1 s.
 - [ ] AC6 `CycleTransferType` and `ToggleSpeedLimit` change the settings, persist them, and the toggle is refused when both limits are 0.
 - [ ] AC7 Server info dialog shows the correct rows for FTP, FTPS and SFTP sessions (rows filled from `SessionSecurityInfo` fixtures) and the not-connected text.
-- [ ] AC8 `Symbols::select(Auto)` returns ASCII for `TERM=linux`, `LANG=C`, unset locale, and Windows console without `WT_SESSION`; Unicode for `LANG=en_US.UTF-8`.
+- [ ] AC8 The status-bar glyphs exist in both T50 sets; with `interface.unicode_symbols = never` the bar uses only the ASCII forms; `ctrl-x i`, `ctrl-x a` and `ctrl-x k` reach `ServerInfo`, `CycleTransferType` and `ToggleSpeedLimit` with the default keymap.
 - [ ] AC9 In ASCII mode every cell of the bar and dialog is ASCII (test iterates the buffer).
 - [ ] AC10 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
 
 ## Tests
 
 ### Unit tests
-- `symbols_auto_ascii_for_linux_console_and_c_locale`, `symbols_auto_unicode_for_utf8_locale`, `symbols_windows_console_rules` (AC8).
+- `status_glyphs_ascii_set_is_ascii` (AC8, AC9).
+- `status_bar_default_keys` — `AppHarness`: `ctrl-x i` opens the server info dialog, `ctrl-x a` cycles the type, `ctrl-x k` toggles limits (AC6, AC8).
+- `security_segment_from_security_info` — `SessionSecurityInfo { encrypted: false, summary: "plain" }` on an FTP address → `🔓 plain FTP`; `encrypted: true, summary: "TLS 1.3"` → `🔒 TLS 1.3` (AC3).
+- `prompts_segment_uses_badge_text` — `Some("⚠ 2 prompts")` shown verbatim; `None` hides the segment.
 - `fit_drops_hints_first_then_shortens_by_priority` (AC2).
 - `fit_never_drops_priority_nine_or_more` (AC2).
 - `fit_reexpands_highest_priority_first` (AC2).
@@ -415,7 +388,7 @@ attention styles (AC1, AC3, AC7).
 - `indicators_follow_app_state` — drive `App` with actions (filters toggled, `CoreEvent::Connected`, queue progress events from a mock engine) and assert the next frame's bar (AC4).
 
 ### End-to-end tests
-- T76 PtyApp scenario `plain_ftp_warning_visible` against the `plain` vsftpd profile asserts `plain FTP` in the last row; `tls_indicator_after_explicit_tls` against `explicit-tls` asserts `TLS 1.`.
+- T76 PtyApp scenario `plain_ftp_warning_visible` against the `vsftpd-plain` profile asserts `plain FTP` in the last row; `tls_indicator_after_explicit_tls` against `vsftpd-explicit-tls` asserts `TLS 1.`.
 
 ## Out of scope
 
@@ -425,5 +398,5 @@ attention styles (AC1, AC3, AC7).
 
 ## Open questions
 
-1. T03's `Backend` has no way to report the negotiated security (TLS version/cipher/certificate, SSH algorithms/host key) after `connect`. This task needs a `fn security_info(&self) -> Option<SessionSecurityInfo>` on `Backend` (or the same data in `CoreEvent::Connected`). Owner of T03/T04/T12/T20 to decide the shape.
-2. T51 has no bindings yet for `ServerInfo`, `CycleTransferType` and `ToggleSpeedLimit`; this task proposes `Ctrl-x i`, `Ctrl-x m`, `Ctrl-x b`.
+None. (Resolved by the coordinator: `Backend::security_info()` provides the data; the
+keys are `ctrl-x i`, `ctrl-x a`, `ctrl-x k`; T50 owns `Symbols`.)

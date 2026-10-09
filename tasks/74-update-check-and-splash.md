@@ -10,11 +10,12 @@ turn it off completely. Optionally show a splash screen while the app starts.
 
 ## Context
 
-- T07 provides `net::connect_tcp(target, &NetOpts, cancel, &EventSender)` with timeouts,
-  IPv6 preference and HTTP/SOCKS proxies. T12 brings `tokio-rustls` and
-  `rustls-platform-verifier` (D9) into the workspace.
-- T05 has `interface.check_updates` (true), `interface.show_splash` (false) and reserves
-  `interface.check_prereleases` for this task.
+- T07 provides `connect_tcp(&HostPort, &NetOpts, CancellationToken, &SessionLog) ->
+  Result<NetStream>` with timeouts, IPv6 preference and HTTP/SOCKS proxies, and
+  `NetOpts::from_settings`. T12 brings `tokio-rustls` and `rustls-platform-verifier` (D9)
+  into the workspace.
+- T05 registers `interface.check_updates` (true), `interface.show_splash` (false) and
+  `interface.check_prereleases` (false).
 - T50 provides the main screen, the status bar slot for transient messages (T57) and the
   help overlay (F1).
 - T70 (same milestone, earlier) passes `RunOptions::no_update_check` from
@@ -29,7 +30,7 @@ turn it off completely. Optionally show a splash screen while the app starts.
 ### Types and APIs
 
 **Minimal HTTP client** — `courier_ftp_core::net::http`. Decision: a small hand-written
-HTTP/1.1 GET client over `net::connect_tcp` + `tokio-rustls`, not `reqwest`: it honours
+HTTP/1.1 GET client over T07's `connect_tcp` + `tokio-rustls`, not `reqwest`: it honours
 the user's generic proxy settings through T07 for free, adds no dependency to builds
 without the `sync` feature (where `reqwest` is absent), and the code is ~300 lines.
 
@@ -46,7 +47,8 @@ pub struct HttpRequest {
 pub struct HttpResponse { pub status: u16, pub headers: Vec<(String, String)>, pub body: Vec<u8> }
 
 /// GET with `Connection: close`, `Accept-Encoding: identity`. Follows no redirects.
-pub async fn get(req: &HttpRequest, net: &NetOpts, events: &EventSender, cancel: CancellationToken)
+/// Dials with `connect_tcp(&HostPort { host, port }, net, cancel.child_token(), log)` (T07).
+pub async fn get(req: &HttpRequest, net: &NetOpts, log: &SessionLog, cancel: CancellationToken)
     -> Result<HttpResponse, Error>;
 ```
 
@@ -104,8 +106,9 @@ pub async fn run_check(cfg: UpdateConfig, data_dir: PathBuf, source: Arc<dyn Rel
     clock: Arc<dyn Clock>, cancel: CancellationToken) -> Option<ReleaseInfo>;
 ```
 
-**UI**: `Action::UpdateAvailable(ReleaseInfo)`, `Action::DismissUpdate`;
-`components/splash.rs` with `Splash { shown_at: Instant, init_done: bool }`.
+**UI**: `Action::UpdateAvailable(ReleaseInfo)`, `Action::DismissUpdate` (default key
+`Ctrl-x u`, T51's `Ctrl-x` prefix table, owner T74); `components/splash.rs` with
+`Splash { shown_at: Instant, init_done: bool }`.
 
 **Cargo feature**: `update-check` on the `courier-ftp` binary, **default on**. With it
 off, `run_check` is not compiled in, the setting is hidden in T68, and `--version` does
@@ -146,10 +149,13 @@ reading the state file):
 **Notice** (`notice`): `latest.version > current` (semver precedence: `1.10.0 > 1.9.3`,
 `1.3.0 > 1.3.0-rc.1`, a running `1.3.0-rc.1` sees `1.3.0`), and `latest.version !=
 dismissed`, and `enabled`. Then:
-- Status bar transient message (T57) for 10 s: `Update available: v1.3.0 (F1 for details)`.
+- Status bar transient message (T57) for 10 s: `Update available: v1.3.0 (F1 for details,
+  Ctrl-x u to dismiss)`.
 - Help overlay (F1) top line: `Update available: v1.3.0 — https://github.com/viperh/courier-ftp/releases/tag/v1.3.0`
-  with key `d` = *Don't remind me about this version* (`DismissUpdate` → `dismissed =
-  "1.3.0"`, state written). A newer version shows again.
+  with the hint `Ctrl-x u: don't remind me about this version`. `Ctrl-x u`
+  (`DismissUpdate`, works from anywhere while a notice exists; otherwise a no-op with
+  the status message "No update notice") → `dismissed = "1.3.0"`, state written. A
+  newer version shows again.
 - No download, no install, no browser launch. Users update through their package
   manager or the releases page.
 
@@ -176,7 +182,7 @@ dismissed`, and `enabled`. Then:
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `interface.check_updates` | bool | `true` | Settings help: "Once a week, ask api.github.com for the latest release. Sends your IP address and courier-ftp version to GitHub." |
-| `interface.check_prereleases` | bool | `false` | added by this task (T05 §1c) |
+| `interface.check_prereleases` | bool | `false` | registered in T05 |
 | `interface.show_splash` | bool | `false` | |
 | env `COURIER_FTP_NO_UPDATE_CHECK` | truthy | unset | see T70 |
 
@@ -229,7 +235,7 @@ or header values with CR/LF, and `Error::Cancelled` on cancel.
 3. `ReleaseSource` production impl and `run_check` with injected clock; `update-check`
    cargo feature.
 4. UI: spawn `run_check` from `App` when enabled; status message, help overlay entry,
-   `DismissUpdate`; Settings entries (T68) for both update keys.
+   `DismissUpdate` on `Ctrl-x u`; Settings entries (T68) for both update keys.
 5. Splash component, init-done signal from startup, key-skip; snapshot tests.
 6. Network-silence test for the binary.
 
@@ -244,7 +250,7 @@ or header values with CR/LF, and `Error::Cancelled` on cancel.
   `1.2.9` with prereleases off → ignored, on → newer; running `1.3.0-rc.1` vs `1.3.0` →
   newer; `v1.2.3+build5` equals `1.2.3`; `latest`, `vfoo`, `1.2` → skipped.
 - [ ] AC4 A newer release shows the status message once per start and the help overlay
-  entry; dismissing hides it until a newer version appears.
+  entry; `Ctrl-x u` dismisses it until a newer version appears.
 - [ ] AC5 Untrusted response handling: body > 1 MiB, malformed JSON, foreign `html_url`,
   redirect status → no notice (or the safe default URL), no panic.
 - [ ] AC6 A local-only run with the update check disabled makes no `AF_INET`/`AF_INET6`
@@ -265,6 +271,7 @@ or header values with CR/LF, and `Error::Cancelled` on cancel.
 - `html_url_validation_falls_back_to_latest` (AC5).
 - `is_due_matrix` — no state, 6 d 23 h, 7 d, future timestamp, error 23 h / 24 h ago (AC1).
 - `dismissed_version_hidden_newer_shown` (AC4).
+- `ctrl_x_u_dispatches_dismiss_update` — keymap `Ctrl-x u` → `DismissUpdate`, state file gets `dismissed` (AC4).
 - `state_file_corrupt_is_default_and_rewritten` (AC1).
 - `run_check_disabled_never_touches_source_or_disk` — `PanicSource` + read-only temp dir (AC2).
 - `http_parses_content_length_and_chunked`, `http_rejects_oversized_body_and_chunk_line`, `http_rejects_crlf_in_headers`, `http_3xx_is_error`, `http_timeout_and_cancel` (AC5).

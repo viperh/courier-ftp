@@ -98,7 +98,11 @@ Sections, in order (exact headings):
 
 #### 2. `docs/keybindings.md`
 Hand-written intro (notation, rebinding in `config.json`, terminal caveats from T51:
-keys some terminals don't send, tmux settings) + the generated region `keybindings`.
+keys some terminals don't send, tmux settings; why there is no `Ctrl-h` (terminals send
+it as Backspace, so hidden files toggle with `.`) or `Ctrl-j` (line feed, so the queue
+pane toggles with `Ctrl-x j`); the `Ctrl-x` prefix and `interface.key_sequence_timeout_ms`)
++ the generated region `keybindings`, which includes T51's full `Ctrl-x` prefix table
+(`Ctrl-x a/b/c/d/D/e/f/i/j/k/l/m/n/N/p/q/r/s/S/t/T/u/v/w/y/=/</>/1..7/Ctrl-l`).
 Stale file → `docs_gen::tests::keybindings_doc_is_current` fails with
 `docs/keybindings.md is stale; run COURIER_FTP_BLESS=1 cargo test -p courier-ftp docs_gen`.
 
@@ -106,10 +110,15 @@ Stale file → `docs_gen::tests::keybindings_doc_is_current` fails with
 Hand-written parts: config file locations per OS (table from T01/T70: Linux
 `~/.config/courier-ftp/`, macOS `~/Library/Application Support/com.viperh.courier-ftp/`,
 Windows `%APPDATA%\viperh\courier-ftp\config\`, plus data and cache dirs), layering of
-`config.json5|json|yaml|toml|ini` (D10), the environment-variable table (`COURIER_FTP_HOME`,
-`COURIER_FTP_CONFIG`, `COURIER_FTP_DATA`, `COURIER_FTP_LOG_LEVEL`, `COURIER_FTP_KEYRING`,
-`COURIER_FTP_NO_UPDATE_CHECK`, `RUST_LOG`; each with meaning and default), and a pointer
-to `docs/settings.schema.json`. Generated region `settings` from the schema.
+`config.json5|json|yaml|toml|ini` (D10; settings saved from the app go to `config.json`,
+and saving is refused while a yaml/toml/ini file also has a `settings` key, T05), the
+note that enum values are written in snake_case (`"new_tab"`, `"modification_time"`),
+the environment-variable table (`COURIER_FTP_HOME` (config/, data/ and cache/ below it),
+`COURIER_FTP_CONFIG`, `COURIER_FTP_DATA`, `COURIER_FTP_LOG_LEVEL`, `COURIER_FTP_KEYRING`
+(`off` disables keyring unlock; `file:<dir>` exists only in test-hooks builds, T30),
+`COURIER_FTP_NO_UPDATE_CHECK`, `COURIER_FTP_LANG`, and `RUST_LOG` (ignored, T71); each with
+meaning and default), and a pointer to `docs/settings.schema.json`. Generated region
+`settings` from the schema.
 `configuration_doc_is_current` and `every_settings_key_documented` guard it.
 
 #### 4. `docs/security.md` (user-facing; the threat model stays the detailed reference)

@@ -17,16 +17,21 @@ connections) can be written to a size-rotated file. Users can change the debug l
 - The template `logging.rs` truncates `<data dir>/courier-ftp.log` on every start and
   honours `RUST_LOG`; `errors.rs` uses human-panic/better-panic and `process::exit(1)`.
 - T04 defines `LogMessage { time, session: SessionId, kind: LogKind, text }`,
-  `LogKind { Status, Command, Response, Error, ListingRaw, Debug(u8) }`, `mask_command`,
-  and drops messages above the configured level at the source.
-- T05 defines `logging.level` (0–4, default 2), `logging.log_to_file` (false),
-  `logging.log_file` (`<data dir>/session.log`), `logging.log_file_max_mib` (10),
-  `logging.log_file_keep` (3), `logging.show_raw_listing` (false).
-- T55 shows the per-tab message log (ring of 5 000 lines per tab, prefixes `Status:`,
-  `Command:`, `Response:`, `Error:`, `Trace:`, `Listing:`).
-- T03/T13/T22 fill `Listing.raw` / `Entry.raw`.
-- T70 passes `--debug`, `--debug-level`, `--log-file` in `RunOptions` and `AppPaths`
-  (`log_dir()`, `crash_dir()`).
+  `LogKind { Status, Command, Response, Error, ListingRaw, Debug(u8) }` (there is no
+  warning kind: warnings are `Status` lines whose text starts with `"Warning: "`),
+  `mask_command`, and drops messages above the configured level at the source.
+- T05 defines `logging.level` (`DebugLevel`, 0–4, default 2), `logging.log_to_file`
+  (false), `logging.log_file` (absolute path, `null` = `<data dir>/session.log`),
+  `logging.log_file_max_mib` (1–1024, 10), `logging.log_file_keep` (1–50, 3),
+  `logging.show_raw_listing` (false), `logging.pane_max_lines` (T55).
+- T55 shows the per-tab message log (ring of `logging.pane_max_lines` lines, default
+  5 000, prefixes `Status:`, `Command:`, `Response:`, `Error:`, `Trace:`, `Listing:`) and
+  owns `crate::ui::clipboard` (OSC 52 + platform tools, 100 KiB cap, no `arboard`).
+- T03/T13/T22 fill `Listing.raw` (FTP LIST/MLSD text, SFTP longnames; there is no
+  per-entry raw field).
+- T01 provides `AppPaths { config_dir, data_dir, cache_dir }`; T70 passes `--debug`,
+  `--debug-level`, `--log-file` in `RunOptions` and adds `AppPaths::log_dir()` /
+  `crash_dir()`.
 - T91 §4–§5 depends on this task for the logging policy, crash reports and the
   canary scan of log files.
 
@@ -94,7 +99,7 @@ pub struct SessionLogConfig {
     pub enabled: bool,
     pub path: PathBuf,
     pub max_bytes: u64,  // log_file_max_mib * 1 MiB, minimum 1 MiB
-    pub keep: u8,        // rotated files kept, 0..=99
+    pub keep: u8,        // rotated files kept, 1..=50 (T05 logging.log_file_keep)
 }
 
 /// Handle to the background writer task. Cheap to clone.
@@ -137,7 +142,7 @@ impl EventSender { pub fn log_level(&self) -> &LogLevelHandle; }   // shared by 
 | Action | Default key | Where |
 |---|---|---|
 | `ShowRawListing` | `Ctrl-x v` | file list (remote or local pane) |
-| `CopyLog` | `Y` (log pane) | message log pane |
+| `CopyLog` | `Y` | message log pane |
 | `SaveLogAs` | `Ctrl-x w` | message log pane |
 | `ShowAppLog` | `Ctrl-x D` | global, only when started with `--debug` |
 | `SetDebugLevel(u8)` | — (Settings → Logging, T68) | |
@@ -223,8 +228,8 @@ impl EventSender { pub fn log_level(&self) -> &LogLevelHandle; }   // shared by 
 - Writer: `BufWriter` (64 KiB), flushed every 1 s when dirty, on rotation and on shutdown.
 - Rotation by size: before a write that would make the file exceed `max_bytes`, close it,
   delete `<path>.<keep>`, rename `<path>.<i>` → `<path>.<i+1>` for `i = keep-1 … 1`,
-  rename `<path>` → `<path>.1`, open a fresh `<path>`. With `keep = 0` the file is
-  truncated instead. A single line larger than `max_bytes` is written to a fresh file
+  rename `<path>` → `<path>.1`, open a fresh `<path>`. (`keep` is at least 1, T05.) A
+  single line larger than `max_bytes` is written to a fresh file
   anyway. On startup an existing file is appended to (rotated first if already over the limit).
 - File created with mode `0600` (Unix); parent directory must exist (default parent is
   the data dir, which exists).
@@ -238,37 +243,39 @@ impl EventSender { pub fn log_level(&self) -> &LogLevelHandle; }   // shared by 
 **Raw directory listing**
 - `ShowRawListing` on the focused pane opens a scrollable read-only dialog (T52):
   title `Raw listing: <dir> (<source>, <N> lines)`, where source is `MLSD`, `LIST`,
-  `SFTP readdir` or `local`. Content: `Listing.raw` if present; else the `raw` field of
-  every entry joined with `\n` (SFTP `longname` lines); else the message
-  `The server did not send a raw listing for this directory.` (local pane: always this
-  message).
+  `SFTP readdir` or `local`. Content: `Listing.raw` if present (for SFTP it holds the
+  `longname` lines, T22); else the message `The server did not send a raw listing for
+  this directory.` (local pane: always this message).
 - Backends keep `Listing.raw` up to **16 MiB**; beyond that it is cut and the dialog shows
   `… listing truncated at 16 MiB`. The listing cache (T46) keeps `raw` with the listing.
-- Dialog keys: `j/k`, `PageUp/PageDown`, `g/G`, `/` search, `y` copy all (OSC 52 via T62
-  helper), `w` save as (same flow as `SaveLogAs`), `Esc` close. Lines are
+- Dialog keys: `j/k`, `PageUp/PageDown`, `g/G`, `/` search, `y` copy all (T55
+  `ui::clipboard`), `w` save as (same flow as `SaveLogAs`), `Esc` close. Lines are
   `escape_controls`-ed and wrap off with horizontal scroll (`h/l`).
 
 **Copy and save the message log** (T55 pane):
 - `CopyLog` copies the current tab's visible log buffer (respecting the pane's quick level
-  filter) in `format_line` format via the T62 clipboard helper (OSC 52, `arboard`
-  fallback). OSC 52 payloads are capped at **100 000 bytes** of text: when the buffer is
-  larger, only the newest whole lines that fit are copied and the status bar says
+  filter) in `format_line` format via T55's `crate::ui::clipboard` (OSC 52 + platform
+  tools, no `arboard`). The clipboard cap is **100 KiB** (102 400 bytes) of text: when
+  the buffer is larger, only the newest whole lines that fit are copied (selected here,
+  before calling the clipboard, so no line is cut) and the status bar says
   `Copied the last <N> lines (clipboard limit)`; otherwise `Copied <N> lines`.
 - `SaveLogAs` opens a `PathInput` (T52) prefilled with
   `~/courier-ftp-log-<YYYYMMDD-HHMMSS>.txt`; writes atomically (temp file + rename),
-  mode `0600`, asks before overwriting an existing file; status message on success,
+  mode `0600`, asks before overwriting an existing file
+  (`ConfirmOpts::danger("Overwrite")`, T52); status message on success,
   error dialog on failure.
 
 ### Data formats and configuration
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `logging.level` | u8 0–4 | 2 | runtime-changeable; `--debug-level` overrides per run |
+| `logging.level` | `DebugLevel` (integer 0–4) | 2 | runtime-changeable; `--debug-level` overrides per run |
 | `logging.log_to_file` | bool | false | `--log-file` turns it on per run |
-| `logging.log_file` | path | `<data dir>/session.log` | `~` expanded; relative paths resolved against the data dir |
+| `logging.log_file` | `Option<PathBuf>` | `null` = `<data dir>/session.log` | must be absolute (T05 validation; a relative value → warning + default) |
 | `logging.log_file_max_mib` | u32 | 10 | 1–1024; out of range → warning + default (T05 validation) |
-| `logging.log_file_keep` | u8 | 3 | 0–99 |
+| `logging.log_file_keep` | u8 | 3 | 1–50 |
 | `logging.show_raw_listing` | bool | false | |
+| `logging.pane_max_lines` | u32 | 5000 | 500–100 000; message log pane size (T55; also bounds `CopyLog`) |
 | env `COURIER_FTP_LOG_LEVEL` | EnvFilter | `info` | application log only |
 
 Files: `<data>/logs/courier-ftp.YYYY-MM-DD.log` (7 kept), `<data>/crash/crash-*.txt`
@@ -304,8 +311,9 @@ Files: `<data>/logs/courier-ftp.YYYY-MM-DD.log` (7 kept), `<data>/crash/crash-*.
 ## Implementation steps
 
 1. `logging/ring.rs` + `logging/mod.rs`: port sverb's subscriber (daily file, filter
-   from `COURIER_FTP_LOG_LEVEL`, crash and debug rings, `ErrorLayer`), using `AppPaths`
-   from T70. Add `tracing-appender` and `parking_lot` workspace deps. Unit tests.
+   from `COURIER_FTP_LOG_LEVEL`, crash and debug rings, `ErrorLayer`), using T01's
+   `AppPaths` (with T70's `log_dir()`). Add `tracing-appender` and `parking_lot`
+   workspace deps. Unit tests.
 2. `panic.rs`: port sverb's hook and crash report writer; remove `errors.rs`,
    `human-panic`, `better-panic`; keep `trace_dbg!` in `logging`. Tests.
 3. `LogLevelHandle` shared by `EventSender` clones; Settings → Logging and `--debug-level`
@@ -330,8 +338,8 @@ Files: `<data>/logs/courier-ftp.YYYY-MM-DD.log` (7 kept), `<data>/crash/crash-*.
   lines and no `debug` lines, prints its path to stderr, exits 101, and at most 20 reports remain.
 - [ ] AC4 With `logging.log_to_file` on, every message-log line of every session is written
   in the specified format; `PASS`/`ACCT` appear as `****`.
-- [ ] AC5 The session log rotates at `log_file_max_mib`, keeps exactly `log_file_keep`
-  rotated files, and `keep = 0` truncates.
+- [ ] AC5 The session log rotates at `log_file_max_mib` and keeps exactly `log_file_keep`
+  (1–50) rotated files.
 - [ ] AC6 With the writer blocked, 10 000 messages never block the sender, memory stays
   bounded by the 4 096-message channel, and a "N log messages were dropped" line appears
   once the writer resumes.
@@ -339,7 +347,7 @@ Files: `<data>/logs/courier-ftp.YYYY-MM-DD.log` (7 kept), `<data>/crash/crash-*.
   without reconnecting; level ≥ 3 shows TLS/SSH negotiation details and raw listing lines.
 - [ ] AC8 The raw listing dialog shows the server text for FTP `LIST`, FTP `MLSD` and SFTP
   (`longname` lines), and the "no raw listing" message for the local pane.
-- [ ] AC9 Copy log respects the 100 000-byte clipboard cap; Save log as writes a `0600` file
+- [ ] AC9 Copy log goes through T55's `ui::clipboard` and respects its 100 KiB cap with whole lines; Save log as writes a `0600` file
   identical to the buffer in `format_line` format.
 - [ ] AC10 Canary test: after the integration suite runs at `COURIER_FTP_LOG_LEVEL=trace`,
   no canary password appears in application logs, session logs or crash reports, and no
@@ -358,13 +366,14 @@ Files: `<data>/logs/courier-ftp.YYYY-MM-DD.log` (7 kept), `<data>/crash/crash-*.
 - `format_line_matches_spec` — exact string for each `LogKind` (AC4).
 - `format_line_masks_pass_and_acct` — `LogMessage` built through `mask_command` (AC4).
 - `escape_controls_escapes_esc_and_c1_keeps_tab` (AC11).
-- `rotation_shifts_files_and_keeps_n`, `rotation_keep_zero_truncates`, `oversized_line_written_to_fresh_file`, `startup_rotates_when_already_over_limit` (AC5).
+- `rotation_shifts_files_and_keeps_n` (keep 1 and 50), `oversized_line_written_to_fresh_file`, `startup_rotates_when_already_over_limit` (AC5).
 - `writer_drops_and_counts_when_full`, `writer_reports_dropped_count_on_resume` — paused time, blocked writer via a fake file sink (AC6).
 - `writer_disables_itself_after_io_error_until_reconfigure` (AC4).
 - `listing_raw_emitted_with_setting_or_level_3`, `listing_raw_capped_at_10000_lines` (AC7).
 - `log_level_handle_shared_across_clones_and_clamped` (AC7).
-- `copy_log_caps_at_100000_bytes_whole_lines` (AC9).
-- `raw_listing_source_falls_back_to_entry_raw_then_message` (AC8).
+- `copy_log_caps_at_100_kib_whole_lines` (AC9).
+- `raw_listing_source_listing_raw_else_message` — `Listing.raw` shown; `None` → the message (AC8).
+- `warning_status_lines_keep_prefix_in_file` — a `Status` message `"Warning: …"` is written as `Status:   Warning: …` (AC4).
 
 ### Property / fuzz tests
 - `prop_escape_controls_output_has_no_control_chars` — proptest over arbitrary strings: output contains no C0/C1 chars except TAB (AC11).
@@ -385,8 +394,8 @@ Files: `<data>/logs/courier-ftp.YYYY-MM-DD.log` (7 kept), `<data>/crash/crash-*.
 - `log_leak_canary` — runs the vault, quickconnect and transfer integration flows with `init_with_filter(Some("trace"))`, a canary password and a canary hostname; greps every file under the temp home: no canary password anywhere, no canary hostname in lines at `INFO`/`WARN`/`ERROR` (AC10). The CI `canary` job (T00/T91) repeats this over the whole suite.
 
 ### End-to-end tests
-- `e2e_session_log_file_against_vsftpd` (`#[ignore]`, `COURIER_E2E=1`): `Headless` session against the `plain` FTP profile with `log_to_file` on; file contains `Command:  PASS ****`, `Response: 230`, and no password (AC4, AC10).
-- `e2e_raw_listing_proftpd_mlsd` — raw listing equals the server's MLSD text (AC8).
+- `e2e_session_log_file_against_vsftpd` (`#[ignore]`, `COURIER_E2E=1`): `Headless` session against the `vsftpd-plain` FTP profile (T76) with `log_to_file` on; file contains `Command:  PASS ****`, `Response: 230`, and no password (AC4, AC10).
+- `e2e_raw_listing_proftpd_mlsd` — `proftpd-plain` profile (vsftpd has no MLSD): raw listing equals the server's MLSD text (AC8).
 
 ## Out of scope
 

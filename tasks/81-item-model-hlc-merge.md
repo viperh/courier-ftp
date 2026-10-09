@@ -238,8 +238,8 @@ unknown string is a `ViewError::FieldType` on read.
 |---|---|---|---|---|
 | `name` | text | `String` | `""` | tree |
 | `parent_id` | id | `Option<ItemId>` (a `site-folder` in the same vault) | `None` = vault root | tree |
-| `protocol` | text `ftp`/`sftp` | `SiteProtocol` | `ftp` | General |
-| `encryption` | text `plain-only`/`explicit-if-available`/`require-explicit`/`require-implicit` | `FtpEncryption` (T02) | `explicit-if-available` | General (FTP only) |
+| `protocol` | text `ftp`/`sftp` | `Protocol` (T02) | `ftp` | General |
+| `encryption` | text `plain-only`/`explicit-if-available`/`require-explicit`/`require-implicit` | `FtpEncryption` (T02) | `explicit-if-available` | General (FTP only; always `explicit-if-available` for SFTP sites, T31) |
 | `host` | text | `String` | `""` | General |
 | `port` | uint | `Option<u16>` | `None` = protocol default (21, 990 implicit, 22) | General |
 | `logon_type` | text `anonymous`/`normal`/`ask-for-password`/`interactive`/`key-file`/`account`/`agent` (T02 `LogonKind` serde strings) | `LogonKind` (T02) | `normal` | General |
@@ -252,13 +252,13 @@ unknown string is a `ViewError::FieldType` on read.
 | `try_agent_first` | bool | `bool` | `false` | General (SFTP) |
 | `color` | text `none`/`red`/`green`/`blue`/`yellow`/`cyan`/`magenta`/`orange` | `SiteColor` | `none` | General |
 | `comments` | text (≤ 64 KiB) | `String` | `""` | General |
-| `server_type` | text `auto`/`unix`/`dos`/`vms`/`mvs` | `ServerTypeOverride` (T02) | `auto` | Advanced |
+| `server_type` | text `auto`/`unix`/`dos`/`vms`/`mvs` (exactly these five) | `ServerTypeOverride` (T02) | `auto` | Advanced |
 | `bypass_proxy` | bool | `bool` | `false` | Advanced |
 | `remote_dir` | text (absolute `/` path) | `Option<RemotePath>` | `None` | Advanced |
 | `sync_browsing` | bool | `bool` | `false` | Advanced |
 | `directory_comparison` | bool | `bool` | `false` | Advanced |
-| `timezone_offset_minutes` | int (−1440..=1440) | `i32` | `0` | Advanced |
-| `transfer_mode` | text `default`/`active`/`passive` | `SiteTransferMode` | `default` | Transfer settings |
+| `timezone_offset_minutes` | int (−1440..=1440): the server's UTC offset, utc = server time − offset (T13) | `i32` | `0` | Advanced |
+| `transfer_mode` | text `default`/`active`/`passive` | `TransferModeOverride` (T03) | `default` | Transfer settings |
 | `connection_limit` | uint (1..=10) | `Option<u8>` | `None` = global limit | Transfer settings |
 | `charset` | text `auto`/`utf-8`/encoding label (`encoding_rs`) | `Charset` (T02) | `auto` | Charset |
 | `created_at` | UnixMillis | `UnixMillis` | write time | — |

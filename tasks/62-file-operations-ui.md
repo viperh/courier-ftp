@@ -669,7 +669,7 @@ call counters and optional latency) and a `LocalBackend` in a `tempfile::TempDir
 ### End-to-end tests
 
 In `courier-ftp-e2e` (`#[ignore]`, `COURIER_E2E=1`, T76), `PtyApp` against the
-`proftpd` profile (MLSD + `SITE CHMOD`) and the `sshd` `password` profile:
+`proftpd-plain` profile (T76; MLSD + `SITE CHMOD`) and the `sshd` `password` profile:
 - `fn e2e_file_ops_round_trip` — F7 create dir, F5 upload a file into it, `c` set
   `600`, F2 rename, F8 delete the dir recursively; verify each step on the server
   through `Headless` listing (AC1).

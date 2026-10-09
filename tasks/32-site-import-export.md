@@ -54,8 +54,16 @@ pub enum SkipReason { UnsupportedProtocol(i64), Invalid(String), BookmarkWithout
 pub struct Note { pub path: String, pub kind: NoteKind }
 pub enum NoteKind { PasswordProtectedByMasterPassword, PasswordNotUtf8, ServerTypeApproximated(i64),
                     ConnectionLimitClamped(i64), UnknownCharset(String), TimezoneOutOfRange(i64),
-                    UnknownColour(i64), KeyFileMissing, UnknownElement(String), RenamedDuplicate(String) }
-pub struct FzImportOptions { pub import_passwords: bool /* default true */, pub today: Date }
+                    UnknownColour(i64), KeyFileMissing, UnknownElement(String), RenamedDuplicate(String),
+                    /// FileZilla's offset converted with this device's UTC offset (see mapping).
+                    TimezoneConverted { filezilla: i64, stored: i32 } }
+pub struct FzImportOptions {
+    pub import_passwords: bool,            // default true
+    pub today: Date,
+    /// This device's current UTC offset in minutes (`time::UtcOffset::current_local_offset`,
+    /// 0 if unknown); injectable for tests. Used for TimezoneOffset conversion.
+    pub local_utc_offset_minutes: i32,
+}
 pub fn plan_filezilla(doc: &FzDocument, opts: &FzImportOptions, taken_root_names: &[&str]) -> ImportPreview;
 /// Writes the preview into `at` in ONE vault transaction (all or nothing).
 pub async fn apply_import(mgr: &SiteManager, preview: ImportPreview, at: Location) -> Result<ImportReport, Error>;
@@ -122,13 +130,13 @@ FileZilla source of the version used for the fixture before this task is closed 
 | `Host` | host | `host` (trimmed; `[…]` stripped for IPv6) |
 | `Port` | port, `0`/absent = default | `port` (`None` for 0 or the protocol default) |
 | `Protocol` ⚠ | `0` FTP (explicit TLS if available), `1` SFTP, `2` HTTP, `3` FTPS implicit, `4` FTPES explicit required, `5` HTTPS, `6` insecure FTP, `7+` S3, Storj, WebDAV, cloud protocols | `0` → `ftp` + `explicit-if-available`; `1` → `sftp`; `3` → `ftp` + `require-implicit`; `4` → `ftp` + `require-explicit`; `6` → `ftp` + `plain-only`; `2`, `5`, `≥ 7` → skipped `UnsupportedProtocol(n)`; absent → `0` |
-| `Type` ⚠ | server type: `0` default, `1` Unix, `2` VMS, `3` DOS, `4` MVS, `5` VxWorks, `6` z/VM, `7` HP NonStop, `8` DOS virtual, `9` Cygwin, `10` DOS forward slashes | `0` auto, `1` unix, `2` vms, `3` dos, `4` mvs, `8` dos, `9` unix; `5` → unix, `10` → dos, `6`/`7` → auto, each with `ServerTypeApproximated(n)`; other → auto + note |
+| `Type` ⚠ | server type: `0` default, `1` Unix, `2` VMS, `3` DOS, `4` MVS, `5` VxWorks, `6` z/VM, `7` HP NonStop, `8` DOS virtual, `9` Cygwin, `10` DOS forward slashes | T02 `ServerTypeOverride` has only `Auto, Unix, Dos, Vms, Mvs`: `0` auto, `1` unix, `2` vms, `3` dos, `4` mvs, `8` dos, `9` unix; `10` → dos, `5`/`6`/`7` → unix, each with `ServerTypeApproximated(n)`; other → unix + note |
 | `Logontype` ⚠ | `0` anonymous, `1` normal, `2` ask for password, `3` interactive, `4` account, `5` key file, `6` profile (S3 only) | `anonymous`, `normal`, `ask-for-password`, `interactive`, `account`, `key-file`; `6` or other → site skipped `Invalid("unsupported logon type")`; logon invalid for the protocol (e.g. `account` on SFTP) → `normal` + note |
 | `User` | user name | `user` |
 | `Pass` | password; attribute `encoding="base64"` (FileZilla ≥ 3.26), no attribute (older, plain text), `encoding="crypt"` with `pubkey` (protected by FileZilla's master password) | base64 → decode → UTF-8 → `password`; plain → `password`; `crypt` → not imported, note `PasswordProtectedByMasterPassword`, logon `normal` → `ask-for-password`; invalid base64 or UTF-8 → note `PasswordNotUtf8`, same fallback. With `import_passwords = false` no password is imported |
 | `Account` | account (FTP `ACCT`) | `account` |
 | `Keyfile` | private key path | `key_file` as written (not read); missing on this device → note `KeyFileMissing` |
-| `TimezoneOffset` ⚠ | server time zone offset in minutes | `timezone_offset_minutes`; outside ±1440 → 0 + note |
+| `TimezoneOffset` ⚠ | minutes FileZilla **adds** to listing times parsed as the client's local time | converted to T31/T13's convention (server's UTC offset; utc = server time − offset): `stored = local_utc_offset_minutes − TimezoneOffset`; absent or `0` → `0` (Auto-like: no conversion, no note); non-zero → converted + note `TimezoneConverted` (the device's DST state at import time is used); result outside ±1440 → 0 + note `TimezoneOutOfRange` |
 | `PasvMode` | `MODE_DEFAULT`, `MODE_ACTIVE`, `MODE_PASSIVE` | `transfer_mode` `default` / `active` / `passive`; other → default |
 | `MaximumMultipleConnections` | `0` = no limit, else 1–10 | `0` → `None`; 1–10 → `Some(n)`; > 10 → 10 + note |
 | `EncodingType` + `CustomEncoding` | `Auto`, `UTF-8`, `Custom` + label | `auto`, `utf-8`, `Charset::from_label(label)`; unknown label → auto + note `UnknownCharset` |
@@ -188,7 +196,8 @@ and `apply_import` writes it in one transaction with new ids.
 **FileZilla XML export** (`export_filezilla_xml`): writes `<?xml version="1.0"
 encoding="UTF-8"?><FileZilla3><Servers>…</Servers></FileZilla3>` (no `version` attribute)
 with the inverse of the mapping table: `Protocol` 0/1/3/4/6 from protocol + encryption, `Type`
-0–4, `Logontype` from logon (`normal` and `account` → `2` because no password is written;
+0–4, `TimezoneOffset = local_utc_offset_minutes − timezone_offset_minutes` (omitted when the
+site's offset is 0), `Logontype` from logon (`normal` and `account` → `2` because no password is written;
 `agent` → `2` with a note; `key-file` → `5` + `Keyfile`), no `Pass` element, `RemoteDir` as
 `1 0 …` (Unix-like types) or `3 0 …` (dos), bookmarks as `<Bookmark>`; text escaped with the five
 XML entities; control characters other than tab/newline dropped with a note. Never includes
@@ -213,7 +222,8 @@ Plain courier-ftp export (`.json`):
                        "sync_browsing": false, "directory_comparison": false } ] } ] } }
 ```
 
-Encrypted export (`.cftp-sites`): T30 container JSON with `"format": "courier-ftp-sites"`,
+Encrypted export (`.cftp-sites`): the T30 backup container format (no separate magic header
+or binary prefix) with `"format": "courier-ftp-sites"`,
 `version` 1, KDF header, `nonce_b64`, `ciphertext_b64`; AAD `courier-ftp-sites-v1`;
 plaintext `zstd_level3(cbor(SitesPayload))` where secret-bearing sites additionally carry
 `"password"`, `"account"`, `"key_passphrase"` and `"ssh_key": { label, algorithm, format,
@@ -293,12 +303,18 @@ No settings keys.
 - [ ] AC8 Import of 10 000 sites completes (parse + plan + apply with `Argon2Cost::TEST`) in
   < 5 s in release mode (`benches/import.rs::filezilla_import_10k`).
 - [ ] AC9 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `fuzz`, `canary` pass.
+- [ ] AC10 `TimezoneOffset` is converted with `stored = local_utc_offset_minutes −
+  TimezoneOffset` on import and inverted on XML export (round trip with the same device
+  offset is identity); every FileZilla server type maps to one of the five
+  `ServerTypeOverride` values.
 
 ## Tests
 
 ### Unit tests
 - `filezilla::tests::protocol_mapping_table`, `logontype_mapping_table`,
   `server_type_mapping_table`, `colour_mapping_table`, `pasv_mode_mapping` — one row per code (AC1).
+- `filezilla::tests::timezone_offset_conversion` — device offset +120, FileZilla −120 →
+  stored 240; FileZilla 0 → 0; export of 240 with device +120 writes −120 (AC10).
 - `filezilla::tests::{pass_base64, pass_plain_legacy, pass_crypt_becomes_ask, pass_invalid_base64}` (AC1).
 - `filezilla::tests::{folder_mixed_content_name, legacy_server_text_name, unknown_elements_noted,
   duplicate_names_renamed}`.

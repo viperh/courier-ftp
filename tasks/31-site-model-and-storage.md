@@ -15,7 +15,8 @@ receives. Sites survive restarts, sync between devices (T88) and can be shared i
 
 - Before: T02 (`Protocol`, `FtpEncryption`, `ServerAddress`, `LogonType`, `LogonKind`,
   `KeySource`, `Charset`, `ServerTypeOverride`, `RemotePath`, `LocalPath`, `Error`),
-  T03 (`ConnectInfo`, `BackendFactory`), T30 (`VaultEngine`: `list`/`get`/`put`/`delete_many`/
+  T03 (`ConnectInfo` with its field names, `TransferModeOverride`, `ProxyChoice`,
+  `BackendFactory`), T30 (`VaultEngine`: `list`/`get`/`put`/`delete_many`/
   `get_body`/approvals, device-local helpers, `VaultChange`), T81 (`ItemView`, `FieldWriter`,
   `SecretField`, the `site` / `site-folder` / `credential-override` field tables, `SshKeyItem`,
   `ProxyCredentialItem`), T82 (`device_local.local_dir_override`, `tree_expanded`).
@@ -41,17 +42,17 @@ pub type FolderId = ItemId;
 #[serde(rename_all = "kebab-case")]
 pub enum SiteColor { #[default] None, Red, Green, Blue, Yellow, Cyan, Magenta, Orange }
 
-/// Transfer settings tab: Default = global `ftp.transfer_mode` (T05).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SiteTransferMode { #[default] Default, Active, Passive }
+// Transfer settings tab: T03's `TransferModeOverride { Default*, Active, Passive }`
+// (Default = global `ftp.transfer_mode`, T05); not redefined here.
 
 /// One Site Manager entry (`site` item, T81 field table). No Clone (secrets): use `duplicate()`.
 pub struct Site {
     pub name: String,
     pub parent: Option<FolderId>,
     // General tab
-    pub protocol: Protocol,
+    pub protocol: Protocol,                // T02: Ftp | Sftp
+    /// FTP encryption mode (T02). Always `ExplicitIfAvailable` for SFTP sites (normalised on
+    /// write, ignored on read) — see "Protocol and encryption" below.
     pub encryption: FtpEncryption,
     pub host: String,
     pub port: Option<u16>,
@@ -66,14 +67,17 @@ pub struct Site {
     pub color: SiteColor,
     pub comments: String,
     // Advanced tab
+    /// T02 `ServerTypeOverride { Auto, Unix, Dos, Vms, Mvs }` — exactly these five.
     pub server_type: ServerTypeOverride,
     pub bypass_proxy: bool,
     pub remote_dir: Option<RemotePath>,
     pub sync_browsing: bool,
     pub directory_comparison: bool,
+    /// The server's UTC offset for LIST times, −1440..=1440 (T13 convention:
+    /// utc = server_local_time − offset). T32 converts FileZilla's value on import.
     pub timezone_offset_minutes: i32,
     // Transfer settings tab
-    pub transfer_mode: SiteTransferMode,
+    pub transfer_mode: TransferModeOverride,     // T03
     pub connection_limit: Option<u8>,
     // Charset tab
     pub charset: Charset,
@@ -251,9 +255,23 @@ valid for the protocol (`LogonType::is_valid_for`: `anonymous`/`account` FTP onl
 `key-file`/`agent` SFTP only); switching protocol in the editor resets an invalid logon to
 `normal` (T59).
 
+**Protocol and encryption** (one consistent encoding, used by T32 import and T59's
+`ProtocolChoice::apply`): the site stores `protocol` (T02 `Protocol`: `ftp` | `sftp`) and
+`encryption` (T02 `FtpEncryption`). The UI's five choices map as: SFTP → (`Sftp`,
+`ExplicitIfAvailable`, ignored); FTP "Only use plain FTP" → (`Ftp`, `PlainOnly`); FTP "Use
+explicit FTP over TLS if available" → (`Ftp`, `ExplicitIfAvailable`); FTP "Require explicit
+FTP over TLS" → (`Ftp`, `RequireExplicit`); FTP "Require implicit FTP over TLS" → (`Ftp`,
+`RequireImplicit`). There is no FTPS protocol value; `add_site`/`update_site` normalise
+`encryption` to `ExplicitIfAvailable` for SFTP, so the two fields can never disagree.
+
+**Server type**: `ServerTypeOverride` has exactly `Auto, Unix, Dos, Vms, Mvs`. FileZilla's
+other server types are mapped by T32 on import (DOS variants → `Dos`; VxWorks, z/VM,
+HP NonStop, Cygwin → `Unix`; each with an import note); T14 treats every server that is not
+DOS/VMS/MVS as Unix.
+
 **Saving passwords**: with `vault.store_passwords = false` T30 never writes secret fields, and
 `connect_info` treats any stored password, account and key passphrase as absent (`Normal`
-behaves like `AskForPassword`; the backend prompts, T04 `Prompt::Password`).
+behaves like `AskForPassword`; the backend prompts with T04 `PromptKind::Password`).
 
 **SSH keys in the vault**: `key_file` is a path on the device (synced as typed, `~` expanded at
 connect time on each device); `ssh_key_id` references an `ssh-key` item (T81) so a key-file site
@@ -280,13 +298,17 @@ by header line, takes the public key from an unencrypted key or a sibling `.pub`
    `KeySource::Path(expand_tilde(key_file))`, passphrase from the `ssh-key` item or
    `key_passphrase`; `Account { password, account }`; `Agent`. A missing `ssh-key` item falls
    back to `key_file`; neither → `Error::InvalidInput("the site has no key file")`.
-5. Fill the remaining `ConnectInfo` fields (T03): charset, `server_type`, timezone offset,
-   transfer mode (`Default` → `settings.ftp.transfer_mode`), connection limit (`None` → global
-   limits, T41), proxy choice (`bypass_proxy` → no proxy; else T05 `proxy.*` with the password
-   from the `proxy-credential` item referenced by `credential_id`, absent when missing or
-   locked), `try_agent_first`.
-6. `initial_local_dir` = device-local default local dir; `initial_remote_dir` = `remote_dir`;
-   flags and colour copied.
+5. Fill the remaining `ConnectInfo` fields (T03 names): `label` (site name), `site_id:
+   Some(id)`, `charset`, `server_type`, `timezone_offset_minutes`, `transfer_mode`
+   (`TransferModeOverride` copied; `Default` is resolved against `ftp.transfer_mode` by T11),
+   `limit_connections` (`connection_limit`; `None` → global limits, T41), `proxy`
+   (`bypass_proxy` → `ProxyChoice::Bypass`, else `Default`), `proxy_password` (the
+   `proxy-credential` item referenced by `settings.proxy.generic.password_ref`) and
+   `ftp_proxy_password` (`settings.proxy.ftp_proxy.password_ref`), each `None` when missing
+   or locked, `initial_remote_dir` (= `remote_dir`), `try_agent_first`. Then
+   `ConnectInfo::validate()`.
+6. `initial_local_dir` = device-local default local dir; `ResolvedSite.initial_remote_dir` =
+   `remote_dir`; flags and colour copied.
 After a successful login the caller (T58/T61) calls `mark_connected(id)`
 (`device_local.last_connected_at`, frecency).
 
@@ -327,7 +349,7 @@ Settings read: `vault.store_passwords` (T30), `ftp.transfer_mode`, `proxy.generi
 | `Error::InvalidInput(msg)` | validation, name clash, move into descendant, missing key | inline field message |
 | `Error::VaultLocked` | any operation while locked | "Unlock the vault to view sites" |
 | `Error::Vault(msg)` from `ReadOnlyVault` / `ReadOnlyItem` | editing team `read` sites or newer-schema sites | fields disabled, lock icon |
-| `Error::Vault(msg)` from `CrossVaultReference` | `ssh_key_id` into another vault | inline on the key field |
+| `Error::InvalidInput(msg)` from `CrossVaultReference` (T30 mapping) | `ssh_key_id` into another vault | inline on the key field |
 | `Error::NotFound`-style `InvalidInput("site not found")` | stale id (deleted on another device) | toast, tree refresh |
 
 ### Security and logging
@@ -343,8 +365,8 @@ Settings read: `vault.store_passwords` (T30), `ftp.transfer_mode`, `proxy.generi
 
 ## Implementation steps
 
-1. `model.rs`: `Site`, `SiteFolder`, `CredentialOverride`, `SiteColor`, `SiteTransferMode`,
-   `ItemView` impls (+ round-trip tests), `normalize_for_logon`.
+1. `model.rs`: `Site`, `SiteFolder`, `CredentialOverride`, `SiteColor`, `ItemView` impls
+   (+ round-trip tests), `normalize_for_logon`, protocol/encryption normalisation.
 2. `validate.rs` with the table above.
 3. `tree.rs`: `SiteTree::build`, sorting, missing parents, cycle breaking, path lookup.
 4. `manager.rs`: add/update/rename/folder ops, delete, move, duplicate, copy, device-local
@@ -384,6 +406,11 @@ Settings read: `vault.store_passwords` (T30), `ftp.transfer_mode`, `proxy.generi
 - [ ] AC10 `format!("{site:?}")` of a site with canary password/account/passphrase contains
   none of them; no `info`+ log line during the integration suite contains a fixture hostname.
 - [ ] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `canary` pass.
+- [ ] AC12 An SFTP site saved with `encryption = RequireImplicit` is stored with
+  `ExplicitIfAvailable`; each of the five UI protocol choices round-trips to the documented
+  (`protocol`, `encryption`) pair; `connect_info` fills every T03 `ConnectInfo` field listed
+  in step 5 (incl. `site_id`, `limit_connections`, `proxy = Bypass`, `timezone_offset_minutes`)
+  and the result passes `ConnectInfo::validate()`.
 
 ## Tests
 
@@ -391,6 +418,7 @@ Settings read: `vault.store_passwords` (T30), `ftp.transfer_mode`, `proxy.generi
 - `model::tests::{site_roundtrip_all_fields, unchanged_put_no_stamp, unknown_site_key_survives,
   secrets_kept_on_list_view}` (AC1).
 - `model::tests::normalize_for_logon_table` — one row per logon kind (AC6).
+- `model::tests::{sftp_encryption_normalised, protocol_choice_pairs}` (AC12).
 - `validate::tests::{host_rules, port_zero, logon_protocol_matrix, timezone_bounds,
   connection_limit_bounds, charset_label, comments_size, name_rules, key_file_missing_warns}`.
 - `tree::tests::{sorted_folders_first, missing_parent_to_root, cycle_broken_at_smallest_id,
@@ -418,6 +446,8 @@ Not applicable (screens are T59).
 - `t06_store_passwords_off` (AC4).
 - `t07_local_acting_field_needs_approval` (AC5).
 - `t08_credential_override_applies_to_team_site`.
+- `t11_connect_info_fields_complete` — bypass proxy, connection limit, timezone, site id,
+  proxy passwords from `password_ref` items (AC12).
 - `t09_concurrent_edits_merge_via_sync_sim` (AC7).
 - `t10_tree_refreshes_on_items_changed` — a second engine writes a site; the tree contains it
   after the change poller fires.
@@ -439,7 +469,5 @@ Not applicable (screens are T59).
 
 ## Open questions
 
-1. `ConnectInfo`'s exact field names are owned by T03 (currently a concept list). This task
-   fills: address, logon, charset, server type, timezone offset, transfer mode, connection
-   limit, proxy choice, `try_agent_first`. T03's owner should confirm the names and that
-   `try_agent_first` is part of `ConnectInfo` (T20 reads it).
+None. (Resolved: `ConnectInfo` field names follow T03, including `try_agent_first`;
+`ServerTypeOverride` has five values; the timezone offset convention is T13's.)

@@ -259,8 +259,11 @@ CREATE INDEX outbox_vault_id ON outbox(vault_id);
 | `device_id` | 16 bytes (UUIDv7) | T30 |
 | `db_id` | UUIDv7 text, hyphenated | T30 |
 | `hlc_last` | u64 BE | T30 |
-| `vault_name_enc/<uuid>`, `vault_permission/<uuid>` | as sverb data-model §3 | T89 |
-| `account/*` | defined by T87 | T87 |
+| `vault_name_enc/<uuid>` | team vault name, AEAD under the vault's VK (as sverb data-model §3) | T89 |
+| `vault_permission/<uuid>` | text `read` \| `write` \| `manage` | T89 |
+| `rotation:<uuid>` | CBOR rotation-resume state `{new_key_version, vk_new_wrapped, uploaded: [16-byte ids], started_at}` sealed with T80 `wrap(LMK, WrapPurpose::VaultKey(vault))`; present only while a key rotation is unfinished | T89 |
+| `account` | JSON `{"user_id","email","key_version","is_instance_admin"}` (no secret) | T87 |
+| `account_keys_enc` | CBOR `{x25519_sk, ed25519_sk}` AEAD under `HKDF(LMK, "courier-ftp/local-account-keys/v1")` | T87 |
 
 Later schema changes are new files `0002_*.sql`, … (append-only; never edit a released
 migration). `SCHEMA_VERSION` = number of files.
@@ -341,6 +344,10 @@ database path appears in `Corrupt` messages (it is the user's own file, not a re
   a commit from the same instance.
 - [ ] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `layering`
   (`courier-ftp-store` does not depend on `courier-ftp-core`, ratatui, crossterm or clap) pass.
+- [ ] AC12 `pinned_keys` (sverb's full table): `observe_pin` of a new key pins it unverified;
+  `set_verified` sets `verified`/`verified_at`; a different key for a pinned user is stored in
+  the `changed_*` columns (pending) without replacing the pin, and `accept_key_change` moves it
+  over and clears `verified`; partially set `changed_*` columns read as `Corrupt`.
 
 ## Tests
 
@@ -376,7 +383,7 @@ Not applicable.
 - `t14_sync_state_singleton` — second insert replaces, `CHECK (id = 1)`.
 - `t15_file_modes` (Unix only) (AC8).
 - `meta_and_device_local`, `device_blobs_roundtrip_and_size_limit`.
-- `tests/pins.rs`, `tests/approvals.rs` — sverb's cases with `Id16`.
+- `tests/pins.rs`, `tests/approvals.rs` — sverb's cases with `Id16` (pins: AC12).
 - `courier-ftp-e2e/tests/workspace_metadata.rs` layering rule (AC11, T76).
 
 ### End-to-end tests

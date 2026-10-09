@@ -11,11 +11,15 @@ recommendation and an Apply/Cancel choice. Nothing is saved until the user appli
 
 ## Context
 
-- T05 defines the `ftp` settings section: `transfer_mode` (`Passive` | `Active`),
-  `fallback_to_active` (true), `active_external_ip` (`Auto` | `Fixed(IpAddr)` |
-  `FromUrl(String)`), `active_port_range` (`Option<(u16, u16)>`),
+- T05 defines the `ftp` settings section (`FtpSettings`): `transfer_mode` (`Passive` |
+  `Active`), `fallback_to_active` (true), `active_external_ip` (`Auto` | `Fixed(IpAddr)` |
+  `FromUrl(String)`; JSON `"auto"`, `{"fixed": …}`, `{"from_url": …}`),
+  `active_no_external_ip_on_local` (true), `active_port_range` (`Option<PortRange>`),
   `passive_ignore_unroutable_ip` (true), plus `connection.timeout_secs` (20) and
-  `Settings::save_user`. This document calls the section's type `FtpSettings`.
+  `SettingsStore::update` (validate, save, publish). T11 honours
+  `active_no_external_ip_on_local`.
+- T07 provides `connect_tcp(&HostPort, &NetOpts, CancellationToken, &SessionLog) ->
+  Result<NetStream>` and `NetOpts::from_settings`.
 - T10 provides the control connection (`ControlConnection`, login sequence, FEAT, PWD,
   `Error::Connection`/`Timeout`), T11 the data connections (EPSV/PASV/EPRT/PORT, the
   unroutable-address rule, active listener with port range, `FromUrl` lookup over plain
@@ -25,7 +29,8 @@ recommendation and an Apply/Cancel choice. Nothing is saved until the user appli
 - FileZilla tests against `probe.filezilla-project.org`; courier-ftp must not use it and
   runs no probe server of its own (see Open questions).
 - Entry points (no hard dependency): a button in Settings → Connection → FTP (T68) and the
-  `Action::NetworkWizard` action listed in the help overlay (T50).
+  `Action::NetworkWizard` action, bound to `Ctrl-x N` in T51's `Ctrl-x` prefix table
+  (owner T72) and listed in the help overlay (T50).
 
 ## Technical specification
 
@@ -38,7 +43,7 @@ recommendation and an Apply/Cancel choice. Nothing is saved until the user appli
 #[derive(Debug)]
 pub struct ProbeRequest {
     /// Server to test against (from a site, the current tab or typed in the wizard).
-    pub info: ConnectInfo,
+    pub info: Arc<ConnectInfo>,
     /// The settings being edited in the wizard.
     pub ftp: FtpSettings,
     /// Network options (timeouts, proxy, IPv6 preference) from `Settings`.
@@ -145,7 +150,7 @@ pub(crate) enum WizardPage { Intro, Mode, Passive, Active, Target, Running, Resu
 
 pub(crate) enum TestTarget {
     /// The current tab's FTP/FTPS connection info (pre-selected when present).
-    CurrentTab(ConnectInfo),
+    CurrentTab(Arc<ConnectInfo>),
     /// A saved FTP/FTPS site (needs the vault unlocked).
     Site(ItemId),
     /// Typed in: host, port, encryption, anonymous or user + password (never saved).
@@ -153,7 +158,7 @@ pub(crate) enum TestTarget {
 }
 ```
 
-New `Action::NetworkWizard` opens it.
+New `Action::NetworkWizard` opens it (default key `Ctrl-x N`, T51).
 
 ### Behaviour
 
@@ -174,20 +179,23 @@ New `Action::NetworkWizard` opens it.
   are unavailable are disabled with the reason (`Not an FTP connection`, `Unlock the vault
   to choose a saved site`). SFTP sites are not listed.
 - Validation before leaving a page (inline errors, T52): fixed IP parses as `IpAddr`
-  and is not unspecified/multicast; URL is `http://` or `https://` with a host, ≤ 2 048
-  chars; port range `1024 ≤ from ≤ to ≤ 65535`; manual host non-empty, port 1–65535.
+  and is not unspecified/multicast; URL is `http://` or `https://` with a host, ≤ 512
+  chars (T05 rule); port range `1024 ≤ from ≤ to ≤ 65535`; manual host non-empty, port
+  1–65535.
 - Back from Results/Summary keeps the report; changing any setting after a test marks the
   results "outdated (settings changed)".
-- Cancel (`Esc` or button) with a modified draft asks "Discard changes?"; the draft is
-  dropped and nothing is written. While Running, `Esc` = Cancel test (token cancelled,
+- Cancel (`Esc` or button) with a modified draft asks "Discard changes?"
+  (`ConfirmOpts::danger("Discard")`, T52); the draft is dropped and nothing is written. While Running, `Esc` = Cancel test (token cancelled,
   back to page 5 within 1 s).
-- Apply: `Settings.ftp = draft`, `Settings::save_user` (T05), status message
-  `Network settings saved; they apply to new connections`. Live sessions are not changed.
+- Apply: `SettingsStore::update(|s| s.ftp = draft)` (T05: validate, `save_user`,
+  publish), status message `Network settings saved; they apply to new connections`. Live
+  sessions are not changed.
 
 **Probe procedure** (sequential; each step's outcome is sent on `progress` as it changes):
 
-1. **Connect** — `net::connect_tcp` to the target (with the generic proxy unless the
-   target bypasses it), greeting, implicit/explicit TLS per `info` (T12, including the
+1. **Connect** — `connect_tcp(&HostPort, &NetOpts, cancel, &log)` (T07; `NetOpts` from
+   `NetOpts::from_settings`, with the generic proxy unless the target bypasses it),
+   greeting, implicit/explicit TLS per `info.address.encryption` (T12, including the
    certificate trust prompt via T04). Failure → `Failed(CannotReachServer | TlsFailed)`,
    all remaining steps `Skipped`, recommendation `Inconclusive`.
 2. **Login** — T10 login. Failure → `Failed(LoginFailed)`, rest skipped, `Inconclusive`.
@@ -263,26 +271,30 @@ detail `Timeout`, the rest `Skipped`. Cancellation marks the running step and th
 
 ### Data formats and configuration
 
-Existing keys (T05) edited by the wizard: `ftp.transfer_mode`, `ftp.fallback_to_active`,
-`ftp.active_external_ip`, `ftp.active_port_range`, `ftp.passive_ignore_unroutable_ip`.
+Keys (all registered in T05) edited by the wizard:
 
-New key added by this task to `Settings.ftp` (T05 §1c pattern) and honoured by T11's
-active mode:
-
-| Key | Type | Default | Meaning |
-|---|---|---|---|
-| `ftp.active_no_external_ip_on_local` | bool | `true` | FileZilla's "Don't use external IP address on local connections": when the server's address is private, loopback or link-local, active mode sends the control socket's local address instead of the external one. |
+| Key | Type | Default |
+|---|---|---|
+| `ftp.transfer_mode` | `FtpTransferMode` (`passive` \| `active`) | `passive` |
+| `ftp.fallback_to_active` | bool | `true` |
+| `ftp.active_external_ip` | `ActiveExternalIp` (`"auto"`, `{"fixed": ip}`, `{"from_url": url}`) | `auto` |
+| `ftp.active_no_external_ip_on_local` | bool | `true` — FileZilla's "Don't use external IP address on local connections": when the server's address is private, loopback or link-local, active mode sends the control socket's local address (T11 implements it) |
+| `ftp.active_port_range` | `Option<PortRange>` | `null` |
+| `ftp.passive_ignore_unroutable_ip` | bool | `true` |
 
 The `FromUrl` string has no default (the user must enter a URL; see Open questions).
 
 ### Errors
 
 All probe failures are step outcomes, never `Err`: `Error::Connection`, `Error::Timeout`
-→ `CannotReachServer`/`PassiveBlocked`/`IncomingBlocked` by step; `Error::Auth` →
+→ `CannotReachServer`/`PassiveBlocked`/`IncomingBlocked` by step; `Error::Proxy` and
+`Error::ConnectionLimit` at Connect/Login → `CannotReachServer` (detail shows the error
+text); `Error::Auth` →
 `LoginFailed`; `Error::Tls` → `TlsFailed`; `Error::Protocol { code, .. }` → the step's
 reply-based hint with `ProbeDetail::Reply`; `Error::Unsupported` (active via proxy) →
 `ActiveThroughProxy`; `Error::Cancelled` → `Cancelled`. A failure to save settings on
-Apply shows the T52 error dialog and keeps the wizard open with the draft intact.
+Apply (`Error::Io` / `Error::InvalidInput` from `SettingsStore::update`) shows the T52
+error dialog and keeps the wizard open with the draft intact.
 
 ### Security and logging
 
@@ -302,15 +314,15 @@ Apply shows the T52 error dialog and keeps the wizard open with the draft intact
 
 ## Implementation steps
 
-1. Add `ftp.active_no_external_ip_on_local` to `Settings.ftp` with docs, default and
-   validation; honour it in T11's active-mode address selection. Unit test.
+1. (`ftp.active_no_external_ip_on_local` already exists in T05 and is honoured by T11.)
+   Wizard draft type and page validation helpers with unit tests.
 2. `probe` module: types, `recommend`, and `run_probe` steps Connect → Features against
    the scripted fake server harness of T10.
 3. Passive steps (EPSV, PASV + unroutable rule) with explicit `DataChannelMode`.
 4. ExternalIp and Active steps (listener, port range, EPRT/PORT, accept, peer check),
    whole-probe timeout and cancellation.
 5. Wizard component: pages 1–5 and 8 with draft handling, validation and Apply/Cancel;
-   `Action::NetworkWizard`; Settings → FTP button.
+   `Action::NetworkWizard` (`Ctrl-x N`); Settings → FTP button.
 6. Running and Results pages wired to `run_probe` (progress channel → actions), "Use
    recommended settings", "Test again".
 7. Snapshot tests for all pages; e2e tests against the vsftpd profiles.
@@ -321,13 +333,13 @@ Apply shows the T52 error dialog and keeps the wizard open with the draft intact
   the draft and leaves the user config file byte-identical.
 - [ ] AC2 Invalid inputs (bad IP, non-http URL, port range `5000..4000`, `80..90`) block
   Next with an inline error.
-- [ ] AC3 Apply writes exactly the changed `ftp.*` keys via `Settings::save_user`.
-- [ ] AC4 Against vsftpd profile `plain`: Connect, Login, PASV (and EPSV if advertised),
+- [ ] AC3 Apply writes exactly the changed `ftp.*` keys via `SettingsStore::update`.
+- [ ] AC4 Against the `vsftpd-plain` profile (T76): Connect, Login, PASV (and EPSV if advertised),
   ExternalIp and Active are ✔ and the recommendation is `Passive`.
-- [ ] AC5 Against `passive-unroutable`: with the option off, PASV is ✘ with
+- [ ] AC5 Against `vsftpd-pasv-unreachable` (`pasv_address=10.255.255.1`): with the option off, PASV is ✘ with
   `EnableIgnoreUnroutable` and the recommendation is `PassiveIgnoreUnroutable`; with it
   on, PASV is ✔ and the detail shows both addresses.
-- [ ] AC6 Against `active-only`: passive ✘, Active ✔, recommendation `Active`.
+- [ ] AC6 Against `vsftpd-active-only`: passive ✘, Active ✔, recommendation `Active`.
 - [ ] AC7 A blocked active connection is reported ✘ with the right hint: fixed external
   IP `192.0.2.1` against vsftpd → `ServerRejectedPort`; a fake server that never connects
   back → `IncomingBlocked` within `timeout_secs + 1` s.
@@ -349,7 +361,8 @@ Apply shows the T52 error dialog and keeps the wizard open with the draft intact
 - `ip_lookup_body_parsing` — `"203.0.113.9\n"` ok; 65-byte body, HTML, wrong family rejected (AC9).
 - `wizard_page_order_and_back` — Next/Back sequence through all pages with synthetic keys (AC1).
 - `wizard_cancel_discards_draft` — config file hash unchanged (AC1).
-- `wizard_validation_blocks_next` — each invalid input from AC2 (AC2).
+- `wizard_validation_blocks_next` — each invalid input from AC2, plus a 513-char URL (AC2).
+- `ctrl_x_n_opens_wizard` — keymap dispatch of `Ctrl-x N` → `Action::NetworkWizard` (AC1).
 - `wizard_apply_writes_only_changed_keys` — temp config dir, JSON diff (AC3).
 - `results_marked_outdated_after_setting_change` (AC1).
 
@@ -373,7 +386,7 @@ In-process fake FTP server on `127.0.0.1` (real sockets, T10/T11 harness):
 container to reach the test host over the Docker bridge; the test connects to the
 container's bridge IP, not a mapped localhost port):
 - `e2e_wizard_probe_vsftpd_plain` (AC4).
-- `e2e_wizard_probe_vsftpd_passive_unroutable` (AC5).
+- `e2e_wizard_probe_vsftpd_pasv_unreachable` (AC5).
 - `e2e_wizard_probe_vsftpd_active_only` (AC6).
 - `e2e_wizard_probe_vsftpd_bad_external_ip` — `Fixed(192.0.2.1)` → `ServerRejectedPort` (AC7).
 - `e2e_wizard_pty_flow` — `PtyApp`: open the wizard from Settings, pick "Other server", run the test, Apply; the user config contains the new `ftp.transfer_mode` (AC1, AC3).

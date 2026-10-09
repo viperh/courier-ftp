@@ -20,10 +20,12 @@ prompt. Typed secrets are zeroized, never rendered and never logged.
 persisted in `meta`, zxcvbn check with `MIN_SCORE = 3`, keyring under service
 `courier-ftp`, account `lmk-kek:<db_id>`), `VaultStatus { Uninitialised, Locked,
 Unlocked }`, the secret types (`SecretString`, `Key32`) and the auto-lock rules
-(`vault.auto_lock_minutes`, lock on suspend, `vault.lock_disconnects`). T50 delivers
-the main screen, modal stack, input routing and `Tick`. T52 delivers dialogs, the
-masked `TextInput` and `confirm`. T57 (M1) delivers `Symbols`, the status bar's
-`VaultIndicator` and `Action::StatusMessage`.
+(`vault.auto_lock_minutes`, lock on suspend, `vault.lock_disconnects`),
+`VaultError::UnlockInProgress` (a second unlock while one runs),
+`move_database_aside(path) -> io::Result<PathBuf>` and the `NO_RECOVERY_WARNING` text.
+T50 delivers the main screen, modal stack, input routing, `Tick`, `ui::symbols::Symbols`
+and `ui::text::sanitize`. T52 delivers dialogs, the masked `TextInput` and `confirm`.
+T57 (M1) delivers the status bar's `VaultIndicator` and `Action::StatusMessage`.
 
 **Later tasks need from it:** T58/T59/T64 (offer unlock when the vault is locked),
 T61/T62 (tabs and dialogs are hidden behind the lock overlay), T68 (Settings →
@@ -95,6 +97,9 @@ pub enum UnlockFailure {
     Keyring(String),
     /// (courier) SQLite busy after `busy_timeout` (another courier-ftp writing).
     Busy,
+    /// T30 `VaultError::UnlockInProgress`: another unlock (e.g. the keyring attempt at
+    /// startup) is still running; the form stays busy and the request is not retried.
+    InProgress,
     Other(String),
 }
 
@@ -151,10 +156,8 @@ pub struct VaultUi {
 
 /// sverb's constant, adapted.
 pub const DISCARDED_FORMS: &str = "Unsaved changes were discarded when the vault locked";
-/// Shown on first run and in Settings → Security (courier wording).
-pub const NO_RECOVERY_WARNING: &str = "There is no way to recover this password. If you forget it, \
-    your saved sites and passwords are lost unless you enable keyring unlock or set up a sync \
-    account (which gives you a recovery key).";
+/// Shown on first run and in Settings → Security: T30's constant, not redefined here.
+pub use courier_ftp_core::vault::NO_RECOVERY_WARNING;
 
 impl App {
     pub fn with_vault(self, opts: VaultStartOptions) -> Self;   // starts Locked + Starting
@@ -222,7 +225,7 @@ in `spawn_blocking` inside the engine; the UI never awaits them. The service sen
 #### While locked (sverb `vault_on_input`)
 
 - Every key and paste goes to the vault screen; mouse is off (D7). Nothing reaches
-  panes, dialogs or the keymap, except the **Quit** binding (T51 `Quit`: `Ctrl-q`/`F10`):
+  panes, dialogs or the keymap, except the **Quit** binding (T51 `Quit`: `ctrl-q`/`f10`):
   no active transfers → quit at once (a confirmation could not be answered behind the
   lock); active transfers → the form shows `Transfers are running. Press Ctrl-q again
   within 3 s to quit.` and a second press within 3 s quits.
@@ -267,7 +270,7 @@ Options shown only when they exist on this device; keys pick them:
 | `k` | Unlock with the system keyring, then set a new master password | `keyring_enabled` | sverb: `recovering = true`, `Unlock(Keyring)`; on success `ChangePasswordForm::recovery()` (no current password); on failure back to `Unlock` with the keyring error |
 | `s` | Use the 24-word recovery key of your sync account | `sync_account` and feature `sync` | opens T90's recovery screen (code + 24 words + new password, T87 §7) |
 | `b` | Restore from a backup file (`.cftp-backup`) | T73 available | T73 import in "restore into a new vault" mode (current DB moved aside first) |
-| `n` | Start a new, empty vault | always | `NewVaultConfirm`: user types `NEW VAULT`; effect `StartNewVault` → service closes the engine and renames `courier-ftp.db`, `-wal`, `-shm` to `courier-ftp.db.old-YYYYMMDD-HHMMSS` (never deletes), then `Status { initialized: false }` → `FirstRun`; Info message names the kept file |
+| `n` | Start a new, empty vault | always | `NewVaultConfirm`: user types `NEW VAULT`; effect `StartNewVault` → service drops the engine and calls T30 `move_database_aside(path)` (renames `courier-ftp.db`, `-wal`, `-shm` to `courier-ftp.db.bak-YYYYMMDD-HHMMSS`, never deletes), then `Status { initialized: false }` → `FirstRun`; Info message names the returned file |
 | `Esc` | back to `Unlock` | | |
 
 When neither keyring nor sync account exists the screen first explains that the
@@ -290,7 +293,7 @@ enrolment failure after creation is a note on `Unlocked`, not an error.
 
 #### Lock (sverb `lock_vault`)
 
-Triggers: `LockVault` action (`Ctrl-x Ctrl-l`, T30/T51), the auto-lock timer, resume
+Triggers: `LockVault` action (`ctrl-x ctrl-l`, T30/T51), the auto-lock timer, resume
 from system sleep when `vault.lock_on_suspend` (detected on `Tick`: wall-clock advance
 minus monotonic advance > 30 s), `Suspend` (`Ctrl-z`) when `vault.lock_on_suspend`
 (lock before suspending), and `VaultEvent::LockRequested`. Steps, in order:
@@ -700,12 +703,13 @@ password and `Enter` (no panic at any size). ASCII mode replaces `🔒` with `[l
 | `vault.lock_on_suspend` | bool | `true` | sleep/resume and `Ctrl-z` |
 | `vault.lock_disconnects` | bool | `false` | close sessions on lock |
 | `vault.store_passwords` | bool | `true` | T30/T31; shown in Settings → Security |
-| `vault.argon2_cost` | preset | T30 default | T30 defines presets; T68 shows measured unlock time |
+| `vault.argon2_cost` | `light` \| `standard` \| `strong` | `standard` | T05 `Argon2Preset`; T30 `Argon2Cost::from_preset`; applied on the next password unlock or change; T68 shows measured unlock time |
 | env `COURIER_FTP_KEYRING` | `off` | unset | disables keyring use (CI canary job, T00) |
 | CLI `--no-vault`, `--no-keyring` | flags | — | T70 |
 
 Keyring entry: service `courier-ftp`, account `lmk-kek:<db_id>` (T30). Moved-aside
-database name: `courier-ftp.db.old-YYYYMMDD-HHMMSS` (+ `-wal`, `-shm` with the same suffix).
+database name (T30 `move_database_aside`): `courier-ftp.db.bak-YYYYMMDD-HHMMSS` (+ `-wal`,
+`-shm` with the same suffix).
 
 ### Errors
 
@@ -715,9 +719,10 @@ database name: `courier-ftp.db.old-YYYYMMDD-HHMMSS` (+ `-wal`, `-shm` with the s
 | backoff active | `UnlockFailed(Backoff)` countdown |
 | keyring errors (`keyring::Error`) | `UnlockFailed(Keyring(msg))` → prompt + Info message |
 | SQLite busy | `UnlockFailed(Busy)` inline |
+| `VaultError::UnlockInProgress` | `UnlockFailed(InProgress)`: form stays `Unlocking…`, the first attempt's result decides |
 | weak password on create/change | inline `Too weak (<label>): <feedback>` |
 | tampered `meta.kdf` / corrupt DB | `UnlockFailed(Other("The vault database is damaged: <reason>"))` + Forgot screen offers restore / new vault |
-| `StartNewVault` rename failure | Error dialog `Could not move the database aside: <io error>`; nothing deleted |
+| `StartNewVault`: `move_database_aside` failure | Error dialog `Could not move the database aside: <io error>`; nothing deleted |
 | sync change-password offline | `PasswordChangeFailed` inline |
 
 ### Security and logging
@@ -797,12 +802,13 @@ real `VaultEngine` on a temp DB with `Argon2Cost::TEST` and a mock keyring):
 - `lock_discards_forms_and_toasts_after_unlock` (AC7).
 - `without_a_vault_service_nothing_changes` (`--no-vault`).
 - `continue_without_vault_runs_url_intent_and_rejects_site_intent` (AC8).
-- `start_new_vault_moves_database_aside` (AC5).
+- `start_new_vault_moves_database_aside` — calls T30 `move_database_aside`; the kept file is named `courier-ftp.db.bak-…` (AC5).
+- `unlock_in_progress_keeps_form_busy` — service answers `UnlockInProgress` to a second submit; the form stays busy and the first result is applied (AC3).
 - `password_never_appears_in_debug_output` (AC10), `canary_password_not_in_logs_or_files` (AC10).
 
 ### End-to-end tests
 - T76 PtyApp `first_run_create_vault_quit_unlock` — real binary, `COURIER_FTP_KEYRING=off`: create vault, quit, restart, wrong password, right password, panes appear.
-- T76 PtyApp `lock_and_unlock_keeps_sftp_session` against the `sshd` `password` profile: connect, `Ctrl-x Ctrl-l`, unlock, the remote pane still lists.
+- T76 PtyApp `lock_and_unlock_keeps_sftp_session` against the `sshd` `password` profile: connect, `ctrl-x ctrl-l`, unlock, the remote pane still lists.
 
 ## Out of scope
 

@@ -191,6 +191,9 @@ impl Runner {
 }
 
 // ui/theme.rs, ui/symbols.rs, ui/text.rs
+/// `ThemePreset` = T05 `settings::enums::Theme` (`default` | `high_contrast` | `monochrome`),
+/// imported under this name because `Theme` here is the resolved style table.
+pub use courier_ftp_core::settings::enums::Theme as ThemePreset;
 pub struct Theme { /* named styles, see Data formats */ }
 impl Theme {
     pub fn load(preset: ThemePreset, overrides: &HashMap<String, String>, no_color: bool)
@@ -204,6 +207,9 @@ pub use courier_ftp_core::settings::enums::UnicodeSymbols; // T05: auto | always
 #[derive(Debug, Clone, Default)]
 pub struct TermEnv { pub term: Option<String>, pub lc_all: Option<String>,
                      pub lc_ctype: Option<String>, pub lang: Option<String>,
+                     pub wt_session: bool,              // WT_SESSION set (Windows Terminal)
+                     pub term_program: Option<String>,  // TERM_PROGRAM
+                     pub no_color: bool,                // NO_COLOR set and non-empty
                      pub ssh_connection: bool, pub ssh_tty: bool, pub windows: bool }
 impl TermEnv {
     pub fn from_process() -> Self;
@@ -497,9 +503,11 @@ first, then `Normal`), as rows `keys │ action │ description`. Content comes 
 - `Symbols` (`ui/symbols.rs`): Unicode set (`┌─┐`, `▶`, `▾`/`▸`, `●`/`○`, `•`, `✓`, `⚠`,
   braille spinner `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) or ASCII set (`+-|`, `>`, `v`/`>`, `*`/`o`, `*`,
   `+`, `!`, spinner `|/-\`). `interface.unicode_symbols` (T05 `UnicodeSymbols`):
-  `always`, `never`, or `auto` = ASCII when `TERM=linux` or the first non-empty of
-  `LC_ALL`, `LC_CTYPE`, `LANG` does not contain `UTF-8`/`utf8` (case-insensitive);
-  Windows `auto` = Unicode. Other tasks add their own glyphs as fields of `Symbols`
+  `always`, `never`, or `auto` = ASCII when any of: `TERM` is `linux`, `dumb` or
+  `vt100`; on Unix the first non-empty of `LC_ALL`, `LC_CTYPE`, `LANG` is unset or does
+  not contain `UTF-8`/`utf8` (case-insensitive); on Windows neither `WT_SESSION` nor
+  `TERM_PROGRAM` is set (classic console). Otherwise Unicode. Resolved at startup and on
+  settings change. Other tasks add their own glyphs as fields of `Symbols`
   in this module (T53 file-type marks, T57 status-bar glyphs) — never a second type. ASCII mode also
   uses `BorderType::Plain` with ASCII border symbols (`ratatui::symbols::border::Set`).
 - `site_accent(SiteColor)` maps T31 site colours to the remote pane border/tab accent.
@@ -612,7 +620,7 @@ kinds T55, …) are added to the same flat map by those tasks.
 - `mode_chain_table` — `Dialog → [Dialog]`, `SiteManager → [SiteManager]`, `FileList → [FileList, Normal]`, `Normal → [Normal]`. AC5.
 - `modal_swallows_all_keys` — harness with a test modal; component key counter stays 0. AC5.
 - `input_mode_printables_to_widget_fkeys_to_global` — test text component. AC5.
-- `symbols_auto_detection_table` — `TERM=linux` → ASCII; `LANG=C` → ASCII; `LC_ALL=en_US.UTF-8` → Unicode; `LC_ALL` empty falls through to `LANG`; `always`/`never` override. AC7.
+- `symbols_auto_detection_table` — `TERM=linux`/`dumb`/`vt100` → ASCII; `LANG=C` → ASCII; unset locale → ASCII; Windows without `WT_SESSION`/`TERM_PROGRAM` → ASCII; `LC_ALL=en_US.UTF-8` → Unicode; `LC_ALL` empty falls through to `LANG`; `always`/`never` override. AC7.
 - `term_env_over_ssh` — `SSH_CONNECTION` or `SSH_TTY` set → `over_ssh()`.
 - `sanitize_plain_text_is_borrowed`, `truncate_to_width_counts_wide_chars`. AC12.
 - `theme_overrides_and_unknown_keys_warn`.

@@ -353,7 +353,7 @@ UI-flow tests with scripted keys; `MockBackend` with per-listing latency and
 ### End-to-end tests
 
 `courier-ftp-e2e` (`#[ignore]`, `COURIER_E2E=1`): `fn e2e_remote_search_and_download`
-— `Headless`/`PtyApp` against the `proftpd` profile with a seeded tree: search
+— `Headless`/`PtyApp` against the `proftpd-plain` profile (T76) with a seeded tree: search
 `Name ends with .log`, download with structure, verify files and SHA-256 locally (AC3).
 
 ## Out of scope
