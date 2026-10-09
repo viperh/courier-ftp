@@ -226,6 +226,8 @@ notify = "8.2.0"
 # FileZilla `sitemanager.xml` import (T32).
 quick-xml = "0.42.0"
 serde_json = "1.0.151"
+# Settings JSON schema (T05).
+schemars = { version = "1.2.2", features = ["uuid1"] }
 uuid = { version = "1.27.0", features = ["v4", "v7", "serde"] }
 
 # --- build scripts ---

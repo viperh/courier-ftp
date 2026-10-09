@@ -450,22 +450,22 @@ The server URL and tokens are not settings (T87 stores them in `sync_state`).
 
 ## Acceptance criteria
 
-- [ ] AC1 Every key in the tables exists with the listed type, default and rustdoc (the
+- [x] AC1 Every key in the tables exists with the listed type, default and rustdoc (the
   rustdoc names the FileZilla equivalent where there is one); `Settings::default()` equals the
   tables (test).
-- [ ] AC2 `{}` / absent `settings` ⇒ `Settings::default()` with no warnings; a partial object
+- [x] AC2 `{}` / absent `settings` ⇒ `Settings::default()` with no warnings; a partial object
   overrides only the given leaves.
-- [ ] AC3 Each invalid value in the validation list produces exactly one warning with the right
+- [x] AC3 Each invalid value in the validation list produces exactly one warning with the right
   dotted path and the field falls back to its default; startup continues (`Config::new` is Ok).
-- [ ] AC4 Unknown keys produce a warning and are preserved by `save_user`.
-- [ ] AC5 `save_user` writes only non-default leaves, keeps `keybindings`, `styles` and other
+- [x] AC4 Unknown keys produce a warning and are preserved by `save_user`.
+- [x] AC5 `save_user` writes only non-default leaves, keeps `keybindings`, `styles` and other
   top-level keys byte-for-byte equal as JSON values, and reload ⇒ equal `Settings`.
-- [ ] AC6 `save_user` refuses to overwrite an invalid `config.json` and leaves it unchanged.
-- [ ] AC7 `decide_transfer_type` follows the rules for all branches.
-- [ ] AC8 `SettingsStore::update` publishes to subscribers only after a successful save.
-- [ ] AC9 `docs/settings.schema.json` is current (staleness test).
-- [ ] AC10 T00 CI gates pass (fmt, clippy, docs, test-local-only, test-os, layering).
-- [ ] AC11 The registry tables contain every key consumers use (coordinator list): `ftp.active_no_external_ip_on_local`, `proxy.ftp_proxy.{kind,host,port,user,password_ref,custom_script}`, `ftp.send_keepalive_command` (`noop` \| `random`), `sftp.{max_outstanding_requests (1–256), request_size (4096–261120), use_openssh_known_hosts}`, `compare.{mode,threshold_minutes,hide_identical}`, `cache.listing_cache_max_dirs`, `interface.{key_sequence_timeout_ms,theme,sort.local,sort.remote,enter_on_file,connect_target,unicode_symbols}`, `logging.pane_max_lines`, `queue.max_successful`, `filters.{filters,sets,active_set,apply_to_transfers}`, `editing.{editor: EditorChoice, associations: Vec<Association>}`, `vault.argon2_cost` (`light` \| `standard` \| `strong`, default `standard`), `vault.auto_lock_minutes` (max 1440); keys of the T47/T48 sections are checked by those tasks' tests once their fields are added.
+- [x] AC6 `save_user` refuses to overwrite an invalid `config.json` and leaves it unchanged.
+- [x] AC7 `decide_transfer_type` follows the rules for all branches.
+- [x] AC8 `SettingsStore::update` publishes to subscribers only after a successful save.
+- [x] AC9 `docs/settings.schema.json` is current (staleness test).
+- [x] AC10 T00 CI gates pass (fmt, clippy, docs, test-local-only, test-os, layering).
+- [x] AC11 The registry tables contain every key consumers use (coordinator list): `ftp.active_no_external_ip_on_local`, `proxy.ftp_proxy.{kind,host,port,user,password_ref,custom_script}`, `ftp.send_keepalive_command` (`noop` \| `random`), `sftp.{max_outstanding_requests (1–256), request_size (4096–261120), use_openssh_known_hosts}`, `compare.{mode,threshold_minutes,hide_identical}`, `cache.listing_cache_max_dirs`, `interface.{key_sequence_timeout_ms,theme,sort.local,sort.remote,enter_on_file,connect_target,unicode_symbols}`, `logging.pane_max_lines`, `queue.max_successful`, `filters.{filters,sets,active_set,apply_to_transfers}`, `editing.{editor: EditorChoice, associations: Vec<Association>}`, `vault.argon2_cost` (`light` \| `standard` \| `strong`, default `standard`), `vault.auto_lock_minutes` (max 1440); keys of the T47/T48 sections are checked by those tasks' tests once their fields are added.
 
 ## Tests
 
@@ -519,3 +519,32 @@ Not applicable (covered by T68's UI tests).
   (no debug lines). Keep 2?
 - `queue.notify` default is `bell`. OSC 9/777 desktop notifications are opt-in because some
   terminals print the sequence. Confirm.
+
+## Implementation notes
+
+- Code: `crates/courier-ftp-core/src/settings/{mod,model,enums,load,save,validate,file_types,tests}.rs`,
+  `crates/courier-ftp-core/src/edit.rs` (data types only), `crates/courier-ftp-core/tests/settings_save.rs`,
+  binary `crates/courier-ftp/src/config.rs` (`RawConfig`, `Config.settings`,
+  `Config.settings_warnings`, `check_settings_not_shadowed`, `save_settings`) and `app.rs`
+  (`App.settings: SettingsStore`). Schema: `docs/settings.schema.json`.
+- Startup log line: the spec's `warn!(path = %w.path, "{message}")` is logged as
+  `warn!(path = %w.path, "setting ignored; using its default")`, because messages may
+  quote the offending value and the Security section says log lines carry the key path only.
+  The full message stays in `Config.settings_warnings` for the message log (T55);
+  `SettingsWarning`'s `Display` gives `Setting <path> ignored: <message>`.
+- `save_user` also refuses (InvalidInput) a `config.json` whose top level is valid JSON but
+  not an object (same "fix or remove it" wording).
+- Additional checks beyond the list (same warning format, field reset): `interface.language`
+  ("auto" or a BCP-47-shaped tag), `interface.columns` (duplicates/unknown dropped, Name
+  forced present and visible), `editing.associations` ≤ 256 entries, `queue.on_complete_command`
+  ≤ 1024 chars, and every numeric range in the tables.
+- `SettingsStore` serialises `update`/`set_transient` with a mutex so concurrent edits are not
+  lost; it exposes `config_dir()` for the binary's shadowing check. The binary's
+  `save_settings(store, edit)` = shadowing check + `SettingsStore::update` (for T68).
+- `settings.filters` keys warn as unknown until T47 adds its section.
+- Extra tests: `valid_values_are_accepted`, `columns_dedupe_and_skip_unknown`,
+  `enums_serialise_snake_case`, `warning_display_names_the_path`, `to_user_json_only_diffs`,
+  `json_schema_has_defaults_and_draft`, `save_user_drops_empty_settings`,
+  `save_user_io_error_names_the_file`, binary `saved_settings_reload_through_config`
+  (arrays, nested objects, data-carrying enums and chars survive the `config` crate).
+- Open questions kept at the stated defaults (`noop`, level 2, `bell`).
