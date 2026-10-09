@@ -10,11 +10,13 @@ rust-version.workspace = true
 
 [features]
 # `MockBackend` and the backend conformance suite (T03, T06).
-test-util = []
+test-util = ["dep:bytes"]
 
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
 # (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true, optional = true }
 ciborium = { workspace = true }
 directories = { workspace = true }
 encoding_rs = { workspace = true }
@@ -35,6 +37,7 @@ uuid = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+bytes = { workspace = true }
 insta = { workspace = true, features = ["glob", "yaml"] }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }
