@@ -118,6 +118,7 @@ pub enum VaultChange { Unlocked(UnlockMethod), Locked(LockReason), ItemsChanged 
 pub struct Loaded<V> { pub id: ItemId, pub vault: VaultId, pub view: V, pub read_only: bool,
                        pub secrets_loaded: bool, pub updated_at: i64 }
 pub struct PutOutcome { pub changed: bool }
+pub struct LoadedBody { pub id: ItemId, pub vault: VaultId, pub body: ItemBody, pub read_only: bool, pub revision: i64 }
 pub enum VaultPermission { Read, Write, Manage }
 pub struct VaultInfo { pub id: VaultId, pub kind: VaultKind, pub permission: VaultPermission }
 
@@ -146,7 +147,14 @@ impl VaultEngine {
     pub async fn put<V: ItemView + Send + 'static>(&self, vault: VaultId, id: ItemId, view: V) -> Result<PutOutcome, VaultError>;
     pub async fn put_many(&self, writes: Vec<BodyWrite>) -> Result<usize, VaultError>;  // one transaction (imports)
     pub async fn delete(&self, id: ItemId) -> Result<(), VaultError>;
+    pub async fn delete_many(&self, ids: Vec<ItemId>) -> Result<usize, VaultError>;     // one transaction
     pub async fn restore(&self, id: ItemId) -> Result<(), VaultError>;
+    /// Raw body with stamps and secrets (approval checks, export, copy).
+    pub async fn get_body(&self, id: ItemId) -> Result<Option<LoadedBody>, VaultError>;
+
+    // device-local approvals of synced values that act locally (T91 §8, T82 local_approvals)
+    pub fn is_approved(&self, id: ItemId, field: &str, value_sha256: &[u8; 32]) -> bool;  // cached
+    pub async fn approve(&self, id: ItemId, field: &str, value_sha256: [u8; 32]) -> Result<(), VaultError>;
     pub fn personal_vault(&self) -> Result<VaultId, VaultError>;
     pub fn vaults(&self) -> Result<Vec<VaultInfo>, VaultError>;
     pub fn device_id(&self) -> Result<DeviceId, VaultError>;
@@ -329,7 +337,13 @@ enabled T87 runs the server flow first and then calls this.
   then `ItemBody::delete` (tombstone after every field), seal, `put_item(deleted = true)`,
   delete the item's `device_local` row and approvals. Deleting a `site-folder` does not cascade
   here (T31 deletes children first).
+- `delete_many(ids)` tombstones up to 10 000 items in one transaction (folder deletes, T31;
+  history cap, T33).
 - `restore(id)` clears a tombstone (undo, T31/T33).
+- `approve`/`is_approved` store and check `(item_id, field, sha256(value))` rows in
+  `local_approvals` (cached in memory while unlocked; never synced). `put` from this device
+  records approvals for the local-acting fields it writes (T31 lists them), so values typed
+  here are pre-approved.
 - `put_many` applies up to 10 000 `BodyWrite`s in one transaction (imports, T32/T73);
   `Merge` uses T81 `merge` with the stored body.
 - Writes to a vault whose key is missing → `Locked`.
