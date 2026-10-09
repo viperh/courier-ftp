@@ -124,9 +124,21 @@ pub struct FieldWriter<'a> { clock: &'a mut HlcClock, device: DeviceId }
 impl FieldWriter<'_> {
     pub fn text(&mut self, b: &mut ItemBody, key: &str, v: &str, default: &str) -> bool;
     pub fn opt_text(&mut self, b: &mut ItemBody, key: &str, v: Option<&str>) -> bool;
-    pub fn secret(&mut self, b: &mut ItemBody, key: &str, v: Option<&SecretString>) -> bool;
+    pub fn secret(&mut self, b: &mut ItemBody, key: &str, v: &SecretField) -> bool;
     pub fn uint / opt_uint / int / bool / id / opt_id / ids / enum_ / bytes (same pattern)
 }
+/// A secret field as seen by a view. Views listed from the T30 cache never hold secret
+/// values; `Kept` makes `apply_to` leave the stored value untouched, so saving a view that
+/// was read without secrets can never erase them.
+pub enum SecretField {
+    /// No secret stored (or the user cleared it): `apply_to` writes `null` if one is stored.
+    Absent,
+    /// A secret is stored but was not loaded: `apply_to` writes nothing.
+    Kept,
+    /// Loaded or newly typed: `apply_to` writes it when it differs from the stored value.
+    Value(SecretString),
+}
+impl SecretField { pub fn is_set(&self) -> bool; pub fn value(&self) -> Option<&SecretString>; }
 pub enum ViewError { WrongKind { expected: ItemKind, found: ItemKind },
                      Missing(&'static str), FieldType { field: String, expected: &'static str } }
 pub trait WireEnum: Sized { fn as_wire(&self) -> &'static str; fn from_wire(s: &str) -> Option<Self>; }
@@ -141,7 +153,7 @@ pub fn check_vault_refs(vault: VaultId, body: &ItemBody,
                         vault_of: impl Fn(ItemId) -> Option<VaultId>) -> Result<(), RefError>;
 ```
 
-`SecretString` is `courier_ftp_core::secret::SecretString` (T30). `ItemBody`'s `Debug`
+`SecretString` is `courier_ftp_core::secret::SecretString` (T02). `ItemBody`'s `Debug`
 prints `[REDACTED] @ <hlc>/<device>` for every non-null secret field.
 
 ### Behaviour
@@ -232,15 +244,15 @@ unknown string is a `ViewError::FieldType` on read.
 | `port` | uint | `Option<u16>` | `None` = protocol default (21, 990 implicit, 22) | General |
 | `logon_type` | text `anonymous`/`normal`/`ask-for-password`/`interactive`/`key-file`/`account`/`agent` (T02 `LogonKind` serde strings) | `LogonKind` (T02) | `normal` | General |
 | `user` | text | `String` | `""` | General |
-| `password` | text (secret) | `Option<SecretString>` | `None` | General |
-| `account` | text | `Option<SecretString>` (T02 keeps it secret) | `None` | General (Account logon) |
+| `password` | text (secret) | `SecretField` | `Absent` | General |
+| `account` | text (secret) | `SecretField` (T02 keeps it secret) | `Absent` | General (Account logon) |
 | `key_file` | text (local path, `~` allowed) | `Option<String>` | `None` | General (SFTP key file) |
 | `ssh_key_id` | id | `Option<ItemId>` (an `ssh-key` item; wins over `key_file`) | `None` | General |
-| `key_passphrase` | text (secret) | `Option<SecretString>` (for `key_file`) | `None` | General |
+| `key_passphrase` | text (secret) | `SecretField` (for `key_file`) | `Absent` | General |
 | `try_agent_first` | bool | `bool` | `false` | General (SFTP) |
 | `color` | text `none`/`red`/`green`/`blue`/`yellow`/`cyan`/`magenta`/`orange` | `SiteColor` | `none` | General |
 | `comments` | text (≤ 64 KiB) | `String` | `""` | General |
-| `server_type` | text `default`/`unix`/`vms`/`dos`/`mvs`/`vxworks`/`zvm`/`hpnonstop`/`dos-virtual`/`cygwin`/`dos-fwd-slashes` | `ServerType` | `default` | Advanced |
+| `server_type` | text `auto`/`unix`/`dos`/`vms`/`mvs` | `ServerTypeOverride` (T02) | `auto` | Advanced |
 | `bypass_proxy` | bool | `bool` | `false` | Advanced |
 | `remote_dir` | text (absolute `/` path) | `Option<RemotePath>` | `None` | Advanced |
 | `sync_browsing` | bool | `bool` | `false` | Advanced |
@@ -318,7 +330,7 @@ No settings keys in this task.
 
 ### Security and logging
 
-- Secrets are only `SecretString` in views; `ItemBody` `Debug` redacts every field whose last
+- Secrets are only `SecretField`/`SecretString` in views; `ItemBody` `Debug` redacts every field whose last
   dotted segment is in `SECRET_FIELDS`; a test with canary values proves it.
 - Logs from this module carry item ids (`short()`), kinds and field **names** only, never
   values, hostnames or usernames, at any level.
@@ -376,6 +388,7 @@ No settings keys in this task.
   same_field_higher_hlc_then_higher_device_wins, delete_vs_older_edit_stays_deleted,
   edit_newer_than_delete_resurrects, schema_version_is_max, kind_mismatch_newest_wins}`.
 - `migrate::tests::{newer_schema_is_read_only, steps_run_in_order, missing_step_relabels}` (AC7).
+- `view::tests::{secret_kept_writes_nothing, secret_absent_clears, secret_value_unchanged_no_stamp}`.
 - `views::known_host::tests::roundtrip`, `trusted_cert::tests::roundtrip`,
   `ssh_key::tests::roundtrip_redacts`, `proxy_credential::tests::roundtrip` (AC4).
 - `view::tests::unknown_keys_survive` (AC5).

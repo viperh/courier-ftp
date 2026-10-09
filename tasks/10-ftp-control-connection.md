@@ -209,9 +209,9 @@ impl SessionEncoding {
     pub fn encode(&self, s: &str) -> Result<Vec<u8>>;        // unmappable → InvalidInput
     pub fn name(&self) -> &'static str;
 }
-/// Reply-line decoding; built on `courier_ftp_core::listing::TextDecoder` (T13, milestone
-/// M2, so it already exists). T14 configures the listing decoder from the same
-/// `SessionEncoding`, so replies and listings always agree.
+/// Reply-line decoding with `encoding_rs` (same rules as T13's `TextDecoder`; T14
+/// configures the listing decoder from this `SessionEncoding`, so replies and listings
+/// always agree). If T13 has landed, use its `TextDecoder` instead of duplicating it.
 pub struct LineDecoder;
 
 // login.rs ------------------------------------------------------------------------------

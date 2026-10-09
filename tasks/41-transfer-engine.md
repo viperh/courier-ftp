@@ -16,11 +16,14 @@ engine.
 ## Context
 
 - Before: T03 gives `Backend`, `BackendFactory`, `ConnectInfo`, `Capabilities`,
-  `WriteMode`, `TransferOpts`, `MockBackend`; T04 gives `EventSender`, `CoreEvent`
-  (`TransferProgress`, `TransferStateChanged`, `QueueFinished`, `Log`, `Prompt`),
-  `LogMessage`, `SessionId`; T05 gives `Settings` (`transfers.*`, `connection.*`); T40 gives
-  `SharedQueue`, `QueueItem`, `ItemState`, `RangeSet`, `next_runnable`; T11 (done in M3)
-  gives `decide_transfer_type` in core.
+  `WriteMode`, `TransferOpts`, `MockBackend`; T04 gives `EventSender` (`progress`,
+  `transfer_state`, `prompt_with_cancel`, `log`), `CoreEvent` (`TransferProgress`,
+  `TransferStateChanged { id }`, `QueueChanged`, `QueueFinished { stats: QueueStats }`,
+  `Notice`, `SessionOpened`/`SessionClosed`, `Log`), `SessionId`, `TransferId`; T02 gives
+  `Error` (incl. `ConnectionLimit`, `is_transient`, `code`), `Direction`, `TransferType`,
+  `ServerIdentity`; T05 gives `SharedSettings` (`transfers.*`, `connection.*`) and
+  `decide_transfer_type`; T40 gives `SharedQueue`, `QueueItem`, `ItemState`, `RangeSet`,
+  `next_runnable`; T46 (M1) gives `ListingCache` with `CachePatch`.
 - After: T42 implements `ExistsPolicy` and the per-file options in the worker's prepare
   step; T43 adds placeholder expansion as a worker job; T44 implements `RateLimiter`;
   T41b replaces the copy loop with the pipelined/segmented one and extends the scheduler;
@@ -43,7 +46,8 @@ pub struct EngineDeps {
     pub resolver: Arc<dyn ConnectInfoResolver>,
     pub local: Arc<dyn LocalFs>,
     pub events: EventSender,
-    pub settings: Arc<Settings>,
+    pub settings: SharedSettings,               // T05 watch receiver; read on every scheduling pass
+    pub cache: Option<ListingCache>,            // T46: patched after uploads and remote mkdir
     pub exists_policy: Arc<dyn ExistsPolicy>,   // default: OverwritePolicy
     pub rate_limiter: Arc<dyn RateLimiter>,     // default: Unlimited
 }
@@ -59,6 +63,8 @@ pub struct EngineHandle { /* mpsc::UnboundedSender<EngineCommand>, watch::Receiv
 impl EngineHandle {
     pub fn send(&self, cmd: EngineCommand);                  // never blocks; ignored after shutdown
     pub fn stats(&self) -> watch::Receiver<EngineStats>;
+    /// Details of the last finished run (T45 reads it on `QueueFinished`).
+    pub fn last_run(&self) -> Option<QueueRunSummary>;
     pub async fn shutdown(&self);                            // Shutdown + wait for the ack
 }
 
@@ -76,7 +82,8 @@ pub enum EngineCommand {
     Cancel { ids: Vec<TransferId>, remove: bool },
     /// The UI changed the queue (added, reordered, …): re-run the scheduler.
     QueueChanged,
-    SettingsChanged(Arc<Settings>),
+    /// Settings were updated (T57 speed-limit toggle, T68): re-read `SharedSettings` now.
+    SettingsChanged,
     /// One-shot completion action for the current run (T45). `None` clears it.
     SetCompletionOverride(Option<OnComplete>),
     /// Cancel everything, close all connections, end the task.
@@ -93,7 +100,9 @@ pub struct EngineStats {
     pub eta: Option<Duration>,               // remaining / (down + up), None if unknown
 }
 
-/// Payload of `CoreEvent::QueueFinished { stats }` (T04).
+/// Details of a finished run. `CoreEvent::QueueFinished { stats }` carries T04's
+/// `QueueStats { files_ok, files_failed, bytes, duration }` (filled from this); the rest
+/// is read with `EngineHandle::last_run()`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct QueueRunSummary {
     pub files_ok: u64, pub files_skipped: u64, pub files_failed: u64,
@@ -104,7 +113,7 @@ pub struct QueueRunSummary {
 }
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TouchedDirs {
-    pub remote: Vec<(GroupKey, RemotePath)>, pub local: Vec<LocalPath>,
+    pub remote: Vec<(ServerIdentity, RemotePath)>, pub local: Vec<LocalPath>,
     pub overflow: bool,                      // > 1000 dirs: refresh everything
 }
 
@@ -224,8 +233,8 @@ denied in T00).
 | Limit | Setting | Default | Range |
 |---|---|---|---|
 | Active transfers (all directions, including T41b segments and T43 listings) | `transfers.max_concurrent` | 4 | 1–16 |
-| Active downloads | `transfers.max_downloads` | 0 (= only the global limit) | 0–16 |
-| Active uploads | `transfers.max_uploads` | 0 | 0–16 |
+| Active downloads | `transfers.max_downloads` | 0 (= only the global limit) | 0–`max_concurrent` |
+| Active uploads | `transfers.max_uploads` | 0 | 0–`max_concurrent` |
 | Connections per server group | `ConnectInfo` connection limit (site `limit_connections`, 1–10) | none (= global) | — |
 | Learned per-group limit | back-off, see below | — | ≥ 1 |
 
@@ -269,20 +278,25 @@ connection reuse.
   rather than `SessionHandle`: a slot needs exclusive `&mut` access for the whole
   transfer, idle connections close after 30 s (no keep-alive needed), and reconnects are
   the retry policy's job (a transparent reconnect mid-transfer would hide a lost offset).
-- Each pooled connection gets its own `SessionId` (T04) for its log lines.
+- Each pooled connection gets its own `SessionId::next()` (T04) for its log lines; the
+  pool emits `SessionOpened { purpose: SessionPurpose::Transfer, label }` when it creates
+  one and `SessionClosed` when it closes it.
 
 **Connection-limit back-off.** `is_connection_limit(err)` is true for:
-1. `Protocol { code: Some(421), .. }` returned by `connect` (greeting or login);
-2. `Protocol { code: Some(530), message }` or `Auth(message)` / `Connection(message)` where
-   `message` matches `(?i)too many|maximum (number of )?(connections|clients|users|sessions)|connection limit|limit reached|max(imum)?[ _-]?(connections|clients)`;
-3. SSH disconnect with reason code 12 (`SSH_DISCONNECT_TOO_MANY_CONNECTIONS`), which T20
-   maps to `Error::Connection` with the text "too many connections".
+1. `Error::ConnectionLimit(_)` (T02: the protocol crates' mapping of FTP 421/"too many"
+   530 and SSH "too many connections" disconnects);
+2. `Protocol { code: Some(421 | 530), .. }` returned by `connect` (T10 currently reports
+   the FTP cases this way; T10 maps credential failures to `Auth`, so a remaining 530 at
+   login is a limit);
+3. `Connection(message)` from `connect` where `message` matches
+   `(?i)too many|maximum (number of )?(connections|clients|users|sessions)|connection limit`.
 
 When it happens at connect and the group has `n ≥ 1` other connected slots: learned
 limit = `n`, the item returns to `Queued` **without** counting an attempt, and a Status
 line is logged: "Server refused another connection; using at most n connection(s) to it
 for this session". The learned limit lasts for the process lifetime. With `n = 0` the
-error is treated as `Transient` (attempt counted).
+error is treated as `Transient` (attempt counted). The engine also sends
+`CoreEvent::Notice { level: Warning, text }` with the same text once per group.
 
 **Worker (slot) lifecycle** for a file item (`worker.rs`):
 
@@ -294,7 +308,10 @@ error is treated as `Transient` (attempt counted).
 | `Transferring` | open reader at the start offset (`Backend::open_read` / `LocalFs::open_read`) and writer (`LocalFs::open_write` / `Backend::open_write` with the `WriteMode`), run the copy loop | stall: no byte for `connection.timeout_secs` → `Error::Timeout` |
 | `Finishing` | `writer.finish()` (local) or close the remote writer; `finish_transfer()` (FTP 226); checkpoint `completed = [0, size)`; `delete_source_after` (only for `Transferred`/`Resumed`; failure to delete logs an Error line, item still Done) | `FINISH_TIMEOUT` (30 s) |
 
-Then `Queue::finish(id, outcome, bytes, duration)`, emit `TransferStateChanged`, log
+Then `Queue::finish(id, outcome, bytes, duration)`, `events.transfer_state(id)`
+(`TransferStateChanged { id }`; the UI reads the state from the queue), patch the cache
+after uploads (`CachePatch::Uploaded { path, size, modified }`, and `Created` for each
+remote directory the slot created), log
 "File transfer successful, transferred 1.2 MiB in 3 seconds", add the target's parent to
 `TouchedDirs` (≤ 1000, then `overflow = true`).
 
@@ -322,9 +339,11 @@ active meter: `Δb` bytes in `Δt`. Speed: for the first `SPEED_TAU` (5 s) of a 
 `bytes_since_start / elapsed`; afterwards an exponential moving average
 `speed += α · (Δb/Δt − speed)` with `α = 1 − exp(−Δt / τ)`, `τ = 5 s`. ETA =
 `ceil((total − done) / speed)` seconds when the total is known and speed ≥ 1 B/s, and
-the transfer has run ≥ 1 s; otherwise `None`. Each tick emits one
-`TransferProgress { id, bytes_done, total, speed_bps, eta }` per active item (5 Hz,
-below T04's 10 Hz cap; T04 coalesces further) and updates `EngineStats` (watch channel).
+the transfer has run ≥ 1 s; otherwise `None`. Each tick calls `events.progress(
+TransferProgress { id, bytes_done, total, speed_bps, eta })` per active item (5 Hz; T04
+coalesces per id) and updates `EngineStats` (watch channel). Every state change calls
+`events.transfer_state(id)`; structural queue changes made by the engine (removal,
+placeholder expansion) send `CoreEvent::QueueChanged`.
 
 **Retry policy** (`retry.rs`). `classify(err, phase, dir)`:
 
@@ -334,8 +353,8 @@ below T04's 10 Hz cap; T04 coalesces further) and updates `EngineStats` (watch c
 | `ConnectionLimit` | `is_connection_limit` at connect | back-off (above) |
 | `LocalDiskFull` | `Error::Io` with `ErrorKind::StorageFull`/`QuotaExceeded` or raw OS error 28 (ENOSPC), 122 (EDQUOT), 112/39 (Windows disk full) | item `Failed(Permanent)` "Local disk full"; engine stops like `Stop`; Error log "Local disk is full — queue stopped. Free some space and start the queue again." |
 | `RemoteDiskFull` | upload with `Protocol { code: Some(452 \| 552) }` | item failed; group blocked "Server disk full or quota exceeded" |
-| `ServerFatal` | at `Connecting`: `Auth`, `HostKey`, `Tls`, `Unsupported`, `Vault`, resolver errors (site deleted, password prompt cancelled) | group blocked with the message; its items stay queued but not runnable; `Start` unblocks |
-| `ItemFatal` | `NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidInput`, `Unsupported` after connect, `Protocol` 5xx, `Io` other than transient kinds | `Failed(Permanent)`, no retry |
+| `ServerFatal` | at `Connecting`: `Auth`, `HostKey`, `Tls`, `Proxy`, `Unsupported`, `VaultLocked`, `Vault`, resolver errors (site deleted, password prompt cancelled) | group blocked with the message; its items stay queued but not runnable; `Start` unblocks |
+| `ItemFatal` | `NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidInput`, `Internal`, `Unsupported` after connect, `Protocol` 5xx, `Io` other than transient kinds | `Failed(Permanent)`, no retry |
 | `Transient` | `err.is_transient()` (T02: timeouts, 4xx, resets) plus `Io` kinds `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, `TimedOut` | `attempts += 1`; if `attempts ≤ connection.retries` → `Waiting { until: now + connection.retry_delay_secs }`; else `Failed(Transient)` |
 
 Before a transient retry, the bytes written so far are checkpointed (local writer
@@ -343,7 +362,7 @@ flushed). On the retry, a single-stream transfer resumes at: download — `min(l
 size, completed.contiguous_prefix())`; upload — the remote size from `stat`. This needs
 binary type and `resume_download` / `resume_upload`; otherwise it restarts with
 `Truncate`. The last error text is kept in `last_error` for the failed list. Defaults:
-`connection.retries` = 2 (0–99), `retry_delay_secs` = 5 (0–3600).
+`connection.retries` = 2 (0–10), `retry_delay_secs` = 5 (0–600) (T05 ranges).
 
 **Cancellation.** A root `CancellationToken` per engine; every slot gets a child token.
 The copy loop checks it on every chunk (`select!`). After a cancel, the slot drops the
@@ -356,8 +375,8 @@ true }` → removed from the queue. Partial local files are kept.
 
 **Run and completion.** A run starts with `Start` and ends when processing is on, nothing
 is active, nothing is `Waiting`, and `next_runnable(ignoring limits)` is `None`. If at
-least one item was started during the run, the engine emits
-`CoreEvent::QueueFinished { stats: QueueRunSummary }`, consumes the one-shot override
+least one item was started during the run, the engine stores the `QueueRunSummary`
+(`last_run()`), emits `CoreEvent::QueueFinished { stats }` with T04's `QueueStats`, consumes the one-shot override
 (T45), calls `ExistsPolicy::run_finished()`, and sets `processing = false`. `Stop`, disk
 full and `Shutdown` end a run without `QueueFinished`.
 
@@ -370,7 +389,7 @@ disconnects every pooled connection in parallel (`DISCONNECT_TIMEOUT` each), dra
 
 ### Data formats and configuration
 
-Settings read (all from T05): `transfers.max_concurrent`, `transfers.max_downloads`,
+Settings read (all from T05, via `SharedSettings`): `transfers.max_concurrent`, `transfers.max_downloads`,
 `transfers.max_uploads`, `connection.retries`, `connection.retry_delay_secs`,
 `connection.timeout_secs`, `queue.on_complete`. No new keys. Validation ranges above are
 enforced by T05's validation (out of range → warning + default).
@@ -432,7 +451,7 @@ invariant violations (`debug_assert!`) only log at `warn` in release.
 
 ### Unit tests
 - `fn classify_table` — every `Error` variant × phase → expected `ErrorClass` (AC3, AC8, AC9).
-- `fn connection_limit_patterns` — "421 Too many connections (8) from this IP", "530 Sorry, the maximum number of clients (5) for this user are already connected.", "Maximum login limit has been reached." → true; "530 Login incorrect." → false (AC5).
+- `fn connection_limit_detection` — `ConnectionLimit(..)`, `Protocol{421}` and `Protocol{530}` at connect, `Connection("Maximum number of connections exceeded")` → true; `Auth("530 Login incorrect.")`, `Protocol{421}` during a transfer → false (AC5).
 - `fn speed_average_then_ema` and `fn eta_none_until_one_second_and_without_total` (AC7).
 - `fn overwrite_policy_create_or_truncate` (default policy).
 - `fn group_limit_is_min_of_site_learned_global`.
@@ -488,15 +507,17 @@ All `#[tokio::test(start_paused = true)]` with `MockBackend` + `MockServer` + `M
 
 ## Open questions
 
-1. Inconsistency for T03/T11 owners: the abort contract ("dropping the stream returned by
-   `open_read`/`open_write` before EOF, then `finish_transfer()`, aborts the transfer,
-   returns `Ok(())` and leaves the session usable") must be stated in T03 and implemented
-   by T11 (FTP) and T22 (SFTP: close handle).
+1. Inconsistency for T03's owner: the abort contract ("dropping the stream returned by
+   `open_read`/`open_write` before EOF, then `finish_transfer()`, aborts the transfer and
+   leaves the session usable") is implemented by T11 §8 and T22 (close handle) but is not
+   stated in T03's `Backend` docs.
 2. Inconsistency for T03's owner: the old T41 text said the pool reuses `SessionHandle`s;
    this spec pools `Box<dyn Backend>` (reasons above). T03 needs no change, but T03's
    `SessionHandle` docs should not promise it is used for transfers.
-3. Inconsistency for T20's owner: SSH disconnect reason 12 must be mapped to
-   `Error::Connection("too many connections …")` so the back-off can detect it.
+3. Inconsistency between T02 and T10: T02 defines `Error::ConnectionLimit` for FTP
+   421/"too many" 530, but T10 returns `Error::Protocol { code: Some(421 | 530) }`. This
+   engine accepts both; T10 should switch to `ConnectionLimit`. T20 should map SSH
+   disconnect reason 12 (`TOO_MANY_CONNECTIONS`) to `ConnectionLimit` as well.
 4. Inconsistency for T76's owner: the sshd `MaxSessions 1` profile limits channels per SSH
    connection; with one SSH connection per slot it never refuses a second connection. A
    per-user limit needs `MaxStartups 1:100:1` (pre-auth) or PAM `maxlogins 1`.

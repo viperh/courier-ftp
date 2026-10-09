@@ -293,6 +293,10 @@ Default bindings (T51): `Ctrl-b` → `Bookmarks` (existing), `Ctrl-x b` → `Add
 - `fn default_bookmark_name_prefers_remote_last_component`.
 - `fn fuzzy_rank_and_highlight` (AC8).
 
+### Property / fuzz tests
+
+Not applicable (no parsers or algorithms with a large input space; validation is covered by table tests).
+
 ### Snapshot tests
 
 At 80×24 and 160×48 (AC9): `snapshot_bookmark_menu_two_sections`,
