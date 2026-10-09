@@ -20,6 +20,7 @@ devices editing offline converge to the same result.
    - `trusted-cert` — trusted TLS certificate (T12).
    - `ssh-key` — optional private key stored in the vault, so key-file sites work on every device (site references it by id instead of a path).
    - `proxy-credential` — proxy user/password referenced from settings.
+   - `credential-override` — a member's own credentials for a site in a team vault, stored in their personal vault (T89).
    - `history-entry` — quickconnect history; synced only if `sync.history` is on (default off).
 3. **ItemBody**: CBOR map `{kind, schema_version: u16, fields: BTreeMap<String, Stamped<Value>>, deleted: Option<Stamped<bool>>}`.
    - `Stamped` = `[value, hlc: u64, device: 16 bytes]`.

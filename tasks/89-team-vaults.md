@@ -34,9 +34,22 @@ encrypted, with member verification and key rotation when someone leaves.
    5. A rotation abandoned for 15 minutes is discarded; a crashed rotation resumes on the same device.
    6. A changed member key blocks the commit.
    Revoked members keep whatever they already downloaded (document as residual risk).
-6. **Moving / copying a site** between personal and team vaults: copy creates a new
+6. **Credentials in shared vaults** (sverb SPEC §13.4): a site in a team vault must not
+   reference an item in a personal vault (e.g. a personal `ssh-key`) — the UI enforces it.
+   Exception: a per-user **credential override** (`credential-override` item in the user's
+   personal vault, keyed by the shared site id) holds that member's own user/password/key,
+   so teams can share site definitions while each member uses their own login.
+7. **Grant verification** (T91 §10): a vault key is used only if its signature verifies
+   with the **pinned** key of the granter and the granter has `manage` (or is org
+   owner/admin or the vault creator); personal vault keys only as self-grants signed by
+   this account's own key; unpinned granters or granters with a pending key change rejected.
+8. **Audit log**: member added/removed, vault created/rotated, invite sent/accepted,
+   device added/revoked; item events record only `item_id` and actor. Visible to org admins.
+9. **Disable sync / leave org**: shared vaults are removed from the device (they belong
+   to the org); the personal vault stays.
+10. **Moving / copying a site** between personal and team vaults: copy creates a new
    item in the target vault (new id); move = copy + tombstone.
-7. **Quotas**: team vault cap 1 GiB.
+11. **Quotas**: team vault cap 1 GiB.
 
 ## Acceptance criteria
 

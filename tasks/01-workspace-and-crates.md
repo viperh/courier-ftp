@@ -36,7 +36,7 @@ crates/courier-ftp-core/   placeholder Core { ticks } + Error::InvalidState
    - Async: `async-trait` (only if native `async fn` in traits is not enough for `dyn Backend` — see T03), `bytes`, `pin-project-lite`.
    - TLS: `rustls`, `tokio-rustls`, `rustls-platform-verifier`, `rustls-pki-types`, `x509-parser` (cert details for trust prompt).
    - SSH: `russh`, `russh-sftp`, `ssh-key` (with `ppk`/`encryption` features if available; verify).
-   - Crypto / vault / sync: see T80–T82 and T87 (copied from sverb's versions): `argon2`, `chacha20poly1305`, `hkdf`, `hpke`, `ed25519-dalek`, `x25519-dalek`, `opaque-ke`, `bip39`, `zxcvbn`, `rand`, `zeroize`, `secrecy`, `uhlc`, `ciborium`, `zstd`, `rusqlite` (bundled), `rusqlite_migration`, `reqwest` (rustls), `tokio-tungstenite`. **No `keyring`** (D3).
+   - Crypto / vault / sync: see T80–T82 and T87 (copied from sverb's versions): `argon2`, `chacha20poly1305`, `hkdf`, `hpke`, `ed25519-dalek`, `x25519-dalek`, `opaque-ke`, `bip39`, `zxcvbn`, `rand`, `zeroize`, `secrecy`, `uhlc`, `ciborium`, `zstd`, `rusqlite` (bundled), `rusqlite_migration`, `reqwest` (rustls), `tokio-tungstenite`, `keyring` (optional per-device unlock, D3; pick features that avoid C build deps on Linux, e.g. pure-Rust Secret Service + crypto-rust).
    - Server only (T84–T86): `axum`, `axum-server`, `tower-http`, `sqlx-core` + `sqlx-postgres`, `governor`, `lettre`, `totp-rs`, `metrics`.
    - Text: `encoding_rs` (non-UTF-8 server charsets), `chrono` or `time` (pick **one**, prefer `time` with `macros`, `parsing`, `formatting`, `local-offset`), `regex`, `globset`.
    - Misc: `uuid` (`v4`, `v7`, `serde`), `serde_json`, `quick-xml` (FileZilla import), `notify` (watch edited files, T63), `bytesize`.

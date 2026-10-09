@@ -17,7 +17,8 @@ command-line options.
 4. `--logontype <ask|interactive>` override (FileZilla has this) — optional.
 5. `--config-dir`, `--data-dir`: override dirs (sets the same env vars used by `config.rs`).
 6. `--debug-level <0-4>`, `--log-file <PATH>` (T71).
-7. `--no-vault` (skip the unlock screen: session without vault, nothing persisted).
+7. `--no-vault` (skip the unlock screen: session without vault, nothing persisted) and `--no-keyring` (ignore keyring unlock for this start, ask for the password).
+7b. `--debug`: debug log level, prints a warning that debug logs may contain hostnames (T91 §4).
 8. Existing `--tick-rate`, `--frame-rate`, `--version` keep working; `--version` output adds vault path.
 9. Shell completions: hidden subcommand `completions <shell>` via `clap_complete`.
 10. Error for unknown site path lists close matches (fuzzy).

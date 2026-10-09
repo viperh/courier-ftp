@@ -36,12 +36,10 @@ never wait for the network.
 8. **What syncs** (`SyncPolicy`): all item kinds except `history-entry` unless
    `sync.history = true`. Device-local data (queue, tabs, local dir overrides,
    last-connected) never syncs.
-9. **Approvals for synced values that act locally** (sverb `resolve/approval.rs`):
-   site fields that can make this device run something or touch local files —
-   currently none in core; if later added (e.g. per-site "run command after
-   transfer"), they must require per-device approval stored in `local_approvals`
-   (`item_id, field, sha256(value)`), re-asked when the value changes. Document this
-   rule in `docs/security.md`.
+9. **Approvals for synced values that act locally** (sverb `resolve/approval.rs`): the
+   engine marks items received from the server whose local-acting fields (list in T91 §8:
+   local `key_file` path, agent use, future per-site commands) changed, so the connect
+   path asks for approval before using them. Approvals live in `local_approvals` (T82).
 
 ## Acceptance criteria
 

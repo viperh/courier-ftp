@@ -20,7 +20,7 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 |---|-------|----------|
 | D1 | FTP / FTPS | **Own FTP client** written from scratch on tokio (no `suppaftp`). |
 | D2 | SFTP | **`russh` + `russh-sftp`** (pure Rust, async). |
-| D3 | Secrets | Encrypted **vault** (Argon2id + XChaCha20-Poly1305), design copied from sverb. The **master password is asked at every TUI start**. **No OS keyring.** |
+| D3 | Secrets | **Same security design as sverb.** Encrypted vault (Argon2id + XChaCha20-Poly1305). The **master password is asked at TUI start** and always works; per-device **OS keyring unlock is optional and off by default**. Recovery: 24-word recovery key for sync accounts; local-only users can recover only through keyring unlock. Hardening, canary scans, fuzzing and threat model as in sverb (T91). |
 | D4 | Site storage | **Sites live in the vault, passwords included.** Storage is a SQLite DB of individually encrypted items (sverb design), so items can sync and merge. Bookmarks, history, trusted host keys/certificates and SSH keys are items too; the transfer queue is encrypted but device-local. |
 | D5 | Crate layout | **Separate protocol crates**: `courier-ftp-proto-ftp`, `courier-ftp-proto-sftp`, both implementing a `Backend` trait from `courier-ftp-core`. |
 | D6 | Keybindings | **Hybrid**: Midnight Commander F-keys (F5 copy, F6 move, F7 mkdir, F8 delete, Tab switch pane) plus vim motions (`j/k/h/l`, `gg/G`, `/`). All rebindable. |
@@ -121,11 +121,12 @@ T80–T82 are also needed by the local vault (T30), so they come early.
 - [88 Sync engine: pull, push and live updates](88-sync-engine.md)
 - [89 Teams and shared vaults](89-team-vaults.md)
 - [90 Sync and teams UI](90-sync-ui.md)
+- [91 Security hardening and threat model](91-security-hardening.md)
 
 ## Suggested order / milestones
 
 1. **M1 – Browse locally:** 01–06, 50–53, 55, 57.
-2. **M2 – Vault and SFTP:** 80–82, 30, 60, 07, 20–22, 69, 58.
+2. **M2 – Vault and SFTP:** 80–82, 30, 60, 91 (hardening, unsafe/canary/deny CI from the start), 07, 20–22, 69, 58.
 3. **M3 – FTP/FTPS:** 10–14, 76.
 4. **M4 – Transfers:** 40–46, 41b, 56, 62.
 5. **M5 – Sites:** 31–33, 59, 61, 64.

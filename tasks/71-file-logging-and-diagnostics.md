@@ -11,7 +11,7 @@ for users diagnosing connection problems).
 ## Scope
 
 1. **Application log** (existing `logging.rs`): keep writing `<data dir>/courier-ftp.log`, but:
-   - Open in append mode with size-based rotation (keep 3 × 10 MiB) instead of truncating on every start.
+   - Daily rotation, 7 days kept, instead of truncating on every start (T91 §4: no hostnames/usernames/paths at `info`+).
    - Make sure no secrets are logged (audit all `tracing` calls added by other tasks; add a test that greps logs produced by the integration suite for known test passwords).
 2. **Session log to file** (`logging.log_to_file`): every `LogMessage` (T04) written as `2026-10-09 12:00:00 <session> Status: text`, rotated by `log_file_max_mib`/`log_file_keep`. Written by a background task with a bounded channel (drop + count if the disk can't keep up; note dropped count).
 3. **Debug levels** 0–4 (T04) adjustable at runtime from Settings and via `--debug-level`; level 3+ also logs listing raw lines and TLS/SSH negotiation details.

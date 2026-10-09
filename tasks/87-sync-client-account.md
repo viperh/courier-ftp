@@ -43,8 +43,15 @@ change the password, recover, and manage devices.
    master password → new OPAQUE record and bundle; all other devices are logged out.
 8. **Devices**: list (name, platform, last seen, "this device"), revoke. Revoking this
    device = local logout (sync state wiped, local data kept).
-9. **Logout / disable sync**: remove tokens and sync state; local vault stays usable.
-10. **Build without sync**: cargo feature `sync` on the binary (default on);
+9. **Logout / disable sync** (`--keep-local` semantics): revoke tokens, remove sync state
+   and team vaults (they belong to the org); the personal vault and the master password
+   stay as they are.
+10. **Password changed on another device**: local unlock keeps working with the old
+    password (the LMK wrap is unchanged); the next server login fails or reports a newer
+    key version → "Your password was changed on another device" → enter the new password
+    → OPAQUE login → LMK re-wrapped. Sync pauses on this device until then.
+11. **Local-only password change**: only the LMK is re-wrapped (T30).
+12. **Build without sync**: cargo feature `sync` on the binary (default on);
     `--no-default-features` builds a client with no network sync code at all.
 
 ## Acceptance criteria
