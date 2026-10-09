@@ -20,6 +20,7 @@ directories = { workspace = true }
 encoding_rs = { workspace = true }
 globset = { workspace = true }
 percent-encoding = { workspace = true }
+regex = { workspace = true }
 schemars = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
@@ -27,6 +28,7 @@ serde_json = { workspace = true }
 subtle = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 time = { workspace = true, features = ["serde-well-known"] }
 tracing = { workspace = true }
 uhlc = { workspace = true }
@@ -34,10 +36,18 @@ uuid = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
+insta = { workspace = true, features = ["glob", "yaml"] }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
+
+# Filter evaluation speed (T47, AC8).
+[[bench]]
+name = "filters"
+harness = false
 
 [lints]
 workspace = true

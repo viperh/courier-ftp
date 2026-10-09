@@ -1,0 +1,2 @@
+-rw-r--r--    1 alice    staff          10 Jan 31 12:00 café.txt
+01-31-24  12:00PM                 1 naïve.txt

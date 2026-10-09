@@ -1,0 +1,11 @@
+total 24
+drwxr-xr-x    2 alice    staff        4096 Jan 31 12:00 public_html
+-rw-r--r--    1 alice    staff     5368709120 Jan 31  2023 big.iso
+-rw-r--r--+   1 1000     1000            12 Jan 31 12:00  leading space.txt
+lrwxrwxrwx    1 root     root            11 Feb  3 09:15 www -> /var/www
+crw-rw-rw-    1 root     root        1,   3 Jan  1  2024 null
+-rw-r--r--    1 ftp            42 Mar 15 08:00 no-group.txt
+-rw-r--r--    1 alice    staff        100 2024-01-31 12:00 iso.txt
+-rw-r--r--    1 alice    staff        100 2024-01-31 12:00:05.123456789 +0100 full-iso.txt
+-rw-r--r--    1 hans     users        100 31. Jän 12:00 datei.txt
+----------    1 owner    group        1234 Jan 31 12:00 windows-nt.txt

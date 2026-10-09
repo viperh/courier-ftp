@@ -15,3 +15,17 @@ workspace = true
 # (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
 courier-ftp-core = { workspace = true }
+encoding_rs = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+insta = { workspace = true, features = ["glob", "yaml"] }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+
+# Listing parser throughput (T13, AC10).
+[[bench]]
+name = "listing"
+harness = false

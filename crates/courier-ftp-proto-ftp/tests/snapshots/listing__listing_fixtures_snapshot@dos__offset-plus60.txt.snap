@@ -1,0 +1,26 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/dos/offset-plus60.txt
+---
+format: dos
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: wwwroot
+    kind: dir
+    size: ~
+    modified: "2024-01-31T11:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: early.txt
+    kind: file
+    size: 10
+    modified: "2024-01-30T23:30:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

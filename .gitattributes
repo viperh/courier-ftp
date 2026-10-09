@@ -1,0 +1,2 @@
+# Listing fixtures are byte-exact server output (CRLF/LF, legacy charsets): never convert.
+crates/*/tests/listings/** -text

@@ -461,25 +461,25 @@ with a scripted responder.
 
 ## Acceptance criteria
 
-- [ ] AC1 All types exist with rustdoc and are `Send + 'static` (compile-time assertion test).
-- [ ] AC2 `mask_command` covers `PASS`, `ACCT` (any case), empty arguments and
+- [x] AC1 All types exist with rustdoc and are `Send + 'static` (compile-time assertion test).
+- [x] AC2 `mask_command` covers `PASS`, `ACCT` (any case), empty arguments and
   `Proxy-Authorization`, and leaves `PASV`, `PWD`, `USER` untouched; `mask_secret` masks every
   occurrence.
-- [ ] AC3 With level 2, `Debug(3)` and `Debug(4)` lines are not delivered and
+- [x] AC3 With level 2, `Debug(3)` and `Debug(4)` lines are not delivered and
   `Debug(1)`/`Debug(2)` are; level 0 delivers no debug lines; Status/Command/Response/
   Error always delivered.
-- [ ] AC4 10 000 progress updates for 3 transfers without a consumer leave at most 3 pending
+- [x] AC4 10 000 progress updates for 3 transfers without a consumer leave at most 3 pending
   progress values; the consumer then receives exactly the latest value per transfer.
-- [ ] AC5 After `transfer_state(id)` the receiver gets no older progress for `id`.
-- [ ] AC6 20 000 log lines without a consumer keep ≤ 10 000 queued and produce one
+- [x] AC5 After `transfer_state(id)` the receiver gets no older progress for `id`.
+- [x] AC6 20 000 log lines without a consumer keep ≤ 10 000 queued and produce one
   "messages dropped" Status line once drained.
-- [ ] AC7 Prompt answered → caller receives the answer; dropped request, `Cancel`, no receiver,
+- [x] AC7 Prompt answered → caller receives the answer; dropped request, `Cancel`, no receiver,
   and a fired token each give `Error::Cancelled`; withdrawing makes `is_withdrawn()` true
   within one scheduler tick.
-- [ ] AC8 Control characters in log text are rendered in caret notation; multi-line text
+- [x] AC8 Control characters in log text are rendered in caret notation; multi-line text
   becomes one message per line; lines are capped at 4096 chars.
-- [ ] AC9 `format!("{:?}", ..)` of `PromptResponse::Secret{..}` and `Answers(..)` does not contain the secrets.
-- [ ] AC10 T00 CI gates pass.
+- [x] AC9 `format!("{:?}", ..)` of `PromptResponse::Secret{..}` and `Answers(..)` does not contain the secrets.
+- [x] AC10 T00 CI gates pass.
 
 ## Tests
 
@@ -530,3 +530,24 @@ Not applicable (T76 Headless exercises the bus with real backends).
   `AllInQueue` and `AllForDirection`. FileZilla's "apply only to current queue" checkbox
   is removed from T69 unless a session scope is added here (e.g. `ApplyTo::Session`,
   forgotten when the session ends). Add it, or keep the three scopes? (Assumed: keep three.)
+
+## Implementation notes
+
+- Module layout as specified (`events/{mod,ids,log,prompt,channel,mask}.rs`, tests in
+  `events/tests.rs`). `courier-ftp-core` now depends on `tokio-util` (already a workspace
+  dependency, for `CancellationToken`); the dev-dependency on `tokio` adds `test-util`
+  for `start_paused` tests.
+- Added from T71's spec: `LogLevelHandle` (`get`/`set`, clamped to 0..=4) and
+  `EventSender::log_level()`; `set_level`/`level` are wrappers over it.
+- Extra public items: `PromptId::get`, `MAX_LINE_CHARS`.
+- `EventSender::send(CoreEvent::Log(..))` goes through the flood limit but not the level
+  filter/sanitiser (use `log`); `send(CoreEvent::TransferProgress(..))` goes through the
+  coalescing slot.
+- The "N log messages dropped" Status line is logged for `SessionId::APP`; a line is
+  accepted only when both it and the pending notice fit, so the queue never exceeds 10 000
+  log events.
+- `prompt*` with an already-fired token returns `Cancelled` without sending the prompt.
+  Dropping the `EventReceiver` discards pending events, which cancels pending prompts.
+- Sanitising: C1 escapes are written as `\u{9b}` (6 chars); when an escape crosses the
+  4096-char limit the line is cut at exactly 4096 chars before `…`.
+- Open question (ApplyTo scopes): kept the three scopes (default).

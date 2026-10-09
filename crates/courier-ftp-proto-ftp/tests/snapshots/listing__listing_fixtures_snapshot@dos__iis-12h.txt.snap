@@ -1,0 +1,50 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/dos/iis-12h.txt
+---
+format: dos
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: aspnet_client
+    kind: dir
+    size: ~
+    modified: "2024-02-29T00:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: web.config
+    kind: file
+    size: 1024
+    modified: "2024-02-29T23:59:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: old-backup.zip
+    kind: file
+    size: 123456789
+    modified: "1999-12-31T13:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: epoch.txt
+    kind: file
+    size: 0
+    modified: "1970-01-01T00:15:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: My Documents
+    kind: dir
+    size: ~
+    modified: "2024-06-15T08:30:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

@@ -1,0 +1,87 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/bsd-macos.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: header
+  - line: 2
+    outcome: entry
+    entry:
+      name: Library
+      kind: dir
+      size: 128
+      modified: "2024-03-03T10:00:00Z (Minute)"
+      permissions: rwxr-xr-x (755)
+      owner: bob
+      group: staff
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: ".DS_Store"
+      kind: file
+      size: 6148
+      modified: "2024-03-03T10:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: bob
+      group: staff
+      hidden: true
+  - line: 4
+    outcome: entry
+    entry:
+      name: old notes.txt
+      kind: file
+      size: 512
+      modified: "2021-10-10T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: bob
+      group: staff
+      hidden: false
+  - line: 5
+    outcome: entry
+    entry:
+      name: latest
+      kind: symlink
+      target: releases/v1.2.3/out.tar
+      size: 23
+      modified: "2024-03-03T10:00:00Z (Minute)"
+      permissions: rwxr-xr-x (755)
+      owner: bob
+      group: staff
+      hidden: false
+  - line: 6
+    outcome: entry
+    entry:
+      name: agent.sock
+      kind: other
+      size: 0
+      modified: "2024-06-15T09:00:00Z (Minute)"
+      permissions: rwxrwxrwx (777)
+      owner: bob
+      group: staff
+      hidden: false
+  - line: 7
+    outcome: entry
+    entry:
+      name: fifo
+      kind: other
+      size: 0
+      modified: "2024-06-15T09:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: bob
+      group: staff
+      hidden: false
+  - line: 8
+    outcome: entry
+    entry:
+      name: selinux-dot.sh
+      kind: file
+      size: 4096
+      modified: "2024-04-01T00:00:00Z (Minute)"
+      permissions: rwxr-xr-x (755)
+      owner: bob
+      group: staff
+      hidden: false

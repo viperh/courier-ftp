@@ -44,7 +44,20 @@ seed_files bundle_open "$ROOT"/crates/courier-ftp-crypto/tests/fixtures/bundles/
 seed_files grant_open "$ROOT"/crates/courier-ftp-crypto/tests/fixtures/grants/*
 seed_files ppk_parse "$ROOT"/tests/fixtures/sshd/keys/*.ppk "$ROOT"/crates/courier-ftp-proto-sftp/tests/fixtures/keys/*.ppk
 seed_files known_hosts_parse "$ROOT"/tests/fixtures/known_hosts/*
-seed_files ftp_listing "$ROOT"/crates/courier-ftp-proto-ftp/tests/fixtures/listings/**/*
+seed_listing() { # <dir> <selector byte (octal)> : prefix each fixture with fuzz_listing's selector byte
+  has_target ftp_listing || return 0
+  mkdir -p "$OUT/ftp_listing"
+  local f
+  for f in "$1"/*.txt; do
+    { printf "\\$2"; cat "$f"; } > "$OUT/ftp_listing/fixture-$(basename "$1")-$(basename "$f")"
+  done
+}
+# fuzz_listing: selector bit 0 = LIST (1) / MLSD (0); 0o001 = LIST without a hint.
+seed_listing "$ROOT"/crates/courier-ftp-proto-ftp/tests/listings/mlsd 000
+for d in dos eplf vms mvs ibmi mixed; do
+  seed_listing "$ROOT/crates/courier-ftp-proto-ftp/tests/listings/$d" 001
+done
+seed_listing "$ROOT"/crates/courier-ftp-core/tests/listings/unix 001
 seed_files backup_decrypt "$ROOT"/crates/courier-ftp-core/tests/fixtures/backups/*
 seed_files tls_cert_details "$ROOT"/tests/fixtures/tls/*.der
 seed_files filezilla_xml_import "$ROOT"/crates/courier-ftp-core/tests/fixtures/filezilla/*.xml

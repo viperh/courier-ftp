@@ -1,0 +1,36 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/dos/windows-cmd-dir.txt
+---
+format: dos
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: setup.exe
+    kind: file
+    size: 1234567
+    modified: "2024-01-31T09:05:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: data
+    kind: symlink
+    target: "D:\\data"
+    size: ~
+    modified: "2024-01-30T17:45:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: link.txt
+    kind: symlink
+    target: target.txt
+    size: ~
+    modified: "2024-01-30T17:46:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

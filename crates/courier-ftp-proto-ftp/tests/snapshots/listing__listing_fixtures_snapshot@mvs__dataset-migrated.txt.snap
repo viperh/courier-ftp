@@ -1,0 +1,42 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mvs/dataset-migrated.txt
+---
+format: mvs-dataset
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: CAROL.A
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: CAROL.B
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: CAROL.C
+    kind: file
+    size: ~
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: CAROL.D
+    kind: file
+    size: ~
+    modified: "2023-12-31T00:00:00Z (Day)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

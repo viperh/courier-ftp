@@ -904,12 +904,15 @@ name = "courier-ftp-core"
 version = "0.1.0"
 dependencies = [
  "ciborium",
+ "criterion",
  "directories",
  "encoding_rs",
  "globset",
+ "insta",
  "percent-encoding",
  "pretty_assertions",
  "proptest",
+ "regex",
  "schemars",
  "secrecy",
  "serde",
@@ -919,6 +922,7 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uhlc",
@@ -974,6 +978,13 @@ name = "courier-ftp-proto-ftp"
 version = "0.1.0"
 dependencies = [
  "courier-ftp-core",
+ "criterion",
+ "encoding_rs",
+ "insta",
+ "proptest",
+ "serde",
+ "serde_json",
+ "time",
 ]
 
 [[package]]
@@ -3426,10 +3437,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
 dependencies = [
  "console 0.16.6",
+ "globset",
  "once_cell",
  "serde",
  "similar",
  "tempfile",
+ "walkdir",
 ]
 
 [[package]]

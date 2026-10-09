@@ -1,0 +1,34 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mlsd/proftpd.txt
+---
+format: mlsd
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: ".profile"
+    kind: file
+    size: 2048
+    modified: "2024-01-31T10:15:00Z (Second)"
+    permissions: rw-r--r-- (644)
+    owner: alice
+    group: staff
+    hidden: true
+  - name: shared
+    kind: dir
+    size: ~
+    modified: "2023-11-05T23:15:01Z (Second)"
+    permissions: rwxrwsr-x (2775)
+    owner: alice
+    group: staff
+    hidden: false
+  - name: current
+    kind: symlink
+    size: 0
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: rwxrwxrwx (777)
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

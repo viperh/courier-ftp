@@ -1,0 +1,51 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/devices.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: "null"
+      kind: other
+      size: ~
+      modified: "2024-01-01T00:00:00Z (Day)"
+      permissions: rw-rw-rw- (666)
+      owner: root
+      group: root
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: tty0
+      kind: other
+      size: ~
+      modified: "2024-06-15T08:00:00Z (Minute)"
+      permissions: rw--w---- (620)
+      owner: root
+      group: tty
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: sda
+      kind: other
+      size: ~
+      modified: "2024-06-15T08:00:00Z (Minute)"
+      permissions: rw-rw---- (660)
+      owner: root
+      group: disk
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: nvme0n1p1
+      kind: other
+      size: ~
+      modified: "2024-06-15T08:00:00Z (Minute)"
+      permissions: rw-rw---- (660)
+      owner: root
+      group: disk
+      hidden: false

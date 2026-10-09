@@ -1,0 +1,85 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/vsftpd.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: pub
+      kind: dir
+      size: 4096
+      modified: "2023-04-22T00:00:00Z (Day)"
+      permissions: rwxr-xr-x (755)
+      owner: ftp
+      group: ftp
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: 100MB.bin
+      kind: file
+      size: 104857600
+      modified: "2024-05-30T22:13:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: ftp
+      group: ftp
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: 1KB.bin
+      kind: file
+      size: 1024
+      modified: "2024-05-30T22:13:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: ftp
+      group: ftp
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: current
+      kind: symlink
+      target: pub/2024
+      size: 9
+      modified: "2024-05-30T22:13:00Z (Minute)"
+      permissions: rwxrwxrwx (777)
+      owner: ftp
+      group: ftp
+      hidden: false
+  - line: 5
+    outcome: entry
+    entry:
+      name: a -> b.txt
+      kind: file
+      size: 17
+      modified: "2024-05-30T22:13:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: ftp
+      group: ftp
+      hidden: false
+  - line: 6
+    outcome: entry
+    entry:
+      name: "-dash-first"
+      kind: file
+      size: 17
+      modified: "2024-05-30T22:13:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: ftp
+      group: ftp
+      hidden: false
+  - line: 7
+    outcome: entry
+    entry:
+      name: ".."
+      kind: file
+      size: 17
+      modified: "2024-05-30T22:13:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: ftp
+      group: ftp
+      hidden: true

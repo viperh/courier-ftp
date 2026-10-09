@@ -1,0 +1,127 @@
+---
+source: crates/courier-ftp-core/src/filters/tests.rs
+expression: text
+---
+{
+  "filters": [
+    {
+      "name": "CVS and SVN directories",
+      "applies_to": "dirs",
+      "match_mode": "any",
+      "case_sensitive": true,
+      "scope": "both",
+      "conditions": [
+        {
+          "type": "name",
+          "op": "equals",
+          "value": "CVS"
+        },
+        {
+          "type": "name",
+          "op": "equals",
+          "value": ".svn"
+        }
+      ],
+      "builtin": true
+    },
+    {
+      "name": "Git directories",
+      "applies_to": "dirs",
+      "match_mode": "any",
+      "case_sensitive": true,
+      "scope": "both",
+      "conditions": [
+        {
+          "type": "name",
+          "op": "equals",
+          "value": ".git"
+        }
+      ],
+      "builtin": true
+    },
+    {
+      "name": "Temporary and backup files",
+      "applies_to": "files",
+      "match_mode": "any",
+      "case_sensitive": false,
+      "scope": "both",
+      "conditions": [
+        {
+          "type": "name",
+          "op": "ends_with",
+          "value": "~"
+        },
+        {
+          "type": "name",
+          "op": "ends_with",
+          "value": ".bak"
+        },
+        {
+          "type": "name",
+          "op": "ends_with",
+          "value": ".tmp"
+        },
+        {
+          "type": "name",
+          "op": "ends_with",
+          "value": ".swp"
+        },
+        {
+          "type": "name",
+          "op": "glob",
+          "value": "#*#"
+        }
+      ],
+      "builtin": true
+    },
+    {
+      "name": "Configuration files",
+      "applies_to": "both",
+      "match_mode": "any",
+      "case_sensitive": true,
+      "scope": "both",
+      "conditions": [
+        {
+          "type": "name",
+          "op": "begins_with",
+          "value": "."
+        }
+      ],
+      "builtin": true
+    },
+    {
+      "name": "OS metadata files",
+      "applies_to": "files",
+      "match_mode": "any",
+      "case_sensitive": false,
+      "scope": "both",
+      "conditions": [
+        {
+          "type": "name",
+          "op": "equals",
+          "value": "Thumbs.db"
+        },
+        {
+          "type": "name",
+          "op": "equals",
+          "value": ".DS_Store"
+        },
+        {
+          "type": "name",
+          "op": "equals",
+          "value": "desktop.ini"
+        }
+      ],
+      "builtin": true
+    }
+  ],
+  "sets": [
+    {
+      "name": "default",
+      "local": [],
+      "remote": []
+    }
+  ],
+  "active_set": "default",
+  "apply_to_transfers": true
+}

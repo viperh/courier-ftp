@@ -1,0 +1,2 @@
+-rw-r--r--    1 ola      users        100 mai 17 12:00 mai.txt
+-rw-r--r--    1 ola      users        100 des 24 2023 desember.txt

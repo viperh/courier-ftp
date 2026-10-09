@@ -1,0 +1,42 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mixed/unix-then-dos.txt
+---
+format: eplf
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: public_html
+    kind: dir
+    size: 4096
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: rwxr-xr-x (755)
+    owner: alice
+    group: staff
+    hidden: false
+  - name: wwwroot
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: back-to-unix.txt
+    kind: file
+    size: 10
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: rw-r--r-- (644)
+    owner: alice
+    group: staff
+    hidden: false
+  - name: epl.txt
+    kind: file
+    size: 1
+    modified: "2024-01-31T12:00:00Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

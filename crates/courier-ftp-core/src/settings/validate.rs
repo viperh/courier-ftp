@@ -9,6 +9,7 @@ use super::model::{
     ColumnSpec, EditingSettings, FtpProxySettings, PaneColumns, Settings, TransferSettings,
 };
 use crate::edit::EditorChoice;
+use crate::filters::FilterSettings;
 use crate::model::{FtpEncryption, Protocol, ServerAddress};
 
 /// Maximum length of `ftp.active_external_ip.from_url`.
@@ -263,7 +264,30 @@ pub(super) fn validate(s: &mut Settings) -> Vec<SettingsWarning> {
         3600,
     );
 
+    validate_filters(&mut c, &mut s.filters);
+
     c.warnings
+}
+
+/// `filters` (T47): at least one set, and an `active_set` that exists. Problems inside
+/// filters do not reset anything here: `FilterEngine::new` disables a bad filter.
+fn validate_filters(c: &mut Checker, v: &mut FilterSettings) {
+    if v.sets.is_empty() {
+        c.warn("filters.sets", "no filter sets; using default");
+        v.sets = FilterSettings::default().sets;
+    }
+    if !v.sets.iter().any(|s| s.name == v.active_set)
+        && let Some(first) = v.sets.first()
+    {
+        c.warn(
+            "filters.active_set",
+            format!(
+                "no filter set named `{}`; using `{}`",
+                v.active_set, first.name
+            ),
+        );
+        v.active_set = first.name.clone();
+    }
 }
 
 /// `ServerAddress` host rules (non-empty, ≤ 253 bytes, no whitespace, control

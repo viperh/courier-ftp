@@ -1,0 +1,9 @@
+Directory DISK$USER:[DAVE]
+
+%DIRECT-W-NOFILES, no files found
+%RMS-E-PRV, insufficient privilege or file protection violation
+FILE.TXT;1                1/3        01-MAR-2024 00:00:00.00  [DAVE]   (RWED,RWED,,)
+
+Total of 1 file, 1/3 blocks.
+
+Grand total of 1 directory, 1 file, 1/3 blocks.
