@@ -92,7 +92,7 @@ impl ListingCache {
     /// Apply new settings (enable/disable, TTL). Disabling clears everything.
     pub fn set_policy(&self, policy: CachePolicy);
     pub fn lookup(&self, server: &ServerIdentity, dir: &RemotePath) -> Lookup;
-    /// Store a listing just fetched. Drops `Listing.raw` (the raw server text).
+    /// Store a listing just fetched (including `Listing.raw`, used by T71's raw view).
     pub fn store(&self, server: &ServerIdentity, listing: Listing) -> Arc<Listing>;
     /// Fetch through the cache. Concurrent calls for the same (server, dir) are
     /// coalesced: only one runs `fetch`, the others wait and reuse its result.
@@ -119,14 +119,15 @@ pub struct CachePolicy {
     pub max_dirs: usize,             // cache.listing_cache_max_dirs (default 200)
 }
 
-/// Hard limit on cached entries over all directories (constant, not a setting).
+/// Hard limits over all directories (constants, not settings).
 pub const MAX_CACHED_ENTRIES: usize = 500_000;
+pub const MAX_CACHED_RAW_BYTES: usize = 64 * 1024 * 1024;
 ```
 
 ### Behaviour
 
 **Storage.** `Inner` holds a `std::sync::Mutex<State>`:
-`State { dirs: HashMap<(ServerIdentity, RemotePath), Slot>, total_entries: usize, clock: u64 }`,
+`State { dirs: HashMap<(ServerIdentity, RemotePath), Slot>, total_entries: usize, total_raw_bytes: usize, clock: u64 }`,
 `Slot { listing: Arc<Listing>, cached_at: tokio::time::Instant, unsure: bool, last_used: u64 }`.
 `clock` increments on every lookup hit or store; `last_used` is set from it (LRU order).
 A separate `fetch_locks: Mutex<HashMap<(ServerIdentity, RemotePath), Arc<tokio::sync::Mutex<()>>>>`
@@ -155,14 +156,17 @@ the error; on any other error leave the cache unchanged and return the error.
 Cancellation: dropping the future releases the lock; the next waiter fetches itself.
 Cache disabled → `fetch()` is always called and nothing is stored.
 
-**`store`**: replaces the slot, sets `unsure = false`, drops `Listing.raw`, updates
-`total_entries`, emits `ListingUpdated`, then evicts.
+**`store`**: replaces the slot, sets `unsure = false`, keeps `Listing.raw`, updates
+`total_entries`, emits `ListingUpdated`, then evicts (directories first, then raw text, see Eviction).
 
 **Eviction.** After every insert, while `dirs.len() > max_dirs` or
 `total_entries > MAX_CACHED_ENTRIES`, remove the slot with the smallest `last_used`
 (linear scan over at most `max_dirs` slots). The slot just inserted is never evicted in the same
 pass, so a single directory larger than `MAX_CACHED_ENTRIES` is still served (it
-evicts everything else). Eviction is silent (no event).
+evicts everything else). Then, while the raw text of all slots exceeds
+`MAX_CACHED_RAW_BYTES`, set `raw = None` on the least recently used slot that still has
+raw text (the newest slot keeps its raw text even if it alone exceeds the limit; T71
+caps one listing's raw text at 16 MiB). Eviction is silent (no event).
 
 **Patches** (all O(entries in the affected directory); no-op if the parent is not cached):
 
@@ -219,8 +223,10 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 - Listings contain file names, which are user data: memory only, never written to disk,
   never synced. `clear_all` runs on vault lock (T60) so a locked app holds no remote
   file names, and on quit.
-- `Listing.raw` is dropped before caching (less memory; the raw view of T71 always uses
-  a fresh listing).
+- `Listing.raw` is kept (T71 shows it from the cached listing) but bounded: when the sum of
+  raw text over all slots exceeds `MAX_CACHED_RAW_BYTES` (64 MiB), the raw text of the least
+  recently used slots is dropped (set to `None`) until under the limit; the entries stay.
+  T71 then shows its "no raw listing" message and a refresh brings the text back.
 - Logging: `debug!` may include the directory path and server key (debug-only per T91);
   `trace!` for hit/miss per lookup. At `info` and above only counts (`evicted 3 dirs`),
   never hosts, users or paths.
@@ -274,7 +280,7 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 - `single_huge_listing_still_served` — one 600 000-entry listing kept alone. AC5.
 - `disabled_cache_always_fetches_and_stores_nothing` — AC6.
 - `not_found_invalidates_subtree` — AC8.
-- `store_strips_raw_text` — `Listing.raw` is `None` after store.
+- `raw_text_budget_drops_lru_raw_first` — three listings with 30 MiB raw each: the oldest keeps its entries but `raw == None`; total raw ≤ 64 MiB.
 - `clear_all_empties_cache` — AC9.
 - `listing_updated_emitted_once_per_changed_dir` — event receiver from T04 counts events.
 
