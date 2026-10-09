@@ -1,0 +1,17 @@
+[package]
+name = "courier-ftp-proto-sftp"
+description = "SFTP client for courier-ftp on russh, implementing the core Backend trait"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
+# Everything here should be testable without a terminal.
+[dependencies]
+courier-ftp-core = { workspace = true }

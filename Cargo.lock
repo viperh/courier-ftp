@@ -475,8 +475,10 @@ dependencies = [
  "color-eyre",
  "config",
  "courier-ftp-core",
+ "courier-ftp-proto-ftp",
+ "courier-ftp-proto-sftp",
+ "courier-ftp-sync",
  "crossterm 0.29.0",
- "directories",
  "futures",
  "human-panic",
  "json5 1.3.1",
@@ -499,10 +501,61 @@ dependencies = [
 name = "courier-ftp-core"
 version = "0.1.0"
 dependencies = [
+ "directories",
  "pretty_assertions",
  "serde",
  "thiserror 2.0.20",
  "tracing",
+]
+
+[[package]]
+name = "courier-ftp-crypto"
+version = "0.1.0"
+
+[[package]]
+name = "courier-ftp-proto"
+version = "0.1.0"
+dependencies = [
+ "courier-ftp-crypto",
+]
+
+[[package]]
+name = "courier-ftp-proto-ftp"
+version = "0.1.0"
+dependencies = [
+ "courier-ftp-core",
+]
+
+[[package]]
+name = "courier-ftp-proto-sftp"
+version = "0.1.0"
+dependencies = [
+ "courier-ftp-core",
+]
+
+[[package]]
+name = "courier-ftp-server"
+version = "0.1.0"
+dependencies = [
+ "courier-ftp-crypto",
+ "courier-ftp-proto",
+]
+
+[[package]]
+name = "courier-ftp-store"
+version = "0.1.0"
+dependencies = [
+ "courier-ftp-crypto",
+]
+
+[[package]]
+name = "courier-ftp-sync"
+version = "0.1.0"
+dependencies = [
+ "courier-ftp-core",
+ "courier-ftp-crypto",
+ "courier-ftp-proto",
+ "courier-ftp-store",
 ]
 
 [[package]]

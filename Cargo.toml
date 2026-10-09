@@ -12,11 +12,32 @@ license = "MIT"
 repository = "https://github.com/viperh/courier-ftp"
 rust-version = "1.85"
 
+# Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+await_holding_lock = "deny"
+large_futures = "warn"
+
 # Central dependency versions. Crates reference these with
 # `some-dep = { workspace = true }` so versions stay in lockstep.
 [workspace.dependencies]
 # --- internal ---
 courier-ftp-core = { path = "crates/courier-ftp-core" }
+courier-ftp-crypto = { path = "crates/courier-ftp-crypto" }
+courier-ftp-proto = { path = "crates/courier-ftp-proto" }
+courier-ftp-proto-ftp = { path = "crates/courier-ftp-proto-ftp" }
+courier-ftp-proto-sftp = { path = "crates/courier-ftp-proto-sftp" }
+courier-ftp-store = { path = "crates/courier-ftp-store" }
+courier-ftp-sync = { path = "crates/courier-ftp-sync" }
 
 # --- tui / terminal ---
 crossterm = { version = "0.29.0", features = ["serde", "event-stream"] }
@@ -24,7 +45,11 @@ ratatui = { version = "0.30.2", features = ["serde", "macros"] }
 signal-hook = "0.4.4"
 
 # --- async runtime ---
+# Only if native `async fn` in traits is not enough for `dyn Backend` (T03).
+async-trait = "0.1.92"
+bytes = "1.12.1"
 futures = "0.3.32"
+pin-project-lite = "0.2.17"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
 
@@ -58,12 +83,134 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "serde"] }
 libc = "0.2.186"
 strum = { version = "0.28.0", features = ["derive"] }
 
+# --- tls (D9: rustls with the `ring` provider, no OpenSSL) ---
+rustls = { version = "0.23.43", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = "1.15.1"
+rustls-platform-verifier = "0.7.1"
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["logging", "ring", "tls12"] }
+# Certificate details for the trust prompt (T12, T69).
+x509-parser = "0.18.1"
+
+# --- ssh / sftp (D2) ---
+russh = "0.64.1"
+russh-sftp = "3.0.1"
+# russh 0.64 requires exactly this pre-release. `encryption` decrypts
+# passphrase-protected OpenSSH keys, `ppk` reads PuTTY keys.
+ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "encryption", "ppk"] }
+
+# --- crypto / vault (T30, T80; versions copied from sverb) ---
+argon2 = "0.6.0"
+# BIP39 recovery phrase. No `rand` feature (entropy comes from our CryptoRng).
+bip39 = { version = "3.0.0", default-features = false, features = ["zeroize"] }
+chacha20poly1305 = "0.11.0"
+ed25519-dalek = { version = "3.0.0", features = ["zeroize"] }
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+hkdf = "0.13.0"
+hpke = "0.14.1"
+opaque-ke = { version = "4.0.1", features = ["argon2"] }
+rand = "0.10.3"
+rand_core = "0.10.1"
+secrecy = "0.10.3"
+sha2 = "0.11.0"
+subtle = "2.6.1"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
+# Master-password strength.
+zxcvbn = { version = "3.1.1", default-features = false }
+# Optional per-device unlock (D3). The default `v1` stores use the pure-Rust
+# zbus Secret Service on Linux (no C build dependencies).
+keyring = "4.2.0"
+
+# --- storage / sync client (T81-T83, T87, T88) ---
+ciborium = "0.2.2"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite_migration = "2.6.0"
+uhlc = "0.9.0"
+zstd = "0.14.1"
+# The sync HTTP client: rustls with our own `ring` ClientConfig (no aws-lc, no native-tls).
+reqwest = { version = "0.12.28", default-features = false, features = [
+    "json",
+    "rustls-tls-webpki-roots-no-provider",
+] }
+# Live updates (the same tungstenite generation as axum's `ws`).
+tokio-tungstenite = { version = "0.29.0", default-features = false, features = [
+    "connect",
+    "handshake",
+    "rustls-tls-webpki-roots",
+] }
+
+# --- server only (T84-T86; never a dependency of a client crate) ---
+axum = { version = "0.8.9", features = ["macros"] }
+axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
+governor = "0.10.4"
+lettre = { version = "0.11.23", default-features = false, features = [
+    "builder",
+    "hostname",
+    "ring",
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls",
+    "webpki-roots",
+] }
+metrics = "0.24.6"
+# Not the `sqlx` facade: its optional sqlx-sqlite pins a libsqlite3-sys that
+# conflicts (`links = "sqlite3"`) with rusqlite even when unused.
+sqlx-core = { version = "0.8.6", default-features = false, features = [
+    "_rt-tokio",
+    "_tls-rustls-ring-webpki",
+    "json",
+    "migrate",
+    "time",
+    "uuid",
+] }
+sqlx-postgres = { version = "0.8.6", default-features = false, features = [
+    "json",
+    "migrate",
+    "time",
+    "uuid",
+] }
+totp-rs = { version = "5.7.0", default-features = false }
+tower-http = { version = "0.6.11", features = [
+    "compression-gzip",
+    "cors",
+    "limit",
+    "timeout",
+    "trace",
+] }
+
+# --- text ---
+# Non-UTF-8 server charsets.
+encoding_rs = "0.8.42"
+globset = "0.4.20"
+regex = "1.13.1"
+# The one date/time crate (no chrono).
+time = { version = "0.3.55", features = [
+    "formatting",
+    "local-offset",
+    "macros",
+    "parsing",
+    "serde",
+] }
+
+# --- misc data ---
+bytesize = "2.7.0"
+# Watch files opened for editing (T63).
+notify = "8.2.0"
+# FileZilla `sitemanager.xml` import (T32).
+quick-xml = "0.42.0"
+serde_json = "1.0.151"
+uuid = { version = "1.27.0", features = ["v4", "v7", "serde"] }
+
 # --- build scripts ---
 anyhow = "1.0.103"
 vergen-gix = { version = "10.0.1", features = ["build", "cargo"] }
 
 # --- dev ---
+# Snapshot tests for listing parsers and UI rendering.
+insta = "1.49.0"
 pretty_assertions = "1.4.1"
+tempfile = "3.27.0"
+tokio-test = "0.4.6"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]

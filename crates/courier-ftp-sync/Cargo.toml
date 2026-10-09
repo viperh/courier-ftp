@@ -1,0 +1,20 @@
+[package]
+name = "courier-ftp-sync"
+description = "Sync client for courier-ftp: account, devices, pull, push and live updates"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
+# Everything here should be testable without a terminal.
+[dependencies]
+courier-ftp-core = { workspace = true }
+courier-ftp-crypto = { workspace = true }
+courier-ftp-proto = { workspace = true }
+courier-ftp-store = { workspace = true }
