@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use app_core::Core;
+use courier_ftp_core::Core;
 
 use crate::{
     action::Action,
@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub struct App {
-    /// UI-agnostic domain state, owned by the `app-core` crate.
+    /// UI-agnostic domain state, owned by the `courier-ftp-core` crate.
     core: Core,
     config: Config,
     tick_rate: f64,

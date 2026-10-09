@@ -1,5 +1,5 @@
 [package]
-name = "app"
+name = "courier-ftp"
 description = "A terminal user interface built with ratatui"
 version.workspace = true
 edition.workspace = true
@@ -13,7 +13,7 @@ build = "build.rs"
 # so `repository` above must stay set.
 
 [dependencies]
-app-core = { workspace = true }
+courier-ftp-core = { workspace = true }
 
 better-panic = { workspace = true }
 clap = { workspace = true }

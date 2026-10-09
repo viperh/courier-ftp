@@ -1,6 +1,6 @@
 //! Domain logic for the application, with no knowledge of the terminal.
 //!
-//! Keep everything here UI-agnostic. The `app` crate owns rendering, key
+//! Keep everything here UI-agnostic. The `courier-ftp` crate owns rendering, key
 //! handling and the event loop; this crate owns state and the rules that
 //! govern it, so it can be unit tested without spawning a terminal.
 //!
@@ -11,7 +11,7 @@ use thiserror::Error;
 
 /// Errors produced by the core.
 ///
-/// The `app` crate converts these into `color_eyre` reports at the boundary,
+/// The `courier-ftp` crate converts these into `color_eyre` reports at the boundary,
 /// which is why this enum carries no formatting or reporting concerns of its own.
 #[derive(Debug, Error)]
 pub enum Error {
@@ -25,7 +25,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The application's domain state.
 ///
-/// This placeholder exists so the `app` -> `app-core` seam is wired and
+/// This placeholder exists so the `courier-ftp` -> `courier-ftp-core` seam is wired and
 /// compiled by CI from the first commit. Swap the contents for your own model.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Core {

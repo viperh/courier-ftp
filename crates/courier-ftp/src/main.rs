@@ -1,7 +1,7 @@
 //! Entry point.
 //!
 //! The binary owns everything terminal-related; domain logic lives in the
-//! `app-core` crate so it stays testable without a TTY.
+//! `courier-ftp-core` crate so it stays testable without a TTY.
 
 use clap::Parser;
 use cli::Cli;

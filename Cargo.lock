@@ -89,46 +89,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "app-core",
- "better-panic",
- "clap",
- "color-eyre",
- "config",
- "crossterm 0.29.0",
- "directories",
- "futures",
- "human-panic",
- "json5 1.3.1",
- "libc",
- "pretty_assertions",
- "ratatui",
- "serde",
- "signal-hook 0.4.4",
- "strip-ansi-escapes",
- "strum",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-error",
- "tracing-subscriber",
- "vergen-gix",
-]
-
-[[package]]
-name = "app-core"
-version = "0.1.0"
-dependencies = [
- "pretty_assertions",
- "serde",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -503,6 +463,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
 dependencies = [
  "unicode-segmentation",
+]
+
+[[package]]
+name = "courier-ftp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "better-panic",
+ "clap",
+ "color-eyre",
+ "config",
+ "courier-ftp-core",
+ "crossterm 0.29.0",
+ "directories",
+ "futures",
+ "human-panic",
+ "json5 1.3.1",
+ "libc",
+ "pretty_assertions",
+ "ratatui",
+ "serde",
+ "signal-hook 0.4.4",
+ "strip-ansi-escapes",
+ "strum",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-error",
+ "tracing-subscriber",
+ "vergen-gix",
+]
+
+[[package]]
+name = "courier-ftp-core"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]

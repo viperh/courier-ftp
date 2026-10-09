@@ -1,6 +1,6 @@
 [package]
-name = "app-core"
-description = "Domain logic for the app, independent of any user interface"
+name = "courier-ftp-core"
+description = "Domain logic for courier-ftp, independent of any user interface"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -5,10 +5,10 @@ on:
     tags:
       - '[v]?[0-9]+.[0-9]+.[0-9]+'
 
-# The binary published here is the `app` crate. Rename BINARY_NAME (and the
+# The binary published here is the `courier-ftp` crate. Rename BINARY_NAME (and the
 # crate) together when you adopt this template.
 env:
-  BINARY_NAME: app
+  BINARY_NAME: courier-ftp
 
 jobs:
   publish:

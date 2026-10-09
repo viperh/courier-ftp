@@ -17,7 +17,7 @@ const CONFIG: &str = include_str!("../../../.config/config.json");
 /// Reverse-domain qualifier and organisation used to locate the per-user
 /// config and data directories. Change these when you rename the project.
 const APP_QUALIFIER: &str = "com";
-const APP_ORGANIZATION: &str = "example";
+const APP_ORGANIZATION: &str = "viperh";
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct AppConfig {
