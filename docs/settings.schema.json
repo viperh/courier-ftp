@@ -1,0 +1,1865 @@
+{
+  "$defs": {
+    "ActiveExternalIp": {
+      "description": "The external IP address sent in active mode (T11, T72). Not `Copy` (holds a URL).\n\nJSON: `\"auto\"`, `{\"fixed\":\"203.0.113.5\"}` or `{\"from_url\":\"http://…\"}`.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Ask the operating system for the local address.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Use this address.",
+          "properties": {
+            "fixed": {
+              "format": "ip",
+              "type": "string"
+            }
+          },
+          "required": [
+            "fixed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Fetch the address from this `http://` URL (no default service).",
+          "properties": {
+            "from_url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from_url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Argon2Preset": {
+      "description": "Argon2id cost preset for the vault (T30, T60). Parameters are owned by T30\n(`Argon2Cost::from_preset`).",
+      "oneOf": [
+        {
+          "const": "light",
+          "description": "m = 64 MiB, t = 3, p = 1.",
+          "type": "string"
+        },
+        {
+          "const": "standard",
+          "description": "m = 256 MiB, t = 3, p = 1.",
+          "type": "string"
+        },
+        {
+          "const": "strong",
+          "description": "m = 1 GiB, t = 4, p = 1.",
+          "type": "string"
+        }
+      ]
+    },
+    "Association": {
+      "description": "One entry of `editing.associations`. First match wins (T63).",
+      "properties": {
+        "command": {
+          "description": "Program and arguments, split with POSIX shell-word rules (`shell-words`).\n`%f` is replaced by the file path; without `%f` the path is appended.",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Glob (`globset` syntax). Without `/` it matches the file name only,\nwith `/` it matches the full remote path. Always case-insensitive.",
+          "type": "string"
+        },
+        "terminal": {
+          "description": "true: runs in this terminal (courier-ftp suspends); false: GUI, detached.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pattern",
+        "command",
+        "terminal"
+      ],
+      "type": "object"
+    },
+    "BurstTolerance": {
+      "description": "How far the speed limiter may burst above the limit (T44).",
+      "oneOf": [
+        {
+          "const": "normal",
+          "description": "1 second of data.",
+          "type": "string"
+        },
+        {
+          "const": "high",
+          "description": "2 seconds of data.",
+          "type": "string"
+        },
+        {
+          "const": "very_high",
+          "description": "5 seconds of data.",
+          "type": "string"
+        }
+      ]
+    },
+    "CacheSettings": {
+      "description": "`cache` (T46).",
+      "properties": {
+        "listing_cache": {
+          "default": true,
+          "description": "Cache directory listings.",
+          "type": "boolean"
+        },
+        "listing_cache_max_dirs": {
+          "default": 200,
+          "description": "Directories kept in one global LRU across servers, 10–10000.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "listing_cache_ttl_secs": {
+          "default": 0,
+          "description": "Seconds a cached listing stays valid, 0–86400 (0 = until refreshed).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Column": {
+      "description": "A file list column (T53), in FileZilla's order.",
+      "oneOf": [
+        {
+          "const": "name",
+          "description": "File name.",
+          "type": "string"
+        },
+        {
+          "const": "size",
+          "description": "File size.",
+          "type": "string"
+        },
+        {
+          "const": "type",
+          "description": "File type.",
+          "type": "string"
+        },
+        {
+          "const": "modified",
+          "description": "Last modified.",
+          "type": "string"
+        },
+        {
+          "const": "permissions",
+          "description": "Permissions.",
+          "type": "string"
+        },
+        {
+          "const": "owner_group",
+          "description": "Owner and group.",
+          "type": "string"
+        }
+      ]
+    },
+    "ColumnSpec": {
+      "description": "One column of a file list and whether it is shown.",
+      "properties": {
+        "column": {
+          "$ref": "#/$defs/Column",
+          "description": "The column."
+        },
+        "visible": {
+          "description": "Shown.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "column",
+        "visible"
+      ],
+      "type": "object"
+    },
+    "ConnectTarget": {
+      "description": "Where a connect request opens (T58, T59, T61).",
+      "oneOf": [
+        {
+          "const": "ask",
+          "description": "Ask each time.",
+          "type": "string"
+        },
+        {
+          "const": "new_tab",
+          "description": "Open a new tab.",
+          "type": "string"
+        },
+        {
+          "const": "replace",
+          "description": "Replace the current connection.",
+          "type": "string"
+        }
+      ]
+    },
+    "ConnectionSettings": {
+      "description": "`connection`.",
+      "properties": {
+        "ipv6": {
+          "default": true,
+          "description": "Use IPv6 addresses at all. FileZilla: \"Disable IPv6\" (inverted).",
+          "type": "boolean"
+        },
+        "keepalive": {
+          "default": true,
+          "description": "Keep idle connections alive (FTP and SFTP). FileZilla: \"Send FTP keep-alive commands\".",
+          "type": "boolean"
+        },
+        "keepalive_interval_secs": {
+          "default": 30,
+          "description": "Idle seconds before a keep-alive is sent, 10–3600.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prefer_ipv6": {
+          "default": false,
+          "description": "Try IPv6 addresses first when connecting (Happy Eyeballs).",
+          "type": "boolean"
+        },
+        "retries": {
+          "default": 2,
+          "description": "Retries after a failed connection, 0–10. FileZilla: \"Maximum number of retries\".",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retry_delay_secs": {
+          "default": 5,
+          "description": "Seconds between retries, 0–600. FileZilla: \"Delay between failed login attempts\".",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "timeout_secs": {
+          "default": 20,
+          "description": "Inactivity timeout in seconds, 5–600. FileZilla: \"Timeout in seconds\" (FileZilla\nallows 0 = off; courier-ftp always uses a timeout).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "DebugLevel": {
+      "description": "0 = none, 1 = warning, 2 = info, 3 = verbose, 4 = debug.",
+      "maximum": 4,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "EditingSettings": {
+      "description": "`editing` (T63).",
+      "properties": {
+        "associations": {
+          "default": [],
+          "description": "FileZilla: \"Filetype associations\". First match wins; at most 256 entries.",
+          "items": {
+            "$ref": "#/$defs/Association"
+          },
+          "type": "array"
+        },
+        "editor": {
+          "$ref": "#/$defs/EditorChoice",
+          "default": "auto",
+          "description": "FileZilla: \"Default editor\": `\"auto\"` ($VISUAL, $EDITOR, then the platform\ndefault) or `{\"command\":{\"command\":\"vim\",\"terminal\":true}}`."
+        },
+        "max_size_mib": {
+          "default": 50,
+          "description": "Ask before downloading files larger than this many MiB for editing, 0–10240;\n0 = never ask.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "watch_and_prompt_upload": {
+          "default": true,
+          "description": "FileZilla: \"Watch locally edited files and prompt to upload modifications\".",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "EditorChoice": {
+      "description": "`editing.editor` (T63). JSON `\"auto\"` or `{\"command\":{\"command\":\"vim\",\"terminal\":true}}`.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "$VISUAL, then $EDITOR, then the platform default.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "This program.",
+          "properties": {
+            "command": {
+              "properties": {
+                "command": {
+                  "description": "Program and arguments (same rules as [`Association::command`]).",
+                  "type": "string"
+                },
+                "terminal": {
+                  "description": "true: runs in this terminal; false: GUI, detached.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "command",
+                "terminal"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EmptyDirs": {
+      "description": "Empty directories in recursive transfers (T43).",
+      "oneOf": [
+        {
+          "const": "create",
+          "description": "Create them on the target.",
+          "type": "string"
+        },
+        {
+          "const": "skip",
+          "description": "Skip them.",
+          "type": "string"
+        }
+      ]
+    },
+    "EnterOnFile": {
+      "description": "What Enter does on a file (T51, T53).",
+      "oneOf": [
+        {
+          "const": "transfer",
+          "description": "Queue a transfer.",
+          "type": "string"
+        },
+        {
+          "const": "view",
+          "description": "View the file.",
+          "type": "string"
+        },
+        {
+          "const": "edit",
+          "description": "Edit the file.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Nothing.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExistsAction": {
+      "description": "What to do when a transfer target already exists (T04, T40, T42).\n\nFileZilla: Settings → Transfers → File exists action.",
+      "oneOf": [
+        {
+          "const": "ask",
+          "description": "Ask every time.",
+          "type": "string"
+        },
+        {
+          "const": "overwrite",
+          "description": "Overwrite.",
+          "type": "string"
+        },
+        {
+          "const": "overwrite_if_newer",
+          "description": "Overwrite if the source is newer.",
+          "type": "string"
+        },
+        {
+          "const": "overwrite_if_size_differs",
+          "description": "Overwrite if the size differs.",
+          "type": "string"
+        },
+        {
+          "const": "overwrite_if_newer_or_size_differs",
+          "description": "Overwrite if the source is newer or the size differs.",
+          "type": "string"
+        },
+        {
+          "const": "resume",
+          "description": "Resume the transfer.",
+          "type": "string"
+        },
+        {
+          "const": "rename",
+          "description": "Rename the target.",
+          "type": "string"
+        },
+        {
+          "const": "skip",
+          "description": "Skip the file.",
+          "type": "string"
+        }
+      ]
+    },
+    "FileTypeSettings": {
+      "description": "`file_types`.",
+      "properties": {
+        "ascii_extensions": {
+          "default": [
+            "am",
+            "asp",
+            "bat",
+            "c",
+            "cfm",
+            "cgi",
+            "conf",
+            "cpp",
+            "css",
+            "dhtml",
+            "diz",
+            "h",
+            "hpp",
+            "htm",
+            "html",
+            "in",
+            "inc",
+            "java",
+            "js",
+            "jsp",
+            "lua",
+            "m4",
+            "mak",
+            "md5",
+            "nfo",
+            "nsh",
+            "nsi",
+            "pas",
+            "patch",
+            "php",
+            "phtml",
+            "pl",
+            "po",
+            "povray",
+            "py",
+            "qmail",
+            "rb",
+            "rss",
+            "sfv",
+            "sh",
+            "shtml",
+            "sql",
+            "svg",
+            "tcl",
+            "tpl",
+            "txt",
+            "vbs",
+            "xhtml",
+            "xml"
+          ],
+          "description": "FileZilla: \"Treat the following filetypes as ASCII files\" (lowercase, no dot).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_type": {
+          "$ref": "#/$defs/TransferTypeChoice",
+          "default": "auto",
+          "description": "FileZilla: \"Default transfer type\": `auto`, `ascii` or `binary`."
+        },
+        "dotfiles_ascii": {
+          "default": true,
+          "description": "FileZilla: \"Treat dotfiles as ASCII files\".",
+          "type": "boolean"
+        },
+        "no_extension_ascii": {
+          "default": true,
+          "description": "FileZilla: \"Treat files without extension as ASCII file\".",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "FtpProxyKind": {
+      "description": "FTP proxy type (T15).",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No FTP proxy.",
+          "type": "string"
+        },
+        {
+          "const": "user_at_host",
+          "description": "`USER user@host`.",
+          "type": "string"
+        },
+        {
+          "const": "site",
+          "description": "`SITE host`.",
+          "type": "string"
+        },
+        {
+          "const": "open",
+          "description": "`OPEN host`.",
+          "type": "string"
+        },
+        {
+          "const": "custom",
+          "description": "The user's login script (`proxy.ftp_proxy.custom_script`).",
+          "type": "string"
+        }
+      ]
+    },
+    "FtpProxySettings": {
+      "description": "`proxy.ftp_proxy` (T15).",
+      "properties": {
+        "custom_script": {
+          "default": "",
+          "description": "FileZilla: custom login sequence. `'\\n'`-separated lines, used when kind is\n`custom`; at most 32 lines of at most 512 characters.",
+          "type": "string"
+        },
+        "host": {
+          "default": "",
+          "description": "FileZilla: \"Proxy host\". Required when kind is not `none`.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FtpProxyKind",
+          "default": "none",
+          "description": "FileZilla: \"Type of FTP Proxy\": `none`, `user_at_host`, `site`, `open`, `custom`."
+        },
+        "password_ref": {
+          "default": null,
+          "description": "FileZilla: \"Pass\" (`%w` in scripts), a `proxy-credential` vault item id.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "default": 21,
+          "description": "FileZilla: \"Proxy port\", 1–65535.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "user": {
+          "default": "",
+          "description": "FileZilla: \"Proxy user\" (`%s` in scripts).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FtpSettings": {
+      "description": "`ftp`.",
+      "properties": {
+        "active_external_ip": {
+          "$ref": "#/$defs/ActiveExternalIp",
+          "default": "auto",
+          "description": "FileZilla: \"Active mode IP\": `\"auto\"` (ask the OS), `{\"fixed\":\"203.0.113.5\"}` or\n`{\"from_url\":\"http://…\"}` (an `http://` URL, at most 512 characters)."
+        },
+        "active_no_external_ip_on_local": {
+          "default": true,
+          "description": "FileZilla: \"Don't use external IP address on local connections\".",
+          "type": "boolean"
+        },
+        "active_port_range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "FileZilla: \"Limit local ports used by FileZilla\". null = OS ephemeral port."
+        },
+        "fallback_to_active": {
+          "default": true,
+          "description": "FileZilla: \"Allow fall back to other transfer mode on failure\".",
+          "type": "boolean"
+        },
+        "passive_ignore_unroutable_ip": {
+          "default": true,
+          "description": "Use the control connection's peer address when PASV returns a private address.\nFileZilla: \"Use the server's external IP address instead\".",
+          "type": "boolean"
+        },
+        "send_keepalive_command": {
+          "$ref": "#/$defs/KeepaliveCommand",
+          "default": "noop",
+          "description": "Keep-alive command: `noop` or `random` (NOOP, PWD or TYPE, as FileZilla does)."
+        },
+        "transfer_mode": {
+          "$ref": "#/$defs/FtpTransferMode",
+          "default": "passive",
+          "description": "FileZilla: \"Default transfer mode\" (`passive` or `active`)."
+        },
+        "use_mlsd": {
+          "default": true,
+          "description": "Use MLSD for listings when the server lists it in FEAT.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "FtpTransferMode": {
+      "description": "FTP data connection mode (T11).",
+      "oneOf": [
+        {
+          "const": "passive",
+          "description": "PASV / EPSV.",
+          "type": "string"
+        },
+        {
+          "const": "active",
+          "description": "PORT / EPRT.",
+          "type": "string"
+        }
+      ]
+    },
+    "GenericProxySettings": {
+      "description": "`proxy.generic` (T07).",
+      "properties": {
+        "host": {
+          "default": "",
+          "description": "FileZilla: \"Proxy host\". Required when kind is not `none`.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProxyKind",
+          "default": "none",
+          "description": "FileZilla: \"Type of generic proxy\": `none`, `http`, `socks4` or `socks5`."
+        },
+        "password_ref": {
+          "default": null,
+          "description": "FileZilla: \"Proxy password\", stored as a `proxy-credential` vault item; this is its id.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "default": 0,
+          "description": "FileZilla: \"Proxy port\". 0 = the kind's default (HTTP 8080, SOCKS 1080).",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "user": {
+          "default": "",
+          "description": "FileZilla: \"Proxy user\". Empty = no authentication (SOCKS4: sent as user id).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "InterfaceSettings": {
+      "description": "`interface`.",
+      "properties": {
+        "check_prereleases": {
+          "default": false,
+          "description": "FileZilla: \"Check for beta versions and release candidates\".",
+          "type": "boolean"
+        },
+        "check_updates": {
+          "default": true,
+          "description": "FileZilla: \"Check for FileZilla updates automatically\".",
+          "type": "boolean"
+        },
+        "columns": {
+          "$ref": "#/$defs/PaneColumns",
+          "default": {
+            "local": [
+              {
+                "column": "name",
+                "visible": true
+              },
+              {
+                "column": "size",
+                "visible": true
+              },
+              {
+                "column": "type",
+                "visible": true
+              },
+              {
+                "column": "modified",
+                "visible": true
+              },
+              {
+                "column": "permissions",
+                "visible": false
+              },
+              {
+                "column": "owner_group",
+                "visible": false
+              }
+            ],
+            "remote": [
+              {
+                "column": "name",
+                "visible": true
+              },
+              {
+                "column": "size",
+                "visible": true
+              },
+              {
+                "column": "type",
+                "visible": true
+              },
+              {
+                "column": "modified",
+                "visible": true
+              },
+              {
+                "column": "permissions",
+                "visible": true
+              },
+              {
+                "column": "owner_group",
+                "visible": true
+              }
+            ]
+          },
+          "description": "File list columns. Each column at most once; Name is always present and visible."
+        },
+        "confirm_delete": {
+          "default": true,
+          "description": "Ask before deleting.",
+          "type": "boolean"
+        },
+        "confirm_transfer": {
+          "default": false,
+          "description": "Ask before transferring.",
+          "type": "boolean"
+        },
+        "connect_target": {
+          "$ref": "#/$defs/ConnectTarget",
+          "default": "ask",
+          "description": "Where a connect request opens: `ask`, `new_tab` or `replace` (set by \"remember my\nchoice\")."
+        },
+        "date_format": {
+          "default": "%Y-%m-%d",
+          "description": "FileZilla: \"Date/time format\" (date part). Tokens `%Y %y %m %d %e %b %H %I %M %S %p\n%%` plus literal text, at most 32 characters.",
+          "type": "string"
+        },
+        "dirs_first": {
+          "default": true,
+          "description": "FileZilla: \"Sorting mode\" → directories first.",
+          "type": "boolean"
+        },
+        "enter_on_file": {
+          "$ref": "#/$defs/EnterOnFile",
+          "default": "transfer",
+          "description": "What Enter does on a file: `transfer`, `view`, `edit` or `none`. FileZilla: \"Double-click\naction on files\"."
+        },
+        "force_show_hidden_remote": {
+          "default": false,
+          "description": "FileZilla: \"Force showing hidden files\" (sends `LIST -a`).",
+          "type": "boolean"
+        },
+        "key_sequence_timeout_ms": {
+          "default": 1000,
+          "description": "Milliseconds to wait for the next key of a key sequence (`gg`), 200–5000.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "language": {
+          "default": "auto",
+          "description": "FileZilla: \"Language\": `\"auto\"` or a BCP-47 tag.",
+          "type": "string"
+        },
+        "layout": {
+          "$ref": "#/$defs/Layout",
+          "default": "classic",
+          "description": "FileZilla: \"Layout of file and directory panes\": `classic`, `explorer`, `widescreen`."
+        },
+        "natural_sort": {
+          "default": true,
+          "description": "Natural sort (`file2` before `file10`). FileZilla: \"Natural sort\".",
+          "type": "boolean"
+        },
+        "restore_tabs": {
+          "default": false,
+          "description": "FileZilla: \"Restore tabs and reconnect\".",
+          "type": "boolean"
+        },
+        "show_hidden_local": {
+          "default": false,
+          "description": "Show hidden local files.",
+          "type": "boolean"
+        },
+        "show_log": {
+          "default": true,
+          "description": "Show the message log (FileZilla: View → Message log).",
+          "type": "boolean"
+        },
+        "show_queue": {
+          "default": true,
+          "description": "Show the transfer queue (FileZilla: View → Transfer queue).",
+          "type": "boolean"
+        },
+        "show_quickconnect": {
+          "default": true,
+          "description": "Show the quickconnect bar (FileZilla: View → Quickconnect bar).",
+          "type": "boolean"
+        },
+        "show_splash": {
+          "default": false,
+          "description": "FileZilla: \"Show welcome dialog / splash screen\".",
+          "type": "boolean"
+        },
+        "show_tree": {
+          "default": false,
+          "description": "Show the directory tree pane (FileZilla: View → Directory tree).",
+          "type": "boolean"
+        },
+        "size_format": {
+          "$ref": "#/$defs/SizeFormat",
+          "default": "iec",
+          "description": "FileZilla: \"Filesize format\": `bytes`, `iec` or `si`."
+        },
+        "sort": {
+          "$ref": "#/$defs/PaneSort",
+          "default": {
+            "local": {
+              "column": "name",
+              "descending": false
+            },
+            "remote": {
+              "column": "name",
+              "descending": false
+            }
+          },
+          "description": "Sort order of the file lists."
+        },
+        "sort_case_sensitive": {
+          "default": false,
+          "description": "FileZilla: \"Sorting mode\" → case sensitive.",
+          "type": "boolean"
+        },
+        "swap_panes": {
+          "default": false,
+          "description": "FileZilla: \"Swap local and remote panes\".",
+          "type": "boolean"
+        },
+        "theme": {
+          "$ref": "#/$defs/Theme",
+          "default": "default",
+          "description": "Colour theme: `default`, `high_contrast` or `monochrome` (`NO_COLOR` forces\nmonochrome). FileZilla: \"Theme\"."
+        },
+        "thousands_separator": {
+          "default": true,
+          "description": "FileZilla: \"Use thousands separator\".",
+          "type": "boolean"
+        },
+        "time_format": {
+          "default": "%H:%M",
+          "description": "FileZilla: \"Date/time format\" (time part). Same tokens as `date_format`.",
+          "type": "string"
+        },
+        "unicode_symbols": {
+          "$ref": "#/$defs/UnicodeSymbols",
+          "default": "auto",
+          "description": "Unicode symbols: `auto`, `always` or `never`."
+        }
+      },
+      "type": "object"
+    },
+    "KeepaliveCommand": {
+      "description": "The command sent as an FTP keep-alive (T10).",
+      "oneOf": [
+        {
+          "const": "noop",
+          "description": "Always `NOOP`.",
+          "type": "string"
+        },
+        {
+          "const": "random",
+          "description": "`NOOP`, `PWD` or `TYPE` picked at random per keep-alive (FileZilla behaviour).",
+          "type": "string"
+        }
+      ]
+    },
+    "Layout": {
+      "description": "Main window layout (T50).",
+      "oneOf": [
+        {
+          "const": "classic",
+          "description": "FileZilla's classic layout.",
+          "type": "string"
+        },
+        {
+          "const": "explorer",
+          "description": "Explorer-like layout.",
+          "type": "string"
+        },
+        {
+          "const": "widescreen",
+          "description": "Wide screen layout.",
+          "type": "string"
+        }
+      ]
+    },
+    "LoggingSettings": {
+      "description": "`logging`.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/DebugLevel",
+          "default": 2,
+          "description": "FileZilla: \"Debug information in message log\", 0–4."
+        },
+        "log_file": {
+          "default": null,
+          "description": "FileZilla: \"Filename\". Absolute path; null = `<data dir>/session.log`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "log_file_keep": {
+          "default": 3,
+          "description": "Rotated log files kept, 1–50.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "log_file_max_mib": {
+          "default": 10,
+          "description": "FileZilla: \"Limit size of logfile\" in MiB, 1–1024.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "log_to_file": {
+          "default": false,
+          "description": "FileZilla: \"Log to file\".",
+          "type": "boolean"
+        },
+        "pane_max_lines": {
+          "default": 5000,
+          "description": "Lines kept in the message log pane, 500–100000.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "show_raw_listing": {
+          "default": false,
+          "description": "FileZilla: \"Show raw directory listing\".",
+          "type": "boolean"
+        },
+        "show_timestamps": {
+          "default": true,
+          "description": "FileZilla: \"Show timestamps in message log\".",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NotifyMethod": {
+      "description": "How the user is notified when the queue has finished (T45).",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No notification.",
+          "type": "string"
+        },
+        {
+          "const": "bell",
+          "description": "Terminal bell.",
+          "type": "string"
+        },
+        {
+          "const": "osc",
+          "description": "OSC 9 / 777 desktop notification (some terminals print the sequence).",
+          "type": "string"
+        }
+      ]
+    },
+    "OnComplete": {
+      "description": "Action when the queue has finished (T45). Sound, sleep and shutdown are dropped (D8).",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Do nothing.",
+          "type": "string"
+        },
+        {
+          "const": "show_message",
+          "description": "Show a message.",
+          "type": "string"
+        },
+        {
+          "const": "run_command",
+          "description": "Run `queue.on_complete_command`.",
+          "type": "string"
+        },
+        {
+          "const": "disconnect",
+          "description": "Disconnect.",
+          "type": "string"
+        },
+        {
+          "const": "close_app",
+          "description": "Close courier-ftp.",
+          "type": "string"
+        }
+      ]
+    },
+    "PaneColumns": {
+      "description": "The columns of both file lists, in display order (T53).",
+      "properties": {
+        "local": {
+          "default": [
+            {
+              "column": "name",
+              "visible": true
+            },
+            {
+              "column": "size",
+              "visible": true
+            },
+            {
+              "column": "type",
+              "visible": true
+            },
+            {
+              "column": "modified",
+              "visible": true
+            },
+            {
+              "column": "permissions",
+              "visible": false
+            },
+            {
+              "column": "owner_group",
+              "visible": false
+            }
+          ],
+          "description": "Local file list. Unknown column names are skipped.",
+          "items": {
+            "$ref": "#/$defs/ColumnSpec"
+          },
+          "type": "array"
+        },
+        "remote": {
+          "default": [
+            {
+              "column": "name",
+              "visible": true
+            },
+            {
+              "column": "size",
+              "visible": true
+            },
+            {
+              "column": "type",
+              "visible": true
+            },
+            {
+              "column": "modified",
+              "visible": true
+            },
+            {
+              "column": "permissions",
+              "visible": true
+            },
+            {
+              "column": "owner_group",
+              "visible": true
+            }
+          ],
+          "description": "Remote file list. Unknown column names are skipped.",
+          "items": {
+            "$ref": "#/$defs/ColumnSpec"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "PaneSort": {
+      "description": "Sort order of both file lists (saved on quit, T53).",
+      "properties": {
+        "local": {
+          "$ref": "#/$defs/SortSpec",
+          "default": {
+            "column": "name",
+            "descending": false
+          },
+          "description": "Local file list."
+        },
+        "remote": {
+          "$ref": "#/$defs/SortSpec",
+          "default": {
+            "column": "name",
+            "descending": false
+          },
+          "description": "Remote file list."
+        }
+      },
+      "type": "object"
+    },
+    "PortRange": {
+      "description": "A port range, `1024 ≤ min ≤ max ≤ 65535`.",
+      "properties": {
+        "max": {
+          "description": "Highest port.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min": {
+          "description": "Lowest port.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "type": "object"
+    },
+    "ProxyKind": {
+      "description": "Generic proxy type (T07).",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No proxy.",
+          "type": "string"
+        },
+        {
+          "const": "http",
+          "description": "HTTP `CONNECT`.",
+          "type": "string"
+        },
+        {
+          "const": "socks4",
+          "description": "SOCKS 4.",
+          "type": "string"
+        },
+        {
+          "const": "socks5",
+          "description": "SOCKS 5.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProxySettings": {
+      "description": "`proxy`. Proxy passwords are never settings: they are `proxy-credential` vault items\nreferenced by `password_ref`.",
+      "properties": {
+        "ftp_proxy": {
+          "$ref": "#/$defs/FtpProxySettings",
+          "default": {
+            "custom_script": "",
+            "host": "",
+            "kind": "none",
+            "password_ref": null,
+            "port": 21,
+            "user": ""
+          },
+          "description": "FileZilla: Connection → FTP → FTP Proxy. Cannot be used with the generic proxy."
+        },
+        "generic": {
+          "$ref": "#/$defs/GenericProxySettings",
+          "default": {
+            "host": "",
+            "kind": "none",
+            "password_ref": null,
+            "port": 0,
+            "user": ""
+          },
+          "description": "FileZilla: Connection → Generic proxy."
+        }
+      },
+      "type": "object"
+    },
+    "QueueSettings": {
+      "description": "`queue`.",
+      "properties": {
+        "max_successful": {
+          "default": 1000,
+          "description": "Successful transfers kept in the \"Successful transfers\" tab, 0–100000.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "notify": {
+          "$ref": "#/$defs/NotifyMethod",
+          "default": "bell",
+          "description": "Notification when the queue is done: `none`, `bell` or `osc`."
+        },
+        "on_complete": {
+          "$ref": "#/$defs/OnComplete",
+          "default": "none",
+          "description": "FileZilla: \"Action after queue completion\": `none`, `show_message`, `run_command`,\n`disconnect` or `close_app`."
+        },
+        "on_complete_command": {
+          "default": "",
+          "description": "FileZilla: \"Run command\"; used when `on_complete` is `run_command`, ≤ 1024 chars.",
+          "type": "string"
+        },
+        "persist": {
+          "default": true,
+          "description": "Keep the queue across restarts (encrypted, device-local).",
+          "type": "boolean"
+        },
+        "refresh_remote_after": {
+          "default": true,
+          "description": "Refresh the remote listing after the queue finished uploads.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "SegmentedSettings": {
+      "description": "`transfers.segmented` (T41b): large files split over several connections.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Split large files into ranges.",
+          "type": "boolean"
+        },
+        "max_segments": {
+          "default": 4,
+          "description": "Segments per file, 1–16 (1 = off for practical purposes).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_file_size_mib": {
+          "default": 32,
+          "description": "Only files of at least this many MiB are split, 1–1048576.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_segment_size_mib": {
+          "default": 8,
+          "description": "Smallest segment in MiB, 1–1024.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "SftpSettings": {
+      "description": "`sftp`.",
+      "properties": {
+        "max_outstanding_requests": {
+          "default": 64,
+          "description": "Pipelined requests per open file, 1–256 (the effective value is also capped at\n8 MiB / request size).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "request_size": {
+          "default": 32768,
+          "description": "Bytes per read/write request, 4096–261120, when the server sends no\n`limits@openssh.com` (else the server's value, capped at 261120).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "use_openssh_known_hosts": {
+          "default": true,
+          "description": "Also trust host keys from the OpenSSH known_hosts files (read-only).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "SizeFormat": {
+      "description": "How file sizes are shown (T53, T56, T57).",
+      "oneOf": [
+        {
+          "const": "bytes",
+          "description": "Exact bytes.",
+          "type": "string"
+        },
+        {
+          "const": "iec",
+          "description": "Binary units (KiB, MiB).",
+          "type": "string"
+        },
+        {
+          "const": "si",
+          "description": "Decimal units (kB, MB).",
+          "type": "string"
+        }
+      ]
+    },
+    "SortSpec": {
+      "description": "Sort order of one file list.",
+      "properties": {
+        "column": {
+          "$ref": "#/$defs/Column",
+          "default": "name",
+          "description": "Sort column."
+        },
+        "descending": {
+          "default": false,
+          "description": "Descending order.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "SyncSettings": {
+      "description": "`sync` (T88).",
+      "properties": {
+        "history": {
+          "default": false,
+          "description": "Sync quickconnect history items.",
+          "type": "boolean"
+        },
+        "poll_fallback_secs": {
+          "default": 300,
+          "description": "Seconds between polls when live updates are unavailable, 30–3600.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "push_debounce_ms": {
+          "default": 2000,
+          "description": "Milliseconds to wait after a change before pushing, 100–60000.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Theme": {
+      "description": "Colour theme (T50, T68).",
+      "oneOf": [
+        {
+          "const": "default",
+          "description": "The default colours.",
+          "type": "string"
+        },
+        {
+          "const": "high_contrast",
+          "description": "High contrast.",
+          "type": "string"
+        },
+        {
+          "const": "monochrome",
+          "description": "No colours (forced by `NO_COLOR`).",
+          "type": "string"
+        }
+      ]
+    },
+    "TransferSettings": {
+      "description": "`transfers`.",
+      "properties": {
+        "burst_tolerance": {
+          "$ref": "#/$defs/BurstTolerance",
+          "default": "normal",
+          "description": "FileZilla: \"Burst tolerance\": `normal`, `high` or `very_high`."
+        },
+        "download_limit_kib": {
+          "default": 0,
+          "description": "FileZilla: \"Download limit\" in KiB/s, 0–1048576, 0 = unlimited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "empty_dirs": {
+          "$ref": "#/$defs/EmptyDirs",
+          "default": "create",
+          "description": "Empty directories in recursive transfers: `create` or `skip`."
+        },
+        "follow_symlinks": {
+          "default": false,
+          "description": "Follow symbolic links in recursive operations.",
+          "type": "boolean"
+        },
+        "invalid_char_replacement": {
+          "default": "_",
+          "description": "FileZilla: \"Replace invalid characters with\". Not one of `\\ / : * ? \" < > |`, `.`,\nspace or a control character.",
+          "maxLength": 1,
+          "minLength": 1,
+          "type": "string"
+        },
+        "max_concurrent": {
+          "default": 4,
+          "description": "FileZilla: \"Maximum simultaneous transfers\", 1–16 (FileZilla: default 2, max 10).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_downloads": {
+          "default": 0,
+          "description": "FileZilla: \"Limit for concurrent downloads\", 0 (no separate limit) to max_concurrent.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_uploads": {
+          "default": 0,
+          "description": "FileZilla: \"Limit for concurrent uploads\", 0 (no separate limit) to max_concurrent.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "on_exists_download": {
+          "$ref": "#/$defs/ExistsAction",
+          "default": "ask",
+          "description": "FileZilla: \"Default file exists action\" for downloads."
+        },
+        "on_exists_upload": {
+          "$ref": "#/$defs/ExistsAction",
+          "default": "ask",
+          "description": "FileZilla: \"Default file exists action\" for uploads."
+        },
+        "preallocate": {
+          "default": false,
+          "description": "FileZilla: \"Preallocate space before downloading\".",
+          "type": "boolean"
+        },
+        "preserve_timestamps": {
+          "default": false,
+          "description": "FileZilla: \"Preserve timestamps of transferred files\".",
+          "type": "boolean"
+        },
+        "replace_invalid_chars": {
+          "default": true,
+          "description": "FileZilla: \"Enable invalid character filtering\".",
+          "type": "boolean"
+        },
+        "segmented": {
+          "$ref": "#/$defs/SegmentedSettings",
+          "default": {
+            "enabled": true,
+            "max_segments": 4,
+            "min_file_size_mib": 32,
+            "min_segment_size_mib": 8
+          },
+          "description": "Segmented (multi-connection) transfers of large files."
+        },
+        "speed_limit_enabled": {
+          "default": false,
+          "description": "FileZilla: \"Enable speed limits\" (also toggled from the status bar).",
+          "type": "boolean"
+        },
+        "upload_limit_kib": {
+          "default": 0,
+          "description": "FileZilla: \"Upload limit\" in KiB/s, 0–1048576, 0 = unlimited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "TransferTypeChoice": {
+      "description": "The transfer type the user chose; `Auto` is resolved per file by\n[`decide_transfer_type`](super::decide_transfer_type) (T11, T40, T57).",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Decide from the file name (`file_types`).",
+          "type": "string"
+        },
+        {
+          "const": "ascii",
+          "description": "Always ASCII.",
+          "type": "string"
+        },
+        {
+          "const": "binary",
+          "description": "Always binary.",
+          "type": "string"
+        }
+      ]
+    },
+    "UnicodeSymbols": {
+      "description": "Whether Unicode symbols are drawn (T50, T57).",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Detect from the terminal and locale.",
+          "type": "string"
+        },
+        {
+          "const": "always",
+          "description": "Always.",
+          "type": "string"
+        },
+        {
+          "const": "never",
+          "description": "Never (ASCII only).",
+          "type": "string"
+        }
+      ]
+    },
+    "VaultSettings": {
+      "description": "`vault` (T30).",
+      "properties": {
+        "argon2_cost": {
+          "$ref": "#/$defs/Argon2Preset",
+          "default": "standard",
+          "description": "Argon2id cost: `light`, `standard` or `strong`; applied at the next password\nchange or unlock re-wrap."
+        },
+        "auto_lock_minutes": {
+          "default": 15,
+          "description": "Lock the vault after this many idle minutes, 0–1440 (0 = off).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lock_disconnects": {
+          "default": false,
+          "description": "Locking the vault also disconnects all sessions.",
+          "type": "boolean"
+        },
+        "lock_on_suspend": {
+          "default": true,
+          "description": "Lock the vault when the system suspends.",
+          "type": "boolean"
+        },
+        "store_passwords": {
+          "default": true,
+          "description": "FileZilla: \"Save passwords\" (in the encrypted vault).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "All settings. A partial user object works: every section and field has a default.",
+  "properties": {
+    "cache": {
+      "$ref": "#/$defs/CacheSettings",
+      "default": {
+        "listing_cache": true,
+        "listing_cache_max_dirs": 200,
+        "listing_cache_ttl_secs": 0
+      },
+      "description": "Directory listing cache."
+    },
+    "connection": {
+      "$ref": "#/$defs/ConnectionSettings",
+      "default": {
+        "ipv6": true,
+        "keepalive": true,
+        "keepalive_interval_secs": 30,
+        "prefer_ipv6": false,
+        "retries": 2,
+        "retry_delay_secs": 5,
+        "timeout_secs": 20
+      },
+      "description": "Connection timeouts, retries, keep-alive and IPv6 (FileZilla: Connection)."
+    },
+    "editing": {
+      "$ref": "#/$defs/EditingSettings",
+      "default": {
+        "associations": [],
+        "editor": "auto",
+        "max_size_mib": 50,
+        "watch_and_prompt_upload": true
+      },
+      "description": "External editors and file associations (FileZilla: File editing)."
+    },
+    "file_types": {
+      "$ref": "#/$defs/FileTypeSettings",
+      "default": {
+        "ascii_extensions": [
+          "am",
+          "asp",
+          "bat",
+          "c",
+          "cfm",
+          "cgi",
+          "conf",
+          "cpp",
+          "css",
+          "dhtml",
+          "diz",
+          "h",
+          "hpp",
+          "htm",
+          "html",
+          "in",
+          "inc",
+          "java",
+          "js",
+          "jsp",
+          "lua",
+          "m4",
+          "mak",
+          "md5",
+          "nfo",
+          "nsh",
+          "nsi",
+          "pas",
+          "patch",
+          "php",
+          "phtml",
+          "pl",
+          "po",
+          "povray",
+          "py",
+          "qmail",
+          "rb",
+          "rss",
+          "sfv",
+          "sh",
+          "shtml",
+          "sql",
+          "svg",
+          "tcl",
+          "tpl",
+          "txt",
+          "vbs",
+          "xhtml",
+          "xml"
+        ],
+        "default_type": "auto",
+        "dotfiles_ascii": true,
+        "no_extension_ascii": true
+      },
+      "description": "ASCII / binary detection (FileZilla: Transfers → FTP: File Types)."
+    },
+    "ftp": {
+      "$ref": "#/$defs/FtpSettings",
+      "default": {
+        "active_external_ip": "auto",
+        "active_no_external_ip_on_local": true,
+        "active_port_range": null,
+        "fallback_to_active": true,
+        "passive_ignore_unroutable_ip": true,
+        "send_keepalive_command": "noop",
+        "transfer_mode": "passive",
+        "use_mlsd": true
+      },
+      "description": "FTP transfer mode, active mode and listing options (FileZilla: Connection → FTP)."
+    },
+    "interface": {
+      "$ref": "#/$defs/InterfaceSettings",
+      "default": {
+        "check_prereleases": false,
+        "check_updates": true,
+        "columns": {
+          "local": [
+            {
+              "column": "name",
+              "visible": true
+            },
+            {
+              "column": "size",
+              "visible": true
+            },
+            {
+              "column": "type",
+              "visible": true
+            },
+            {
+              "column": "modified",
+              "visible": true
+            },
+            {
+              "column": "permissions",
+              "visible": false
+            },
+            {
+              "column": "owner_group",
+              "visible": false
+            }
+          ],
+          "remote": [
+            {
+              "column": "name",
+              "visible": true
+            },
+            {
+              "column": "size",
+              "visible": true
+            },
+            {
+              "column": "type",
+              "visible": true
+            },
+            {
+              "column": "modified",
+              "visible": true
+            },
+            {
+              "column": "permissions",
+              "visible": true
+            },
+            {
+              "column": "owner_group",
+              "visible": true
+            }
+          ]
+        },
+        "confirm_delete": true,
+        "confirm_transfer": false,
+        "connect_target": "ask",
+        "date_format": "%Y-%m-%d",
+        "dirs_first": true,
+        "enter_on_file": "transfer",
+        "force_show_hidden_remote": false,
+        "key_sequence_timeout_ms": 1000,
+        "language": "auto",
+        "layout": "classic",
+        "natural_sort": true,
+        "restore_tabs": false,
+        "show_hidden_local": false,
+        "show_log": true,
+        "show_queue": true,
+        "show_quickconnect": true,
+        "show_splash": false,
+        "show_tree": false,
+        "size_format": "iec",
+        "sort": {
+          "local": {
+            "column": "name",
+            "descending": false
+          },
+          "remote": {
+            "column": "name",
+            "descending": false
+          }
+        },
+        "sort_case_sensitive": false,
+        "swap_panes": false,
+        "theme": "default",
+        "thousands_separator": true,
+        "time_format": "%H:%M",
+        "unicode_symbols": "auto"
+      },
+      "description": "Layout, file lists, date formats and confirmations (FileZilla: Interface)."
+    },
+    "logging": {
+      "$ref": "#/$defs/LoggingSettings",
+      "default": {
+        "level": 2,
+        "log_file": null,
+        "log_file_keep": 3,
+        "log_file_max_mib": 10,
+        "log_to_file": false,
+        "pane_max_lines": 5000,
+        "show_raw_listing": false,
+        "show_timestamps": true
+      },
+      "description": "Message log and log file (FileZilla: Logging, Debug)."
+    },
+    "proxy": {
+      "$ref": "#/$defs/ProxySettings",
+      "default": {
+        "ftp_proxy": {
+          "custom_script": "",
+          "host": "",
+          "kind": "none",
+          "password_ref": null,
+          "port": 21,
+          "user": ""
+        },
+        "generic": {
+          "host": "",
+          "kind": "none",
+          "password_ref": null,
+          "port": 0,
+          "user": ""
+        }
+      },
+      "description": "Generic and FTP proxies (FileZilla: Connection → Generic proxy / FTP → FTP Proxy)."
+    },
+    "queue": {
+      "$ref": "#/$defs/QueueSettings",
+      "default": {
+        "max_successful": 1000,
+        "notify": "bell",
+        "on_complete": "none",
+        "on_complete_command": "",
+        "persist": true,
+        "refresh_remote_after": true
+      },
+      "description": "Queue completion actions and persistence (FileZilla: Transfers → queue)."
+    },
+    "sftp": {
+      "$ref": "#/$defs/SftpSettings",
+      "default": {
+        "max_outstanding_requests": 64,
+        "request_size": 32768,
+        "use_openssh_known_hosts": true
+      },
+      "description": "SFTP pipelining and host key sources (FileZilla: Connection → SFTP)."
+    },
+    "sync": {
+      "$ref": "#/$defs/SyncSettings",
+      "default": {
+        "history": false,
+        "poll_fallback_secs": 300,
+        "push_debounce_ms": 2000
+      },
+      "description": "Device sync tuning. The server URL and tokens are not settings."
+    },
+    "transfers": {
+      "$ref": "#/$defs/TransferSettings",
+      "default": {
+        "burst_tolerance": "normal",
+        "download_limit_kib": 0,
+        "empty_dirs": "create",
+        "follow_symlinks": false,
+        "invalid_char_replacement": "_",
+        "max_concurrent": 4,
+        "max_downloads": 0,
+        "max_uploads": 0,
+        "on_exists_download": "ask",
+        "on_exists_upload": "ask",
+        "preallocate": false,
+        "preserve_timestamps": false,
+        "replace_invalid_chars": true,
+        "segmented": {
+          "enabled": true,
+          "max_segments": 4,
+          "min_file_size_mib": 32,
+          "min_segment_size_mib": 8
+        },
+        "speed_limit_enabled": false,
+        "upload_limit_kib": 0
+      },
+      "description": "Parallel transfers, speed limits, file-exists actions (FileZilla: Transfers)."
+    },
+    "vault": {
+      "$ref": "#/$defs/VaultSettings",
+      "default": {
+        "argon2_cost": "standard",
+        "auto_lock_minutes": 15,
+        "lock_disconnects": false,
+        "lock_on_suspend": true,
+        "store_passwords": true
+      },
+      "description": "Vault locking and key derivation cost (FileZilla: Interface → Passwords)."
+    }
+  },
+  "title": "courier-ftp settings",
+  "type": "object"
+}
