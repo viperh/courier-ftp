@@ -1,6 +1,7 @@
 # T52 — Dialog and form framework
 
 **Phase:** F TUI · **Depends on:** T50 · **Crate:** `courier-ftp` (`components/dialog/`)
+**Related (integrates with, not blocking):** T04, T62
 
 ## Goal
 

@@ -1,6 +1,7 @@
 # T67 — Filters UI
 
-**Phase:** F TUI · **Depends on:** T47, T52 · **Crate:** `courier-ftp` · **FEATURES.md:** §8
+**Phase:** F TUI · **Depends on:** T05, T47, T52 · **Crate:** `courier-ftp` · **FEATURES.md:** §8
+**Related (integrates with, not blocking):** T43, T57
 
 ## Goal
 

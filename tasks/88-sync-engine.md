@@ -1,6 +1,7 @@
 # T88 — Sync engine: pull, push and live updates
 
-**Phase:** H Sync · **Depends on:** T81, T82, T87 · **Crate:** `courier-ftp-sync` · **Decisions:** D12
+**Phase:** H Sync · **Depends on:** T81, T82, T85, T87 · **Crate:** `courier-ftp-sync` · **Decisions:** D12
+**Related (integrates with, not blocking):** T04, T91
 **Reference:** sverb `crates/sverb-sync/src/{engine,pull,push,resync,ws}.rs`.
 
 ## Goal

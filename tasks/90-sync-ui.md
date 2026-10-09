@@ -1,6 +1,7 @@
 # T90 — Sync and teams UI
 
-**Phase:** H Sync · **Depends on:** T52, T60, T87–T89 · **Crate:** `courier-ftp`
+**Phase:** H Sync · **Depends on:** T52, T59, T60, T87, T88 · **Crate:** `courier-ftp`
+**Related (integrates with, not blocking):** T89
 
 ## Goal
 

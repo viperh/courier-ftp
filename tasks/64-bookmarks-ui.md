@@ -1,6 +1,7 @@
 # T64 — Bookmarks UI
 
-**Phase:** F TUI · **Depends on:** T33, T52, T66 · **Crate:** `courier-ftp` · **FEATURES.md:** §2 (bookmarks)
+**Phase:** F TUI · **Depends on:** T33, T52, T53 · **Crate:** `courier-ftp` · **FEATURES.md:** §2 (bookmarks)
+**Related (integrates with, not blocking):** T66
 
 ## Goal
 

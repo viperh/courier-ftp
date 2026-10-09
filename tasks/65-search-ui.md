@@ -1,6 +1,7 @@
 # T65 — Search UI
 
-**Phase:** F TUI · **Depends on:** T49, T52 · **Crate:** `courier-ftp` · **FEATURES.md:** §4 (remote search, local search)
+**Phase:** F TUI · **Depends on:** T41, T49, T52 · **Crate:** `courier-ftp` · **FEATURES.md:** §4 (remote search, local search)
+**Related (integrates with, not blocking):** T63
 
 ## Goal
 

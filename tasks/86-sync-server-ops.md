@@ -1,6 +1,7 @@
 # T86 — Sync server: configuration, admin CLI and deployment
 
 **Phase:** H Sync · **Depends on:** T84, T85 · **Crate:** `courier-ftp-server` · **Decisions:** D12
+**Related (integrates with, not blocking):** T00
 **Reference:** sverb `crates/sverb-server/src/config.rs`, `deploy/`, `docs/self-hosting.md`.
 
 ## Goal

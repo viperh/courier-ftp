@@ -1,6 +1,7 @@
 # T57 — Status bar
 
 **Phase:** F TUI · **Depends on:** T50 · **Crate:** `courier-ftp` (`components/status_bar.rs`) · **FEATURES.md:** §3 (status bar), §6 (speed limit toggle), §8 (filter indicator)
+**Related (integrates with, not blocking):** T44, T66, T69
 
 ## Goal
 

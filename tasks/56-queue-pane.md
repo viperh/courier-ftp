@@ -1,6 +1,7 @@
 # T56 — Queue pane
 
-**Phase:** F TUI · **Depends on:** T40, T41, T50 · **Crate:** `courier-ftp` (`components/queue.rs`) · **FEATURES.md:** §5
+**Phase:** F TUI · **Depends on:** T40, T41, T50, T51 · **Crate:** `courier-ftp` (`components/queue.rs`) · **FEATURES.md:** §5
+**Related (integrates with, not blocking):** T45, T57
 
 ## Goal
 

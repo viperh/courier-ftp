@@ -1,6 +1,7 @@
 # T60 — Vault unlock, keyring and recovery UI
 
-**Phase:** F TUI · **Depends on:** T30, T52 (T87 for sync recovery) · **Crate:** `courier-ftp` · **Decisions:** D3 · **FEATURES.md:** §2 (master password)
+**Phase:** F TUI · **Depends on:** T30, T50, T52 · **Crate:** `courier-ftp` · **Decisions:** D3 · **FEATURES.md:** §2 (master password)
+**Related (integrates with, not blocking):** T73, T87, T90
 **Reference:** sverb `crates/sverb-tui/src/app/vault.rs` (startup flow), SPEC §5.3, §11.2.
 
 ## Goal

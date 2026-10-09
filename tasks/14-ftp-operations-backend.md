@@ -1,6 +1,7 @@
 # T14 — FTP operations and Backend impl
 
-**Phase:** B FTP · **Depends on:** T10–T13, T03 · **Crate:** `courier-ftp-proto-ftp` · **FEATURES.md:** §4
+**Phase:** B FTP · **Depends on:** T03, T06, T10, T11, T12, T13, T76 · **Crate:** `courier-ftp-proto-ftp` · **FEATURES.md:** §4
+**Related (integrates with, not blocking):** T31, T41
 
 ## Goal
 
@@ -27,6 +28,7 @@ Implement `Backend` for FTP/FTPS on top of the control and data connection code.
 | `keepalive` | T10 | |
 
 Additional:
+0. **Wiring**: add the FTP/FTPS arm to the binary's `BackendFactory` (created in T58).
 1. **Path translation**: for VMS/MVS servers (detected via SYST + listing format), translate `RemotePath` to server syntax when sending `CWD`. Minimum: Unix and Windows-style servers fully; VMS basic (`CWD [.DIR]`); MVS best-effort with a logged warning.
 2. **Error mapping**: `550` with "No such file"/"not found" → `NotFound`; "Permission denied" → `PermissionDenied`; 4xx → transient protocol error; 5xx → permanent.
 3. **Capabilities** computed from FEAT: `resume_*` = REST STREAM, `set_mtime` = MFMT or MDTM-set, `chmod` = assume true until rejected, `ascii_mode` = true.

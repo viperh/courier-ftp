@@ -1,6 +1,7 @@
 # T68 — Settings screen
 
 **Phase:** F TUI · **Depends on:** T05, T52, T60 · **Crate:** `courier-ftp` · **FEATURES.md:** §1, §3, §5, §6, §9, §10
+**Related (integrates with, not blocking):** T12, T21, T73, T74, T75, T90
 
 ## Goal
 

@@ -1,6 +1,7 @@
-# T92 — CI/CD workflows (sverb parity)
+# T00 — CI/CD workflows (sverb parity)
 
-**Phase:** A Foundation (set up first, extended as features land) · **Depends on:** T01 · **Files:** `.github/workflows/{ci,cd,fuzz,bench}.yml`, `scripts/`, `deny.toml`, `supply-chain/`, `rust-toolchain.toml`, `rustfmt.toml`, workspace lints
+**Phase:** A Foundation (first task; extended as features land) · **Depends on:** — · **Files:** `.github/workflows/{ci,cd,fuzz,bench}.yml`, `scripts/`, `deny.toml`, `supply-chain/`, `rust-toolchain.toml`, `rustfmt.toml`, workspace lints
+**Related (integrates with, not blocking):** T76, T91, T41b, T84, T85, T86
 **Reference:** sverb `.github/workflows/ci.yml`, `cd.yml`, `fuzz.yml`, `bench.yml`, `scripts/*`, `deny.toml`, `supply-chain/`, `rust-toolchain.toml`, `rustfmt.toml`, `Cargo.toml` `[workspace.lints]`.
 
 ## Goal
@@ -10,6 +11,9 @@ runs on each pull request, nightly fuzzing and benchmarks, and a reproducible,
 signed release pipeline for the client and the sync server.
 
 ## Scope
+
+This is the **first task**. Set up the jobs that can run on the template right away (fmt, clippy, docs, test, deny, unsafe-check, msrv, the reproducible-packaging check) and stubs for the rest. Jobs that need later work are switched on by the task that makes them possible: `e2e` and `layering` (T76), `canary` and `vet` crypto check (T91), `server-db` and `server-docker` (T84–T86), `fuzz` (first target in T91), `bench` gates (T41b and others), release pipeline parts for the server (T86).
+
 
 ### 1. Repository-wide settings (copy from sverb)
 - `rust-toolchain.toml`: `channel = "stable"`, components `rustfmt`, `clippy`. MSRV only in

@@ -1,6 +1,7 @@
 # T06 — Local filesystem backend
 
 **Phase:** A Foundation · **Depends on:** T03 · **Crate:** `courier-ftp-core` (`local` module) · **FEATURES.md:** §3 local pane, §4
+**Related (integrates with, not blocking):** T42, T76
 
 ## Goal
 

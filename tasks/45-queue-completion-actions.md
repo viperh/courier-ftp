@@ -1,6 +1,6 @@
 # T45 — Queue completion actions
 
-**Phase:** E Transfers · **Depends on:** T41 · **Crates:** core + binary · **Decisions:** D8 (no sound/sleep/shutdown) · **FEATURES.md:** §5 (actions after queue finishes, auto refresh)
+**Phase:** E Transfers · **Depends on:** T41, T46, T52, T56 · **Crates:** core + binary · **Decisions:** D8 (no sound/sleep/shutdown) · **FEATURES.md:** §5 (actions after queue finishes, auto refresh)
 
 ## Goal
 

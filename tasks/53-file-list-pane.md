@@ -1,6 +1,7 @@
 # T53 — File list pane
 
-**Phase:** F TUI · **Depends on:** T50, T51, T06, T46, T47 · **Crate:** `courier-ftp` (`components/file_list.rs`) · **FEATURES.md:** §3
+**Phase:** F TUI · **Depends on:** T02, T06, T46, T47, T50, T51, T52 · **Crate:** `courier-ftp` (`components/file_list.rs`) · **FEATURES.md:** §3
+**Related (integrates with, not blocking):** T13, T62
 
 ## Goal
 

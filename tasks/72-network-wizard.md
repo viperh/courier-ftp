@@ -1,6 +1,6 @@
 # T72 — Network configuration wizard
 
-**Phase:** G App-level · **Depends on:** T10, T11, T52 · **Crate:** `courier-ftp` + `courier-ftp-proto-ftp` · **FEATURES.md:** §9 (network configuration wizard)
+**Phase:** G App-level · **Depends on:** T05, T10, T11, T52 · **Crate:** `courier-ftp` + `courier-ftp-proto-ftp` · **FEATURES.md:** §9 (network configuration wizard)
 
 ## Goal
 

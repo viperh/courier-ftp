@@ -1,6 +1,7 @@
 # T59 — Site Manager screen
 
-**Phase:** F TUI · **Depends on:** T31, T32, T33, T52, T60 · **Crate:** `courier-ftp` (`components/site_manager/`) · **FEATURES.md:** §2
+**Phase:** F TUI · **Depends on:** T31, T32, T33, T52, T58, T60 · **Crate:** `courier-ftp` (`components/site_manager/`) · **FEATURES.md:** §2
+**Related (integrates with, not blocking):** T64, T70
 
 ## Goal
 

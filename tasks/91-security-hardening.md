@@ -1,6 +1,7 @@
 # T91 — Security hardening and threat model (sverb parity)
 
-**Phase:** H Sync & security (start early; checks apply to every crate) · **Depends on:** T01, T30 · **Crates:** all, CI · **Decisions:** D3, D13
+**Phase:** H Sync & security (start early; checks apply to every crate) · **Depends on:** T00, T01, T30 · **Crates:** all, CI · **Decisions:** D3, D13
+**Related (integrates with, not blocking):** T06, T07, T10, T11, T12, T13, T20, T21, T32, T42, T53, T55, T71, T80, T82, T83, T89
 **Reference:** sverb `docs/threat-model.md`, `SPEC.md` §17–§19, `crates/sverb-core/src/{secret.rs,hardening/,logging/}`, `scripts/check-unsafe.py`, `scripts/canary-scan.sh`, `fuzz/`, CI jobs `deny`, `vet`, `unsafe-check`, `canary`, `fuzz.yml`.
 
 ## Goal
@@ -10,6 +11,9 @@ hardening, secret handling, logging rules, supply-chain checks, fuzzing, and a
 threat model that maps every threat to a mitigation and the tests that prove it.
 
 ## Scope
+
+Delivered in stages: hardening, secret types, `unsafe` policy, canary scanner and `deny`/`vet` right after T30 (milestone M2); each parser task adds its own fuzz target when it lands (T07, T10, T11, T13, T20, T21, T32, T80, T83); the threat model document is completed at the end.
+
 
 ### 1. Process hardening
 - `harden_process()` is the first thing `main` does after installing the panic hook,

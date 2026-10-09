@@ -1,6 +1,7 @@
 # T76 — Test strategy and e2e harness (sverb parity)
 
-**Phase:** G App-level (start early, alongside phases B/C) · **Depends on:** T03, T06 · **Crates:** all, new `crates/courier-ftp-e2e` (not published)
+**Phase:** G App-level (start early, alongside phases B/C) · **Depends on:** T00, T01, T03, T06 · **Crates:** all, new `crates/courier-ftp-e2e` (not published)
+**Related (integrates with, not blocking):** T10, T13, T20, T80, T84, T86, T88, T91
 **Reference:** sverb `crates/sverb-e2e/` (`lib.rs`, `home.rs`, `keys.rs`, `pty.rs`, `session.rs`, `sshd.rs`, `diag.rs`, `tests/*`), `tests/fixtures/sshd/` (Dockerfile, profiles, `check-configs.sh`, `entrypoint.sh`), SPEC §19, `CONTRIBUTING.md`.
 
 ## Goal
@@ -25,7 +26,17 @@ servers that is skipped by default and required in CI.
 | Server (T84–T86) | Per-test Postgres database; HTTP-level tests through `axum::Router` + `tower::ServiceExt`; in-memory store variants for fast tests; multi-client sync scenarios against a real server |
 | Security (T91) | Canary scan over all artifacts; hardening test on the real binary; compile-fail tests (`trybuild`) proving secret types can't be `Clone`/`Serialize`/printed |
 | Fuzzing (T91 §7) | `cargo-fuzz` targets whose bodies are also property tests |
-| Performance (T92 §4) | `criterion` benches with CI gates |
+| Performance (T00 §4) | `criterion` benches with CI gates |
+
+## Delivery in stages
+
+This task starts in milestone M1 and grows with the project:
+1. **M1**: crate skeleton, `require_docker!`, `timeout()`, `diag`, `TestHome` (without vault until T30), `workspace_metadata.rs`, `forbid_unsafe.rs`, the CI `e2e` job (T00).
+2. **M2**: `sshd` fixture image and profiles (needed by T20/T22), `Headless`.
+3. **M3**: FTP fixture images and profiles (needed by T14), hostile-server fixture.
+4. **M4**: toxiproxy, transfer scenarios.
+5. **M7–M8**: sync server fixture and sync/team scenarios.
+6. `PtyApp` as soon as the UI can create a vault (T60).
 
 ## The `courier-ftp-e2e` crate
 
@@ -72,7 +83,7 @@ Modelled on `sverb-e2e`. Pieces:
    - Each test starts its own containers → parallel-safe (`--test-threads=4` in CI).
    - Harness self-tests that need no Docker (Headless against an in-process SFTP server
      built on `russh` server API, PtyApp against the local binary) run in the normal suite.
-8. **`tests/workspace_metadata.rs`**: crate layering rules (T92 §6) checked via
+8. **`tests/workspace_metadata.rs`**: crate layering rules (T00 §6) checked via
    `cargo_metadata` for both the all-features and the `--no-default-features` graphs;
    every crate inherits the workspace lints.
 9. **`tests/forbid_unsafe.rs`**: proves every crate inherits `unsafe_code = "deny"`.
@@ -107,7 +118,7 @@ scripts/canary-scan.sh --self-test
 - [ ] `courier-ftp-e2e` crate with the pieces above, documented in its crate docs like sverb's `lib.rs`.
 - [ ] Every fixture image builds and every profile passes `--check`.
 - [ ] Without Docker, `cargo test` skips container tests cleanly; on CI a missing Docker fails.
-- [ ] All scenarios above pass in the CI `e2e` job (T92).
+- [ ] All scenarios above pass in the CI `e2e` job (T00).
 - [ ] TUI snapshot tests exist for every view at 80×24 and 160×48.
 
 ## Tests

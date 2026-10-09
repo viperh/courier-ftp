@@ -1,6 +1,6 @@
 # T87 — Sync client: account, devices and recovery
 
-**Phase:** H Sync · **Depends on:** T30, T80–T83 · **Crate:** new `courier-ftp-sync` (client) · **Decisions:** D3, D12, D13
+**Phase:** H Sync · **Depends on:** T30, T80, T81, T82, T83, T84, T85 · **Crate:** new `courier-ftp-sync` (client) · **Decisions:** D3, D12, D13
 **Reference:** sverb `crates/sverb-sync/src/{http,tokens,keys,account/*}.rs`.
 
 ## Goal

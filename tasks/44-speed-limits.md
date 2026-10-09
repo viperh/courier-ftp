@@ -1,6 +1,7 @@
 # T44 — Speed limits
 
-**Phase:** E Transfers · **Depends on:** T41, T05 · **Crate:** `courier-ftp-core` (`transfer::ratelimit`) · **FEATURES.md:** §6 (speed limits, burst tolerance, status bar toggle)
+**Phase:** E Transfers · **Depends on:** T05, T41 · **Crate:** `courier-ftp-core` (`transfer::ratelimit`) · **FEATURES.md:** §6 (speed limits, burst tolerance, status bar toggle)
+**Related (integrates with, not blocking):** T57
 
 ## Goal
 

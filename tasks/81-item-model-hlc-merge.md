@@ -1,6 +1,7 @@
 # T81 — Item model, HLC and merge
 
 **Phase:** H Sync (also used by the local vault) · **Depends on:** T80 · **Crate:** `courier-ftp-core` (`model::item`) · **Decisions:** D4, D12
+**Related (integrates with, not blocking):** T12, T21, T31, T33, T82, T89
 **Reference:** sverb `crates/sverb-core/src/model/{body,hlc,merge,migrate,kinds,ids}.rs`, `tests/merge_props.rs`.
 
 ## Goal

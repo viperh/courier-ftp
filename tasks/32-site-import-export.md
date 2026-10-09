@@ -1,6 +1,7 @@
 # T32 — Site import / export (incl. FileZilla XML)
 
-**Phase:** D Vault & sites · **Depends on:** T31 · **Crate:** `courier-ftp-core` (`sites::import`, `sites::export`) · **FEATURES.md:** §2 (import and export of sites as XML; import from other clients)
+**Phase:** D Vault & sites · **Depends on:** T31, T33, T80 · **Crate:** `courier-ftp-core` (`sites::import`, `sites::export`) · **FEATURES.md:** §2 (import and export of sites as XML; import from other clients)
+**Related (integrates with, not blocking):** T30
 
 ## Goal
 

@@ -1,6 +1,7 @@
 # T20 — SSH connection and authentication
 
-**Phase:** C SFTP · **Depends on:** T04, T07 · **Crate:** `courier-ftp-proto-sftp` · **Decisions:** D2 (russh) · **FEATURES.md:** §1 (SFTP keys, agent), §2 (logon types)
+**Phase:** C SFTP · **Depends on:** T02, T04, T07, T76 · **Crate:** `courier-ftp-proto-sftp` · **Decisions:** D2 (russh) · **FEATURES.md:** §1 (SFTP keys, agent), §2 (logon types)
+**Related (integrates with, not blocking):** T21, T30, T59
 
 ## Goal
 

@@ -1,6 +1,7 @@
 # T42 — File-exists policy, resume and transfer options
 
-**Phase:** E Transfers · **Depends on:** T41, T06 · **Crate:** `courier-ftp-core` (`transfer::exists`, `transfer::options`) · **FEATURES.md:** §5 (file exists actions, resume), §6 (preallocate, timestamps, invalid chars, ASCII/binary)
+**Phase:** E Transfers · **Depends on:** T04, T05, T06, T41 · **Crate:** `courier-ftp-core` (`transfer::exists`, `transfer::options`) · **FEATURES.md:** §5 (file exists actions, resume), §6 (preallocate, timestamps, invalid chars, ASCII/binary)
+**Related (integrates with, not blocking):** T11
 
 ## Goal
 

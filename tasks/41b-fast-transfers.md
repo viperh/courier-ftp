@@ -1,6 +1,7 @@
 # T41b — Fast transfers: parallelism, segmented files, pipelining
 
-**Phase:** E Transfers · **Depends on:** T41, T11, T22, T44 · **Crates:** `courier-ftp-core` (`transfer`), both protocol crates · **Decisions:** D11
+**Phase:** E Transfers · **Depends on:** T11, T22, T40, T41, T42, T43, T44, T76 · **Crates:** `courier-ftp-core` (`transfer`), both protocol crates · **Decisions:** D11
+**Related (integrates with, not blocking):** T12, T31, T68
 
 ## Goal
 

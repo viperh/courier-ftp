@@ -1,6 +1,7 @@
 # T13 — FTP directory listing parsers
 
-**Phase:** B FTP · **Depends on:** T02, T11 · **Crate:** `courier-ftp-proto-ftp` (`listing` module) · **FEATURES.md:** §1 (listing parser for many server formats, time zone offset, charset)
+**Phase:** B FTP · **Depends on:** T02 · **Crate:** `courier-ftp-proto-ftp` (`listing` module) · **FEATURES.md:** §1 (listing parser for many server formats, time zone offset, charset)
+**Related (integrates with, not blocking):** T11, T71
 
 ## Goal
 
@@ -16,7 +17,7 @@ This is the part of FileZilla that took years to get right — invest in tests.
    - Facts: `type` (`file`, `dir`, `cdir`, `pdir`, `OS.unix=symlink`, `OS.unix=slink:<target>`), `size`, `sizd`, `modify` (`YYYYMMDDHHMMSS[.sss]`, **UTC**), `perm`, `unix.mode`, `unix.owner`, `unix.group`, `unix.ownername`, `unix.groupname`, `unique`.
    - Skip `cdir`/`pdir`. Fact names case-insensitive. Name follows the first space after the facts (names may contain `;` and spaces).
 3. **LIST parsers** — try each in order per line, remember which succeeded and try it first next line:
-   - **Unix `ls -l`** and variants: with/without group column, numeric owners, device files (`major, minor` size), ACL `+`/`.`/`@` after mode, `total N` header line (skip), symlinks `name -> target`, dates `Mon DD HH:MM` (year inferred: if result is > 1 day in the future, use previous year) and `Mon DD  YYYY`, ISO dates (`2024-01-31 12:00`), localised month names (German, French, Spanish… at least the ones FileZilla handles: check `Jan/Jän/janv/ene/...`), filenames with leading spaces.
+   - **Unix `ls -l`** and variants — this parser lives in `courier-ftp-core::listing::unix` (not in the FTP crate) because the SFTP backend (T22) reuses it for `longname`; the other formats stay in the FTP crate: with/without group column, numeric owners, device files (`major, minor` size), ACL `+`/`.`/`@` after mode, `total N` header line (skip), symlinks `name -> target`, dates `Mon DD HH:MM` (year inferred: if result is > 1 day in the future, use previous year) and `Mon DD  YYYY`, ISO dates (`2024-01-31 12:00`), localised month names (German, French, Spanish… at least the ones FileZilla handles: check `Jan/Jän/janv/ene/...`), filenames with leading spaces.
    - **DOS / IIS**: `01-31-24  12:00PM  <DIR>  name` and `       1234 name`; 2- and 4-digit years; 24-h variant.
    - **EPLF**: `+i8388621.48594,m825718503,r,s280,\tname`.
    - **VMS**: `NAME.EXT;1  12/24  31-JAN-2024 12:00:00  [GROUP,OWNER]  (RWED,RWED,RE,)`; strip version `;N`, dirs end in `.DIR`; multi-line entries (name on one line, details on next).
