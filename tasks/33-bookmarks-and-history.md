@@ -206,8 +206,8 @@ No new settings keys.
   the decrypted item and present via `device_local`.
 - [ ] AC2 Validation rejects every rule in the Behaviour list with the matching
   `BookmarkField`; `comparison = true` saves with `sync_browsing = true`.
-- [ ] AC3 `reorder` produces the requested order; 60 successive moves into the same gap trigger
-  exactly one renumbering and keep the order; two engines reordering different bookmarks
+- [ ] AC3 `reorder` produces the requested order; 40 successive moves into the same gap trigger
+  exactly one renumbering (at the 30th move, when the gap falls below `1e-9`) and keep the order; two engines reordering different bookmarks
   offline converge to the same order after `sync_sim` (T31 helper).
 - [ ] AC4 History dedup: recording `sftp://alice@Example.com` and then
   `sftp://alice@example.com:22` leaves one entry; recording 12 distinct servers leaves exactly 10
