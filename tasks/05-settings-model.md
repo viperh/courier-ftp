@@ -171,7 +171,7 @@ the full table. Then `validate()`.
 **Validation rules** (`validate`): each failing field is reset to its default and a warning
 is added. Ranges are in the tables below; additionally:
 - `ftp.active_port_range`: `1024 ≤ min ≤ max ≤ 65535`.
-- `ftp.active_external_ip`: `from-url` needs a URL starting with `http://` or `https://`
+- `ftp.active_external_ip`: `from_url` needs a URL starting with `http://` or `https://`
   (≤ 512 chars); `fixed` must be a valid IP (enforced by deserialisation); otherwise `auto`.
 - `proxy.generic` and `proxy.ftp_proxy` both not `none` → warning, `proxy.ftp_proxy.kind`
   reset to `none` (T15). A proxy with `kind ≠ none` needs a non-empty valid host
@@ -407,7 +407,7 @@ The server URL and tokens are not settings (T87 stores them in `sync_state`).
 #### `compare` (field added to `Settings` by T48; type `CompareSettings { mode, threshold_minutes, hide_identical }` in T48)
 | Key | Type | Default | Range / rule | Owner |
 |---|---|---|---|---|
-| `mode` | CompareMode | modification-time | `size` \| `modification-time` | T48, T66 |
+| `mode` | CompareMode | modification_time | `size` \| `modification_time` | T48, T66 |
 | `threshold_minutes` | u32 | 1 | 0–1440; out of range → default + warning | T48, T66 |
 | `hide_identical` | bool | false | — | T48, T66 |
 

@@ -199,7 +199,7 @@ impl Theme {
     pub fn site_accent(&self, color: SiteColor) -> Style;
 }
 // ui/symbols.rs (owned here; T57 adds status-bar glyph fields only)
-pub use courier_ftp_core::settings::UnicodeSymbols;   // T05: Auto | Always | Never
+pub use courier_ftp_core::settings::enums::UnicodeSymbols; // T05: auto | always | never
 /// Terminal environment snapshot (read once at startup; tests build it by hand).
 #[derive(Debug, Clone, Default)]
 pub struct TermEnv { pub term: Option<String>, pub lc_all: Option<String>,

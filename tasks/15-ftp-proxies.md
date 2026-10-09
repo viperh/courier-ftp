@@ -35,7 +35,7 @@ T02 `ServerAddress` (incl. `user`) + `LogonType`, `Error::Proxy`, T03 `ConnectIn
 
 ```rust
 // courier_ftp_core::settings — types owned by T05 (not redefined here):
-//   FtpProxyKind { None*, UserAtHost, Site, Open, Custom }   (kebab-case: "user-at-host")
+//   FtpProxyKind { None*, UserAtHost, Site, Open, Custom }   (snake_case: "user_at_host")
 //   FtpProxySettings { kind, host: String, port: u16 /* 21 */, user: String /* %s */,
 //                      password_ref: Option<Uuid> /* proxy-credential item, T81 */,
 //                      custom_script: Vec<String> /* one line per element, kind == Custom */ }
@@ -198,7 +198,7 @@ settings UI (T68: inline error, save blocked). Rules: generic proxy ≠ `None` a
 ```
 | Key | Type | Default |
 |---|---|---|
-| `proxy.ftp_proxy.kind` | `none` \| `user-at-host` \| `site` \| `open` \| `custom` | `none` |
+| `proxy.ftp_proxy.kind` | `none` \| `user_at_host` \| `site` \| `open` \| `custom` | `none` |
 | `proxy.ftp_proxy.host` | string | `""` |
 | `proxy.ftp_proxy.port` | u16 | `21` |
 | `proxy.ftp_proxy.user` | string | `""` |

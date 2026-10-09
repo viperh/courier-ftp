@@ -568,8 +568,9 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 - [ ] AC12 `PWD` parsing: `257 "/a ""b"" c" created` → `/a "b" c`; unquoted fallback works.
 - [ ] AC13 `raw_command` refuses every verb in the list without sending; `SITE HELP` is sent
   verbatim and returns all reply lines.
-- [ ] AC14 Keep-alive: `NOOP`, `PWD`, `TYPE` (restores current type) and `random` send the
-  documented commands; nothing is sent while a transfer is open.
+- [ ] AC14 Keep-alive: `noop` sends `NOOP`; `random` sends only `NOOP`, `PWD` or `TYPE`
+  (restoring the current type), all three seen over 100 seeded calls; nothing is sent
+  while a transfer is open.
 - [ ] AC15 Docker e2e: login + negotiate succeed against vsftpd `plain` and `anonymous`,
   proftpd and pure-ftpd profiles (T76); FEAT of proftpd/pure-ftpd shows `mlsd = true`,
   vsftpd `mlsd = false`.
