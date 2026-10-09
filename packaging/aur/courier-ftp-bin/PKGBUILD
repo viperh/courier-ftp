@@ -1,0 +1,29 @@
+# Maintainer: qviperh <olteanromeodavid34@gmail.com>
+#
+# AUR package of the prebuilt static (musl) release binaries (T00, T77).
+# `scripts/update-packaging.py` sets pkgver and the checksums on every release; the
+# release workflow pushes this file and its .SRCINFO to aur.archlinux.org/courier-ftp-bin.git.
+pkgname=courier-ftp-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Terminal (TUI) FTP, FTPS and SFTP client with an encrypted vault and optional self-hosted sync (prebuilt)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/viperh/courier-ftp'
+license=('MIT')
+provides=('courier-ftp')
+conflicts=('courier-ftp')
+options=('!strip' '!debug')
+source_x86_64=("$url/releases/download/v$pkgver/courier-ftp-$pkgver-linux-x86_64.tar.gz")
+source_aarch64=("$url/releases/download/v$pkgver/courier-ftp-$pkgver-linux-aarch64.tar.gz")
+sha256sums_x86_64=('0000000000000000000000000000000000000000000000000000000000000000')
+sha256sums_aarch64=('0000000000000000000000000000000000000000000000000000000000000000')
+
+package() {
+  cd "courier-ftp-$pkgver-linux-$CARCH"
+  install -Dm0755 courier-ftp "$pkgdir/usr/bin/courier-ftp"
+  install -Dm0644 man/courier-ftp.1 "$pkgdir/usr/share/man/man1/courier-ftp.1"
+  install -Dm0644 completions/courier-ftp.bash "$pkgdir/usr/share/bash-completion/completions/courier-ftp"
+  install -Dm0644 completions/_courier-ftp "$pkgdir/usr/share/zsh/site-functions/_courier-ftp"
+  install -Dm0644 completions/courier-ftp.fish "$pkgdir/usr/share/fish/vendor_completions.d/courier-ftp.fish"
+  install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

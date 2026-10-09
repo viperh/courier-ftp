@@ -1,0 +1,55 @@
+# Maintainer: qviperh <olteanromeodavid34@gmail.com>
+#
+# AUR package built from source (T00, T77). `scripts/update-packaging.py` sets pkgver
+# and the checksum on every release; the release workflow pushes this file and its
+# .SRCINFO to aur.archlinux.org/courier-ftp.git.
+pkgname=courier-ftp
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Terminal (TUI) FTP, FTPS and SFTP client with an encrypted vault and optional self-hosted sync'
+arch=('x86_64' 'aarch64')
+url='https://github.com/viperh/courier-ftp'
+license=('MIT')
+depends=('gcc-libs' 'glibc')
+makedepends=('cargo')
+conflicts=('courier-ftp-bin')
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('0000000000000000000000000000000000000000000000000000000000000000')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p courier-ftp
+  # The man page and completions come from the binary itself (no files are written
+  # outside $srcdir: COURIER_FTP_HOME points the config/log directories there).
+  export COURIER_FTP_HOME="$srcdir/courier-ftp-home" COURIER_FTP_KEYRING=off
+  ./target/release/courier-ftp generate man --out-dir gen/man
+  ./target/release/courier-ftp generate completions bash >gen/courier-ftp.bash
+  ./target/release/courier-ftp generate completions zsh >gen/_courier-ftp
+  ./target/release/courier-ftp generate completions fish >gen/courier-ftp.fish
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable COURIER_FTP_KEYRING=off
+  cargo test --frozen --release -p courier-ftp-core --lib
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm0755 target/release/courier-ftp "$pkgdir/usr/bin/courier-ftp"
+  install -Dm0644 gen/man/courier-ftp.1 "$pkgdir/usr/share/man/man1/courier-ftp.1"
+  install -Dm0644 gen/courier-ftp.bash "$pkgdir/usr/share/bash-completion/completions/courier-ftp"
+  install -Dm0644 gen/_courier-ftp "$pkgdir/usr/share/zsh/site-functions/_courier-ftp"
+  install -Dm0644 gen/courier-ftp.fish "$pkgdir/usr/share/fish/vendor_completions.d/courier-ftp.fish"
+  install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

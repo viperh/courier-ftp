@@ -186,10 +186,6 @@ criteria = "safe-to-deploy"
 version = "1.2.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.crossbeam-channel]]
-version = "0.5.17"
-criteria = "safe-to-deploy"
-
 [[exemptions.crossbeam-utils]]
 version = "0.8.23"
 criteria = "safe-to-deploy"
@@ -218,16 +214,8 @@ criteria = "safe-to-deploy"
 version = "0.20.11"
 criteria = "safe-to-deploy"
 
-[[exemptions.darling]]
-version = "0.21.3"
-criteria = "safe-to-deploy"
-
 [[exemptions.darling_core]]
 version = "0.20.11"
-criteria = "safe-to-deploy"
-
-[[exemptions.darling_core]]
-version = "0.21.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.darling_macro]]
@@ -371,91 +359,91 @@ version = "0.4.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix]]
-version = "0.87.1"
+version = "0.85.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-actor]]
-version = "0.42.0"
+version = "0.41.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-attributes]]
-version = "0.35.0"
+version = "0.33.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-bitmap]]
-version = "0.4.0"
+version = "0.3.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-chunk]]
-version = "0.8.0"
+version = "0.7.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-command]]
-version = "0.10.1"
+version = "0.9.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-commitgraph]]
-version = "0.39.0"
+version = "0.37.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-config]]
-version = "0.60.0"
+version = "0.58.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-config-value]]
-version = "0.19.1"
+version = "0.18.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-credentials]]
-version = "0.40.0"
+version = "0.38.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-date]]
-version = "0.16.0"
+version = "0.15.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-diff]]
-version = "0.67.1"
+version = "0.65.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-dir]]
-version = "0.29.1"
+version = "0.27.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-discover]]
-version = "0.55.0"
+version = "0.53.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-error]]
-version = "0.3.2"
+version = "0.2.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-features]]
-version = "0.49.1"
+version = "0.48.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-filter]]
-version = "0.34.0"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-fs]]
-version = "0.22.1"
+version = "0.21.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-glob]]
-version = "0.27.1"
+version = "0.26.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-hash]]
-version = "0.26.2"
+version = "0.25.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-hashtable]]
-version = "0.16.0"
+version = "0.15.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-ignore]]
-version = "0.22.1"
+version = "0.21.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-imara-diff]]
@@ -463,39 +451,31 @@ version = "0.2.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-index]]
-version = "0.55.0"
+version = "0.53.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-lock]]
-version = "24.0.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.gix-macros]]
-version = "0.1.6"
+version = "23.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-negotiate]]
-version = "0.35.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.gix-note]]
-version = "0.1.1"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-object]]
-version = "0.64.1"
+version = "0.62.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-odb]]
-version = "0.84.0"
+version = "0.82.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-pack]]
-version = "0.74.2"
+version = "0.72.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-packetline]]
-version = "0.22.2"
+version = "0.21.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-path]]
@@ -503,35 +483,35 @@ version = "0.12.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-pathspec]]
-version = "0.20.0"
+version = "0.18.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-prompt]]
-version = "0.17.0"
+version = "0.15.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-protocol]]
-version = "0.65.1"
+version = "0.63.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-quote]]
-version = "0.8.0"
+version = "0.7.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-ref]]
-version = "0.67.1"
+version = "0.65.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-refspec]]
-version = "0.45.1"
+version = "0.43.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-revision]]
-version = "0.49.1"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-revwalk]]
-version = "0.35.0"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-sec]]
@@ -539,19 +519,19 @@ version = "0.14.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-shallow]]
-version = "0.13.0"
+version = "0.12.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-status]]
-version = "0.34.1"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-submodule]]
-version = "0.34.0"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-tempfile]]
-version = "24.0.0"
+version = "23.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-trace]]
@@ -559,15 +539,15 @@ version = "0.1.21"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-transport]]
-version = "0.59.2"
+version = "0.57.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-traverse]]
-version = "0.61.0"
+version = "0.59.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-url]]
-version = "0.38.0"
+version = "0.36.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-utils]]
@@ -579,19 +559,15 @@ version = "0.11.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-worktree]]
-version = "0.56.0"
+version = "0.54.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-worktree-state]]
-version = "0.34.1"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gix-worktree-stream]]
-version = "0.36.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.gix-zlib]]
-version = "0.1.0"
+version = "0.34.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.hash32]]
@@ -682,6 +658,10 @@ criteria = "safe-to-deploy"
 version = "0.4.12"
 criteria = "safe-to-deploy"
 
+[[exemptions.kstring]]
+version = "2.0.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.lab]]
 version = "0.11.0"
 criteria = "safe-to-deploy"
@@ -728,6 +708,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.mac_address]]
 version = "1.1.8"
+criteria = "safe-to-deploy"
+
+[[exemptions.maybe-async]]
+version = "0.2.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.memchr]]
@@ -1014,6 +998,10 @@ criteria = "safe-to-deploy"
 version = "0.10.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.shell-words]]
+version = "1.1.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.signal-hook]]
 version = "0.3.18"
 criteria = "safe-to-deploy"
@@ -1219,15 +1207,15 @@ version = "0.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.vergen]]
-version = "10.0.3"
+version = "10.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.vergen-gix]]
-version = "10.0.3"
+version = "10.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.vergen-lib]]
-version = "10.0.3"
+version = "10.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.vte]]

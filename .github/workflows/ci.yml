@@ -1,27 +1,64 @@
 name: CI # Continuous Integration
 
+# T00 (sverb parity, D15). Every job's `name:` equals its id: that is the check name
+# required by branch protection (CONTRIBUTING.md, "Branch protection"). Jobs that need
+# files a later task adds depend on `detect` and are skipped (reported as success)
+# until those files exist, so no workflow edit is needed when the task lands.
+
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
 
 jobs:
 
-  test:
-    name: Test Suite
+  detect:
+    name: detect
     runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.detect.outputs.e2e }}
+      server_crate: ${{ steps.detect.outputs.server_crate }}
+      server: ${{ steps.detect.outputs.server }}
+      fuzz_targets: ${{ steps.detect.outputs.fuzz_targets }}
+      vet: ${{ steps.detect.outputs.vet }}
+      generate: ${{ steps.detect.outputs.generate }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests
-        run: cargo test --locked --all-features --workspace
+      - name: Which prerequisites exist
+        id: detect
+        run: |
+          set -euo pipefail
+          has() { if test -f "$1"; then echo true; else echo false; fi; }
+          fuzz=false
+          for f in fuzz/fuzz_targets/*.rs; do
+            if test -f "$f"; then fuzz=true; break; fi
+          done
+          {
+            echo "e2e=$(has crates/courier-ftp-e2e/Cargo.toml)"
+            echo "server_crate=$(has crates/courier-ftp-server/Cargo.toml)"
+            echo "server=$(has deploy/docker-compose.yml)"
+            echo "fuzz_targets=$fuzz"
+            echo "vet=$(has supply-chain/config.toml)"
+            echo "generate=$(has crates/courier-ftp/src/cli/generate.rs)"
+          } | tee -a "$GITHUB_OUTPUT"
 
-  rustfmt:
-    name: Rustfmt
+  fmt:
+    name: fmt
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -35,29 +72,530 @@ jobs:
         run: cargo fmt --all --check
 
   clippy:
-    name: Clippy
+    name: clippy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # vergen-gix (crates/courier-ftp/build.rs) needs history and tags
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy check
-        run: cargo clippy --all-targets --all-features --workspace -- -D warnings
+      - name: Clippy (all features)
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Clippy (local-only build, no `sync` feature)
+        run: cargo clippy -p courier-ftp --all-targets --no-default-features --locked -- -D warnings
 
   docs:
-    name: Docs
+    name: docs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check documentation
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --document-private-items --all-features --workspace
+        run: cargo doc --no-deps --document-private-items --all-features --workspace --locked
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Includes the e2e crate's Docker-free harness self-tests (its container tests are
+      # `#[ignore]`d); server DB tests skip without DATABASE_URL (they run in `server-db`).
+      - name: Run tests
+        env:
+          COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home # `runner` is only available at step level
+          COURIER_FTP_KEYRING: "off"
+        run: cargo test --workspace --all-features --locked
+
+  # Our addition (sverb has no such job): the local backend, paths, keyring and
+  # terminal suspend are OS-specific.
+  test-os:
+    name: test-os (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        env:
+          COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home
+          COURIER_FTP_KEYRING: "off"
+        run: >-
+          cargo test --workspace --all-features --locked
+          --exclude courier-ftp-server --exclude courier-ftp-e2e
+
+  # The client must work without the `sync` feature. `--exclude` of a crate that does
+  # not exist yet only prints a warning.
+  test-local-only:
+    name: test-local-only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests without default features
+        env:
+          COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home
+          COURIER_FTP_KEYRING: "off"
+        run: >-
+          cargo test --workspace --no-default-features --locked
+          --exclude courier-ftp-sync --exclude courier-ftp-server --exclude courier-ftp-e2e
+
+  # The Docker e2e suite (T76): FTP/FTPS, SFTP and proxy fixture images, built once per
+  # run with layer caching and handed to the harness through COURIER_E2E_*_IMAGE; the
+  # `#[ignore]`d container tests run with `-- --ignored`.
+  e2e:
+    name: e2e
+    needs: detect
+    if: needs.detect.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COURIER_E2E: "1"
+      COURIER_E2E_SSHD_IMAGE: courier-ftp-e2e-sshd:ci
+      COURIER_E2E_FTPD_IMAGE: courier-ftp-e2e-ftpd:ci
+      COURIER_E2E_PROXY_IMAGE: courier-ftp-e2e-proxy:ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Docker info
+        run: docker info
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build the OpenSSH fixture image
+        uses: docker/build-push-action@v6
+        with:
+          context: tests/fixtures/sshd
+          tags: ${{ env.COURIER_E2E_SSHD_IMAGE }}
+          load: true
+          cache-from: type=gha,scope=courier-ftp-e2e-sshd
+          cache-to: type=gha,mode=max,scope=courier-ftp-e2e-sshd
+      - name: Build the FTP fixture image
+        uses: docker/build-push-action@v6
+        with:
+          context: tests/fixtures/ftpd
+          tags: ${{ env.COURIER_E2E_FTPD_IMAGE }}
+          load: true
+          cache-from: type=gha,scope=courier-ftp-e2e-ftpd
+          cache-to: type=gha,mode=max,scope=courier-ftp-e2e-ftpd
+      - name: Build the proxy fixture image
+        uses: docker/build-push-action@v6
+        with:
+          context: tests/fixtures/proxy
+          tags: ${{ env.COURIER_E2E_PROXY_IMAGE }}
+          load: true
+          cache-from: type=gha,scope=courier-ftp-e2e-proxy
+          cache-to: type=gha,mode=max,scope=courier-ftp-e2e-proxy
+      - name: Validate every fixture profile
+        run: |
+          set -euo pipefail
+          check() { # <image> <profile env var>
+            local image="$1" var="$2" p
+            for p in $(docker run --rm "$image" --list); do
+              echo "$var=$p"
+              docker run --rm -e "$var=$p" "$image" --check
+            done
+          }
+          check "$COURIER_E2E_SSHD_IMAGE" SSHD_PROFILE
+          check "$COURIER_E2E_FTPD_IMAGE" FTPD_PROFILE
+          check "$COURIER_E2E_PROXY_IMAGE" PROXY_PROFILE
+      - name: Build the server image (when deploy/Dockerfile.server exists)
+        run: |
+          set -euo pipefail
+          if test -f deploy/Dockerfile.server; then
+            docker build -f deploy/Dockerfile.server -t courier-ftp-server:e2e .
+            echo "COURIER_E2E_SERVER_IMAGE=courier-ftp-server:e2e" >> "$GITHUB_ENV"
+          else
+            echo "no deploy/Dockerfile.server yet; server scenarios are skipped"
+          fi
+      # The harness drives the real binary; build it up front.
+      - name: Build courier-ftp
+        run: cargo build -p courier-ftp --locked
+      - name: Run e2e tests
+        run: cargo test -p courier-ftp-e2e --locked --no-fail-fast -- --ignored --test-threads=4
+      - name: Canary scan of the kept scenario homes
+        if: always()
+        run: scripts/canary-scan.sh target/tmp
+      - name: Leftover containers
+        if: failure()
+        run: docker ps -a
+
+  # Server tests against a real Postgres. Each DB test creates and drops its own
+  # database (the POSTGRES_USER role is a superuser here); without DATABASE_URL those
+  # tests skip, so this job is the one that exercises them.
+  server-db:
+    name: server-db
+    needs: detect
+    if: needs.detect.outputs.server_crate == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: courier
+          POSTGRES_PASSWORD: courier
+          POSTGRES_DB: courier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U courier"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://courier:courier@localhost:5432/courier
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run server tests
+        run: cargo test -p courier-ftp-server --locked
+
+  # Build the server image, bring up the compose stack, wait for /healthz and check
+  # that the container does not run as root (T86).
+  server-docker:
+    name: server-docker
+    needs: detect
+    if: needs.detect.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # CI-only, public test value (hex, 32 bytes); protects nothing.
+      COURIER_SERVER_SECRET: c1c1c1c1000102030405060708090a0b0c0d0e0f101112131415161718191a1b
+      COURIER_PUBLIC_URL: http://localhost:8080
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Validate compose file
+        run: docker compose -f deploy/docker-compose.yml config --quiet
+      - name: Build and start
+        run: docker compose -f deploy/docker-compose.yml up -d --build
+      - name: Wait for /healthz (60 s)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/healthz; then exit 0; fi
+            sleep 1
+          done
+          docker compose -f deploy/docker-compose.yml logs
+          exit 1
+      - name: Ready and logged a setup token
+        run: |
+          set -euo pipefail
+          curl -fsS http://localhost:8080/readyz
+          docker compose -f deploy/docker-compose.yml logs courier-ftp-server | grep -q setup_token
+      - name: Runs as non-root
+        run: |
+          set -euo pipefail
+          user="$(docker inspect --format '{{.Config.User}}' courier-ftp-server:local)"
+          echo "image user: $user"
+          case "$user" in ""|root|0|0:0|root:root) exit 1;; esac
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
+
+  bench-build:
+    name: bench-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build benchmarks
+        run: cargo bench --workspace --no-run --locked
+      - name: Gate script self-test
+        run: python3 scripts/bench-gate.py self-test
+
+  deny:
+    name: deny
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Check advisories, bans, licenses and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+          arguments: --all-features --locked
+
+  vet:
+    name: vet
+    needs: detect
+    if: needs.detect.outputs.vet == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-vet
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-vet
+      - name: Vet dependencies
+        run: cargo vet --locked
+      # Crypto crates need a real audit; warns while they are exempted.
+      - name: Crypto crates
+        run: python3 scripts/check-vet-crypto.py
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install stable toolchain (for cargo metadata)
+        uses: dtolnay/rust-toolchain@stable
+      # The MSRV lives only in `[workspace.package] rust-version`; read it from there.
+      - name: Read rust-version
+        id: msrv
+        run: |
+          set -euo pipefail
+          msrv="$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq -r '[.packages[].rust_version // empty] | unique
+                     | if length == 1 then .[0]
+                       else error("workspace crates disagree on rust-version: \(.)") end')"
+          echo "MSRV is $msrv"
+          echo "version=$msrv" >> "$GITHUB_OUTPUT"
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-${{ steps.msrv.outputs.version }}
+      # `+toolchain` overrides rust-toolchain.toml (channel = "stable").
+      - name: Check on MSRV
+        run: cargo +${{ steps.msrv.outputs.version }} check --workspace --all-features --locked
+
+  layering:
+    name: layering
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Over the all-features and local-only (no-default-features) graphs.
+      - name: Check dependency direction (script)
+        run: python3 scripts/check-layering.py
+      # Independent second implementation of the same rules (T76).
+      - name: Workspace metadata and unsafe tests (when the e2e crate exists)
+        run: |
+          set -euo pipefail
+          if test -f crates/courier-ftp-e2e/Cargo.toml; then
+            cargo test -p courier-ftp-e2e --test workspace_metadata --test forbid_unsafe --locked
+          else
+            echo "no courier-ftp-e2e crate yet (T76)"
+          fi
+
+  # `allow(unsafe_code)` only in crates/courier-ftp-core/src/hardening/ (T91); the
+  # workspace lint is `deny`.
+  unsafe-check:
+    name: unsafe-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: allow(unsafe_code) only in the allowed modules
+        run: python3 scripts/check-unsafe.py
+
+  # Every temp dir kept under one root, then a scan of all logs, crash reports, SQLite
+  # files, edit copies, backups and the server database for the planted canaries
+  # (CONTRIBUTING.md, "Canary secrets").
+  canary:
+    name: canary
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: courier
+          POSTGRES_PASSWORD: courier
+          POSTGRES_DB: courier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U courier"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      COURIER_FTP_LOG_LEVEL: trace
+      COURIER_FTP_KEYRING: "off"
+      DATABASE_URL: postgres://courier:courier@localhost:5432/courier
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Scanner self-test
+        run: scripts/canary-scan.sh --self-test
+      - name: Prepare the artifact root
+        run: mkdir -p "$RUNNER_TEMP/canary/tmp" "$RUNNER_TEMP/canary/home"
+      - name: Run the test suite at trace level
+        env:
+          TMPDIR: ${{ runner.temp }}/canary/tmp
+          COURIER_FTP_HOME: ${{ runner.temp }}/canary/home
+        run: cargo test --workspace --all-features --locked --no-fail-fast
+      - name: Dump the server database
+        if: always()
+        env:
+          PGPASSWORD: courier
+        run: >-
+          pg_dumpall -h localhost -U courier > "$RUNNER_TEMP/canary/tmp/server-dump.sql"
+          || echo "pg_dumpall unavailable; server dump not scanned"
+      # `--require-files` once T91's binary canary fixture exists (before that, a run
+      # may legitimately write no artifact).
+      - name: Scan for canaries
+        if: always()
+        run: |
+          set -euo pipefail
+          require=()
+          if test -f crates/courier-ftp/tests/canary.rs; then require=(--require-files); fi
+          scripts/canary-scan.sh "${require[@]}" \
+            target/tmp "$RUNNER_TEMP/canary/tmp" "$RUNNER_TEMP/canary/home"
+
+  # Every fuzz target for 30 s. The nightly 10-minute runs are in fuzz.yml.
+  fuzz:
+    name: fuzz
+    needs: detect
+    if: needs.detect.outputs.fuzz_targets == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Seed corpus
+        run: fuzz/seed-corpus.sh
+      - name: Build every target
+        run: cargo +nightly fuzz build --target x86_64-unknown-linux-gnu
+      - name: Run every target for 30 s
+        run: |
+          set -uo pipefail
+          status=0
+          for target in $(cargo +nightly fuzz list); do
+            echo "::group::$target"
+            if ! cargo +nightly fuzz run --target x86_64-unknown-linux-gnu "$target" "fuzz/corpus/$target" -- \
+                 -max_total_time=30 -rss_limit_mb=2048 -timeout=10; then
+              echo "::error::fuzz target $target crashed"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts
+          if-no-files-found: ignore
+
+  # Release tooling that needs no secrets (the full release dry run is
+  # `workflow_dispatch` of cd.yml).
+  packaging:
+    name: packaging
+    needs: detect
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Channel files update (self-test)
+        run: python3 scripts/update-packaging.py --self-test
+      - name: Syntax of the channel files
+        run: |
+          set -euo pipefail
+          bash -n packaging/aur/courier-ftp/PKGBUILD
+          bash -n packaging/aur/courier-ftp-bin/PKGBUILD
+          ruby -c packaging/homebrew/courier-ftp.rb
+          jq -e . packaging/scoop/courier-ftp.json >/dev/null
+      - name: No test-only features in the shipped graphs
+        run: |
+          set -euo pipefail
+          pkgs=(-p courier-ftp)
+          if test -f crates/courier-ftp-server/Cargo.toml; then pkgs+=(-p courier-ftp-server); fi
+          cargo tree "${pkgs[@]}" -e no-dev,features --locked > "$RUNNER_TEMP/tree.txt"
+          if grep -n -E 'insecure-test-ksf|test-hooks|test-util' "$RUNNER_TEMP/tree.txt"; then
+            echo "::error::a test-only feature is enabled in a shipped dependency graph"
+            exit 1
+          fi
+      - name: Archives are reproducible
+        if: needs.detect.outputs.generate == 'true'
+        run: |
+          set -euo pipefail
+          export COURIER_FTP_HOME="$RUNNER_TEMP/home" COURIER_FTP_KEYRING=off
+          cargo build --locked -p courier-ftp
+          mkdir -p assets/man assets/completions
+          target/debug/courier-ftp generate man --out-dir assets/man
+          target/debug/courier-ftp generate completions bash > assets/completions/courier-ftp.bash
+          for i in 1 2; do
+            scripts/release-package.sh courier-ftp 0.0.0 linux-x86_64 target/debug/courier-ftp "out$i" assets
+          done
+          cmp out1/courier-ftp-0.0.0-linux-x86_64.tar.gz out2/courier-ftp-0.0.0-linux-x86_64.tar.gz
+          (cd out1 && sha256sum -c ./*.sha256)
+      # `--no-verify` until the baked-in defaults (`.config/config.json`, outside the
+      # crate directory) move into crates/courier-ftp: a verified build of the packaged
+      # binary crate cannot read them (tasks/00-ci-cd-workflows.md, Implementation notes).
+      - name: crates package (cargo install courier-ftp)
+        run: cargo package --workspace --exclude courier-ftp-e2e --locked --no-verify

@@ -1110,12 +1110,6 @@ was being selected by the target OS instead of the host OS.
 """
 aggregated-from = "https://raw.githubusercontent.com/zcash/zcash/master/qa/supply-chain/audits.toml"
 
-[[audits.zcash.audits.darling_macro]]
-who = "Jack Grigg <jack@electriccoin.co>"
-criteria = "safe-to-deploy"
-delta = "0.20.11 -> 0.21.3"
-aggregated-from = "https://raw.githubusercontent.com/zcash/wallet/main/supply-chain/audits.toml"
-
 [[audits.zcash.audits.document-features]]
 who = "Jack Grigg <jack@electriccoin.co>"
 criteria = "safe-to-deploy"

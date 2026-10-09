@@ -1,0 +1,44 @@
+# Cargo-fuzz targets (T00 harness; targets come with T91 and the parser tasks).
+# Its own workspace (excluded from the root one): it needs nightly and libFuzzer,
+# and must not touch the root Cargo.lock.
+#
+#   cargo +nightly fuzz list
+#   fuzz/seed-corpus.sh                       # copy the fixtures into fuzz/corpus/
+#   cargo +nightly fuzz run <target> fuzz/corpus/<target> -- -max_total_time=30
+#
+# CI: `.github/workflows/ci.yml` (job `fuzz`, 30 s per target on every PR) and
+# `.github/workflows/fuzz.yml` (nightly, 10 min per target, crashes uploaded). Both
+# are skipped while `fuzz_targets/` holds no `*.rs` file.
+#
+# Adding a target: `fuzz_targets/<name>.rs` (`fuzz_target!(|data: &[u8]| body(data));`
+# where `body` is a `#[doc(hidden)] pub fn fuzz_…` of the owning crate that a property
+# test also runs), a `[[bin]]` below (test/doc/bench = false), the crate as a path
+# dependency, and seeds in `seed-corpus.sh`. The planned targets are listed in T91 §7.
+[package]
+name = "courier-ftp-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+
+# Not part of the root workspace.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+# libFuzzer reports panics as crashes only when they abort.
+panic = "abort"
+
+# [[bin]]
+# name = "url_parse"
+# path = "fuzz_targets/url_parse.rs"
+# test = false
+# doc = false
+# bench = false

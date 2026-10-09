@@ -1,0 +1,29 @@
+{
+    "version": "0.1.0",
+    "description": "Terminal (TUI) FTP, FTPS and SFTP client with an encrypted vault and optional self-hosted sync",
+    "homepage": "https://github.com/viperh/courier-ftp",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/viperh/courier-ftp/releases/download/v0.1.0/courier-ftp-0.1.0-windows-x86_64.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "extract_dir": "courier-ftp-0.1.0-windows-x86_64"
+        }
+    },
+    "bin": "courier-ftp.exe",
+    "notes": "PowerShell completions: add `. \"$dir\\completions\\_courier-ftp.ps1\"` to your $PROFILE.",
+    "checkver": {
+        "github": "https://github.com/viperh/courier-ftp"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/viperh/courier-ftp/releases/download/v$version/courier-ftp-$version-windows-x86_64.zip",
+                "extract_dir": "courier-ftp-$version-windows-x86_64"
+            }
+        },
+        "hash": {
+            "url": "$url.sha256"
+        }
+    }
+}
