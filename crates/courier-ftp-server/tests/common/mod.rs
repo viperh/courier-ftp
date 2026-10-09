@@ -231,7 +231,17 @@ impl Harness {
 
     /// In-memory backend with `limits`.
     pub fn mem_with(limits: RateLimiters) -> Self {
-        Self::build(Store::mem(), limits, config(&[]), None)
+        Self::mem_config(config(&[]), limits)
+    }
+
+    /// A harness on an existing store (the caller keeps the database alive).
+    pub fn on_store(store: Store) -> Self {
+        Self::build(store, generous(), config(&[]), None)
+    }
+
+    /// In-memory backend with an explicit configuration.
+    pub fn mem_config(cfg: Config, limits: RateLimiters) -> Self {
+        Self::build(Store::mem(), limits, cfg, None)
     }
 
     /// In-memory backend with generous rate limits.
@@ -453,6 +463,42 @@ impl Harness {
     ) -> (StatusCode, Value) {
         let (s, _, v) = self.call(Method::DELETE, path, bearer, body).await;
         (s, v)
+    }
+}
+
+/// Captures log output (all levels, plain text) into a buffer.
+#[derive(Clone, Default)]
+pub struct LogCapture(Arc<Mutex<Vec<u8>>>);
+
+struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for CaptureWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl LogCapture {
+    /// Installs a `trace` subscriber writing into the buffer for the current
+    /// thread (`#[tokio::test]` runs everything on it).
+    pub fn install(&self) -> tracing::subscriber::DefaultGuard {
+        let buf = self.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(move || CaptureWriter(buf.clone()))
+            .finish();
+        tracing::subscriber::set_default(subscriber)
+    }
+
+    /// Everything captured so far.
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
     }
 }
 
