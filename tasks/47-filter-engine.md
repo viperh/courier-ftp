@@ -292,17 +292,17 @@ variant except `NoConditions`.
 
 ## Acceptance criteria
 
-- [ ] AC1 Every `Condition` variant and every operator is covered by table-driven tests, including case-sensitive and case-insensitive variants of each string op.
-- [ ] AC2 Match modes All/Any/None/NotAll give the results in the combining table for 0, 1, 2 and 3 true conditions out of 3.
-- [ ] AC3 `applies_to` Files/Dirs/Both respected, including symlinks to directories (treated as dirs) and unknown symlink targets (treated as files).
-- [ ] AC4 A fresh config (`{}`) yields the five built-in filters and one empty `default` set; `restore_builtins` re-adds a deleted built-in and resets an edited one without touching user filters.
-- [ ] AC5 Missing data (no size, no mtime, no permissions) makes the condition false, never panics.
-- [ ] AC6 An invalid regex is reported by `validate_filter` as `InvalidRegex`; at load, the filter is disabled, a warning is logged, and other filters still apply.
-- [ ] AC7 `equivalent` is true for identical selections on both sides and false when a `LocalOnly` filter is active on the local side only.
-- [ ] AC8 10 000 entries × 10 regex filters evaluated in < 10 ms (criterion bench `filters_10k_10_regex`, gated in `scripts/bench-gates.toml`).
-- [ ] AC9 `QuickFilter` treats `*.txt` as a glob and `report` as a case-insensitive substring.
-- [ ] AC10 Filter settings round-trip through `Settings::save_user` and reload unchanged.
-- [ ] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass; `bench-build` builds the new bench.
+- [x] AC1 Every `Condition` variant and every operator is covered by table-driven tests, including case-sensitive and case-insensitive variants of each string op.
+- [x] AC2 Match modes All/Any/None/NotAll give the results in the combining table for 0, 1, 2 and 3 true conditions out of 3.
+- [x] AC3 `applies_to` Files/Dirs/Both respected, including symlinks to directories (treated as dirs) and unknown symlink targets (treated as files).
+- [x] AC4 A fresh config (`{}`) yields the five built-in filters and one empty `default` set; `restore_builtins` re-adds a deleted built-in and resets an edited one without touching user filters.
+- [x] AC5 Missing data (no size, no mtime, no permissions) makes the condition false, never panics.
+- [x] AC6 An invalid regex is reported by `validate_filter` as `InvalidRegex`; at load, the filter is disabled, a warning is logged, and other filters still apply.
+- [x] AC7 `equivalent` is true for identical selections on both sides and false when a `LocalOnly` filter is active on the local side only.
+- [x] AC8 10 000 entries × 10 regex filters evaluated in < 10 ms (criterion bench `filters_10k_10_regex`, gated in `scripts/bench-gates.toml`).
+- [x] AC9 `QuickFilter` treats `*.txt` as a glob and `report` as a case-insensitive substring.
+- [x] AC10 Filter settings round-trip through `Settings::save_user` and reload unchanged.
+- [x] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass; `bench-build` builds the new bench.
 
 ## Tests
 
@@ -350,3 +350,22 @@ None (T67 and T43 exercise filters end to end).
 ## Open questions
 
 None.
+
+## Implementation notes
+
+- `FilterError` has one extra variant, `ControlCharsInName(String)`: the spec requires names
+  without control characters but listed no variant for it. It is blocking.
+- `crates/courier-ftp/config/config.json` holds no settings sections (T05 defaults come from
+  `Settings::default()` via `#[serde(default)]`), so the `filters` defaults live in
+  `FilterSettings::default()` and `docs/settings.schema.json` was regenerated instead of
+  editing `config.json`.
+- `settings::validate` gained `validate_filters`: empty `sets` → default set + warning;
+  unknown `active_set` → first set + warning. Filter-level problems are not fixed there;
+  `FilterEngine::new` disables bad filters (`warn!` with filter name and error only).
+- Extra public helpers for dependants: `MAX_NAME_LEN`, `MAX_CONDITIONS`, `MAX_PATTERN_LEN`,
+  `DEFAULT_SET`, `FilterScope::allows`, `FilterSet::{empty, names}`, `FilterSettings::filter`,
+  `PermBit::{ALL, mask}`, `FilterError::is_blocking` (false only for `NoConditions`, for T67),
+  `CompiledFilter::name`, `FilterEngine::{side, filters}`, `QuickFilter::is_glob`,
+  `impl From<FilterError> for crate::Error` (→ `InvalidInput`).
+- The bench file also has `filters_100k_10_regex` (spec target < 100 ms). Local release
+  results: 10k × 10 regex ≈ 2.4 ms (gate 10 ms, CI 20 ms), 100k ≈ 28 ms.
