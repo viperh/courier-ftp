@@ -22,6 +22,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-b>` | Bookmarks |
 | `<Ctrl-x><c>` | ClearLog |
 | `<Ctrl-w>` | CloseTab |
+| `<Ctrl-x><o>` | CompareOptions |
 | `<F5>` | Copy |
 | `<Ctrl-x><t>` | CycleTransferType |
 | `<Delete>` | Delete |
@@ -113,6 +114,9 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<h>` | ParentDir |
 | `</>` | QuickFilter |
 | `<Ctrl-a>` | SelectAll |
+| `<m><r>` | SelectCompareDifferent |
+| `<m><y>` | SelectCompareLonely |
+| `<m><g>` | SelectCompareNewer |
 | `<+>` | SelectPattern |
 | `<s><m>` | SortModified |
 | `<s><n>` | SortName |

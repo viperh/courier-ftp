@@ -76,6 +76,9 @@ struct Remote {
     cancel: CancellationToken,
     /// Whether `connect` finished; listings wait for it.
     connected: bool,
+    /// Turn synchronized browsing / directory comparison on once connected.
+    sync_browsing: bool,
+    compare: bool,
 }
 
 /// `alice@host` (with the port when it isn't the protocol's default), for
@@ -424,6 +427,7 @@ impl App {
                 self.list(*side, Some(dir.clone()), *force, false);
             }
             Action::TreeListDir { side, dir } => self.list(*side, Some(dir.clone()), false, true),
+            Action::MakeDir { side, dir } => self.make_dir(*side, dir.clone()),
             Action::CopyToClipboard(text) => {
                 if let Err(e) = crate::clipboard::copy(text) {
                     tracing::warn!("clipboard: {e}");
@@ -513,6 +517,51 @@ impl App {
                 None => Action::ListingLoaded { side, result },
             });
         });
+    }
+
+    /// Create `dir` on `side` in the background; [`Action::DirMade`] reports
+    /// the result. The parent's cached listing is dropped.
+    fn make_dir(&mut self, side: Side, dir: RemotePath) {
+        let tx = self.action_tx.clone();
+        let cache = self.cache.clone();
+        match side {
+            Side::Local => {
+                tokio::spawn(async move {
+                    let mut backend = LocalBackend::new();
+                    let cancel = CancellationToken::new();
+                    let result = async {
+                        backend.connect(cancel).await?;
+                        backend.mkdir(&dir).await
+                    }
+                    .await
+                    .map_err(|e| e.to_string());
+                    if let Some(parent) = dir.parent() {
+                        cache.invalidate(None, &parent);
+                    }
+                    let _ = tx.send(Action::DirMade { side, dir, result });
+                });
+            }
+            Side::Remote => {
+                let Some(remote) = self.remote.as_ref().filter(|r| r.connected) else {
+                    let _ = tx.send(Action::DirMade {
+                        side,
+                        dir,
+                        result: Err("Not connected".to_owned()),
+                    });
+                    return;
+                };
+                let handle = Arc::clone(&remote.handle);
+                let cancel = remote.cancel.clone();
+                let server = remote.info.address.clone();
+                tokio::spawn(async move {
+                    let result = handle.mkdir(&dir, &cancel).await.map_err(|e| e.to_string());
+                    if let Some(parent) = dir.parent() {
+                        cache.invalidate(Some(&server), &parent);
+                    }
+                    let _ = tx.send(Action::DirMade { side, dir, result });
+                });
+            }
+        }
     }
 
     fn current_session(&self) -> Option<SessionId> {
@@ -623,6 +672,8 @@ impl App {
             handle: Arc::clone(&handle),
             cancel: cancel.clone(),
             connected: false,
+            sync_browsing: request.sync_browsing,
+            compare: request.compare,
         });
         self.last_connect = Some(request.without_password());
         self.screen
@@ -665,8 +716,14 @@ impl App {
         match result {
             Ok(connected) => {
                 remote.connected = true;
+                let (sync, compare) = (remote.sync_browsing, remote.compare);
+                let case_sensitive = courier_ftp_core::compare::names_case_sensitive(
+                    remote.info.server_type.unwrap_or_default(),
+                    courier_ftp_core::model::item::ServerType::default(),
+                );
                 self.diag.listing_shown(Side::Remote, &connected.listing);
                 self.screen.remote_connected(connected);
+                self.screen.connected_view(sync, compare, case_sensitive);
             }
             Err(e) => {
                 let label = server_label(&remote.info.address);
