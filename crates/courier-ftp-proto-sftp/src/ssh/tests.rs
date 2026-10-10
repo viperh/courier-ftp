@@ -847,3 +847,72 @@ fn client_config_follows_the_settings() {
     assert_eq!(opts.client_config().inactivity_timeout, None);
     assert!(!format!("{opts:?}").contains("CANARY"));
 }
+
+// ---------------------------------------------------------------- canaries
+
+/// `target/tmp`, derived from this test binary's path
+/// (`target/<profile>/deps/<bin>`), where `scripts/canary-scan.sh` looks.
+fn target_tmp() -> PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    exe.ancestors().nth(3).unwrap().join("tmp")
+}
+
+/// T91 §5: a password and a keyboard-interactive code planted as canaries
+/// never reach the trace-level log of a full SSH login, nor the session log.
+/// The log is left in `target/tmp/canary-ssh/` for `scripts/canary-scan.sh`
+/// (CI job `canary`), and also checked here.
+#[tokio::test]
+async fn canary_secrets_stay_out_of_trace_logs() {
+    const SSH_PW: &str = "CANARY-PW-ssh-4e1d";
+    const CODE: &str = "CANARY-TOTP-8c27";
+
+    let dir = target_tmp().join("canary-ssh");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let log_path = dir.join("courier-ftp.log");
+    let file = std::fs::File::create(&log_path).unwrap();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_ansi(false)
+        .with_target(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_writer(Mutex::new(file))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    // russh logs through `log`; forward it, as the binary's subscriber does.
+    // Records go to each thread's own subscriber, so other tests stay out.
+    let _ = tracing_log::LogTracer::builder()
+        .with_max_level(tracing_log::log::LevelFilter::Trace)
+        .init();
+
+    let (addr, seen) = test_server::start(Policy {
+        methods: methods(&[MethodKind::Password]),
+        password: Some(SSH_PW),
+        two_factor: true,
+        kbd: vec![KbdRound {
+            instructions: "",
+            prompts: vec![("Verification code: ", false)],
+            expect: vec![CODE],
+        }],
+        ..Policy::default()
+    })
+    .await;
+    let s = setup(addr, normal(SSH_PW), vec![Reply::Answers(vec![CODE])]);
+    let session = run(&s).await.unwrap();
+    session.disconnect().await.unwrap();
+    s.ui.wait_log("Partial success").await;
+    drop(guard);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec!["none", "password", "kbd", "kbd-answer"]
+    );
+
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    assert!(log.contains("TRACE") || log.contains("DEBUG"), "{log}");
+    let session_log = s.ui.log_text();
+    for canary in [SSH_PW, CODE, "CANARY"] {
+        assert!(!log.contains(canary), "{canary} in the trace log");
+        assert!(!session_log.contains(canary), "{canary} in the session log");
+    }
+}

@@ -1254,6 +1254,7 @@ dependencies = [
  "encoding_rs",
  "fs4",
  "hmac 0.13.0",
+ "libc",
  "md5",
  "pretty_assertions",
  "proptest",
@@ -1271,9 +1272,11 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "uhlc",
  "uuid",
  "uzers",
+ "windows-sys 0.61.2",
  "zeroize",
  "zstd",
  "zxcvbn",
@@ -1355,6 +1358,7 @@ dependencies = [
  "courier-ftp-core",
  "futures",
  "pretty_assertions",
+ "proptest",
  "russh",
  "russh-sftp",
  "secrecy",
@@ -1364,6 +1368,8 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-log",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -325,6 +325,22 @@ fn decode(
     })
 }
 
+/// Fuzz body (T91 §7, cargo-fuzz target `key_parse`): format detection of a
+/// hostile private key file (OpenSSH, PEM, PKCS#8, PuTTY `.ppk` v2/v3 including
+/// the Argon2 bounds) and, for unencrypted keys, the decoding. Encrypted keys are
+/// not decrypted: the KDF (bcrypt, Argon2) is bounded but deliberately slow.
+/// Must never panic.
+#[doc(hidden)]
+pub fn fuzz_key_parse(data: &[u8]) {
+    let text = SecretString::from(String::from_utf8_lossy(data).into_owned());
+    if let Ok(file) = KeyFile::from_text("fuzz", text) {
+        let _ = file.format().to_string();
+        if !file.is_encrypted() {
+            let _ = decode(file.format, false, &file.text, None);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -503,5 +519,65 @@ mod tests {
         let file = KeyFile::from_text("k", secret(&text)).unwrap();
         let shown = format!("{file:?}");
         assert!(!shown.contains("OPENSSH"), "{shown}");
+    }
+
+    /// Every fixture key file (OpenSSH, PEM, PKCS#8, PPK v2/v3), the seed
+    /// corpus of the `key_parse` fuzz target.
+    fn fixtures() -> Vec<String> {
+        let mut out = Vec::new();
+        for d in [dir(), dir().join("ppk")] {
+            for entry in std::fs::read_dir(d).unwrap() {
+                let path = entry.unwrap().path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                let is_key = !name.ends_with(".pub")
+                    && !name.ends_with(".py")
+                    && !name.ends_with(".txt")
+                    && path.is_file();
+                if is_key {
+                    out.push(std::fs::read_to_string(&path).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn fuzz_key_parse_seeds() {
+        let all = fixtures();
+        assert!(all.len() > 20, "fixtures found: {}", all.len());
+        for text in &all {
+            fuzz_key_parse(text.as_bytes());
+        }
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig {
+            cases: 128,
+            ..proptest::prelude::ProptestConfig::default()
+        })]
+
+        // The `key_parse` fuzz body (T91 §7): arbitrary bytes, and fixture
+        // keys with one byte changed or the tail cut off.
+        #[test]
+        fn fuzz_key_parse_never_panics(
+            data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..512),
+        ) {
+            fuzz_key_parse(&data);
+        }
+
+        #[test]
+        fn fuzz_key_parse_mutated_fixture_never_panics(
+            which in proptest::prelude::any::<proptest::sample::Index>(),
+            at in proptest::prelude::any::<proptest::sample::Index>(),
+            byte in proptest::prelude::any::<u8>(),
+            cut in proptest::prelude::any::<proptest::sample::Index>(),
+        ) {
+            let all = fixtures();
+            let mut bytes = all[which.index(all.len())].clone().into_bytes();
+            let i = at.index(bytes.len());
+            bytes[i] = byte;
+            fuzz_key_parse(&bytes);
+            fuzz_key_parse(&bytes[..cut.index(bytes.len())]);
+        }
     }
 }

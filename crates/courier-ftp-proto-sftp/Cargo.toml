@@ -34,6 +34,11 @@ tracing = { workspace = true }
 [dev-dependencies]
 courier-ftp-core = { workspace = true, features = ["test-util"] }
 pretty_assertions = { workspace = true }
+# Fuzz bodies as property tests (T91 §7).
+proptest = { workspace = true }
+# The canary test writes a trace-level log for scripts/canary-scan.sh (T91 §5).
+tracing-subscriber = { workspace = true }
+tracing-log = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 

@@ -149,7 +149,11 @@ impl KnownHosts {
                     &path.display().to_string(),
                 ),
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => tracing::warn!(path = %path.display(), %err, "can't read known_hosts"),
+                Err(err) => {
+                    // Paths only at debug: they contain the user name (T91 §4).
+                    tracing::warn!(%err, "can't read a known_hosts file");
+                    tracing::debug!(path = %path.display(), %err, "can't read known_hosts");
+                }
             }
         }
         out
@@ -163,10 +167,12 @@ impl KnownHosts {
                 Err(problem) => {
                     self.skipped += 1;
                     let line_no = index + 1;
+                    // The file path only at debug (T91 §4).
+                    tracing::debug!(%source, line_no, "known_hosts: {problem}");
                     if problem == CERT_AUTHORITY {
-                        tracing::info!(%source, line_no, "known_hosts: {problem}");
+                        tracing::info!(line_no, "known_hosts: {problem}");
                     } else {
-                        tracing::warn!(%source, line_no, "known_hosts: skipping line: {problem}");
+                        tracing::warn!(line_no, "known_hosts: skipping line: {problem}");
                     }
                 }
             }
@@ -295,6 +301,19 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
         }
     }
     p[pi..].iter().all(|&c| c == '*')
+}
+
+/// Fuzz body (T91 §7, cargo-fuzz target `known_hosts_parse`): parse hostile
+/// `known_hosts` text and match every entry against fixed hosts (plain,
+/// bracketed with a port, IPv6; hashed entries and globs run their matchers).
+/// Must never panic.
+#[doc(hidden)]
+pub fn fuzz_known_hosts(data: &[u8]) {
+    let parsed = KnownHosts::parse(&String::from_utf8_lossy(data), "fuzz");
+    for (host, port) in [("host.example", 22), ("host.example", 2222), ("::1", 22)] {
+        let found = parsed.lookup(host, port);
+        assert!(found.trusted.len() + found.revoked.len() <= parsed.len());
+    }
 }
 
 #[cfg(test)]
@@ -484,5 +503,42 @@ mod tests {
         #[cfg(unix)]
         assert!(paths.contains(&PathBuf::from("/etc/ssh/ssh_known_hosts")));
         assert!(!default_paths(None).iter().any(|p| p.starts_with("/home")));
+    }
+
+    #[test]
+    fn fuzz_known_hosts_seeds() {
+        let key = ed25519(1);
+        for text in [
+            line("host.example", &key),
+            line("[host.example]:2222,*.example,!bad.example", &key),
+            format!("@revoked {}", line("h?st.*", &key)),
+            format!("|1|{}|{} ", "AAAA", "BBBB"),
+            "@cert-authority * ssh-ed25519 AAAA".to_owned(),
+            "\u{0}\u{1b}[31m ssh-rsa !!!".to_owned(),
+        ] {
+            fuzz_known_hosts(text.as_bytes());
+        }
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig {
+            cases: 256,
+            ..proptest::prelude::ProptestConfig::default()
+        })]
+
+        // The `known_hosts_parse` fuzz body (T91 §7).
+        #[test]
+        fn fuzz_known_hosts_never_panics(
+            data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..512),
+        ) {
+            fuzz_known_hosts(&data);
+        }
+
+        #[test]
+        fn fuzz_known_hosts_line_like_never_panics(
+            text in "(@revoked |@cert-authority |\\|1\\||\\[|\\]:|[0-9]{1,5}|host|\\.example|\\*|\\?|!|,| |ssh-ed25519 |ssh-rsa |AAAA|[A-Za-z0-9+/=]{1,8}|\n){0,30}",
+        ) {
+            fuzz_known_hosts(text.as_bytes());
+        }
     }
 }

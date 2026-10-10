@@ -195,6 +195,21 @@ impl KdfParams {
     }
 }
 
+/// Fuzz body (T91 §7, cargo-fuzz target `kdf_params`): decode hostile KDF
+/// parameter CBOR (stored in the vault `meta` table and in account bundles).
+/// Whatever decodes is within bounds and round-trips exactly. Never runs Argon2;
+/// must never panic.
+#[doc(hidden)]
+pub fn fuzz_kdf_params(data: &[u8]) {
+    if let Ok(params) = KdfParams::from_cbor(data) {
+        assert!(
+            params.validate().is_ok(),
+            "decoded parameters are in bounds"
+        );
+        assert_eq!(KdfParams::from_cbor(&params.to_cbor()), Ok(params));
+    }
+}
+
 /// `[u8; 16]` as a CBOR byte string (serde's default is an array of integers).
 mod salt_bytes {
     use serde::de::{Error, Visitor};

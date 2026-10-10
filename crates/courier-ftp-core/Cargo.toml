@@ -48,6 +48,17 @@ tracing = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 uzers = { workspace = true }
+# Process hardening (hardening/unix.rs: prctl, setrlimit, mlock; T91).
+libc = { workspace = true }
+
+# Process hardening (hardening/windows.rs: SetErrorMode, WerSetFlags, VirtualLock; T91).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_ErrorReporting",
+    "Win32_System_Memory",
+    "Win32_System_SystemInformation",
+] }
 
 [dev-dependencies]
 # Cheap Argon2 (`Argon2Cost::TEST`) for the vault tests.
@@ -57,6 +68,8 @@ pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+# The mlock fallback test captures the one debug line (tests/hardening.rs).
+tracing-subscriber = { workspace = true }
 
 [[bench]]
 name = "filters"

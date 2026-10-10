@@ -214,6 +214,18 @@ fn open_with_cap(
     cap: u64,
 ) -> Result<Vec<BackupItem>, BackupError> {
     let (header, header_json, ct) = split(file)?;
+    let (kdf, nonce) = header_params(&header)?;
+    let key = argon2id(password.expose_secret().as_bytes(), &kdf)
+        .map_err(|e| BackupError::Format(e.to_string()))?;
+    let compressed = aead::open(&key, &nonce, &aad(header_json), ct).map_err(|e| match e {
+        CryptoError::Auth => BackupError::Decrypt,
+        other => BackupError::Corrupt(other.to_string()),
+    })?;
+    decode_payload(&compressed, cap)
+}
+
+/// The header's KDF parameters (bounds-checked, so Argon2 may run) and nonce.
+fn header_params(header: &Header) -> Result<(KdfParams, Nonce24), BackupError> {
     let salt: [u8; SALT_LEN] = Base64::decode_vec(&header.kdf.salt)
         .ok()
         .and_then(|v| v.try_into().ok())
@@ -231,16 +243,13 @@ fn open_with_cap(
     };
     kdf.validate()
         .map_err(|e| BackupError::Format(format!("kdf parameters: {e}")))?;
-    let key = argon2id(password.expose_secret().as_bytes(), &kdf)
-        .map_err(|e| BackupError::Format(e.to_string()))?;
-    let compressed = aead::open(&key, &Nonce24::from_bytes(nonce), &aad(header_json), ct).map_err(
-        |e| match e {
-            CryptoError::Auth => BackupError::Decrypt,
-            other => BackupError::Corrupt(other.to_string()),
-        },
-    )?;
+    Ok((kdf, Nonce24::from_bytes(nonce)))
+}
 
-    let decoder = zstd::stream::read::Decoder::new(compressed.as_slice())
+/// The authenticated plaintext: zstd (stopped after `cap` bytes), then the
+/// CBOR item list.
+fn decode_payload(compressed: &[u8], cap: u64) -> Result<Vec<BackupItem>, BackupError> {
+    let decoder = zstd::stream::read::Decoder::new(compressed)
         .map_err(|e| BackupError::Corrupt(e.to_string()))?;
     let mut cbor = Zeroizing::new(Vec::new());
     decoder
@@ -251,6 +260,27 @@ fn open_with_cap(
         return Err(BackupError::TooLarge);
     }
     decode_items(&cbor)
+}
+
+/// Fuzz body (T91 §7, cargo-fuzz target `backup_decrypt`): everything [`open`]
+/// does with untrusted bytes, minus Argon2. `data` is tried as a whole file
+/// (header, KDF bounds, base64 fields, then the AEAD under a fixed key) and as
+/// an authenticated payload (capped zstd, the CBOR item list and every item
+/// body). Must never panic.
+#[doc(hidden)]
+pub fn fuzz_backup_decrypt(data: &[u8]) {
+    // A small cap keeps hostile zstd frames cheap.
+    const CAP: u64 = 1 << 20;
+    if let Ok((header, header_json, ct)) = split(data)
+        && let Ok((_kdf, nonce)) = header_params(&header)
+    {
+        let key = courier_ftp_crypto::Key32::from_bytes([7; 32]);
+        if let Ok(compressed) = aead::open(&key, &nonce, &aad(header_json), ct) {
+            let _ = decode_payload(&compressed, CAP);
+        }
+    }
+    let _ = decode_payload(data, CAP);
+    let _ = decode_items(data);
 }
 
 fn decode_items(cbor: &[u8]) -> Result<Vec<BackupItem>, BackupError> {
@@ -373,6 +403,47 @@ mod tests {
             open_with_cap(&file, &pw("p"), 8).unwrap_err(),
             BackupError::TooLarge
         );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig {
+            cases: 256,
+            ..proptest::prelude::ProptestConfig::default()
+        })]
+
+        // The `backup_decrypt` fuzz body (T91 §7).
+        #[test]
+        fn fuzz_backup_decrypt_never_panics(
+            data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..1024),
+        ) {
+            fuzz_backup_decrypt(&data);
+        }
+
+        // Header-shaped input reaches the KDF bounds and the AEAD.
+        #[test]
+        fn fuzz_backup_decrypt_header_like_never_panics(
+            m in proptest::prelude::any::<u32>(),
+            t in proptest::prelude::any::<u32>(),
+            p in proptest::prelude::any::<u32>(),
+            tail in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..256),
+        ) {
+            let mut data = format!(
+                r#"{{"format":"courier-ftp-backup","version":1,"kdf":{{"alg":"argon2id","m_kib":{m},"t":{t},"p":{p},"salt":"AAAAAAAAAAAAAAAAAAAAAA=="}},"nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","created_at":0,"items":1}}"#
+            )
+            .into_bytes();
+            data.push(b'\n');
+            data.extend_from_slice(&tail);
+            fuzz_backup_decrypt(&data);
+        }
+    }
+
+    #[test]
+    fn fuzz_backup_decrypt_seeds() {
+        let file = seal(&items(), &pw("p"), Argon2Cost::TEST, 42, &mut os_rng()).unwrap();
+        fuzz_backup_decrypt(&file);
+        let empty_list = zstd::encode_all(&b"\x80"[..], 3).unwrap();
+        fuzz_backup_decrypt(&empty_list);
+        assert_eq!(decode_payload(&empty_list, 16).unwrap(), Vec::new());
     }
 
     #[test]

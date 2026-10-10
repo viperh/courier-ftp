@@ -15,6 +15,7 @@ pub mod cache;
 pub mod compare;
 pub mod events;
 pub mod filters;
+pub mod hardening;
 pub mod listing;
 pub mod local;
 pub mod model;

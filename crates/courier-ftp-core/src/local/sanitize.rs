@@ -68,6 +68,11 @@ pub fn sanitize_name(name: &str, replacement: char, rules: NameRules) -> String 
     if out.is_empty() {
         out.push(replacement);
     }
+    // `.` and `..` are not names: joined to a directory they would point at it
+    // or at its parent (path traversal from a hostile listing, T91).
+    if out == "." || out == ".." {
+        out = std::iter::repeat_n(replacement, out.len()).collect();
+    }
     out
 }
 
@@ -87,6 +92,11 @@ mod tests {
             ("CON", "CON"),
             ("trailing. ", "trailing. "),
             ("", "_"),
+            (".", "_"),
+            ("..", "__"),
+            ("...", "..."),
+            ("../x", ".._x"),
+            ("..\0", ".._"),
         ];
         for (input, expected) in cases {
             assert_eq!(
@@ -141,5 +151,39 @@ mod tests {
             "con_.txt"
         );
         assert_eq!(sanitize_name("Lpt1", '-', NameRules::Windows), "Lpt1-");
+    }
+
+    /// Hostile remote names (T91): `..`, separators, NUL, drive letters,
+    /// escape sequences.
+    fn hostile_name() -> impl proptest::strategy::Strategy<Value = String> {
+        "(\\.|\\.\\.|/|\\\\|\0|C:|\u{1b}\\[31m|\u{1b}\\]0;x\u{7}|a|b|\\s|\u{202e}){0,12}"
+    }
+
+    proptest::proptest! {
+        // A sanitized name is always exactly one plain component under the
+        // target directory: it can't climb out or name the directory itself.
+        #[test]
+        fn sanitized_names_never_escape_the_directory(name in hostile_name()) {
+            for rules in [NameRules::Unix, NameRules::Windows] {
+                let out = sanitize_name(&name, '_', rules);
+                proptest::prop_assert!(!out.is_empty());
+                proptest::prop_assert!(out != "." && out != "..", "{:?} -> {:?}", name, out);
+                proptest::prop_assert!(!out.contains('/') && !out.contains('\0'), "{:?}", out);
+                if rules == NameRules::Windows {
+                    proptest::prop_assert!(!out.contains('\\') && !out.contains(':'), "{:?}", out);
+                    proptest::prop_assert!(!out.chars().any(char::is_control), "{:?}", out);
+                }
+            }
+            let base = std::path::Path::new("target-dir");
+            let out = sanitize_local_name(&name, '_');
+            let joined = base.join(&out);
+            let rest: Vec<_> = joined.strip_prefix(base).unwrap().components().collect();
+            proptest::prop_assert!(
+                matches!(rest[..], [std::path::Component::Normal(_)]),
+                "{:?} -> {:?}",
+                name,
+                rest
+            );
+        }
     }
 }

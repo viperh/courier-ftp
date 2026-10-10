@@ -24,6 +24,7 @@
 //! banner, an FTP greeting) is swallowed.
 
 mod dial;
+mod fuzz;
 mod http;
 mod socks;
 
@@ -31,6 +32,9 @@ mod socks;
 mod tests;
 
 use std::{fmt, net::SocketAddr, time::Duration};
+
+#[doc(hidden)]
+pub use fuzz::fuzz_proxy_reply;
 
 use secrecy::SecretString;
 use tokio::net::TcpStream;

@@ -28,6 +28,8 @@ mod views;
 #[cfg(test)]
 mod tests;
 
+#[doc(hidden)]
+pub use body::fuzz_item_body;
 pub use body::{BodyCodecError, ItemBody, SECRET_FIELDS, Stamped, is_secret_field};
 pub use fields::{ViewError, WireEnum};
 pub use hlc::{ClockSkew, Hlc, HlcClock, MAX_SKEW, ManualClock, PhysicalClock, SystemClock};

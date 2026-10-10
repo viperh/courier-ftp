@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use async_trait::async_trait;
+use courier_ftp_core::hardening::Locked;
 use courier_ftp_core::model::item::{
     DeviceId, Hlc, HlcClock, ItemBody, ItemId, ItemKind, SystemClock, VaultId, current_schema,
     is_read_only, migrate,
@@ -70,9 +71,10 @@ pub struct UnlockReport {
     pub read_only: usize,
 }
 
-/// A key counted in the engine's live-key counter; zeroized on drop.
+/// A key counted in the engine's live-key counter, held in `mlock`ed pages
+/// where the OS allows it (`hardening::Locked`, T91); zeroized on drop.
 struct TrackedKey {
-    key: Key32,
+    key: Locked<Key32>,
     live: Arc<AtomicUsize>,
 }
 
@@ -80,7 +82,7 @@ impl TrackedKey {
     fn new(key: Key32, live: &Arc<AtomicUsize>) -> Self {
         live.fetch_add(1, Ordering::SeqCst);
         Self {
-            key,
+            key: Locked::new(key),
             live: Arc::clone(live),
         }
     }
@@ -88,7 +90,7 @@ impl TrackedKey {
 
 impl Drop for TrackedKey {
     fn drop(&mut self) {
-        // `Key32` zeroizes itself right after this.
+        // `Locked<Key32>` zeroizes the key, then unlocks its pages, right after this.
         self.live.fetch_sub(1, Ordering::SeqCst);
     }
 }
@@ -159,7 +161,7 @@ impl Unlocked {
 
     fn open(&self, row: &ItemRow) -> Result<ItemBody, VaultError> {
         let entry = self.vaults.get(&row.vault_id).ok_or(VaultError::Locked)?;
-        let lookup = |v: u32| (v == entry.key_version).then_some(&entry.key.key);
+        let lookup = |v: u32| (v == entry.key_version).then_some(&*entry.key.key);
         let plain = open_item(
             lookup,
             row.vault_id.as_bytes(),
@@ -670,7 +672,7 @@ impl VaultEngine {
         check_strength(new.expose_secret(), &[])?;
         let (lmk, _) = self.try_password(old).await?;
         if let Some(u) = self.inner.state.read().await.as_ref()
-            && u.lmk.key != lmk
+            && *u.lmk.key != lmk
         {
             return Err(VaultError::Corrupt(
                 "the password unlocks a different vault".into(),

@@ -222,6 +222,29 @@ proptest! {
         let again = back.to_cbor().map_err(|e| TestCaseError::fail(e.to_string()))?;
         prop_assert_eq!(again, bytes);
     }
+
+    // The `item_body` fuzz body (T91 §7): arbitrary bytes, and valid bodies
+    // with one byte flipped or the tail cut off.
+    #[test]
+    fn fuzz_item_body_never_panics(data in proptest::collection::vec(any::<u8>(), 0..512)) {
+        fuzz_item_body(&data);
+    }
+
+    #[test]
+    fn fuzz_item_body_mutated_never_panics(
+        body in body_strategy(),
+        at in any::<prop::sample::Index>(),
+        xor in 1u8..,
+        cut in any::<prop::sample::Index>(),
+    ) {
+        let bytes = body.to_cbor().map_err(|e| TestCaseError::fail(e.to_string()))?;
+        fuzz_item_body(&bytes);
+        let mut flipped = bytes.clone();
+        let i = at.index(flipped.len());
+        flipped[i] ^= xor;
+        fuzz_item_body(&flipped);
+        fuzz_item_body(&bytes[..cut.index(bytes.len())]);
+    }
 }
 
 #[test]

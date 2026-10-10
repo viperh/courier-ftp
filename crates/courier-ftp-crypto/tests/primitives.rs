@@ -5,7 +5,7 @@
 use chacha20::ChaCha20Rng;
 use courier_ftp_crypto::canon::{aad_item, len_prefixed};
 use courier_ftp_crypto::envelope::fuzz_open_item;
-use courier_ftp_crypto::kdf::{Argon2Cost, KdfParams, argon2id};
+use courier_ftp_crypto::kdf::{Argon2Cost, KdfParams, argon2id, fuzz_kdf_params};
 use courier_ftp_crypto::keys::{random_key32, random_salt16};
 use courier_ftp_crypto::pad::{pad256, unpad256};
 use courier_ftp_crypto::wrap::{WrapPurpose, unwrap_key, unwrap_key32, wrap_key};
@@ -39,6 +39,21 @@ proptest! {
     #[test]
     fn unpad_never_panics(data in prop::collection::vec(any::<u8>(), 0..1024)) {
         let _ = unpad256(&data);
+    }
+
+    // The `kdf_params` fuzz body (T91 §7): arbitrary bytes, and valid
+    // encodings with one byte changed.
+    #[test]
+    fn fuzz_kdf_params_never_panics(
+        data in prop::collection::vec(any::<u8>(), 0..256),
+        at in any::<prop::sample::Index>(),
+        byte in any::<u8>(),
+    ) {
+        fuzz_kdf_params(&data);
+        let mut valid = KdfParams::new(Argon2Cost::DEFAULT, [3; 16]).to_cbor();
+        let i = at.index(valid.len());
+        valid[i] = byte;
+        fuzz_kdf_params(&valid);
     }
 }
 

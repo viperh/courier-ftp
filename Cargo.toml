@@ -156,12 +156,17 @@ thiserror = "2.0.17"
 tracing = "0.1.44"
 tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "serde"] }
+# `log` records (russh) into tracing, for the SSH canary test (T91).
+tracing-log = "0.2.0"
 
 # --- misc ---
 bytesize = "2.7.0"
 # Free disk space (T06).
 fs4 = "1.1.0"
 libc = "0.2.189"
+# Process hardening on Windows (courier-ftp-core `hardening`, T91); already in
+# Cargo.lock through tokio / rustls-platform-verifier.
+windows-sys = "0.61.2"
 # Owner/group names of local files on Unix (T06).
 uzers = "0.12.2"
 # Watching files opened in an external editor (T63).

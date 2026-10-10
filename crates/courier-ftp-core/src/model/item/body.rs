@@ -243,6 +243,25 @@ impl ItemBody {
     }
 }
 
+/// Fuzz body (T91 §7, cargo-fuzz target `item_body`): decode hostile item
+/// body CBOR (what a decrypted envelope or a backup carries); whatever decodes
+/// must re-encode and decode again. Must never panic.
+#[doc(hidden)]
+pub fn fuzz_item_body(data: &[u8]) {
+    if let Ok(body) = ItemBody::from_cbor(data) {
+        let _ = body.is_deleted();
+        let _ = body.max_field_hlc();
+        let bytes = body.to_cbor();
+        assert!(bytes.is_ok(), "a decoded body must re-encode");
+        if let Ok(bytes) = bytes {
+            assert!(
+                ItemBody::from_cbor(&bytes).is_ok(),
+                "re-encoded body must decode"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

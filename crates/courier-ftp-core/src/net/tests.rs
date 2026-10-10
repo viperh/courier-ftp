@@ -963,4 +963,39 @@ proptest! {
             let _ = socks::connect_v4(&mut s, &HostPort::new("h", 22), None).await;
         });
     }
+
+    #[test]
+    fn fuzz_proxy_reply_never_panics(data in proptest::collection::vec(any::<u8>(), 0..512)) {
+        super::fuzz_proxy_reply(&data);
+    }
+
+    #[test]
+    fn fuzz_proxy_reply_http_like_never_panics(
+        first in any::<u8>(),
+        text in "(HTTP/1\\.[01] |[0-9]{1,5}| |OK|\r\n|\r|\n|:|[a-z]){0,40}",
+        tail in proptest::collection::vec(any::<u8>(), 0..32),
+    ) {
+        let mut data = vec![first & !0b11];
+        data.extend_from_slice(text.as_bytes());
+        data.extend_from_slice(&tail);
+        super::fuzz_proxy_reply(&data);
+    }
+}
+
+/// Fixed seeds for the `proxy_reply` fuzz target (one per handshake).
+#[test]
+fn fuzz_proxy_reply_seeds() {
+    for seed in [
+        &b"\x00HTTP/1.1 200 Connection established\r\n\r\nSSH-2.0-x\r\n"[..],
+        b"\x80HTTP/1.0 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic\r\n\r\n",
+        b"\x7cHTTP/1.1 503 \x1b[31mno\r\n\r\n",
+        b"\x00HTTP/1.1 200 OK\n\nrest",
+        b"\x01\x00\x5a\x00\x00\x00\x00\x00\x00",
+        b"\x02\x05\x00\x05\x00\x00\x03\x04host\x00\x16",
+        b"\x03\x05\x02\x01\x00\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x16",
+        b"\x03\x05\x02\x01\x01",
+        b"",
+    ] {
+        super::fuzz_proxy_reply(seed);
+    }
 }

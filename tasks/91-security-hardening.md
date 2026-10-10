@@ -124,9 +124,9 @@ only as self-grants signed by this account's own key.
 
 ## Acceptance criteria
 
-- [ ] Hardening applied at startup; Linux test proves non-dumpable + core limit 0.
+- [x] Hardening applied at startup; Linux test proves non-dumpable + core limit 0.
 - [ ] `unsafe-check`, `deny`, `vet`, `canary` and fuzz CI jobs exist and pass.
-- [ ] Canary scan finds nothing after a full trace-level test run (and its self-test proves it can find planted canaries).
+- [x] Canary scan finds nothing after a full trace-level test run (and its self-test proves it can find planted canaries).
 - [ ] No hostnames at `info`+ in client logs (test).
 - [ ] Approval prompts appear for synced local-acting fields and are re-asked on change.
 - [ ] Hostile filenames (`../x`, `a/b`, names with ESC sequences) can't escape the target dir or affect the terminal.
@@ -135,3 +135,50 @@ only as self-grants signed by this account's own key.
 ## Tests
 
 - As listed per section; port sverb's hardening, secret and canary tests.
+
+## Status after the M2 pass
+
+Done (code that exists after T30):
+
+- §1 `courier-ftp-core::hardening` (copied from sverb): `harden_process()` called in
+  `main` right after the panic hook; `Locked<T>` holds the vault engine's LMK and vault
+  keys. Tests: `courier-ftp-core/tests/hardening.rs` (prctl + `RLIMIT_CORE` in-process,
+  mlock fallback), `courier-ftp/tests/hardening.rs` (the real binary logs
+  `non_dumpable=true core_dumps_disabled=true`; Linux, started without a terminal).
+- §2 `scripts/check-unsafe.py` now also requires a `// SAFETY:` comment on every `unsafe`
+  block in the hardening module (tested in `courier-ftp-e2e/tests/forbid_unsafe.rs`).
+- §4 partial: `known_hosts` file paths moved from `warn`/`info` to `debug`.
+- §5 canary fixtures that always leave artifacts in `target/tmp`: vault DB/WAL/SHM, a
+  `.cftp-backup` and a trace log (`courier-ftp-store/tests/canary_artifacts.rs`, which
+  also runs the scanner on Linux) and a trace-level SSH login log with russh's own output
+  (`courier-ftp-proto-sftp` `ssh::tests::canary_secrets_stay_out_of_trace_logs`). The
+  scanner knows `*.cftp-backup`; CI `canary` uses `--require-files`.
+- §6 `supply-chain/` generated with cargo-vet 0.10.2 (`cargo vet init`, imports from
+  Mozilla, Google, Bytecode Alliance, ISRG, Zcash, Zcash Foundation, then `cargo vet
+  prune`): `cargo vet --locked` passes locally (105 fully audited, 4 partially, 660
+  exempted); the crypto crates are exempted, so `check-vet-crypto.py` warns. CI job `vet`.
+- §7 nine new fuzz targets (`proxy_reply`, `known_hosts_parse`, `key_parse`,
+  `envelope_open`, `bundle_open`, `grant_open`, `kdf_params`, `item_body`,
+  `backup_decrypt`) next to `listing`, each body a property test in its crate; seed corpus
+  extended; CI job `fuzz` (30 s per target) next to the nightly `fuzz.yml`.
+- `local::sanitize_name` never returns `.` or `..` (property test: a sanitized name is
+  always one component under the target directory).
+- §9 `docs/threat-model.md` (M2 version) and `SECURITY.md`.
+
+Deferred to later milestones:
+
+- FTP reply / PASV-EPSV parsers and their fuzz targets (T10, T11), FTPS certificate rules
+  and plain-FTP warnings (T12, T57), `sitemanager.xml` fuzzing (T32), sync DTO fuzzing and
+  server logging/dumps (T83–T86), teams trust rules (§10, T89).
+- §3 proto DTO redaction (T83/T84, `courier-ftp-proto` has no DTOs yet).
+- §4 logging rework (T71): daily rotation, `--debug` warning, crash report from the
+  `info`+ ring; the binary still logs every action at `info` (`app.rs`), which can carry
+  hosts and paths — this blocks the "no hostnames at `info`+" box.
+- §8 approval prompts (the `local_approvals` table exists; the UI comes later).
+- Hostile filenames: the download path join is T42 and a rendering test with escape
+  sequences belongs to T53/T55 (ratatui already drops graphemes with control characters).
+- §6 reproducible release flags and SHA256SUMS are T77; auditing the crypto crates so
+  `VET_CRYPTO_STRICT=1` can be turned on.
+- The CI jobs `vet`, `fuzz` and `canary --require-files` were not run on GitHub yet; their
+  commands were run locally except `cargo +nightly fuzz` (no nightly here; the targets
+  were checked on stable with `cargo check --bins` in `fuzz/`).
