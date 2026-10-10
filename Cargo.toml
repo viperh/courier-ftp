@@ -61,6 +61,8 @@ futures = "0.3.32"
 pin-project-lite = "0.2.17"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
+# Socket options tokio does not expose (TCP keep-alive, T07).
+socket2 = "0.6.5"
 
 # --- tls (D9: rustls only) ---
 rustls = { version = "0.23.43", default-features = false, features = ["logging", "ring", "std", "tls12"] }
