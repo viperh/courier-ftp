@@ -95,3 +95,8 @@ the section matching the tag.
   remote pane, disconnect (Ctrl-x d), reconnect (Ctrl-x r, password asked
   again), confirm before replacing a connection; host key and password prompts
   open automatically; new setting interface.show_quickconnect.
+- Encrypted local vault (T30): master-password unlock with Argon2id and
+  persisted brute-force backoff, optional per-device OS keyring unlock with
+  keyring-based password recovery, auto-lock (idle and suspend), password
+  change, store-passwords setting, vault-backed trusted host keys, and the
+  .cftp-backup format.
