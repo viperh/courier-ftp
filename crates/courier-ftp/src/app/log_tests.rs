@@ -266,12 +266,14 @@ async fn raw_listing_and_save_log() {
     let target = dir.path().join("saved.log");
     app.screen.handle_paste(&target.display().to_string());
     app.handle_key_event(key(KeyCode::Enter)).unwrap();
+    // The file appears before its contents are written: wait for the text.
+    let mut saved = String::new();
     for _ in 0..100 {
         settle(&mut app).await;
-        if target.exists() {
+        saved = std::fs::read_to_string(&target).unwrap_or_default();
+        if saved.contains("hello log") {
             break;
         }
     }
-    let saved = std::fs::read_to_string(&target).unwrap();
     assert!(saved.contains("Status:   hello log"), "{saved}");
 }

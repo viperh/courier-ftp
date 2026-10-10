@@ -20,16 +20,16 @@ use ratatui::{Terminal, backend::TestBackend};
 use super::*;
 use crate::{ui::VaultPage, vault::VaultOpener};
 
-const STRONG: &str = "correct horse battery staple violin";
+pub(super) const STRONG: &str = "correct horse battery staple violin";
 const OTHER: &str = "purple elephant marmalade trombone";
 
-struct Rig {
+pub(super) struct Rig {
     /// Boxed: `App` is large, and the test futures hold a `Rig`.
-    app: Box<App>,
-    host_keys: Arc<HostKeyStoreSlot>,
+    pub(super) app: Box<App>,
+    pub(super) host_keys: Arc<HostKeyStoreSlot>,
 }
 
-fn opener(dir: &Path, keyring: &MemKeyring) -> VaultOpener {
+pub(super) fn opener(dir: &Path, keyring: &MemKeyring) -> VaultOpener {
     let dir = dir.to_path_buf();
     let keyring = keyring.clone();
     Arc::new(move || {
@@ -40,7 +40,7 @@ fn opener(dir: &Path, keyring: &MemKeyring) -> VaultOpener {
     })
 }
 
-fn config() -> Config {
+pub(super) fn config() -> Config {
     let mut config = Config::builtin();
     config.settings.interface.unicode_symbols = SymbolMode::Unicode;
     config.settings.logging.show_timestamps = false;
@@ -49,7 +49,7 @@ fn config() -> Config {
 }
 
 /// A started app with a vault in `dir` (one "program run").
-async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
+pub(super) async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
     let host_keys = Arc::new(HostKeyStoreSlot::new(
         Arc::new(MemoryHostKeyStore::locked()),
     ));
@@ -72,7 +72,7 @@ impl Rig {
     /// a moment and no vault operation is still running. Opening the store
     /// and Argon2 can take seconds on a slow CI runner, so an idle gap alone
     /// is not enough.
-    async fn settle(&mut self) {
+    pub(super) async fn settle(&mut self) {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         let app = &mut self.app;
         loop {
@@ -82,7 +82,11 @@ impl Rig {
                 Some(msg) = app.vault_rx.recv() => app.vault_message(msg),
                 () = tokio::time::sleep(Duration::from_millis(150)) => {
                     let busy = app.screen.vault_view().is_some_and(VaultView::is_busy)
-                        || app.vault.as_ref().is_some_and(|v| v.phase == Phase::Opening);
+                        || app.vault.as_ref().is_some_and(|v| v.phase == Phase::Opening)
+                        || app
+                            .screen
+                            .site_manager()
+                            .is_some_and(crate::ui::site_manager::SiteManagerView::is_busy);
                     assert!(
                         tokio::time::Instant::now() < deadline,
                         "vault operation still running after 30 s"
@@ -95,26 +99,26 @@ impl Rig {
         }
     }
 
-    fn key(&mut self, code: KeyCode) {
+    pub(super) fn key(&mut self, code: KeyCode) {
         self.app
             .handle_key_event(KeyEvent::new(code, KeyModifiers::NONE))
             .unwrap();
     }
 
-    fn alt(&mut self, c: char) {
+    pub(super) fn alt(&mut self, c: char) {
         self.app
             .handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
             .unwrap();
     }
 
-    fn ctrl_x(&mut self, c: char) {
+    pub(super) fn ctrl_x(&mut self, c: char) {
         self.app
             .handle_key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL))
             .unwrap();
         self.key(KeyCode::Char(c));
     }
 
-    fn typed(&mut self, text: &str) {
+    pub(super) fn typed(&mut self, text: &str) {
         for c in text.chars() {
             self.key(KeyCode::Char(c));
         }
@@ -137,11 +141,11 @@ impl Rig {
         self.app.vault.as_ref().map(|v| v.phase)
     }
 
-    fn engine(&self) -> VaultEngine {
+    pub(super) fn engine(&self) -> VaultEngine {
         self.app.vault.as_ref().unwrap().engine().unwrap().clone()
     }
 
-    fn screen(&mut self, w: u16, h: u16) -> String {
+    pub(super) fn screen(&mut self, w: u16, h: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         terminal.draw(|f| self.app.screen.draw(f)).unwrap();
         terminal.backend().to_string()
@@ -149,7 +153,7 @@ impl Rig {
 
     /// First run: type and confirm `password`, optionally tick the keyring
     /// box, create.
-    async fn create(&mut self, password: &str, keyring: bool) {
+    pub(super) async fn create(&mut self, password: &str, keyring: bool) {
         assert_eq!(self.page(), Some(VaultPage::Create));
         self.typed(password);
         self.key(KeyCode::Tab);
@@ -161,7 +165,7 @@ impl Rig {
         self.submit().await;
     }
 
-    async fn unlock(&mut self, password: &str) {
+    pub(super) async fn unlock(&mut self, password: &str) {
         assert_eq!(self.page(), Some(VaultPage::Unlock));
         self.typed(password);
         self.submit().await;
@@ -441,6 +445,10 @@ async fn continue_without_vault_then_unlock_later() {
     assert!(rig.shown());
     rig.unlock(STRONG).await;
     assert_eq!(rig.phase(), Some(Phase::Unlocked));
+    // The Site Manager the user wanted is open now.
+    assert!(rig.screen(120, 40).contains("Site Manager"));
+    rig.key(KeyCode::Esc);
+    assert!(rig.app.screen.site_manager().is_none());
 
     // <Ctrl-x><u> when already unlocked just says so.
     rig.ctrl_x('u');
@@ -488,7 +496,7 @@ async fn busy_database_offers_retry() {
 
 impl Rig {
     /// Run until `done` holds (30 s cap), not just until things are idle.
-    async fn until(&mut self, what: &str, done: impl Fn(&App) -> bool) {
+    pub(super) async fn until(&mut self, what: &str, done: impl Fn(&App) -> bool) {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         while !done(&self.app) {
             assert!(tokio::time::Instant::now() < deadline, "timed out: {what}");
@@ -496,7 +504,7 @@ impl Rig {
         }
     }
 
-    async fn quickconnect(&mut self, url: &str) {
+    pub(super) async fn quickconnect(&mut self, url: &str) {
         self.app.dispatch(Action::FocusQuickconnect).unwrap();
         for c in ['e', 'u'] {
             self.app
@@ -512,7 +520,7 @@ impl Rig {
         app.screen.quickconnect().history().map(<[_]>::len)
     }
 
-    fn connected(app: &App) -> bool {
+    pub(super) fn connected(app: &App) -> bool {
         app.remote.as_ref().is_some_and(|r| r.connected)
     }
 }

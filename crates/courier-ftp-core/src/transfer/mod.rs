@@ -58,18 +58,26 @@
 //! 1. Connect (resolver + [`BackendFactory`](crate::backend::BackendFactory))
 //!    or take a pooled session; create the local side
 //!    ([`LocalBackendFactory`], default the real filesystem).
+//!    A download's local target is checked first
+//!    ([`check_download_target`]: no `..`, file name sanitized when
+//!    `transfers.replace_invalid_chars` is on, the change logged).
 //! 2. Stat source and target. **Exists hook**: [`ExistsPolicy::decide`]
 //!    gets both entries and returns overwrite / resume at / skip / rename
-//!    (default [`OverwriteAll`]; T42 implements the real policy and prompt).
+//!    (default [`OverwriteAll`]; the app uses T42's [`FileExistsPolicy`],
+//!    which applies [`decide`] and asks the user). A rename writes to the
+//!    first free name ([`first_free_name`]) with `WriteMode::Create`.
 //!    A retried transfer resumes at its own offset without asking.
 //! 3. `open_read` + `open_write`, then copy in [`BUFFER_SIZE`] chunks. Each
 //!    chunk passes the **rate-limiter hook** [`RateLimiter::acquire`]
-//!    (default [`Unlimited`]; T44's token bucket), with the chunk size from
+//!    (default [`Unlimited`]; T44: [`SpeedLimiter`]), with the chunk size from
 //!    [`RateLimiter::chunk_size`]. Every read and write has the
 //!    `connection.timeout_secs` timeout and races the item's cancellation.
 //! 4. Shut the writer down, drop the streams, `finish_transfer` on both
 //!    sides, apply `transfers.preserve_timestamps` (`set_mtime` when the
-//!    target supports it), mark Done. Downloads write to the final name.
+//!    target supports it; otherwise the message log says so once per server
+//!    and session), mark Done. Downloads write to the final name.
+//!    `transfers.preallocate` reserves the file size before a local write
+//!    (the local backend; trimmed back to what was written on failure).
 //!
 //! After an error or cancellation, the writer is flushed (so the written
 //! length is a valid resume offset), the streams are dropped and both
@@ -104,16 +112,23 @@
 //!
 //! - **T42**: [`ExistsPolicy`] (with [`ExistsContext`] / [`ExistsDecision`]).
 //! - **T43**: [`DirExpander`]: directory placeholders take a slot, get
-//!   listed, and are replaced by their children.
-//! - **T44**: [`RateLimiter`] (`acquire`, `chunk_size`, `settings_changed`).
+//!   listed, and are replaced by their children. Implemented by
+//!   [`recursive::RecursiveExpander`]; [`recursive`] also has the walker and
+//!   recursive delete/chmod.
+//! - **T44**: [`RateLimiter`] (`acquire`, `chunk_size`, `settings_changed`),
+//!   implemented by [`SpeedLimiter`] (global token buckets, see [`ratelimit`]).
 //! - **T45**: `QueueFinished { stats }`.
 //! - **T41b**: the pool and the worker are the places to add warm-up and
 //!   segments; slots are counted per server in the engine.
 //! - **T56/T62**: [`EngineHandle`] commands and [`EngineStatus`].
 
 mod engine;
+mod exists;
 mod hooks;
+mod options;
 mod progress;
+pub mod ratelimit;
+pub mod recursive;
 mod worker;
 
 #[cfg(test)]
@@ -122,11 +137,17 @@ mod tests;
 use std::time::Duration;
 
 pub use engine::{Command, EngineBuilder, EngineHandle, EngineStatus, TransferEngine};
+pub use exists::{
+    Decision, FileExistsPolicy, MAX_RENAME_ATTEMPTS, decide, first_free_name, is_newer,
+    numbered_name, size_differs,
+};
 pub use hooks::{
     DirExpander, ExistsContext, ExistsDecision, ExistsPolicy, LocalBackendFactory, OverwriteAll,
     QuickResolver, RateLimiter, RealLocal, ServerResolver, Unlimited, quick_connect_info,
 };
+pub use options::{check_download_target, download_name, download_target};
 pub use progress::{ProgressTracker, REPORT_INTERVAL, SPEED_WINDOW};
+pub use ratelimit::{MIN_CHUNK, SpeedLimiter, burst_duration};
 
 use crate::Error;
 

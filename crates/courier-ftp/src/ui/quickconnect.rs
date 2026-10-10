@@ -87,6 +87,7 @@ impl HistoryItem {
                 path: None,
                 sync_browsing: false,
                 compare: false,
+                site: None,
             },
         }
     }
@@ -325,6 +326,7 @@ impl Quickconnect {
             path: url.path,
             sync_browsing: false,
             compare: false,
+            site: None,
         })
     }
 

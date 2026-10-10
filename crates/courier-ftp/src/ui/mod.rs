@@ -4,6 +4,7 @@
 mod compare;
 pub(crate) mod dialog;
 mod dir_tree;
+mod file_exists;
 mod file_list;
 mod focus;
 mod layout;
@@ -12,6 +13,7 @@ mod modal;
 mod panes;
 mod quickconnect;
 mod screen;
+pub(crate) mod site_manager;
 mod status;
 mod text_viewer;
 mod theme;

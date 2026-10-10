@@ -169,3 +169,22 @@ the section matching the tag.
   (serve, migrate, admin user/invite/registration/gc, healthcheck), /healthz
   /readyz /metrics, distroless Docker image and compose file, and
   docs/self-hosting.md.
+- Recursive operations (T43): recursive transfers (one directory level
+  expanded at a time in the queue, filters applied, empty-directory and
+  symlink settings, loop-safe), recursive delete, and recursive chmod with
+  files-only/dirs-only and per-bit "leave unchanged".
+- Speed limits (T44): global download and upload limits shared by all
+  transfers, with burst tolerance, and on/off and limit changes that apply
+  mid-transfer.
+- Search engine (T49): local and remote file search with FileZilla-style
+  conditions (name, size, path, date, permissions; All/Any), results streamed
+  as found, cancellable, on a dedicated connection, using and filling the
+  listing cache, with helpers to download, upload or delete results.
+- File-exists handling (T42): overwrite, if newer, if size differs, resume,
+  rename or skip, an ask dialog with apply-to-all for the current queue or the
+  session (optionally per direction or server), optional preallocation, and
+  download names that can't escape the target folder.
+- Site Manager (T59, Ctrl-s): folder tree and tabbed site editor with
+  validation and an unsaved-change guard, connect with saved credentials,
+  FileZilla and courier-ftp import/export, a fuzzy site picker (Ctrl-x g) and
+  Save as site from quickconnect (Ctrl-x a).

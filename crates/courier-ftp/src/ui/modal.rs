@@ -120,9 +120,8 @@ impl Modal for HelpOverlay {
 
 /// The dialog for a question from the core (T04). The answer goes back
 /// through the request's `reply`; closing a dialog without answering drops
-/// it, which the core treats as "cancel". File-exists prompts get their
-/// dialog in T42; until then they can only be cancelled. `unicode` picks the
-/// symbols of the trust prompts.
+/// it, which the core treats as "cancel". File-exists prompts use the T42
+/// dialog. `unicode` picks the symbols of the trust and file-exists prompts.
 pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Modal> {
     use super::{
         dialog::{Form, FormDialog, TextInput, message, prompt_password},
@@ -136,14 +135,14 @@ pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Mod
             modal
         }
         PromptKind::Password { for_ } => {
-            let (modal, rx) = prompt_password("Password", &format!("Password for {for_}"));
+            let (modal, rx) = prompt_password(&format!("Password for {for_}"), "Password");
             forward(rx, reply, |pw| pw.map(PromptResponse::Secret));
             modal
         }
         PromptKind::KeyPassphrase { path } => {
             let (modal, rx) = prompt_password(
-                "Key passphrase",
-                &format!("Passphrase for {}", path.to_display()),
+                &format!("Key passphrase for {}", path.to_display()),
+                "Passphrase",
             );
             forward(rx, reply, |pw| pw.map(PromptResponse::Secret));
             modal
@@ -210,6 +209,15 @@ pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Mod
             unicode,
             reply,
         )),
+        PromptKind::FileExists {
+            direction,
+            source,
+            target,
+            local,
+            remote,
+        } => Box::new(super::file_exists::FileExistsDialog::new(
+            direction, *source, *target, local, remote, unicode, reply,
+        )),
         other => Box::new(PendingPrompt { kind: other, reply }),
     }
 }
@@ -265,5 +273,39 @@ impl Modal for PendingPrompt {
     fn is_done(&self) -> bool {
         // The core stopped waiting.
         self.reply.is_closed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use courier_ftp_core::events::{PromptId, PromptKind, PromptRequest};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::prompt_modal;
+    use crate::ui::theme::Theme;
+
+    fn render(kind: PromptKind) -> String {
+        let (reply, _rx) = tokio::sync::oneshot::channel();
+        let request = PromptRequest {
+            id: PromptId::next(),
+            session: None,
+            kind,
+            reply,
+        };
+        let mut modal = prompt_modal(request, true);
+        let mut t = Terminal::new(TestBackend::new(70, 12)).unwrap();
+        let theme = Theme::new(None, true);
+        t.draw(|f| modal.draw(f, f.area(), &theme)).unwrap();
+        t.backend().to_string()
+    }
+
+    #[tokio::test]
+    async fn password_prompt() {
+        insta::assert_snapshot!(
+            "password_prompt",
+            render(PromptKind::Password {
+                for_: "bob@example.com".into()
+            })
+        );
     }
 }

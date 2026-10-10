@@ -1372,6 +1372,7 @@ dependencies = [
  "courier-ftp-sync",
  "crossterm 0.29.0",
  "directories",
+ "encoding_rs",
  "futures",
  "human-panic",
  "insta",
@@ -4579,7 +4580,9 @@ checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
 dependencies = [
  "console 0.16.6",
  "once_cell",
+ "regex",
  "similar",
+ "strip-ansi-escapes",
  "tempfile",
 ]
 

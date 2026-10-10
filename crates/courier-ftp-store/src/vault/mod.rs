@@ -278,6 +278,12 @@ impl VaultEngine {
         &self.inner.store
     }
 
+    /// The Argon2 cost new password wraps use; the Site Manager seals
+    /// passphrase-encrypted exports with it too (T59).
+    pub fn cost(&self) -> Argon2Cost {
+        self.inner.cost
+    }
+
     /// How many times Argon2 ran (test hook: proves backoff and tamper checks
     /// refuse before the KDF).
     pub fn kdf_runs(&self) -> usize {

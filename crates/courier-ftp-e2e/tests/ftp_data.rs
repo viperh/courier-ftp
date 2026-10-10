@@ -141,8 +141,9 @@ async fn vsftpd_passive_mode() {
     for port in PASV_PORTS {
         image = image.with_mapped_port(port, port.tcp());
     }
-    let container: ContainerAsync<GenericImage> = image.start().await.unwrap();
-    let port = container.get_host_port_ipv4(21.tcp()).await.unwrap();
+    let port = courier_ftp_e2e::free_port();
+    image = image.with_mapped_port(port, 21.tcp());
+    let _container: ContainerAsync<GenericImage> = image.start().await.unwrap();
     let host = HostPort::new("127.0.0.1", port);
     let mut conn = wait_for(&host).await;
     let mut data = data_session(&host, FtpTransferMode::Passive);

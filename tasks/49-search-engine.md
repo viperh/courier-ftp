@@ -18,11 +18,20 @@ builder, producing results the UI can download, upload, delete or open.
 
 ## Acceptance criteria
 
-- [ ] Streaming results appear before the search finishes.
-- [ ] Cancel stops within 1 s.
-- [ ] Conditions name/size/path/date combine with All/Any.
-- [ ] Download helper keeps relative structure or flattens with rename on collision.
+- [x] Streaming results appear before the search finishes.
+- [x] Cancel stops within 1 s.
+- [x] Conditions name/size/path/date combine with All/Any.
+- [x] Download helper keeps relative structure or flattens with rename on collision.
 
 ## Tests
 
 - Mock backend tree search tests.
+
+## Status
+
+Implemented in `courier_ftp_core::search` (module docs describe the T65
+integration). `SearchEvent::Found` carries a `SearchHit { path, entry }`
+instead of a `(path, Entry)` tuple. Results can be capped with
+`SearchOptions::max_results`. No criterion bench: the task sets no
+performance target (condition evaluation is the T47 filter engine, covered
+by `benches/filters.rs`).

@@ -29,6 +29,7 @@ use super::{
     modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
     panes,
     quickconnect::{QuickKey, Quickconnect},
+    site_manager::SiteManagerView,
     status::{self, StatusState},
     theme::Theme,
     vault::{VaultRequest, VaultView},
@@ -182,6 +183,9 @@ pub(crate) struct MainScreen {
     vault_shown: bool,
     /// What the vault view asked for, taken by the app after each key.
     vault_requests: Vec<VaultRequest>,
+    /// The Site Manager (T59), when open. It covers the panes; dialogs open
+    /// over it.
+    sites: Option<SiteManagerView>,
     /// Synchronized browsing (T66): the base directories, when on.
     sync: Option<SyncBase>,
     /// A synchronized directory change waiting for the other side.
@@ -257,6 +261,7 @@ impl MainScreen {
             vault: None,
             vault_shown: false,
             vault_requests: Vec::new(),
+            sites: None,
             sync: None,
             sync_nav: None,
             compare: None,
@@ -360,9 +365,47 @@ impl MainScreen {
         std::mem::take(&mut self.vault_requests)
     }
 
+    /// Open the Site Manager (replacing one already open).
+    pub(crate) fn open_site_manager(&mut self, view: SiteManagerView) {
+        self.sites = Some(view);
+    }
+
+    /// The Site Manager, when open.
+    pub(crate) fn site_manager_mut(&mut self) -> Option<&mut SiteManagerView> {
+        self.sites.as_mut()
+    }
+
+    /// The Site Manager, when open.
+    #[cfg(test)]
+    pub(crate) fn site_manager(&self) -> Option<&SiteManagerView> {
+        self.sites.as_ref()
+    }
+
+    /// Close the Site Manager (vault locked, connecting).
+    pub(crate) fn close_site_manager(&mut self) {
+        self.sites = None;
+    }
+
+    /// Pass the Site Manager's requests on and drop it once it closed.
+    fn pump_sites(&mut self) {
+        let Some(view) = self.sites.as_mut() else {
+            return;
+        };
+        for op in view.take_requests() {
+            self.outbox
+                .push(Action::SiteOp(crate::action::Shared::new(op)));
+        }
+        if view.take_unlock_request() {
+            self.outbox.push(Action::UnlockVault);
+        }
+        if view.is_closed() {
+            self.sites = None;
+        }
+    }
+
     /// The current input mode, which selects the keymap.
     pub(crate) fn mode(&self) -> Mode {
-        if !self.modals.is_empty() || self.vault_shown {
+        if !self.modals.is_empty() || self.vault_shown || self.sites.is_some() {
             return Mode::Dialog;
         }
         if self.log.is_searching() {
@@ -434,6 +477,11 @@ impl MainScreen {
             }
             return KeyOutcome::Consumed;
         }
+        if let Some(view) = self.sites.as_mut() {
+            view.handle_key(key);
+            self.pump_sites();
+            return KeyOutcome::Consumed;
+        }
         // A region typing text of its own (a search query) takes every key.
         if self.focus == Region::Log && self.log.handle_search_key(key) {
             return KeyOutcome::Consumed;
@@ -476,6 +524,8 @@ impl MainScreen {
             }
         } else if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
+        } else if let Some(view) = self.sites.as_mut() {
+            view.handle_paste(text);
         } else if self.focus == Region::Quickconnect {
             self.quickconnect.handle_paste(text);
         } else if let Some(list) = self.focused_list() {
@@ -533,6 +583,13 @@ impl MainScreen {
             self.outbox.extend(error);
             if let Ok(listing) = result {
                 self.list_shown(*side, listing, first);
+            }
+            return None;
+        }
+        if let Action::SitesReply(reply) = action {
+            if let Some(view) = self.sites.as_mut() {
+                view.apply_reply(&reply.0);
+                self.pump_sites();
             }
             return None;
         }
@@ -1117,6 +1174,7 @@ impl MainScreen {
         // Nothing opens over the vault view (input is blocked there).
         let busy = !self.modals.is_empty()
             || self.vault_shown
+            || self.sites.is_some()
             || (!force
                 && (matches!(self.mode(), Mode::Input | Mode::Filter)
                     || self
@@ -1232,6 +1290,16 @@ impl MainScreen {
         }
         if let Some(a) = r.hint {
             panes::draw_hint(frame, a, theme);
+        }
+        if let Some(view) = self.sites.as_mut() {
+            let bottom = r.status.map_or(area.bottom(), |s| s.y);
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                bottom.saturating_sub(area.y),
+            );
+            view.draw(frame, above, theme);
         }
         for modal in &mut self.modals {
             modal.draw(frame, area, theme);

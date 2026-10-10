@@ -182,7 +182,7 @@ pub(crate) fn save_log_dialog(
 }
 
 /// `~/x` → `<home>/x`.
-fn expand_home(path: &str) -> PathBuf {
+pub(crate) fn expand_home(path: &str) -> PathBuf {
     match path.strip_prefix("~/") {
         Some(rest) => directories::BaseDirs::new()
             .map(|b| b.home_dir().join(rest))

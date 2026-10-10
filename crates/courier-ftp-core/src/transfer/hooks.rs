@@ -126,6 +126,8 @@ pub struct ExistsContext<'a> {
     /// Whether resuming is possible for this transfer (capability and binary
     /// mode).
     pub can_resume: bool,
+    /// The transfer settings in effect (`on_exists_download` / `on_exists_upload`).
+    pub settings: &'a TransferSettings,
 }
 
 /// What to do with the target.
@@ -161,6 +163,10 @@ pub trait ExistsPolicy: Send + Sync {
         ctx: ExistsContext<'_>,
         cancel: &CancellationToken,
     ) -> Result<ExistsDecision>;
+
+    /// The queue run finished (the engine sent `QueueFinished`): forget
+    /// answers remembered for the current queue only.
+    fn queue_finished(&self) {}
 }
 
 /// The default [`ExistsPolicy`]: always overwrite.

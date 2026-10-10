@@ -52,8 +52,9 @@ async fn start(
     for port in ports {
         image = image.with_mapped_port(port, port.tcp());
     }
+    let port = courier_ftp_e2e::free_port();
+    image = image.with_mapped_port(port, 21.tcp());
     let container = image.start().await.unwrap();
-    let port = container.get_host_port_ipv4(21.tcp()).await.unwrap();
     (container, port)
 }
 

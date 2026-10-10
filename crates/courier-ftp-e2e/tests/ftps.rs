@@ -86,8 +86,9 @@ async fn vsftpd_explicit_ftps_with_session_reuse() {
     for port in PASV_PORTS {
         image = image.with_mapped_port(port, port.tcp());
     }
-    let container: ContainerAsync<GenericImage> = image.start().await.unwrap();
-    let port = container.get_host_port_ipv4(21.tcp()).await.unwrap();
+    let port = courier_ftp_e2e::free_port();
+    image = image.with_mapped_port(port, 21.tcp());
+    let _container: ContainerAsync<GenericImage> = image.start().await.unwrap();
     let host = HostPort::new("127.0.0.1", port);
     let trust = Arc::new(TlsTrust::with_system_verifier(
         Arc::new(MemoryCertTrustStore::new()),

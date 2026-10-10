@@ -50,11 +50,13 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-F5>` | Refresh |
 | `<Ctrl-r>` | Refresh |
 | `<F2>` | Rename |
+| `<Ctrl-x><a>` | SaveAsSite |
 | `<Ctrl-f>` | Search |
 | `<Ctrl-x><i>` | ServerInfo |
 | `<F9>` | Settings |
 | `<Ctrl-x><s>` | ShowRawListing |
 | `<Ctrl-s>` | SiteManager |
+| `<Ctrl-x><g>` | SitePicker |
 | `<Ctrl-z>` | Suspend |
 | `<Alt-1>` | Tab1 |
 | `<Alt-2>` | Tab2 |
