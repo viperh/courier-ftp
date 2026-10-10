@@ -3,7 +3,7 @@ source: crates/courier-ftp/src/ui/tests.rs
 expression: terminal.backend()
 ---
 "┌ Quickconnect ────────────────────────────────────────────────────────────────┐"
-"│Host: host or URL        User: _________ Pass: ________ Port: ______ [Connect]│"
+"│Host: host or URL      User: ________ Pass: _______ Port: ______ [Connect] [▾]│"
 "└──────────────────────────────────────────────────────────────────────────────┘"
 " Tabs: [1 local]                                                                "
 "┌ Local:  ─────────────┐┌ Remote: not connected┐┌ Message log ─────────────────┐"

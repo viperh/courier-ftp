@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 
 use courier_ftp_core::{
     backend::Listing,
+    compare::Highlight,
     filters::{FilterEngine, QuickFilter},
     local::{display_native, local_to_remote},
     model::{Entry, EntryKind, RemotePath},
@@ -113,6 +114,15 @@ impl Completer for ListingCompleter {
     }
 }
 
+/// One line of a directory comparison (T66) in one pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CompareRow {
+    /// Index into the pane's entries; `None` for a blank placeholder line.
+    pub(crate) entry: Option<usize>,
+    /// The line's colour on this side.
+    pub(crate) highlight: Highlight,
+}
+
 /// One side's file list.
 pub(crate) struct FileList {
     pub(crate) side: Side,
@@ -145,6 +155,14 @@ pub(crate) struct FileList {
     /// Remote side: the server shown in the title (`alice@host`), set while
     /// connecting and connected.
     server: Option<String>,
+    /// Directory comparison (T66): the aligned rows replace the sorted view.
+    /// Row 0 is `..` (blank at the root), so both panes have the same rows.
+    compare: Option<Vec<CompareRow>>,
+    /// Bumped whenever the shown entries change, so the comparison knows to
+    /// rebuild.
+    generation: u64,
+    /// Synchronized browsing is on: `⇄` in the title.
+    pub(crate) synced: bool,
 }
 
 impl FileList {
@@ -204,6 +222,9 @@ impl FileList {
             index: HashMap::new(),
             rows: 1,
             server: None,
+            compare: None,
+            generation: 0,
+            synced: false,
         }
     }
 
@@ -235,6 +256,8 @@ impl FileList {
         self.address = None;
         self.totals = Totals::default();
         self.server = None;
+        self.compare = None;
+        self.generation = self.generation.wrapping_add(1);
     }
 
     /// Use this offset for times instead of the local one (tests).
@@ -265,16 +288,127 @@ impl FileList {
         self.dir.as_ref().is_some_and(|d| !d.is_root())
     }
 
-    fn row_count(&self) -> usize {
-        self.view.len() + usize::from(self.has_parent())
+    /// Rows before the first entry: `..`, and always one while comparing.
+    fn offset(&self) -> usize {
+        usize::from(self.compare.is_some() || self.has_parent())
     }
 
-    /// The entry at a row (`None` for `..`).
+    fn row_count(&self) -> usize {
+        match &self.compare {
+            Some(rows) => rows.len() + 1,
+            None => self.view.len() + self.offset(),
+        }
+    }
+
+    /// Whether `row` is the `..` line.
+    fn is_parent_row(&self, row: usize) -> bool {
+        row == 0 && self.has_parent()
+    }
+
+    /// The entry at a row (`None` for `..` and comparison placeholders).
     fn entry_at(&self, row: usize) -> Option<&Entry> {
-        let offset = usize::from(self.has_parent());
-        row.checked_sub(offset)
-            .and_then(|i| self.view.get(i))
-            .map(|&i| &self.entries[i])
+        let i = row.checked_sub(self.offset())?;
+        match &self.compare {
+            Some(rows) => rows.get(i)?.entry.map(|e| &self.entries[e]),
+            None => self.view.get(i).map(|&e| &self.entries[e]),
+        }
+    }
+
+    /// The comparison colour of a row.
+    fn highlight_at(&self, row: usize) -> Highlight {
+        row.checked_sub(1)
+            .and_then(|i| self.compare.as_ref()?.get(i))
+            .map_or(Highlight::None, |r| r.highlight)
+    }
+
+    /// The shown entries in display order (filtered and sorted), for the
+    /// comparison; its indices map back with [`FileList::entry_index`].
+    pub(crate) fn visible_entries(&self) -> Vec<Entry> {
+        self.view.iter().map(|&i| self.entries[i].clone()).collect()
+    }
+
+    /// The index into the entries of the `visible`th visible entry.
+    pub(crate) fn entry_index(&self, visible: usize) -> Option<usize> {
+        self.view.get(visible).copied()
+    }
+
+    /// Changes whenever the shown entries do.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) fn is_comparing(&self) -> bool {
+        self.compare.is_some()
+    }
+
+    /// Whether the directory has hidden entries (shown or not).
+    pub(crate) fn has_hidden(&self) -> bool {
+        self.entries.iter().any(|e| e.hidden)
+    }
+
+    /// The active filters (the comparison warns when the sides differ).
+    pub(crate) fn filters(&self) -> &FilterEngine {
+        &self.filters
+    }
+
+    /// Show the comparison rows (or the normal view again), keeping the
+    /// cursor on the same entry.
+    pub(crate) fn set_comparison(&mut self, rows: Option<Vec<CompareRow>>) {
+        let keep = self.current().map(|e| e.name.clone());
+        let on_parent = self.cursor == 0;
+        self.compare = rows;
+        self.cursor = match keep {
+            Some(name) => self.row_of(&name).unwrap_or(0),
+            None if on_parent => 0,
+            None => self.cursor,
+        }
+        .min(self.row_count().saturating_sub(1));
+        self.visual = None;
+    }
+
+    /// Cursor and scroll position (both panes share them while comparing).
+    pub(crate) fn position(&self) -> (usize, usize) {
+        (self.cursor, self.scroll)
+    }
+
+    pub(crate) fn set_position(&mut self, (cursor, scroll): (usize, usize)) {
+        self.cursor = cursor.min(self.row_count().saturating_sub(1));
+        self.scroll = scroll.min(self.cursor);
+    }
+
+    /// Add the entries with these indices to the selection; returns how many
+    /// were added.
+    pub(crate) fn select_indices(&mut self, indices: &[usize]) -> usize {
+        let mut added = 0;
+        for &i in indices {
+            if let Some(e) = self.entries.get(i)
+                && self.index.contains_key(&e.name)
+                && self.selected.insert(e.name.clone())
+            {
+                added += 1;
+            }
+        }
+        added
+    }
+
+    /// The names of the selected entries, sorted.
+    #[cfg(test)]
+    pub(crate) fn selected_names(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.selected.iter().cloned().collect();
+        v.sort();
+        v
+    }
+
+    /// Forget a directory change that was asked for but never sent (sync
+    /// browsing said "stay").
+    pub(crate) fn cancel_pending(&mut self) {
+        self.pending = None;
+        self.busy = false;
+    }
+
+    /// Drop the error line (a failed sync browsing target).
+    pub(crate) fn clear_error(&mut self) {
+        self.error = None;
     }
 
     /// The entry under the cursor.
@@ -302,6 +436,9 @@ impl FileList {
     /// Re-filter and re-sort, keeping the cursor on the same entry.
     fn rebuild(&mut self, focus: Option<String>) {
         let keep = focus.or_else(|| self.current().map(|e| e.name.clone()));
+        // The comparison indexes the old view; the screen builds it again.
+        self.compare = None;
+        self.generation = self.generation.wrapping_add(1);
         let dir = self.dir.clone().unwrap_or_default();
         let quick = self.quick.as_ref().map(|q| QuickFilter::new(&q.text));
         self.view = (0..self.entries.len())
@@ -354,10 +491,26 @@ impl FileList {
     }
 
     fn row_of(&self, name: &str) -> Option<usize> {
-        self.view
-            .iter()
-            .position(|&i| self.entries[i].name == name)
-            .map(|p| p + usize::from(self.has_parent()))
+        let pos = match &self.compare {
+            Some(rows) => rows
+                .iter()
+                .position(|r| r.entry.is_some_and(|i| self.entries[i].name == name)),
+            None => self.view.iter().position(|&i| self.entries[i].name == name),
+        };
+        pos.map(|p| p + self.offset())
+    }
+
+    /// Whether hidden entries are shown (the directory tree follows it).
+    pub(crate) fn show_hidden(&self) -> bool {
+        self.show_hidden
+    }
+
+    /// Go to `dir` (from the directory tree), recorded in the history.
+    pub(crate) fn go_to(&mut self, dir: RemotePath) -> Option<Effect> {
+        if self.dir.as_ref() == Some(&dir) {
+            return None;
+        }
+        self.navigate(dir, None, History::Push, false)
     }
 
     /// Ask for a listing of `dir`; it is applied when it arrives.
@@ -416,8 +569,9 @@ impl FileList {
                 }
                 self.dir = Some(listing.dir.clone());
                 self.entries = listing.entries.clone();
-                // The old view indexes the old entries.
+                // The old view and comparison index the old entries.
                 self.view.clear();
+                self.compare = None;
                 self.error = None;
                 self.rebuild(if same_dir { focus.or(previous) } else { focus });
                 None
@@ -503,7 +657,9 @@ impl FileList {
             Action::Open => {
                 let dir = self.dir.clone()?;
                 match self.current() {
-                    None if self.has_parent() => return self.update(&Action::ParentDir, tx),
+                    None if self.is_parent_row(self.cursor) => {
+                        return self.update(&Action::ParentDir, tx);
+                    }
                     None => {}
                     Some(e) if e.is_dir_like() => {
                         let target = dir.join(&e.name).ok()?;
@@ -771,10 +927,15 @@ impl FileList {
             Side::Local => "Local",
             Side::Remote => "Remote",
         };
-        let mut title = vec![Span::styled(
+        let mut title = Vec::new();
+        // First, so a long path can't push it out of sight.
+        if self.synced {
+            title.push(Span::styled(" ⇄", theme.key_hint));
+        }
+        title.push(Span::styled(
             format!(" {label}: {} ", self.title_place()),
             theme.title,
-        )];
+        ));
         if self.is_filtered() {
             title.push(Span::styled("(filtered) ", theme.key_hint));
         }
@@ -845,11 +1006,19 @@ impl FileList {
         }
         let total_rows = self.row_count();
         let mut lines = Vec::with_capacity(list_rows);
-        if total_rows == 0 || (total_rows == 1 && self.has_parent() && self.view.is_empty()) {
-            if self.has_parent() {
+        let empty = match &self.compare {
+            Some(rows) => rows.is_empty(),
+            None => {
+                total_rows == 0 || (total_rows == 1 && self.has_parent() && self.view.is_empty())
+            }
+        };
+        if empty {
+            if self.offset() > 0 {
                 lines.push(self.row_line(0, &columns, usize::from(inner.width), focused, theme));
             }
-            let empty = if self.is_filtered() {
+            let empty = if self.compare.is_some() && !self.view.is_empty() {
+                "(no differences)"
+            } else if self.is_filtered() {
                 "(no matches)"
             } else {
                 "(empty)"
@@ -975,8 +1144,10 @@ impl FileList {
             } else {
                 Style::new()
             };
+            // `..`, or a comparison placeholder.
+            let label = if self.is_parent_row(row) { ".." } else { "" };
             return Line::styled(
-                format!("  {:<width$}", "..", width = width.saturating_sub(2)),
+                format!("  {:<width$}", label, width = width.saturating_sub(2)),
                 style,
             );
         };
@@ -988,6 +1159,7 @@ impl FileList {
         } else {
             Style::new()
         };
+        base = base.patch(theme.compare(self.highlight_at(row)));
         if selected {
             base = base.patch(theme.key_hint).add_modifier(Modifier::BOLD);
         }
@@ -1119,7 +1291,18 @@ impl FileList {
                 size(bytes)
             )
         };
-        let mut spans = vec![Span::styled(text, theme.dim)];
+        let mut spans = Vec::new();
+        if self.compare.is_some() {
+            spans.extend([
+                Span::styled("only here", theme.compare(Highlight::Lonely)),
+                Span::styled(" · ", theme.dim),
+                Span::styled("newer", theme.compare(Highlight::Newer)),
+                Span::styled(" · ", theme.dim),
+                Span::styled("differs", theme.compare(Highlight::Different)),
+                Span::styled("  ", theme.dim),
+            ]);
+        }
+        spans.push(Span::styled(text, theme.dim));
         if let Some(q) = &self.quick {
             spans.push(Span::styled(
                 format!("  filter: {}", q.text),

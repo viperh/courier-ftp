@@ -12,8 +12,12 @@ use pretty_assertions::assert_eq;
 use ratatui::{Terminal, backend::TestBackend};
 use tokio_util::sync::CancellationToken;
 
-use super::{KeyOutcome, MainScreen, Region, Side, Theme};
-use crate::{action::Action, app::Mode, config::Config};
+use super::{KeyOutcome, MainScreen, Region, Side, Theme, dir_tree::DirTree};
+use crate::{
+    action::{Action, SyncChoice},
+    app::Mode,
+    config::Config,
+};
 
 fn screen(layout: Layout) -> MainScreen {
     let mut config = Config::builtin();
@@ -23,6 +27,8 @@ fn screen(layout: Layout) -> MainScreen {
     // Log lines carry the current time; leave it out of snapshots.
     config.settings.logging.show_timestamps = false;
     let mut s = MainScreen::new(config, Theme::new(None, true));
+    // The same tree on every OS (Windows adds a "Computer" root and shortcuts).
+    s.local_tree = DirTree::with_shortcuts(Side::Local, true, false, false);
     // Fixed content, independent of the machine running the test.
     s.update(&Action::ListingLoaded {
         side: Side::Local,
@@ -156,7 +162,7 @@ fn a_modal_takes_every_key_until_closed() {
 fn help_lists_bindings_from_the_config() {
     let mut s = screen(Layout::Classic);
     s.update(&Action::Help);
-    let t = text(&render(&mut s, 120, 100));
+    let t = text(&render(&mut s, 120, 120));
     assert!(t.contains("Keys: FileList mode"), "{t}");
     // Global bindings show alongside the file list's own.
     assert!(t.contains("<Ctrl-q>") && t.contains("Quit"), "{t}");
@@ -239,6 +245,9 @@ fn status_indicators_follow_actions() {
     );
     s.update(&Action::ToggleSpeedLimit);
     s.update(&Action::CycleTransferType);
+    // Comparison needs a directory on both sides.
+    s.update(&loaded(Side::Local, "/l", vec![]));
+    s.update(&loaded(Side::Remote, "/r", vec![]));
     s.update(&Action::ToggleCompare);
     let after = text(&render(&mut s, 200, 40));
     assert!(after.contains("⇅ limit ↓∞ ↑∞"), "{after}");
@@ -421,4 +430,479 @@ async fn cancelled_prompts_leave_the_queue_and_the_screen() {
     assert_eq!(s.queued_prompts(), 0);
     render(&mut s, 120, 40);
     assert!(!s.has_modal(), "the open dialog closed itself");
+}
+
+#[test]
+fn trees_are_off_by_default_and_load_only_when_shown() {
+    let mut s = screen(Layout::Classic);
+    s.update(&Action::ListingLoaded {
+        side: Side::Local,
+        result: Ok(Listing {
+            dir: RemotePath::new("/srv/www"),
+            entries: vec![Entry::dir("img")],
+            fetched_at: std::time::Instant::now(),
+            raw: None,
+        }),
+    });
+    let t = render(&mut s, 120, 40);
+    assert!(!text(&t).contains("Local tree"));
+    assert!(s.take_actions().is_empty(), "a hidden tree lists nothing");
+
+    // `T` focuses the tree of the focused side, showing the trees.
+    s.update(&Action::FocusTree);
+    assert_eq!(s.focus(), Region::LocalTree);
+    assert_eq!(s.mode(), Mode::FileList);
+    let t = render(&mut s, 120, 40);
+    assert!(text(&t).contains("Local tree"), "{}", text(&t));
+    let wanted: Vec<_> = s
+        .take_actions()
+        .into_iter()
+        .filter_map(|a| match a {
+            Action::TreeListDir { side, dir } => Some((side, dir.to_string())),
+            _ => None,
+        })
+        .collect();
+    // `/` is known from the first listing; `/srv/www` from the last.
+    assert_eq!(wanted, vec![(Side::Local, "/srv".to_owned())]);
+
+    s.update(&Action::TreeListingLoaded {
+        side: Side::Local,
+        dir: RemotePath::new("/srv"),
+        result: Ok(Listing {
+            dir: RemotePath::new("/srv"),
+            entries: vec![Entry::dir("www"), Entry::dir("logs")],
+            fetched_at: std::time::Instant::now(),
+            raw: None,
+        }),
+    });
+    let t = render(&mut s, 120, 40);
+    assert!(text(&t).contains("▾ www"), "{}", text(&t));
+    // Tree keys move the tree, not the list; Enter moves the list.
+    s.update(&Action::ParentDir); // collapse www
+    s.update(&Action::ParentDir); // up to /srv
+    assert_eq!(s.handle_key(key(KeyCode::Enter)), KeyOutcome::Consumed);
+    let actions = s.take_actions();
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::ListDir { side: Side::Local, dir, .. } if dir.as_str() == "/srv"
+        )),
+        "{actions:?}"
+    );
+    s.update(&Action::FocusTree);
+    assert_eq!(s.focus(), Region::LocalList);
+    // Hiding the trees moves focus off them.
+    s.update(&Action::FocusTree);
+    s.update(&Action::ToggleTree);
+    render(&mut s, 120, 40);
+    assert_eq!(s.focus(), Region::LocalList);
+}
+
+// --- T66: directory comparison and synchronized browsing ---
+
+fn loaded(side: Side, dir: &str, entries: Vec<Entry>) -> Action {
+    Action::ListingLoaded {
+        side,
+        result: Ok(Listing {
+            dir: RemotePath::new(dir),
+            entries,
+            fetched_at: std::time::Instant::now(),
+            raw: None,
+        }),
+    }
+}
+
+fn file_at(name: &str, size: u64, minute: i64) -> Entry {
+    let mut e = Entry::file(name, size);
+    e.modified = Some(courier_ftp_core::model::Timestamp::new(
+        time::macros::datetime!(2026-10-08 18:00 UTC) + time::Duration::minutes(minute),
+        courier_ftp_core::model::Precision::Second,
+    ));
+    e
+}
+
+/// Local `/home/me/site` and remote `/var/www`: `img/` on both, `docs/`
+/// local only, `cgi-bin/` remote only, `same.txt` identical, `big.css` of
+/// different sizes, `new.html` newer locally, `only-local.txt`,
+/// `only-remote.txt`.
+fn comparing() -> MainScreen {
+    let mut s = screen(Layout::Classic);
+    s.update(&loaded(
+        Side::Local,
+        "/home/me/site",
+        vec![
+            Entry::dir("img"),
+            Entry::dir("docs"),
+            file_at("same.txt", 10, 0),
+            file_at("big.css", 900, 0),
+            file_at("new.html", 50, 30),
+            file_at("only-local.txt", 1, 0),
+        ],
+    ));
+    s.update(&loaded(
+        Side::Remote,
+        "/var/www",
+        vec![
+            Entry::dir("img"),
+            Entry::dir("cgi-bin"),
+            file_at("same.txt", 10, 0),
+            file_at("big.css", 4096, 0),
+            file_at("new.html", 50, 0),
+            file_at("only-remote.txt", 2, 0),
+        ],
+    ));
+    s.update(&Action::ToggleCompare);
+    // Times in UTC, whatever the machine's zone.
+    s.local.set_offset(time::UtcOffset::UTC);
+    s.remote.set_offset(time::UtcOffset::UTC);
+    s
+}
+
+fn list_dirs(actions: &[Action]) -> Vec<(Side, String)> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::ListDir { side, dir, .. } => Some((*side, dir.to_string())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The screen line containing `needle`, and the columns of its matches.
+fn find_cells(t: &Terminal<TestBackend>, needle: &str) -> (u16, Vec<u16>) {
+    let buf = t.backend().buffer();
+    for y in 0..buf.area.height {
+        let cells: Vec<&str> = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+        let line: String = cells.concat();
+        if line.contains(needle) {
+            let cols = line
+                .match_indices(needle)
+                .map(|(i, _)| line[..i].chars().count() as u16)
+                .collect();
+            return (y, cols);
+        }
+    }
+    panic!("{needle} not on screen:\n{}", text(t));
+}
+
+#[test]
+fn comparison_rows_are_aligned() {
+    let mut s = comparing();
+    let t = render(&mut s, 120, 30);
+    let all = text(&t);
+    assert!(all.contains("⇄ sync") && all.contains("≠ compare"), "{all}");
+    assert!(!s.has_modal(), "same filters, no warning: {all}");
+    // Windows shows the local path natively (`home\me\site`, one character
+    // shorter, the frame fills the gap); map it to the Unix form.
+    insta::with_settings!({filters => vec![
+        (r"Local: home\\me\\site ─", "Local: /home/me/site"),
+    ]}, {
+        insta::assert_snapshot!("compare_120x30", t.backend());
+    });
+}
+
+#[test]
+fn comparison_rows_are_coloured() {
+    use ratatui::style::Color;
+    let mut config = Config::builtin();
+    config.settings.interface.unicode_symbols = courier_ftp_core::settings::SymbolMode::Unicode;
+    config.settings.logging.show_timestamps = false;
+    let mut s = MainScreen::new(config, Theme::new(None, false));
+    s.update(&loaded(
+        Side::Local,
+        "/l",
+        vec![
+            file_at("big.css", 1, 0),
+            file_at("new.html", 5, 30),
+            file_at("mine.txt", 1, 0),
+        ],
+    ));
+    s.update(&loaded(
+        Side::Remote,
+        "/r",
+        vec![
+            file_at("big.css", 2, 0),
+            file_at("new.html", 5, 0),
+            file_at("yours.txt", 1, 0),
+        ],
+    ));
+    s.update(&Action::ToggleCompare);
+    // The cursor is on `..`, so no entry row has the cursor style.
+    let t = render(&mut s, 120, 30);
+    let buf = t.backend().buffer().clone();
+    let fg = |needle: &str| {
+        let (y, cols) = find_cells(&t, needle);
+        cols.iter().map(|&x| buf[(x, y)].fg).collect::<Vec<_>>()
+    };
+    // Size mode: both sides of big.css red, one-side entries yellow, same
+    // size plain.
+    assert_eq!(fg("big.css"), [Color::Red, Color::Red]);
+    assert_eq!(fg("mine.txt"), [Color::Yellow]);
+    assert_eq!(fg("yours.txt"), [Color::Yellow]);
+    assert_eq!(fg("new.html"), [Color::Reset, Color::Reset]);
+    assert!(text(&t).contains("only here"), "legend: {}", text(&t));
+    // Time mode: only the newer side is green.
+    s.update(&Action::SetCompareOptions(Box::new(
+        courier_ftp_core::compare::CompareOpts {
+            mode: courier_ftp_core::compare::CompareMode::ModificationTime,
+            ..courier_ftp_core::compare::CompareOpts::default()
+        },
+    )));
+    let t = render(&mut s, 120, 30);
+    let buf = t.backend().buffer().clone();
+    let (y, cols) = find_cells(&t, "new.html");
+    assert_eq!(buf[(cols[0], y)].fg, Color::Green, "local is newer");
+    assert_eq!(buf[(cols[1], y)].fg, Color::Reset);
+}
+
+#[test]
+fn hide_identical_drops_equal_files() {
+    let mut s = comparing();
+    let before = text(&render(&mut s, 120, 30));
+    assert!(before.contains("same.txt"), "{before}");
+    s.update(&Action::SetCompareOptions(Box::new(
+        courier_ftp_core::compare::CompareOpts {
+            hide_identical: true,
+            ..courier_ftp_core::compare::CompareOpts::default()
+        },
+    )));
+    let after = text(&render(&mut s, 120, 30));
+    assert!(!after.contains("same.txt"), "{after}");
+    assert!(
+        after.contains("big.css") && after.contains("img/"),
+        "{after}"
+    );
+}
+
+#[test]
+fn select_by_status_selects_on_the_focused_side() {
+    let mut s = comparing();
+    s.update(&Action::SelectCompareLonely);
+    assert_eq!(s.local.selected_names(), ["docs", "only-local.txt"]);
+    assert!(s.remote.selected_names().is_empty());
+    s.update(&Action::FocusRemote);
+    s.update(&Action::SelectCompareDifferent);
+    assert_eq!(s.remote.selected_names(), ["big.css"]);
+    // Newer needs time mode; in size mode nothing is green.
+    s.update(&Action::SelectCompareNewer);
+    assert_eq!(s.remote.selected_names(), ["big.css"]);
+    s.update(&Action::ToggleCompare);
+    s.update(&Action::SelectCompareLonely);
+    assert_eq!(s.remote.selected_names(), ["big.css"], "comparison is off");
+}
+
+#[test]
+fn cursors_move_in_lockstep_and_rows_rebuild() {
+    let mut s = comparing();
+    for _ in 0..3 {
+        s.update(&Action::CursorDown);
+    }
+    assert_eq!(s.local.position().0, 3);
+    assert_eq!(s.remote.position().0, 3);
+    s.update(&Action::FocusRemote);
+    s.update(&Action::CursorUp);
+    assert_eq!(s.local.position().0, 2);
+    // A new remote listing rebuilds the rows.
+    s.update(&loaded(
+        Side::Remote,
+        "/var/www",
+        vec![file_at("same.txt", 10, 0)],
+    ));
+    let t = text(&render(&mut s, 120, 30));
+    assert!(t.contains("img/") && !t.contains("cgi-bin"), "{t}");
+    // Turning comparison off restores the sorted view; sync stays on.
+    s.update(&Action::ToggleCompare);
+    let off = text(&render(&mut s, 120, 30));
+    assert!(
+        !off.contains("≠ compare") && off.contains("⇄ sync"),
+        "{off}"
+    );
+}
+
+#[test]
+fn filters_differing_warns_once() {
+    let mut s = screen(Layout::Classic);
+    s.update(&loaded(Side::Local, "/l", vec![Entry::file(".env", 1)]));
+    s.update(&loaded(Side::Remote, "/r", vec![Entry::file(".env", 1)]));
+    // Hidden files are hidden locally by default and shown remotely.
+    s.update(&Action::ToggleCompare);
+    assert!(s.has_modal());
+    s.update(&Action::CloseDialog);
+    s.update(&loaded(Side::Remote, "/r", vec![Entry::file("x", 1)]));
+    assert!(!s.has_modal(), "only once");
+}
+
+#[test]
+fn sync_browsing_follows_enter_and_parent_both_ways() {
+    let mut s = comparing();
+    s.take_actions();
+    // Rows: .., cgi-bin, docs, img, …
+    for _ in 0..3 {
+        s.update(&Action::CursorDown);
+    }
+    s.update(&Action::Open);
+    // The other side goes first; this side waits for it.
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Remote, "/var/www/img".to_owned())]
+    );
+    s.update(&loaded(Side::Remote, "/var/www/img", vec![]));
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Local, "/home/me/site/img".to_owned())]
+    );
+    s.update(&loaded(Side::Local, "/home/me/site/img", vec![]));
+    // Parent, from the remote side.
+    s.update(&Action::FocusRemote);
+    s.update(&Action::ParentDir);
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Local, "/home/me/site".to_owned())]
+    );
+    s.update(&loaded(
+        Side::Local,
+        "/home/me/site",
+        vec![Entry::dir("img")],
+    ));
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Remote, "/var/www".to_owned())]
+    );
+    let t = text(&render(&mut s, 120, 30));
+    assert!(t.contains("⇄"), "{t}");
+}
+
+#[test]
+fn missing_directory_asks_create_disable_or_stay() {
+    let open_docs = |s: &mut MainScreen| {
+        s.take_actions();
+        s.update(&Action::FocusLocal);
+        s.update(&Action::Top);
+        for _ in 0..2 {
+            s.update(&Action::CursorDown);
+        }
+        s.update(&Action::Open);
+        assert_eq!(
+            list_dirs(&s.take_actions()),
+            [(Side::Remote, "/var/www/docs".to_owned())]
+        );
+        s.update(&Action::ListingLoaded {
+            side: Side::Remote,
+            result: Err("No such file".to_owned()),
+        });
+        assert!(s.has_modal());
+        let t = text(&render(s, 120, 30));
+        assert!(
+            t.contains("Target directory does not exist on the other side")
+                && t.contains("Create it"),
+            "{t}"
+        );
+        s.update(&Action::CloseDialog);
+    };
+
+    // Stay: nothing changes.
+    let mut s = comparing();
+    open_docs(&mut s);
+    s.update(&Action::SyncAnswer(SyncChoice::Stay));
+    assert!(s.take_actions().is_empty());
+    assert!(!s.local.busy);
+
+    // Create it: mkdir, list it, then this side follows.
+    open_docs(&mut s);
+    s.update(&Action::SyncAnswer(SyncChoice::Create));
+    let actions = s.take_actions();
+    assert!(
+        matches!(
+            &actions[..],
+            [Action::MakeDir { side: Side::Remote, dir }] if dir.as_str() == "/var/www/docs"
+        ),
+        "{actions:?}"
+    );
+    s.update(&Action::DirMade {
+        side: Side::Remote,
+        dir: RemotePath::new("/var/www/docs"),
+        result: Ok(()),
+    });
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Remote, "/var/www/docs".to_owned())]
+    );
+    s.update(&loaded(Side::Remote, "/var/www/docs", vec![]));
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Local, "/home/me/site/docs".to_owned())]
+    );
+    s.update(&loaded(Side::Local, "/home/me/site/docs", vec![]));
+    s.update(&Action::ParentDir);
+    s.take_actions();
+    s.update(&loaded(
+        Side::Remote,
+        "/var/www",
+        vec![Entry::dir("cgi-bin")],
+    ));
+    s.update(&loaded(
+        Side::Local,
+        "/home/me/site",
+        vec![Entry::dir("docs"), Entry::dir("img")],
+    ));
+    s.take_actions();
+
+    // Disable: this side goes alone.
+    open_docs(&mut s);
+    s.update(&Action::SyncAnswer(SyncChoice::Disable));
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Local, "/home/me/site/docs".to_owned())]
+    );
+    let t = text(&render(&mut s, 120, 30));
+    assert!(!t.contains("⇄ sync"), "{t}");
+}
+
+#[test]
+fn leaving_the_base_asks_to_disable_sync() {
+    let mut s = comparing();
+    s.take_actions();
+    s.update(&Action::ParentDir);
+    assert!(s.has_modal());
+    assert!(
+        s.take_actions().is_empty(),
+        "nothing moves before the answer"
+    );
+    s.update(&Action::CloseDialog);
+    s.update(&Action::SyncAnswer(SyncChoice::Stay));
+    assert!(s.take_actions().is_empty());
+    assert!(!s.local.busy);
+    s.update(&Action::ParentDir);
+    s.update(&Action::CloseDialog);
+    s.update(&Action::SyncAnswer(SyncChoice::Disable));
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Local, "/home/me".to_owned())]
+    );
+    // Without sync, the panes move on their own.
+    s.update(&loaded(Side::Local, "/home/me", vec![]));
+    s.update(&Action::ParentDir);
+    assert_eq!(
+        list_dirs(&s.take_actions()),
+        [(Side::Local, "/home".to_owned())]
+    );
+}
+
+#[test]
+fn sync_and_compare_need_both_sides() {
+    let mut s = screen(Layout::Classic);
+    s.update(&Action::ToggleSyncBrowsing);
+    s.update(&Action::ToggleCompare);
+    let t = text(&render(&mut s, 200, 40));
+    assert!(!t.contains("⇄ sync") && !t.contains("≠ compare"), "{t}");
+    // Site settings turn both on once connected.
+    s.update(&loaded(Side::Local, "/l", vec![]));
+    s.update(&loaded(Side::Remote, "/r", vec![]));
+    s.connected_view(false, true, true);
+    let t = text(&render(&mut s, 200, 40));
+    assert!(t.contains("⇄ sync") && t.contains("≠ compare"), "{t}");
+    // Disconnecting turns both off.
+    s.remote_disconnected(None);
+    let t = text(&render(&mut s, 200, 40));
+    assert!(!t.contains("⇄ sync") && !t.contains("≠ compare"), "{t}");
 }

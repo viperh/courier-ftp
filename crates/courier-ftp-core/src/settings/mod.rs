@@ -152,7 +152,8 @@ pub enum ExternalIp {
 pub struct ProxySettings {
     /// HTTP CONNECT or SOCKS proxy for every protocol.
     pub generic: GenericProxy,
-    /// FTP-level proxy (FTP only).
+    /// FTP-level proxy (FTP and FTPS only, T15). Can't be combined with a
+    /// generic proxy: validation turns it off when both are set.
     pub ftp_proxy: FtpProxy,
 }
 
@@ -199,7 +200,8 @@ pub enum FtpProxy {
     Site(ProxyServer),
     /// `OPEN host`.
     Open(ProxyServer),
-    /// A custom login script (`%h`, `%u`, `%p`, `%s`, `%w` placeholders, T15).
+    /// A custom login script (`%h`, `%u`, `%p`, `%a`, `%s`, `%w` placeholders,
+    /// T15).
     Custom {
         /// The proxy.
         server: ProxyServer,
@@ -639,10 +641,13 @@ pub struct QueueSettings {
     pub on_complete: OnComplete,
     /// How to notify when the queue finishes (T45).
     pub notify: NotifyMethod,
-    /// Save the queue on exit and restore it at startup.
+    /// Save the queue (encrypted in the vault, T40) and restore it at startup.
     pub persist: bool,
     /// Refresh the remote listing after the queue finishes.
     pub refresh_remote_after: bool,
+    /// Most entries kept in the successful-transfers list (T40); the oldest
+    /// drop off.
+    pub max_successful: usize,
 }
 
 impl Default for QueueSettings {
@@ -652,6 +657,7 @@ impl Default for QueueSettings {
             notify: NotifyMethod::Bell,
             persist: true,
             refresh_remote_after: true,
+            max_successful: crate::queue::DEFAULT_MAX_SUCCESSFUL,
         }
     }
 }

@@ -1,0 +1,18 @@
+---
+source: crates/courier-ftp-core/src/sites/import_tests.rs
+expression: out
+---
+[Work]
+  [Production]
+    web01 | Sftp/None web01.example.com:2222 | normal deploy pw=true | type=Auto tz=0 mode=Default conns=Some(2) charset=auto proxy_bypass=false color=Red local=Some("/home/me/sites/web01") remote=Some("/var/www/html & stuff") sync=true cmp=true comments="Primary web server\nAsk ops before restarting & deploying."
+      * ImportBookmark { name: "Logs", local_dir: Some(LocalPath("/home/me/logs")), remote_dir: Some(RemotePath("/var/log/nginx")), sync_browsing: true, comparison: false }
+      * ImportBookmark { name: "Uploads", local_dir: None, remote_dir: Some(RemotePath("/srv/My Uploads")), sync_browsing: false, comparison: false }
+    db01 (key) | Sftp/None db01.example.com:22 | key dba Some(File(LocalPath("/home/me/.ssh/id_ed25519"))) pp=false | type=Unix tz=-90 mode=Default conns=None charset=utf-8 proxy_bypass=true color=Blue local=None remote=None sync=false cmp=false comments=""
+  Build server (account) | FtpsExplicit/None ftp.example.org:21 | account builder pw=true acct=BILLING-42 | type=Auto tz=120 mode=Active conns=None charset=windows-1252 proxy_bypass=false color=Yellow local=Some("C:\\Users\\me\\Builds") remote=Some("/builds") sync=false cmp=false comments=""
+  Mirror_implicit | FtpsImplicit/None mirror.example.net:990 | ask mirror | type=Dos tz=0 mode=Passive conns=None charset=auto proxy_bypass=false color=None local=None remote=Some("/C:/pub") sync=false cmp=false comments=""
+[Personal]
+  Public mirror (anonymous) | Ftp/None ftp.example.com:21 | anonymous | type=Auto tz=0 mode=Default conns=None charset=auto proxy_bypass=false color=None local=None remote=Some("/pub") sync=false cmp=false comments=""
+  NAS (interactive, plain FTP) | Ftp/Some(PlainOnly) nas.example.lan:2121 | interactive me | type=Auto tz=0 mode=Default conns=None charset=auto proxy_bypass=false color=Green local=None remote=Some("/home/me/Photos 2024 ☃") sync=false cmp=false comments=""
+  Master-password protected | Sftp/None secure.example.com:22 | normal me pw=false | type=Auto tz=0 mode=Default conns=None charset=auto proxy_bypass=false color=None local=None remote=None sync=false cmp=false comments=""
+Legacy (no Name element) | Ftp/None legacy.example.com:21 | normal old pw=true | type=Auto tz=0 mode=Default conns=None charset=auto proxy_bypass=false color=None local=None remote=None sync=false cmp=false comments=""
+skipped: Personal/Backups bucket — S3 sites are not supported

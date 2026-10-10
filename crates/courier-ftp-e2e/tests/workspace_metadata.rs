@@ -66,7 +66,19 @@ fn rules() -> Vec<Rule> {
         Rule {
             krate: "courier-ftp-proto",
             allowed_internal: Some(&["courier-ftp-crypto"]),
-            forbidden: &["ratatui", "crossterm", "clap", "rusqlite", "russh"],
+            // Serde only (T83): no runtime, no HTTP stack, no storage, no UI.
+            forbidden: &[
+                "ratatui",
+                "crossterm",
+                "clap",
+                "rusqlite",
+                "russh",
+                "tokio",
+                "mio",
+                "hyper",
+                "axum",
+                "reqwest",
+            ],
         },
         Rule {
             krate: "courier-ftp-core",

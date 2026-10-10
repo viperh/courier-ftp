@@ -7,8 +7,11 @@ use std::{
 
 use courier_ftp_core::{
     backend::Listing,
+    compare::{CompareOpts, Highlight},
     events::{CoreEvent, PromptRequest},
     filters::FilterEngine,
+    local::display_native,
+    model::RemotePath,
     settings::InterfaceSettings,
 };
 use crossterm::event::KeyEvent;
@@ -17,6 +20,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::{
     Side,
+    compare::{self, CompareState, NavStage, SyncBase, SyncNav, other},
+    dir_tree::{DirTree, TreeEffect, is_tree_action},
     file_list::{Effect, FileList},
     focus::Region,
     layout::{self, LayoutOptions, Regions, Visibility},
@@ -29,11 +34,11 @@ use super::{
     vault::{VaultRequest, VaultView},
 };
 use crate::{
-    action::{Action, Connected},
+    action::{Action, Connected, SyncChoice},
     app::Mode,
     config::Config,
     keymap::key_to_string,
-    ui::dialog::message,
+    ui::dialog::{ask, confirm, message},
 };
 
 /// Actions the focused pane handles itself (navigation, search, selection).
@@ -53,6 +58,8 @@ fn is_pane_action(action: &Action) -> bool {
             | Action::SearchPrev
             | Action::VisualSelect
             | Action::CopySelection
+            | Action::CopyLog
+            | Action::SaveLog
             | Action::ClearLog
             | Action::ToggleWrap
             | Action::ToggleLogAll
@@ -151,6 +158,8 @@ pub(crate) struct MainScreen {
     focus: Region,
     pub(crate) local: FileList,
     pub(crate) remote: FileList,
+    pub(crate) local_tree: DirTree,
+    pub(crate) remote_tree: DirTree,
     log: LogPane,
     quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
@@ -173,6 +182,15 @@ pub(crate) struct MainScreen {
     vault_shown: bool,
     /// What the vault view asked for, taken by the app after each key.
     vault_requests: Vec<VaultRequest>,
+    /// Synchronized browsing (T66): the base directories, when on.
+    sync: Option<SyncBase>,
+    /// A synchronized directory change waiting for the other side.
+    sync_nav: Option<SyncNav>,
+    /// Directory comparison (T66), when on.
+    compare: Option<CompareState>,
+    compare_opts: CompareOpts,
+    /// The "filters differ" warning was shown for this comparison.
+    compare_warned: bool,
 }
 
 impl MainScreen {
@@ -209,6 +227,14 @@ impl MainScreen {
         }
         let local = FileList::new(Side::Local, &config.settings, local_filters);
         let remote = FileList::new(Side::Remote, &config.settings, remote_filters);
+        let unicode = status.unicode;
+        let local_tree = DirTree::new(Side::Local, unicode, local.show_hidden());
+        let remote_tree = DirTree::new(Side::Remote, unicode, remote.show_hidden());
+        let compare_opts = CompareOpts {
+            dirs_first: ui.dirs_first,
+            natural_sort: ui.natural_sort,
+            ..CompareOpts::default()
+        };
         Self {
             config,
             theme,
@@ -216,8 +242,10 @@ impl MainScreen {
             focus: Region::LocalList,
             local,
             remote,
+            local_tree,
+            remote_tree,
             log,
-            quickconnect: Quickconnect::new(),
+            quickconnect: Quickconnect::new().with_unicode(unicode),
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
@@ -229,6 +257,11 @@ impl MainScreen {
             vault: None,
             vault_shown: false,
             vault_requests: Vec::new(),
+            sync: None,
+            sync_nav: None,
+            compare: None,
+            compare_opts,
+            compare_warned: false,
         }
     }
 
@@ -244,16 +277,48 @@ impl MainScreen {
 
     fn apply(&mut self, effect: Option<Effect>) {
         match effect {
+            // A pane changes directory: synchronized browsing follows.
+            Some(Effect::Action(a @ Action::ListDir { force: false, .. }))
+                if self.sync.is_some() =>
+            {
+                self.sync_navigate(a);
+            }
             Some(Effect::Action(a)) => self.outbox.push(a),
             Some(Effect::Modal(m)) => self.modals.push(m),
             None => {}
         }
     }
 
+    /// The focused file list (not when its tree has focus).
     fn focused_list(&mut self) -> Option<&mut FileList> {
-        match self.focus.side()? {
-            Side::Local => Some(&mut self.local),
-            Side::Remote => Some(&mut self.remote),
+        match self.focus {
+            Region::LocalList => Some(&mut self.local),
+            Region::RemoteList => Some(&mut self.remote),
+            _ => None,
+        }
+    }
+
+    /// The side whose directory tree has focus.
+    fn focused_tree_side(&self) -> Option<Side> {
+        match self.focus {
+            Region::LocalTree => Some(Side::Local),
+            Region::RemoteTree => Some(Side::Remote),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn tree_mut(&mut self, side: Side) -> &mut DirTree {
+        match side {
+            Side::Local => &mut self.local_tree,
+            Side::Remote => &mut self.remote_tree,
+        }
+    }
+
+    /// What a tree asked for: show a directory in the side's file list.
+    fn apply_tree(&mut self, side: Side, effect: Option<TreeEffect>) {
+        if let Some(TreeEffect::Navigate(dir)) = effect {
+            let effect = self.pane_mut(side).go_to(dir);
+            self.apply(effect);
         }
     }
 
@@ -331,6 +396,11 @@ impl MainScreen {
     }
 
     #[cfg(test)]
+    pub(crate) fn quickconnect(&self) -> &Quickconnect {
+        &self.quickconnect
+    }
+
+    #[cfg(test)]
     pub(crate) fn has_modal(&self) -> bool {
         !self.modals.is_empty()
     }
@@ -343,6 +413,12 @@ impl MainScreen {
     /// Route a key: the top modal first, then the focused region. Keys nobody
     /// takes go to the keymap.
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> KeyOutcome {
+        let outcome = self.route_key(key);
+        self.after_change();
+        outcome
+    }
+
+    fn route_key(&mut self, key: KeyEvent) -> KeyOutcome {
         self.last_key = Some(Instant::now());
         if self.vault_shown {
             if let Some(view) = self.vault.as_mut()
@@ -369,8 +445,18 @@ impl MainScreen {
                     self.submit_quickconnect();
                     return KeyOutcome::Consumed;
                 }
+                QuickKey::History => {
+                    self.outbox.push(Action::QuickconnectHistory);
+                    return KeyOutcome::Consumed;
+                }
                 QuickKey::NotHandled => {}
             }
+        }
+        if let Some(side) = self.focused_tree_side()
+            && let Some(effect) = self.tree_mut(side).handle_key(key)
+        {
+            self.apply_tree(side, effect);
+            return KeyOutcome::Consumed;
         }
         if let Some(list) = self.focused_list()
             && let Some(effect) = list.handle_key(key)
@@ -397,6 +483,11 @@ impl MainScreen {
         }
     }
 
+    /// The side of the file list or tree that last had focus.
+    pub(crate) fn active_side(&self) -> Side {
+        self.opts.compact_side
+    }
+
     /// Put a dialog on top of the modal stack.
     pub(crate) fn push_modal(&mut self, modal: Box<dyn Modal>) {
         self.modals.push(modal);
@@ -404,6 +495,12 @@ impl MainScreen {
 
     /// Apply an action. May return a follow-up action.
     pub(crate) fn update(&mut self, action: &Action) -> Option<Action> {
+        let next = self.apply_action(action);
+        self.after_change();
+        next
+    }
+
+    fn apply_action(&mut self, action: &Action) -> Option<Action> {
         if let Action::CopyToClipboard(text) = action {
             let lines = text.lines().count();
             let what = if lines == 1 {
@@ -423,9 +520,38 @@ impl MainScreen {
         }
         // Results for a particular side, whatever has focus.
         if let Action::ListingLoaded { side, result } = action {
+            if self
+                .sync_nav
+                .as_ref()
+                .is_some_and(|n| n.stage == NavStage::Following && *side == other(n.lead))
+            {
+                self.followed(*side, result);
+                return None;
+            }
+            let first = self.pane_mut(*side).dir.is_none();
             let error = self.pane_mut(*side).listing_loaded(result);
             self.outbox.extend(error);
+            if let Ok(listing) = result {
+                self.list_shown(*side, listing, first);
+            }
             return None;
+        }
+        if let Action::TreeListingLoaded { side, dir, result } = action {
+            self.tree_mut(*side).loaded(dir, result);
+            return None;
+        }
+        if let Some(side) = self.focused_tree_side() {
+            if is_tree_action(action) {
+                let effect = self.tree_mut(side).update(action);
+                self.apply_tree(side, effect);
+                return None;
+            }
+            if matches!(action, Action::ToggleHidden) {
+                let tx = self.action_tx.clone();
+                let effect = self.pane_mut(side).update(action, tx.as_ref());
+                self.apply(effect);
+                return None;
+            }
         }
         if let Action::ApplyPattern { side, .. } | Action::SetColumns { side, .. } = action {
             let tx = self.action_tx.clone();
@@ -477,6 +603,18 @@ impl MainScreen {
             Action::FocusRemote => self.set_focus(Region::RemoteList),
             Action::FocusLog => self.set_focus(Region::Log),
             Action::FocusQueue => self.set_focus(Region::Queue),
+            Action::FocusTree => {
+                let target = match self.focus {
+                    Region::LocalTree => Region::LocalList,
+                    Region::RemoteTree => Region::RemoteList,
+                    Region::RemoteList => Region::RemoteTree,
+                    _ => Region::LocalTree,
+                };
+                if matches!(target, Region::LocalTree | Region::RemoteTree) {
+                    self.opts.visible.tree = true;
+                }
+                self.set_focus(target);
+            }
             Action::FocusQuickconnect => {
                 self.set_focus(Region::Quickconnect);
                 self.quickconnect.focus_host();
@@ -491,8 +629,38 @@ impl MainScreen {
                     .flash(format!("Speed limit {state}"), Instant::now());
             }
             Action::CycleTransferType => self.status.cycle_transfer_type(),
-            Action::ToggleSyncBrowsing => self.status.sync_browsing = !self.status.sync_browsing,
-            Action::ToggleCompare => self.status.compare = !self.status.compare,
+            Action::ToggleSyncBrowsing => {
+                if self.sync.is_some() {
+                    self.end_sync();
+                    self.status
+                        .flash("Synchronized browsing off", Instant::now());
+                } else if self.start_sync() {
+                    self.status
+                        .flash("Synchronized browsing on", Instant::now());
+                }
+            }
+            Action::ToggleCompare => {
+                if self.compare.is_some() {
+                    self.end_compare();
+                } else {
+                    self.start_compare();
+                }
+            }
+            Action::CompareOptions => {
+                let modal = compare::options_dialog(&self.compare_opts, self.action_tx.as_ref());
+                self.modals.push(modal);
+            }
+            Action::SetCompareOptions(opts) => {
+                self.compare_opts = (**opts).clone();
+                if let Some(state) = &mut self.compare {
+                    state.built_from = None;
+                }
+            }
+            Action::SelectCompareLonely => self.select_by_status(Highlight::Lonely),
+            Action::SelectCompareNewer => self.select_by_status(Highlight::Newer),
+            Action::SelectCompareDifferent => self.select_by_status(Highlight::Different),
+            Action::SyncAnswer(choice) => self.sync_answer(*choice),
+            Action::DirMade { side, dir, result } => self.dir_made(*side, dir, result),
             Action::ServerInfo => {
                 let (modal, _) = message(
                     "Server info",
@@ -522,6 +690,20 @@ impl MainScreen {
         }
     }
 
+    /// A listing arrived for a side's file list: fill in the tree and make
+    /// it follow the list.
+    fn list_shown(&mut self, side: Side, listing: &Listing, first: bool) {
+        let shown = self.pane_mut(side).dir.as_ref() == Some(&listing.dir);
+        let tree = self.tree_mut(side);
+        if first && side == Side::Local {
+            tree.set_home(&listing.dir);
+        }
+        tree.listing(listing);
+        if shown {
+            tree.sync_to(&listing.dir);
+        }
+    }
+
     /// Connect with what the quickconnect bar holds, or say what is wrong.
     /// Focus moves to the remote list so the prompts of the connection (host
     /// key, password) can open: they wait while a text field has focus.
@@ -538,6 +720,11 @@ impl MainScreen {
         }
     }
 
+    /// The quickconnect bar (history, T33).
+    pub(crate) fn quickconnect_mut(&mut self) -> &mut Quickconnect {
+        &mut self.quickconnect
+    }
+
     /// Show `text` in the status bar for a few seconds.
     pub(crate) fn flash(&mut self, text: impl Into<String>) {
         self.status.flash(text, Instant::now());
@@ -545,8 +732,11 @@ impl MainScreen {
 
     /// A connection to `server` is being opened in the remote pane.
     pub(crate) fn remote_connecting(&mut self, server: String) {
+        self.end_sync();
+        self.end_compare();
         self.status.session = None;
         self.remote.connecting(server);
+        self.remote_tree.reset();
     }
 
     /// The remote pane's connection is up: show its first listing and its
@@ -557,19 +747,347 @@ impl MainScreen {
         let result: Result<Listing, String> = Ok(connected.listing.clone());
         let error = self.remote.listing_loaded(&result);
         self.outbox.extend(error);
+        self.remote_tree.reset();
+        self.remote_tree.set_active(true);
+        self.list_shown(Side::Remote, &connected.listing, true);
     }
 
     /// The remote pane is not connected (any more); `error` says why a
     /// connection failed.
     pub(crate) fn remote_disconnected(&mut self, error: Option<String>) {
+        self.end_sync();
+        self.end_compare();
         self.status.session = None;
         self.remote.disconnected(error);
+        self.remote_tree.reset();
     }
 
     pub(crate) fn pane_mut(&mut self, side: Side) -> &mut FileList {
         match side {
             Side::Local => &mut self.local,
             Side::Remote => &mut self.remote,
+        }
+    }
+
+    fn pane(&self, side: Side) -> &FileList {
+        match side {
+            Side::Local => &self.local,
+            Side::Remote => &self.remote,
+        }
+    }
+
+    /// A directory as the user knows it (native on the local side).
+    fn show_dir(side: Side, dir: &RemotePath) -> String {
+        match side {
+            Side::Local => display_native(dir),
+            Side::Remote => dir.to_string(),
+        }
+    }
+
+    // --- T66: synchronized browsing and directory comparison ---
+
+    /// After every action and key: keep the comparison current and both
+    /// cursors on the same row.
+    fn after_change(&mut self) {
+        self.refresh_compare();
+        self.lockstep();
+    }
+
+    /// Settings of the site or bookmark just connected: turn synchronized
+    /// browsing and/or directory comparison on; `case_sensitive` is how
+    /// names match ([`courier_ftp_core::compare::names_case_sensitive`]).
+    pub(crate) fn connected_view(&mut self, sync: bool, compare: bool, case_sensitive: bool) {
+        self.compare_opts.case_sensitive_names = case_sensitive;
+        if let Some(state) = &mut self.compare {
+            state.built_from = None;
+        }
+        if compare {
+            self.start_compare();
+        } else if sync {
+            self.start_sync();
+        }
+        self.after_change();
+    }
+
+    /// Turn synchronized browsing on from the directories shown now.
+    fn start_sync(&mut self) -> bool {
+        match (&self.local.dir, &self.remote.dir) {
+            (Some(local), Some(remote)) => {
+                self.sync = Some(SyncBase {
+                    local: local.clone(),
+                    remote: remote.clone(),
+                });
+                true
+            }
+            _ => {
+                self.status.flash(
+                    "Synchronized browsing needs a directory on both sides",
+                    Instant::now(),
+                );
+                false
+            }
+        }
+    }
+
+    /// Turn synchronized browsing off. A directory change waiting for the
+    /// other side goes ahead; one waiting for an answer is dropped.
+    fn end_sync(&mut self) {
+        self.sync = None;
+        if let Some(nav) = self.sync_nav.take() {
+            if nav.stage == NavStage::Following {
+                self.outbox.push(nav.held);
+            } else {
+                self.pane_mut(nav.lead).cancel_pending();
+            }
+        }
+    }
+
+    /// Turn directory comparison on (and synchronized browsing with it, as
+    /// FileZilla does).
+    fn start_compare(&mut self) {
+        if self.local.dir.is_none() || self.remote.dir.is_none() {
+            self.status.flash(
+                "Directory comparison needs a directory on both sides",
+                Instant::now(),
+            );
+            return;
+        }
+        if self.sync.is_none() {
+            self.start_sync();
+        }
+        self.compare = Some(CompareState::default());
+        self.compare_warned = false;
+    }
+
+    fn end_compare(&mut self) {
+        if self.compare.take().is_some() {
+            self.local.set_comparison(None);
+            self.remote.set_comparison(None);
+        }
+    }
+
+    /// Rebuild the comparison when either pane's entries changed.
+    fn refresh_compare(&mut self) {
+        let Some(state) = self.compare.as_mut() else {
+            return;
+        };
+        if self.local.dir.is_none() || self.remote.dir.is_none() {
+            self.end_compare();
+            return;
+        }
+        if !state.stale(&self.local, &self.remote) {
+            return;
+        }
+        let differ = state.rebuild(&mut self.local, &mut self.remote, &self.compare_opts);
+        if differ && !self.compare_warned {
+            self.compare_warned = true;
+            let (modal, _) = message(
+                "Directory comparison",
+                "The two sides are filtered differently (filters or hidden files). \
+                 Entries hidden on one side show as missing there.",
+            );
+            self.modals.push(modal);
+        }
+    }
+
+    /// While comparing, the other list's cursor follows the focused one.
+    fn lockstep(&mut self) {
+        if self.compare.is_none() {
+            return;
+        }
+        let lead = match self.focus {
+            Region::RemoteList | Region::RemoteTree => Side::Remote,
+            _ => Side::Local,
+        };
+        let position = self.pane(lead).position();
+        self.pane_mut(other(lead)).set_position(position);
+    }
+
+    /// "Select all yellow/green/red rows on this side".
+    fn select_by_status(&mut self, highlight: Highlight) {
+        let Some(side) = self.focused_list().map(|l| l.side) else {
+            return;
+        };
+        let Some(state) = &self.compare else {
+            self.status
+                .flash("Directory comparison is off", Instant::now());
+            return;
+        };
+        let visible = state.listing.indices(side, |h| h == highlight);
+        let pane = self.pane_mut(side);
+        let indices: Vec<usize> = visible
+            .into_iter()
+            .filter_map(|i| pane.entry_index(i))
+            .collect();
+        let added = pane.select_indices(&indices);
+        let what = match highlight {
+            Highlight::Lonely => "only on this side",
+            Highlight::Newer => "newer",
+            _ => "different",
+        };
+        self.status.flash(
+            format!(
+                "Selected {added} {} {what}",
+                if added == 1 { "entry" } else { "entries" }
+            ),
+            Instant::now(),
+        );
+    }
+
+    /// A pane wants to change directory while synchronized browsing is on:
+    /// the other pane goes to the corresponding directory first, then this
+    /// one follows ([`MainScreen::followed`]).
+    fn sync_navigate(&mut self, action: Action) {
+        let Action::ListDir {
+            side: lead, dir, ..
+        } = &action
+        else {
+            self.outbox.push(action);
+            return;
+        };
+        let (lead, dir) = (*lead, dir.clone());
+        if self.sync_nav.is_some() {
+            self.pane_mut(lead).cancel_pending();
+            self.status
+                .flash("Waiting for the other side", Instant::now());
+            return;
+        }
+        let Some(target) = self.sync.as_ref().and_then(|b| b.map(lead, &dir)) else {
+            let (modal, rx) = confirm(
+                "Synchronized browsing",
+                &format!(
+                    "{} is outside the synchronized directories.\n\n\
+                     Turn synchronized browsing off and go there?",
+                    Self::show_dir(lead, &dir)
+                ),
+                false,
+            );
+            self.modals.push(modal);
+            self.answer_later(async move {
+                if matches!(rx.await, Ok(true)) {
+                    SyncChoice::Disable
+                } else {
+                    SyncChoice::Stay
+                }
+            });
+            self.sync_nav = Some(SyncNav {
+                lead,
+                held: action,
+                target: None,
+                stage: NavStage::AskLeave,
+            });
+            return;
+        };
+        match self.pane_mut(other(lead)).go_to(target.clone()) {
+            Some(Effect::Action(follow)) => {
+                self.outbox.push(follow);
+                self.sync_nav = Some(SyncNav {
+                    lead,
+                    held: action,
+                    target: Some(target),
+                    stage: NavStage::Following,
+                });
+            }
+            Some(Effect::Modal(m)) => self.modals.push(m),
+            // Already there.
+            None => self.outbox.push(action),
+        }
+    }
+
+    /// Send the answer of a sync browsing question as [`Action::SyncAnswer`].
+    fn answer_later(&self, answer: impl std::future::Future<Output = SyncChoice> + Send + 'static) {
+        if let Some(tx) = self.action_tx.clone() {
+            tokio::spawn(async move {
+                let _ = tx.send(Action::SyncAnswer(answer.await));
+            });
+        }
+    }
+
+    /// The other pane's listing of the sync browsing target arrived.
+    fn followed(&mut self, side: Side, result: &Result<Listing, String>) {
+        let Some(mut nav) = self.sync_nav.take() else {
+            return;
+        };
+        let first = self.pane(side).dir.is_none();
+        // A failure is reported by the question below, not the log.
+        let _ = self.pane_mut(side).listing_loaded(result);
+        match result {
+            Ok(listing) => {
+                self.list_shown(side, listing, first);
+                self.outbox.push(nav.held);
+            }
+            Err(e) => {
+                self.pane_mut(side).clear_error();
+                let target = nav
+                    .target
+                    .as_ref()
+                    .map(|t| Self::show_dir(side, t))
+                    .unwrap_or_default();
+                let (modal, rx) = ask(
+                    "Synchronized browsing",
+                    &format!("Target directory does not exist on the other side:\n{target}\n({e})"),
+                    &["Create it", "Disable sync browsing", "Stay"],
+                    2,
+                );
+                self.modals.push(modal);
+                self.answer_later(async move {
+                    match rx.await {
+                        Ok(Some(0)) => SyncChoice::Create,
+                        Ok(Some(1)) => SyncChoice::Disable,
+                        _ => SyncChoice::Stay,
+                    }
+                });
+                nav.stage = NavStage::AskMissing;
+                self.sync_nav = Some(nav);
+            }
+        }
+    }
+
+    fn sync_answer(&mut self, choice: SyncChoice) {
+        let Some(mut nav) = self.sync_nav.take() else {
+            return;
+        };
+        match (choice, nav.target.clone()) {
+            (SyncChoice::Create, Some(dir)) if nav.stage == NavStage::AskMissing => {
+                self.outbox.push(Action::MakeDir {
+                    side: other(nav.lead),
+                    dir,
+                });
+                nav.stage = NavStage::Creating;
+                self.sync_nav = Some(nav);
+            }
+            (SyncChoice::Disable, _) => {
+                self.sync = None;
+                self.outbox.push(nav.held);
+                self.status
+                    .flash("Synchronized browsing off", Instant::now());
+            }
+            _ => self.pane_mut(nav.lead).cancel_pending(),
+        }
+    }
+
+    /// "Create it" finished: list the new directory, then follow.
+    fn dir_made(&mut self, side: Side, dir: &RemotePath, result: &Result<(), String>) {
+        let Some(mut nav) = self
+            .sync_nav
+            .take_if(|n| n.stage == NavStage::Creating && side == other(n.lead))
+        else {
+            return;
+        };
+        match result {
+            Ok(()) => match self.pane_mut(side).go_to(dir.clone()) {
+                Some(Effect::Action(follow)) => {
+                    self.outbox.push(follow);
+                    nav.stage = NavStage::Following;
+                    self.sync_nav = Some(nav);
+                }
+                _ => self.outbox.push(nav.held),
+            },
+            Err(e) => {
+                self.pane_mut(nav.lead).cancel_pending();
+                self.outbox
+                    .push(Action::Error(format!("{}: {e}", Self::show_dir(side, dir))));
+            }
         }
     }
 
@@ -663,6 +1181,11 @@ impl MainScreen {
         }
         self.last = r;
         self.status.filters_active = self.local.is_filtered() || self.remote.is_filtered();
+        self.refresh_compare();
+        self.status.sync_browsing = self.sync.is_some();
+        self.status.compare = self.compare.is_some();
+        self.local.synced = self.sync.is_some();
+        self.remote.synced = self.sync.is_some();
         let theme = &self.theme;
         let f = self.focus;
         if let Some(a) = r.quickconnect {
@@ -675,19 +1198,23 @@ impl MainScreen {
         if let Some(a) = r.log {
             self.log.draw(frame, a, f == Region::Log, theme);
         }
-        for (tree, region) in [
-            (r.local_tree, Region::LocalTree),
-            (r.remote_tree, Region::RemoteTree),
+        for (area, side, region) in [
+            (r.local_tree, Side::Local, Region::LocalTree),
+            (r.remote_tree, Side::Remote, Region::RemoteTree),
         ] {
-            if let Some(a) = tree {
-                let focused = f == region;
-                frame.render_widget(
-                    ratatui::widgets::Paragraph::new("(directory tree: T54)")
-                        .style(theme.dim)
-                        .block(panes::block(" Tree ", focused, theme)),
-                    a,
-                );
+            let Some(a) = area else {
+                continue;
+            };
+            let (list, tree) = match side {
+                Side::Local => (&self.local, &mut self.local_tree),
+                Side::Remote => (&self.remote, &mut self.remote_tree),
+            };
+            tree.set_show_hidden(list.show_hidden());
+            // Only trees on screen list anything (lazy loading).
+            for dir in tree.take_requests() {
+                self.outbox.push(Action::TreeListDir { side, dir });
             }
+            tree.draw(frame, a, f == region, self.tick, theme);
         }
         if let Some(a) = r.local_list {
             self.local

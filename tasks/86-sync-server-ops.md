@@ -37,6 +37,19 @@ Make the server easy to self-host and operate.
 - [ ] Image builds for amd64 and arm64 in CI.
 - [ ] Self-hosting doc followed from scratch works (manual check recorded).
 
+*Status: everything here is written but none of the Docker parts could be run
+locally (no Docker daemon access). Verified locally: config parsing
+(`tests/config.rs`), the CLI grammar (`cli` unit tests), `healthcheck` as a
+subcommand of the real binary against an in-process server
+(`tests/ops.rs`), `/metrics`, `/healthz`, `/readyz` (503 without a database).
+Unverified until CI runs: `deploy/Dockerfile.server` and the compose stack
+(CI job `server-docker`: build, compose up, `/healthz`, `/readyz`, setup token
+in the logs, healthcheck in the container, non-root user), the amd64 + arm64
+image (CD job `image`, smoke-tested per architecture, pushed only on tags),
+the static server binaries in the release archives, and the admin
+operations on PostgreSQL (`admin_operations_pg`, CI `server-db`). The
+from-scratch walk-through with a real client needs T87/T88.*
+
 ## Tests
 
 - Config parsing tests; container smoke test in CI.

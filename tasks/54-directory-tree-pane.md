@@ -20,9 +20,19 @@ FileZilla's upper panes, synced with the file list.
 
 ## Acceptance criteria
 
-- [ ] Tree stays consistent after create/delete/rename (cache events, T46).
-- [ ] Expanding a large directory doesn't block rendering.
-- [ ] Snapshot tests for collapsed/expanded/loading states.
+- [x] Tree stays consistent after create/delete/rename (cache events, T46).
+- [x] Expanding a large directory doesn't block rendering.
+- [x] Snapshot tests for collapsed/expanded/loading states.
+
+**Status (T54 done):** the tree lives in `crates/courier-ftp/src/ui/dir_tree.rs`
+(the binary has a `ui` module, not `components/`). `Ctrl-e` shows/hides the trees
+(off by default, always shown in the Explorer layout), `T` moves focus between a
+file list and its tree. Listings run in background tasks through the listing
+cache and only for trees on screen; rows are rebuilt when data changes and only
+visible rows are drawn. `CoreEvent::ListingUpdated` (cache patches) reloads the
+affected node; the file operations that patch the cache from the UI come with
+T62. The Windows Home/Desktop shortcuts are built and unit tested on Linux
+(`DirTree::with_shortcuts`) but not yet run on Windows.
 
 ## Tests
 

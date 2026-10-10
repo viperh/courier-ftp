@@ -13,14 +13,33 @@ rust-version.workspace = true
 [dependencies]
 courier-ftp-core = { workspace = true }
 
+# `Backend` impl (T14), `CertTrustStore` (T12).
+async-trait = { workspace = true }
+# Site charsets other than UTF-8 for commands (T10).
+encoding_rs = { workspace = true }
+# FTPS (T12, D9): rustls with the ring provider, OS trust roots through
+# rustls-platform-verifier, certificate details for the trust prompt.
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+secrecy = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
+x509-parser = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
+courier-ftp-core = { workspace = true, features = ["test-util"] }
+# Self-signed certificates for the fake FTPS server (T12).
+rcgen = { workspace = true }
 insta = { workspace = true }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

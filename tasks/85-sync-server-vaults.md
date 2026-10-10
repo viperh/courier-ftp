@@ -45,11 +45,18 @@ optimistic concurrency, and notify connected devices.
 
 ## Acceptance criteria
 
-- [ ] Concurrent pushes from two devices get gap-free revisions and correct conflicts.
-- [ ] Pull pagination returns every change exactly once.
-- [ ] `410` after GC below the client's cursor.
-- [ ] WS notification reaches another connected device within 1 s (two replicas test).
-- [ ] Quota enforced.
+- [x] Concurrent pushes from two devices get gap-free revisions and correct conflicts.
+- [x] Pull pagination returns every change exactly once.
+- [x] `410` after GC below the client's cursor.
+- [x] WS notification reaches another connected device within 1 s (two replicas test).
+- [x] Quota enforced.
+
+*Status: all verified against the in-memory store with an in-process server
+over HTTP/WebSocket (`tests/sync.rs`, `tests/ws.rs`). The PostgreSQL twins
+(`*_pg`, incl. two replicas over real `LISTEN/NOTIFY`) run in CI's
+`server-db` job and were not run locally. `POST /v1/vaults` (team vault
+creation), members and the rotation endpoints are T89; the `rotation`
+column, `409 rotating` and `items_rotation_staging` exist already.*
 
 ## Tests
 

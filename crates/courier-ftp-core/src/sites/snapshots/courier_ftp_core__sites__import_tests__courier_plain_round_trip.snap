@@ -1,0 +1,9 @@
+---
+source: crates/courier-ftp-core/src/sites/import_tests.rs
+expression: text
+---
+[Work]
+  keyed | Sftp/None keyed.example.com:22 | ask k | type=Auto tz=0 mode=Default conns=None charset=auto proxy_bypass=false color=None local=None remote=None sync=false cmp=false comments=""
+  web01 | Sftp/None web01.example.com:2222 | ask deploy | type=Auto tz=-60 mode=Default conns=None charset=auto proxy_bypass=false color=Green local=Some("/home/me/web") remote=Some("/var/www") sync=true cmp=false comments="comment"
+    * logs local=Some("/home/me/logs") remote=Some("/var/log") sync=false cmp=false
+ftp | Ftp/Some(RequireExplicit) ftp.example.org:21 | ask acct | type=Auto tz=0 mode=Active conns=Some(3) charset=windows-1252 proxy_bypass=false color=None local=None remote=None sync=false cmp=false comments=""

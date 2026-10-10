@@ -52,6 +52,9 @@ exceptions = [
     # Mozilla's CA certificate list as data (rustls / sqlx / hyper-rustls roots):
     # a permissive data license, no obligations for the binary.
     { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+    # Same CA list as DER certificates, via rustls-platform-verifier (FTPS, T12;
+    # only used on targets without an OS trust store).
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
 ]
 
 [licenses.private]

@@ -57,6 +57,9 @@ pub(crate) enum Action {
     SiteManager,
     /// Re-list the directories shown in both panes.
     Refresh,
+    /// Show the raw listing (LIST/MLSD text, SFTP long names) of the focused
+    /// pane's directory (T71).
+    ShowRawListing,
     NewTab,
     CloseTab,
     NextTab,
@@ -72,8 +75,17 @@ pub(crate) enum Action {
     Tab9,
     /// Synchronized browsing on/off (T66).
     ToggleSyncBrowsing,
-    /// Directory comparison on/off (T66).
+    /// Directory comparison on/off (T66). Also turns synchronized browsing on.
     ToggleCompare,
+    /// Directory comparison options: by size or time, threshold, hide
+    /// identical files (T66).
+    CompareOptions,
+    /// While comparing, select the entries only on this side (yellow).
+    SelectCompareLonely,
+    /// While comparing, select the newer files on this side (green).
+    SelectCompareNewer,
+    /// While comparing, select the files whose size differs (red).
+    SelectCompareDifferent,
     /// Search (T65).
     Search,
     /// Bookmarks menu (T64).
@@ -117,6 +129,9 @@ pub(crate) enum Action {
     FocusLog,
     FocusQueue,
     FocusQuickconnect,
+    /// Move focus between a file list and the directory tree of the same
+    /// side, showing the trees when they are hidden (T54).
+    FocusTree,
 
     // --- file list, log and queue navigation (T53/T55/T56) ---
     CursorDown,
@@ -168,6 +183,10 @@ pub(crate) enum Action {
     SearchPrev,
     /// Copy the selected lines to the clipboard (OSC 52).
     CopySelection,
+    /// Copy the whole log (as the filters show it) to the clipboard (T71).
+    CopyLog,
+    /// Save the log (as the filters show it) to a file (T71).
+    SaveLog,
     ClearLog,
     /// Wrap long lines on/off.
     ToggleWrap,
@@ -200,6 +219,19 @@ pub(crate) enum Action {
         dir: courier_ftp_core::model::RemotePath,
         force: bool,
     },
+    /// List a directory for a side's directory tree (through the cache).
+    #[serde(skip)]
+    TreeListDir {
+        side: Side,
+        dir: courier_ftp_core::model::RemotePath,
+    },
+    /// A listing asked for by [`Action::TreeListDir`] finished.
+    #[serde(skip)]
+    TreeListingLoaded {
+        side: Side,
+        dir: courier_ftp_core::model::RemotePath,
+        result: Result<Listing, String>,
+    },
     /// Select (or deselect) the entries matching a glob.
     #[serde(skip)]
     ApplyPattern {
@@ -213,9 +245,37 @@ pub(crate) enum Action {
         side: Side,
         columns: Vec<courier_ftp_core::settings::Column>,
     },
+    /// New directory comparison options (from the options dialog).
+    #[serde(skip)]
+    SetCompareOptions(Box<courier_ftp_core::compare::CompareOpts>),
+    /// The answer to a synchronized browsing question.
+    #[serde(skip)]
+    SyncAnswer(SyncChoice),
+    /// Create a directory (synchronized browsing's "create it").
+    #[serde(skip)]
+    MakeDir {
+        side: Side,
+        dir: RemotePath,
+    },
+    /// A directory asked for by [`Action::MakeDir`] was created (or not).
+    #[serde(skip)]
+    DirMade {
+        side: Side,
+        dir: RemotePath,
+        result: Result<(), String>,
+    },
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),
+    /// Ask where to save this log text (T71).
+    #[serde(skip)]
+    SaveLogText(String),
+    /// "Save log as…" finished.
+    #[serde(skip)]
+    LogSaved {
+        path: std::path::PathBuf,
+        result: Result<(), String>,
+    },
     /// A directory listing finished in the background.
     #[serde(skip)]
     ListingLoaded {
@@ -229,19 +289,45 @@ pub(crate) enum Action {
         request: Box<ConnectRequest>,
         replace: bool,
     },
+    /// Open the quickconnect history (the bar's `[▾]`, T33).
+    #[serde(skip)]
+    QuickconnectHistory,
+    /// A quickconnect history entry was picked: fill the bar and connect.
+    #[serde(skip)]
+    HistoryPicked(Box<ConnectRequest>),
+    /// "Clear history" was picked in the quickconnect history.
+    #[serde(skip)]
+    ClearHistory,
+    /// The quickconnect history was (re)loaded from the vault.
+    #[serde(skip)]
+    HistoryLoaded(Vec<crate::ui::HistoryItem>),
     /// A connection attempt started by [`Action::Connect`] finished.
     #[serde(skip)]
     Connected {
         session: SessionId,
         result: Result<Box<Connected>, String>,
     },
-    /// A remote listing finished; dropped when `session` is no longer the
+    /// A remote listing of `dir` finished, for the file list or (with
+    /// `tree`) the directory tree; dropped when `session` is no longer the
     /// current connection.
     #[serde(skip)]
     RemoteListingLoaded {
         session: SessionId,
+        dir: RemotePath,
+        tree: bool,
         result: Result<Listing, String>,
     },
+}
+
+/// What the user chose when synchronized browsing asked (T66).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncChoice {
+    /// Create the missing directory on the other side and go on.
+    Create,
+    /// Turn synchronized browsing off and go on in this pane only.
+    Disable,
+    /// Don't change directory.
+    Stay,
 }
 
 /// What to connect to, from the quickconnect bar.
@@ -250,6 +336,10 @@ pub(crate) struct ConnectRequest {
     pub(crate) info: ConnectInfo,
     /// The directory to open instead of the home directory.
     pub(crate) path: Option<RemotePath>,
+    /// Turn synchronized browsing on once connected (site setting, bookmark).
+    pub(crate) sync_browsing: bool,
+    /// Turn directory comparison on once connected (site setting, bookmark).
+    pub(crate) compare: bool,
 }
 
 impl ConnectRequest {

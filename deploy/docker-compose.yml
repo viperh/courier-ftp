@@ -1,0 +1,62 @@
+# courier-ftp-server + PostgreSQL 16.
+#
+#   export COURIER_SERVER_SECRET="$(openssl rand -base64 48)"   # keep a copy!
+#   export COURIER_PUBLIC_URL=https://sync.example.com
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   docker compose -f deploy/docker-compose.yml logs courier-ftp-server | grep setup_token
+#
+# BACKUPS: back up the `pgdata` volume AND COURIER_SERVER_SECRET together.
+# The secret decrypts the OPAQUE server setup stored in the database; losing
+# either one invalidates every login (vault data stays safe because it is
+# end-to-end encrypted, but every user has to set up sync again). See
+# docs/self-hosting.md.
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: courier
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-courier}
+      POSTGRES_DB: courier
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U courier -d courier"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  courier-ftp-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    image: courier-ftp-server:local
+    restart: unless-stopped
+    # `--migrate` applies pending migrations on start; drop it if you prefer
+    # to run `courier-ftp-server migrate` by hand after taking a backup.
+    command: ["serve", "--migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://courier:${POSTGRES_PASSWORD:-courier}@postgres:5432/courier
+      COURIER_BIND: 0.0.0.0:8080
+      COURIER_PUBLIC_URL: ${COURIER_PUBLIC_URL:-http://localhost:8080}
+      COURIER_SERVER_SECRET: ${COURIER_SERVER_SECRET:?set COURIER_SERVER_SECRET (openssl rand -base64 48) and back it up with the database}
+      COURIER_METRICS_TOKEN: ${COURIER_METRICS_TOKEN:-}
+      COURIER_STORAGE_QUOTA_MIB: ${COURIER_STORAGE_QUOTA_MIB:-100}
+      COURIER_TRUSTED_PROXIES: ${COURIER_TRUSTED_PROXIES:-}
+      COURIER_LOG_FORMAT: json
+      # Optional mail (invites, recovery codes):
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    ports:
+      - "8080:8080"
+
+volumes:
+  # Back this up together with COURIER_SERVER_SECRET.
+  pgdata:

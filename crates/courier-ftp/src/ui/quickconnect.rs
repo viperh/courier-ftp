@@ -8,14 +8,17 @@
 //! does: 22 is SFTP, 990 implicit FTPS, anything else FTP with explicit TLS
 //! if available.
 //!
-//! The history dropdown needs the vault-backed history (T33); until then it
-//! is not shown.
+//! The `[▾]` button opens the connection history (T33, kept in the vault):
+//! the last ten logins, most recent first, and "Clear history". While the
+//! vault is locked the history is neither shown nor saved; the button then
+//! says so.
 
 use std::str::FromStr;
 
 use courier_ftp_core::{
     backend::ConnectInfo,
-    model::{LogonType, Protocol, ServerAddress, ServerUrl},
+    model::{LogonType, Protocol, ServerAddress, ServerUrl, item::ItemId},
+    sites::HistoryEntry,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -41,15 +44,53 @@ pub(crate) enum Part {
     Pass,
     Port,
     Connect,
+    History,
 }
 
-const PARTS: [Part; 5] = [
+const PARTS: [Part; 6] = [
     Part::Host,
     Part::User,
     Part::Pass,
     Part::Port,
     Part::Connect,
+    Part::History,
 ];
+
+/// One entry of the history dropdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HistoryItem {
+    /// The `history-entry` item.
+    pub(crate) id: ItemId,
+    /// `sftp://alice@host:2222` (never the password).
+    pub(crate) label: String,
+    /// What selecting it connects to (with the stored password, if any).
+    pub(crate) request: ConnectRequest,
+}
+
+impl HistoryItem {
+    pub(crate) fn new(entry: &HistoryEntry) -> Self {
+        let a = entry.address();
+        let mut label = format!("{}://", a.protocol.scheme());
+        if let Some(user) = &a.user {
+            label.push_str(user);
+            label.push('@');
+        }
+        label.push_str(&bracket(&a.host));
+        if a.port != a.default_port() {
+            label.push_str(&format!(":{}", a.port));
+        }
+        Self {
+            id: entry.id,
+            label,
+            request: ConnectRequest {
+                info: entry.to_connect_info(),
+                path: None,
+                sync_browsing: false,
+                compare: false,
+            },
+        }
+    }
+}
 
 /// What the bar did with a key.
 #[derive(Debug, PartialEq, Eq)]
@@ -58,6 +99,8 @@ pub(crate) enum QuickKey {
     Consumed,
     /// `Enter`: connect with the current fields.
     Submit,
+    /// `Enter` on `[▾]`: open the history.
+    History,
     /// Not for the bar; look it up in the keymap (`Esc`, `F1`, `Ctrl-q`…).
     NotHandled,
 }
@@ -69,6 +112,10 @@ pub(crate) struct Quickconnect {
     pass: TextInput,
     port: TextInput,
     focus: Part,
+    /// The history (T33); `None` while the vault is locked.
+    history: Option<Vec<HistoryItem>>,
+    /// Draw `▾` (else `v`).
+    unicode: bool,
 }
 
 impl Default for Quickconnect {
@@ -85,7 +132,25 @@ impl Quickconnect {
             pass: TextInput::password("Pass"),
             port: TextInput::new("Port").with_max_len(5),
             focus: Part::Host,
+            history: None,
+            unicode: true,
         }
+    }
+
+    /// Use ASCII symbols when `unicode` is off (`interface.unicode_symbols`).
+    pub(crate) fn with_unicode(mut self, unicode: bool) -> Self {
+        self.unicode = unicode;
+        self
+    }
+
+    /// The history entries (`None`: the vault is locked).
+    pub(crate) fn history(&self) -> Option<&[HistoryItem]> {
+        self.history.as_deref()
+    }
+
+    /// Replace the history (`None` when the vault locks).
+    pub(crate) fn set_history(&mut self, history: Option<Vec<HistoryItem>>) {
+        self.history = history;
     }
 
     #[cfg(test)]
@@ -104,7 +169,7 @@ impl Quickconnect {
             Part::User => Some(&mut self.user),
             Part::Pass => Some(&mut self.pass),
             Part::Port => Some(&mut self.port),
-            Part::Connect => None,
+            Part::Connect | Part::History => None,
         }
     }
 
@@ -131,6 +196,9 @@ impl Quickconnect {
             KeyCode::BackTab => {
                 self.move_focus(false);
                 return QuickKey::Consumed;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Down if self.focus == Part::History => {
+                return QuickKey::History;
             }
             KeyCode::Enter => return QuickKey::Submit,
             KeyCode::Char(' ') if self.focus == Part::Connect => return QuickKey::Submit,
@@ -167,7 +235,6 @@ impl Quickconnect {
 
     /// Fill the fields from a request (history, reconnect). The password
     /// field is filled only when the request has one.
-    #[cfg_attr(not(test), expect(dead_code, reason = "history selection (T33)"))]
     pub(crate) fn fill(&mut self, request: &ConnectRequest) {
         let a = &request.info.address;
         let mut host = format!("{}://{}", a.protocol.scheme(), bracket(&a.host));
@@ -256,6 +323,8 @@ impl Quickconnect {
         Ok(ConnectRequest {
             info: ConnectInfo::new(address, logon),
             path: url.path,
+            sync_browsing: false,
+            compare: false,
         })
     }
 
@@ -282,6 +351,7 @@ impl Quickconnect {
             port,
             _,
             button,
+            history,
         ] = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -298,6 +368,7 @@ impl Quickconnect {
                 Constraint::Length(6),
                 Constraint::Length(1),
                 Constraint::Length(9),
+                Constraint::Length(4),
             ])
             .areas(row);
         let parts = [
@@ -331,6 +402,21 @@ impl Quickconnect {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled("[Connect]", style))),
             button,
+        );
+        let style = if focused && self.focus == Part::History {
+            theme.selection
+        } else if self.history.is_some() {
+            theme.key_hint
+        } else {
+            // Locked vault: the button only explains why there's no history.
+            theme.dim
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                if self.unicode { " [▾]" } else { " [v]" },
+                style,
+            ))),
+            history,
         );
     }
 }
@@ -508,10 +594,19 @@ mod tests {
             Part::Pass,
             Part::Port,
             Part::Connect,
+            Part::History,
             Part::Host,
         ] {
             tab(&mut q);
             assert_eq!(q.focus(), want);
+        }
+        q.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+        assert_eq!(q.focus(), Part::History);
+        for code in [KeyCode::Enter, KeyCode::Char(' '), KeyCode::Down] {
+            assert_eq!(
+                q.handle_key(KeyEvent::new(code, KeyModifiers::NONE)),
+                QuickKey::History
+            );
         }
         q.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
         assert_eq!(q.focus(), Part::Connect);

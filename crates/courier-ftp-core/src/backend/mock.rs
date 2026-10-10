@@ -5,11 +5,12 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
+    future::Future,
     io,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard},
     task::{Context, Poll},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -45,6 +46,22 @@ struct State {
     connects: u32,
     keepalives: u32,
     calls: u32,
+    /// Artificial delay before every operation (T41 tests).
+    latency: Duration,
+    /// Streams move at most `.0` bytes per poll, each after a `.1` delay.
+    stream_pace: Option<(usize, Duration)>,
+    /// The next streams opened fail with this error kind after this many
+    /// bytes.
+    stream_faults: VecDeque<(u64, io::ErrorKind)>,
+    /// `connect` fails with `421 Too many connections` at this many open
+    /// connections.
+    max_connections: Option<u32>,
+    open_connections: u32,
+    peak_connections: u32,
+    open_streams: u32,
+    peak_streams: u32,
+    read_offsets: Vec<u64>,
+    write_modes: Vec<WriteMode>,
 }
 
 /// A shared in-memory "server". Clone it freely; clones share the tree.
@@ -147,6 +164,157 @@ impl MockServer {
     pub fn calls(&self) -> u32 {
         self.lock().calls
     }
+
+    /// Wait `latency` before every operation (including `connect`).
+    pub fn set_latency(&self, latency: Duration) -> &Self {
+        self.lock().latency = latency;
+        self
+    }
+
+    /// Make streams slow: at most `chunk` bytes per read or write, each after
+    /// waiting `delay` (tokio time, so `tokio::time::pause` applies).
+    pub fn set_stream_pace(&self, chunk: usize, delay: Duration) -> &Self {
+        self.lock().stream_pace = Some((chunk.max(1), delay));
+        self
+    }
+
+    /// Make the next stream opened (read or write) fail with `kind` once
+    /// `after` bytes went through it.
+    pub fn fail_stream_after(&self, after: u64, kind: io::ErrorKind) -> &Self {
+        self.lock().stream_faults.push_back((after, kind));
+        self
+    }
+
+    /// Refuse connections beyond `max` open ones with
+    /// `421 Too many connections`.
+    pub fn set_max_connections(&self, max: u32) -> &Self {
+        self.lock().max_connections = Some(max);
+        self
+    }
+
+    /// Connections open right now.
+    pub fn open_connections(&self) -> u32 {
+        self.lock().open_connections
+    }
+
+    /// The most connections that were open at once.
+    pub fn peak_connections(&self) -> u32 {
+        self.lock().peak_connections
+    }
+
+    /// Streams open right now.
+    pub fn open_streams(&self) -> u32 {
+        self.lock().open_streams
+    }
+
+    /// The most streams that were open at once.
+    pub fn peak_streams(&self) -> u32 {
+        self.lock().peak_streams
+    }
+
+    /// The offset of every `open_read`, in order.
+    pub fn read_offsets(&self) -> Vec<u64> {
+        self.lock().read_offsets.clone()
+    }
+
+    /// The mode of every `open_write`, in order.
+    pub fn write_modes(&self) -> Vec<WriteMode> {
+        self.lock().write_modes.clone()
+    }
+
+    async fn delay(&self) {
+        let latency = self.lock().latency;
+        if !latency.is_zero() {
+            tokio::time::sleep(latency).await;
+        }
+    }
+
+    /// Counts a new stream and returns its pacing and fault.
+    fn open_stream(&self) -> StreamGauge {
+        let mut st = self.lock();
+        st.open_streams += 1;
+        st.peak_streams = st.peak_streams.max(st.open_streams);
+        StreamGauge {
+            server: self.clone(),
+            pace: st.stream_pace,
+            fault: st.stream_faults.pop_front(),
+            sleep: None,
+        }
+    }
+}
+
+/// Pacing, fault injection and the open-stream count of one mock stream.
+struct StreamGauge {
+    server: MockServer,
+    pace: Option<(usize, Duration)>,
+    fault: Option<(u64, io::ErrorKind)>,
+    sleep: Option<Pin<Box<tokio::time::Sleep>>>,
+}
+
+impl StreamGauge {
+    /// How many bytes may move now at position `pos` (wanting `want`), or an
+    /// error / pending.
+    fn admit(&mut self, cx: &mut Context<'_>, pos: u64, want: usize) -> Poll<io::Result<usize>> {
+        if let Some((at, kind)) = self.fault
+            && pos >= at
+        {
+            return Poll::Ready(Err(io::Error::from(kind)));
+        }
+        let mut n = want;
+        if let Some((chunk, delay)) = self.pace {
+            if !delay.is_zero() {
+                let sleep = self
+                    .sleep
+                    .get_or_insert_with(|| Box::pin(tokio::time::sleep(delay)));
+                if sleep.as_mut().poll(cx).is_pending() {
+                    return Poll::Pending;
+                }
+                self.sleep = None;
+            }
+            n = n.min(chunk);
+        }
+        if let Some((at, _)) = self.fault {
+            n = n.min(usize::try_from(at - pos).unwrap_or(usize::MAX));
+        }
+        Poll::Ready(Ok(n))
+    }
+}
+
+impl Drop for StreamGauge {
+    fn drop(&mut self) {
+        let mut st = self.server.lock();
+        st.open_streams = st.open_streams.saturating_sub(1);
+    }
+}
+
+/// Serves a file's bytes with the server's pacing and faults.
+struct MockReader {
+    data: Vec<u8>,
+    pos: usize,
+    gauge: StreamGauge,
+}
+
+impl tokio::io::AsyncRead for MockReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = &mut *self;
+        let left = this.data.len().saturating_sub(this.pos);
+        if left == 0 || buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        let want = left.min(buf.remaining());
+        let n = match this.gauge.admit(cx, this.pos as u64, want) {
+            Poll::Ready(Ok(n)) => n,
+            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+            Poll::Pending => return Poll::Pending,
+        };
+        buf.put_slice(&this.data[this.pos..this.pos + n]);
+        this.pos += n;
+        Poll::Ready(Ok(()))
+    }
 }
 
 impl BackendFactory for MockServer {
@@ -204,10 +372,25 @@ impl MockBackend {
         if let Some(err) = st.fail_next.pop_front() {
             if matches!(err, Error::Connection(_)) {
                 self.connected = false;
+                st.open_connections = st.open_connections.saturating_sub(1);
             }
             return Err(err);
         }
         Ok(st)
+    }
+
+    fn mark_disconnected(&mut self) {
+        if self.connected {
+            self.connected = false;
+            let mut st = self.server.lock();
+            st.open_connections = st.open_connections.saturating_sub(1);
+        }
+    }
+}
+
+impl Drop for MockBackend {
+    fn drop(&mut self) {
+        self.mark_disconnected();
     }
 }
 
@@ -248,17 +431,29 @@ impl Backend for MockBackend {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
+        self.server.delay().await;
         let mut st = self.server.lock();
         st.connects += 1;
         if let Some(err) = st.fail_connect.pop_front() {
             return Err(err);
         }
+        if self.connected {
+            return Ok(());
+        }
+        if st
+            .max_connections
+            .is_some_and(|max| st.open_connections >= max)
+        {
+            return Err(Error::reply(421, "Too many connections from this IP"));
+        }
+        st.open_connections += 1;
+        st.peak_connections = st.peak_connections.max(st.open_connections);
         self.connected = true;
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
-        self.connected = false;
+        self.mark_disconnected();
         Ok(())
     }
 
@@ -272,6 +467,7 @@ impl Backend for MockBackend {
     }
 
     async fn list(&mut self, dir: &RemotePath, cancel: CancellationToken) -> Result<Listing> {
+        self.server.delay().await;
         let st = self.begin()?;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
@@ -281,21 +477,31 @@ impl Backend for MockBackend {
             Some(_) => return Err(Error::InvalidInput(format!("{dir} is not a directory"))),
             None => return Err(not_found(dir)),
         }
-        let entries = st
+        let children: Vec<(&str, &Node)> = st
             .nodes
             .iter()
             .filter(|(p, _)| p.parent().as_ref() == Some(dir))
-            .filter_map(|(p, n)| p.file_name().map(|name| n.entry(name)))
+            .filter_map(|(p, n)| p.file_name().map(|name| (name, n)))
             .collect();
+        // An MLSD-style raw listing, for the "show raw listing" diagnostic.
+        let raw = children
+            .iter()
+            .map(|(name, n)| {
+                let kind = if n.is_dir { "dir" } else { "file" };
+                format!("type={kind};size={}; {name}\r\n", n.data.len())
+            })
+            .collect::<String>();
+        let entries = children.iter().map(|(name, n)| n.entry(name)).collect();
         Ok(Listing {
             dir: dir.clone(),
             entries,
             fetched_at: Instant::now(),
-            raw: None,
+            raw: Some(raw),
         })
     }
 
     async fn stat(&mut self, path: &RemotePath) -> Result<Entry> {
+        self.server.delay().await;
         let st = self.begin()?;
         let node = st.nodes.get(path).ok_or_else(|| not_found(path))?;
         Ok(node.entry(path.file_name().unwrap_or("/")))
@@ -386,7 +592,9 @@ impl Backend for MockBackend {
         offset: u64,
         _opts: &TransferOpts,
     ) -> Result<ReadStream> {
-        let st = self.begin()?;
+        self.server.delay().await;
+        let mut st = self.begin()?;
+        st.read_offsets.push(offset);
         let node = st.nodes.get(path).ok_or_else(|| not_found(path))?;
         if node.is_dir {
             return Err(Error::InvalidInput(format!("{path} is a directory")));
@@ -394,7 +602,13 @@ impl Backend for MockBackend {
         let start = usize::try_from(offset)
             .unwrap_or(usize::MAX)
             .min(node.data.len());
-        Ok(Box::new(io::Cursor::new(node.data[start..].to_vec())))
+        let data = node.data[start..].to_vec();
+        drop(st);
+        Ok(Box::new(MockReader {
+            data,
+            pos: 0,
+            gauge: self.server.open_stream(),
+        }))
     }
 
     async fn open_write(
@@ -403,7 +617,9 @@ impl Backend for MockBackend {
         mode: WriteMode,
         _opts: &TransferOpts,
     ) -> Result<WriteStream> {
+        self.server.delay().await;
         let mut st = self.begin()?;
+        st.write_modes.push(mode);
         parent_must_be_dir(&st, path)?;
         let existing = st.nodes.get(path);
         if existing.is_some_and(|n| n.is_dir) {
@@ -421,10 +637,13 @@ impl Backend for MockBackend {
         Ok(Box::new(MockWriter {
             server: self.server.clone(),
             path: path.clone(),
+            written: 0,
+            gauge: self.server.open_stream(),
         }))
     }
 
     async fn finish_transfer(&mut self) -> Result<()> {
+        self.server.delay().await;
         drop(self.begin()?);
         Ok(())
     }
@@ -448,19 +667,31 @@ impl Backend for MockBackend {
 struct MockWriter {
     server: MockServer,
     path: RemotePath,
+    written: u64,
+    gauge: StreamGauge,
 }
 
 impl AsyncWrite for MockWriter {
     fn poll_write(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let mut st = self.server.lock();
-        match st.nodes.get_mut(&self.path) {
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+        let this = &mut *self;
+        let n = match this.gauge.admit(cx, this.written, buf.len()) {
+            Poll::Ready(Ok(n)) => n,
+            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+            Poll::Pending => return Poll::Pending,
+        };
+        let mut st = this.server.lock();
+        match st.nodes.get_mut(&this.path) {
             Some(node) => {
-                node.data.extend_from_slice(buf);
-                Poll::Ready(Ok(buf.len()))
+                node.data.extend_from_slice(&buf[..n]);
+                this.written += n as u64;
+                Poll::Ready(Ok(n))
             }
             None => Poll::Ready(Err(io::Error::from(io::ErrorKind::NotFound))),
         }

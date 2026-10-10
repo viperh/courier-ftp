@@ -22,6 +22,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-b>` | Bookmarks |
 | `<Ctrl-x><c>` | ClearLog |
 | `<Ctrl-w>` | CloseTab |
+| `<Ctrl-x><o>` | CompareOptions |
 | `<F5>` | Copy |
 | `<Ctrl-x><t>` | CycleTransferType |
 | `<Delete>` | Delete |
@@ -52,6 +53,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-f>` | Search |
 | `<Ctrl-x><i>` | ServerInfo |
 | `<F9>` | Settings |
+| `<Ctrl-x><s>` | ShowRawListing |
 | `<Ctrl-s>` | SiteManager |
 | `<Ctrl-z>` | Suspend |
 | `<Alt-1>` | Tab1 |
@@ -93,6 +95,7 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<minus>` | DeselectPattern |
 | `<e>` | Edit |
 | `<a>` | EditAddress |
+| `<T>` | FocusTree |
 | `<Ctrl-d>` | HalfPageDown |
 | `<Ctrl-u>` | HalfPageUp |
 | `<Alt-Left>` | HistoryBack |
@@ -111,6 +114,9 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<h>` | ParentDir |
 | `</>` | QuickFilter |
 | `<Ctrl-a>` | SelectAll |
+| `<m><r>` | SelectCompareDifferent |
+| `<m><y>` | SelectCompareLonely |
+| `<m><g>` | SelectCompareNewer |
 | `<+>` | SelectPattern |
 | `<s><m>` | SortModified |
 | `<s><n>` | SortName |
@@ -164,6 +170,7 @@ When the message log has focus.
 | `<End>` | Bottom |
 | `<G>` | Bottom |
 | `<c>` | ClearLog |
+| `<Y>` | CopyLog |
 | `<y>` | CopySelection |
 | `<Down>` | CursorDown |
 | `<j>` | CursorDown |
@@ -174,6 +181,7 @@ When the message log has focus.
 | `<PageDown>` | PageDown |
 | `<PageUp>` | PageUp |
 | `</>` | QuickFilter |
+| `<S>` | SaveLog |
 | `<Left>` | ScrollLeft |
 | `<h>` | ScrollLeft |
 | `<Right>` | ScrollRight |

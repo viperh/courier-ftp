@@ -11,7 +11,9 @@
 //! - [`password`]: master-password strength (zxcvbn ≥ 3);
 //! - [`keyring`]: the OS keyring seam ([`KeyringStore`], [`MemKeyring`]);
 //! - [`items`]: [`ItemVault`] for the site model, bookmarks, history, trust;
+//! - [`device_blobs`]: [`DeviceBlobVault`] for device-local blobs (the queue, T40);
 //! - [`host_keys`]: the vault-backed [`HostKeyStore`](crate::trust::HostKeyStore);
+//! - [`certs`]: the vault-backed [`CertTrustStore`](crate::trust::CertTrustStore);
 //! - [`backup`]: the `.cftp-backup` file format (T73).
 //!
 //! # Key hierarchy
@@ -20,6 +22,7 @@
 //! master password ──Argon2id(meta.kdf)──▶ KEK ──wrap(Lmk)──▶ LMK   (meta.lmk_wrapped_pw)
 //! OS keyring KEK (optional, per device) ──wrap(Lmk)──▶ LMK         (meta.lmk_wrapped_keyring)
 //! LMK ──wrap(VaultKey(id))──▶ VK (vaults.wrapped_key)
+//! LMK ──wrap(Device)──▶ device key (meta.device_key_wrapped) ──▶ device blobs
 //! VK  ──HKDF(item id)──▶ item key ──▶ item envelope (items.envelope)
 //! ```
 //!
@@ -27,6 +30,8 @@
 //! verifier is stored. The engine never contacts a sync server to unlock.
 
 pub mod backup;
+pub mod certs;
+pub mod device_blobs;
 pub mod host_keys;
 pub mod items;
 pub mod keyring;
@@ -42,6 +47,10 @@ use std::time::Duration;
 
 use zeroize::Zeroize;
 
+pub use self::certs::VaultCertTrustStore;
+#[cfg(any(test, feature = "test-util"))]
+pub use self::device_blobs::MemDeviceBlobs;
+pub use self::device_blobs::{DeviceBlobVault, blob_id};
 pub use self::error::VaultError;
 pub use self::host_keys::VaultHostKeyStore;
 pub use self::items::{ItemEdit, ItemVault, ItemVaultExt, ItemWrite, VaultItem};

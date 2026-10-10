@@ -1,0 +1,30 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "events": [
+    {
+      "id": 99,
+      "kind": "member.added",
+      "actor": "01900000-0000-7000-8000-000000000001",
+      "target": "01900000-0000-7000-8000-000000000008",
+      "at": "2026-10-10T12:34:56.5Z",
+      "meta": {
+        "role": "member"
+      }
+    },
+    {
+      "id": 98,
+      "kind": "vault.rotated",
+      "actor": "01900000-0000-7000-8000-000000000001",
+      "target": "01900000-0000-7000-8000-000000000006",
+      "at": "2026-10-10T12:00:00Z",
+      "meta": {
+        "items": 12,
+        "key_version": 3
+      }
+    }
+  ],
+  "next_before": 98
+}
