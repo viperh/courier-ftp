@@ -1,0 +1,22 @@
+[package]
+name = "courier-ftp-proto"
+description = "Wire types of the courier-ftp sync protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Shared by the client (courier-ftp-sync) and the server; no UI, no storage.
+[dependencies]
+courier-ftp-crypto = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[lints]
+workspace = true

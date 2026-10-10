@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp/src/ui/dialog/tests.rs
+expression: "{\n    let mut term = Terminal::new(TestBackend::new(50, 8)).unwrap(); let theme\n    = theme(); term.draw(|f| t.draw(f, f.area(), &theme)).unwrap(); term\n}.backend()"
+---
+" General   Advanced                               "
+"                                                  "
+"Host  ]                                           "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"               [ OK ]  [ Cancel ]                 "

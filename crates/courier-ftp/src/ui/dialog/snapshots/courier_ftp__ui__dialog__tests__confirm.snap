@@ -1,0 +1,16 @@
+---
+source: crates/courier-ftp/src/ui/dialog/tests.rs
+expression: "draw_modal(&mut *m, 60, 12).backend()"
+---
+"                                                            "
+"                                                            "
+"                                                            "
+" ┌ Delete ────────────────────────────────────────────────┐ "
+" │Delete 3 files?                                         │ "
+" │This cannot be undone.                                  │ "
+" │                                                        │ "
+" │                    [ Yes ]  [ No ]                     │ "
+" └────────────────────────────────────────────────────────┘ "
+"                                                            "
+"                                                            "
+"                                                            "

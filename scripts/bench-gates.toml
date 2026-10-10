@@ -1,0 +1,25 @@
+# Hard gates for courier-ftp's performance targets, read by
+# `scripts/bench-gate.py gate`. `bench` is criterion's `group/function` directory.
+# The `min_*`/`max_*` value is for the reference machine (`--local`); CI runners get
+# 2x (half the throughput, twice the time). Regressions in every bench are caught by
+# `bench-gate.py compare` (> 15%).
+#
+# Each task adds its gate when its benchmark lands (T00 §4):
+#   T13   listing parser throughput         e.g. listing_parse/unix_10k   min_mb_s
+#   T53   file list render, 100k entries    e.g. file_list_render/100k    max_ms
+#   T80   envelope seal/open, Argon2 unlock (informational, no gate)
+#   T81   merge                             e.g. merge/10k                max_ms
+#   T41   transfer engine scheduling        e.g. scheduler/10k_items      max_ms
+#   T41b  segmented transfer planning       e.g. segments/plan_4g         max_ms
+#
+# Example:
+#   [[gate]]
+#   bench = "listing_parse/unix_10k"
+#   min_mb_s = 100
+#   ci_min_mb_s = 50
+
+# T47: 10 000 entries filtered with 10 regex filters in < 10 ms.
+[[gate]]
+bench = "filter/10k_entries_10_regex"
+max_ms = 10
+ci_max_ms = 20

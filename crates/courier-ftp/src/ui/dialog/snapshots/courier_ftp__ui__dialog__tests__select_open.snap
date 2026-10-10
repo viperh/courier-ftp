@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp/src/ui/dialog/tests.rs
+expression: "draw_form(&form, 40, 8).backend()"
+---
+"Protocol  FTPS ▾                        "
+"          ┌──────────────────┐          "
+"          │FTP               │          "
+"          │FTPS              │          "
+"          │SFTP              │          "
+"          └──────────────────┘          "
+"                                        "
+"                                        "

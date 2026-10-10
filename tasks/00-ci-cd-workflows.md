@@ -104,7 +104,7 @@ canary secrets (prefixes and where to keep test homes), `unsafe`, fuzzing, gener
 - [ ] Nightly fuzz and bench workflows run (manual dispatch tested).
 - [ ] A `workflow_dispatch` dry run of `cd.yml` produces all artifacts, SBOM and checksums, and the reproducibility checks pass.
 - [ ] Scripts have self-tests that run in CI.
-- [ ] `CONTRIBUTING.md` documents every check and how to run it locally.
+- [x] `CONTRIBUTING.md` documents every check and how to run it locally.
 
 ## Tests
 

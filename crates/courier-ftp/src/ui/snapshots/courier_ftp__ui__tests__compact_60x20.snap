@@ -1,0 +1,24 @@
+---
+source: crates/courier-ftp/src/ui/tests.rs
+expression: t.backend()
+---
+"Small terminal: one pane at a time, Tab switches            "
+"┌ Local:  ─────────────────────────────────────────────────┐"
+"│  Name▲                              Size Modified        │"
+"│  assets/                                                 │"
+"│  index.html                      4.0 KiB                 │"
+"│  style.css                         900 B                 │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│2 files and 1 directory. Total size: 4.9 KiB              │"
+"└──────────────────────────────────────────────────────────┘"
+" — │ Auto │ ⇅ limit off │ Queue: empty                      "

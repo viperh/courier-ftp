@@ -38,11 +38,11 @@ operations.
 
 ## Acceptance criteria
 
-- [ ] Every condition and operator tested.
-- [ ] Match modes All/Any/None/Not-all correct.
-- [ ] Applies-to Files/Dirs respected.
-- [ ] Built-in filters present on first run and restorable.
-- [ ] 10 000 entries filtered with 10 regex filters in < 10 ms.
+- [x] Every condition and operator tested.
+- [x] Match modes All/Any/None/Not-all correct.
+- [x] Applies-to Files/Dirs respected.
+- [x] Built-in filters present on first run and restorable.
+- [x] 10 000 entries filtered with 10 regex filters in < 10 ms.
 
 ## Tests
 

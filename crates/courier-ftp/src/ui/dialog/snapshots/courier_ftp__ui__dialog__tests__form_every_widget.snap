@@ -1,0 +1,20 @@
+---
+source: crates/courier-ftp/src/ui/dialog/tests.rs
+expression: "draw_form(&form, 60, 16).backend()"
+---
+"Host           example.com                                  "
+"User           anonymous                                    "
+"Password       •                                            "
+"Port           22                                           "
+"Protocol       SFTP ▾                                       "
+"Transfer       (•) Passive  ( ) Active                      "
+"Save password  [x]                                          "
+"Owner read     [-]                                          "
+"Recent         > one                                        "
+"                 two                                        "
+"                 three                                      "
+"                                                            "
+"                    [ OK ]  [ Cancel ]                      "
+"                                                            "
+"                                                            "
+"                                                            "

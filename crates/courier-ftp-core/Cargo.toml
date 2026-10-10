@@ -10,10 +10,36 @@ rust-version.workspace = true
 
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
 # Everything here should be testable without a terminal.
+[features]
+# MockBackend / MockServer for other crates' tests (T03).
+test-util = []
+
 [dependencies]
+async-trait = { workspace = true }
+encoding_rs = { workspace = true }
+fs4 = { workspace = true }
+regex = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+uzers = { workspace = true }
+
 [dev-dependencies]
+criterion = { workspace = true }
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+[[bench]]
+name = "filters"
+harness = false
+
+[lints]
+workspace = true

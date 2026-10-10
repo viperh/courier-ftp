@@ -1,0 +1,91 @@
+name: Fuzz (nightly)
+
+# T00/T91: every fuzz target runs for 10 minutes each night (or `seconds` on a manual
+# run), starting from the seed corpus (fixtures) plus the corpus kept from earlier
+# runs. Crashes are uploaded as artifacts and fail the job. The target list is read
+# from `cargo fuzz list`, so a new target needs no change here. Until the first
+# target exists (T13 / T91) the matrix is empty and only `targets` runs.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: "600"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  targets:
+    name: List fuzz targets
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - id: list
+        name: Targets from fuzz/Cargo.toml
+        run: |
+          if [[ -f fuzz/Cargo.toml ]]; then
+            targets="$(python3 -c 'import json, tomllib; print(json.dumps([b["name"] for b in tomllib.load(open("fuzz/Cargo.toml", "rb")).get("bin", [])]))')"
+          else
+            targets='[]'
+          fi
+          echo "fuzz targets: $targets"
+          echo "targets=$targets" >>"$GITHUB_OUTPUT"
+
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    needs: targets
+    if: needs.targets.outputs.targets != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.targets.outputs.targets) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Restore the corpus of earlier runs
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Seed corpus
+        run: fuzz/seed-corpus.sh
+      - name: Run ${{ matrix.target }}
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '600' }}
+        run: >-
+          cargo +nightly fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }}
+          fuzz/corpus/${{ matrix.target }}
+          -- -max_total_time=${SECONDS_PER_TARGET} -rss_limit_mb=2048 -timeout=10
+      - name: Minimize the corpus
+        if: success()
+        run: cargo +nightly fuzz cmin --target x86_64-unknown-linux-gnu ${{ matrix.target }} fuzz/corpus/${{ matrix.target }}
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore

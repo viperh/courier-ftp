@@ -1,6 +1,6 @@
 # T51 — Keybindings (hybrid)
 
-**Phase:** F TUI · **Depends on:** T50 · **Crate:** `courier-ftp` (`.config/config.json`, `config.rs`, `action.rs`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (keyboard shortcuts)
+**Phase:** F TUI · **Depends on:** T50 · **Crate:** `courier-ftp` (`crates/courier-ftp/config/default.json`, `config.rs`, `action.rs`) · **Decisions:** D6, D7 · **FEATURES.md:** §3 (keyboard shortcuts)
 **Related (integrates with, not blocking):** T59, T62, T63, T64, T65, T68, T77
 
 ## Goal
@@ -34,7 +34,7 @@ fully rebindable through the existing config system.
 | `Ctrl-o` | Toggle directory comparison |
 | `Ctrl-f` | Search (T65) |
 | `Ctrl-b` | Bookmarks menu (T64) |
-| `Ctrl-d` | Disconnect current tab |
+| `Ctrl-x d` | Disconnect current tab (`Ctrl-d` is half-page down in file lists) |
 | `Ctrl-p` | Process queue (start/stop) |
 | `Ctrl-l` | Toggle message log |
 | `Ctrl-j` | Toggle queue pane |
@@ -78,7 +78,7 @@ fully rebindable through the existing config system.
 ## Scope
 
 1. Extend `Action` enum with every action above (named, serialisable, documented). Remove `Help` duplication.
-2. Update `.config/config.json` with the defaults, organised by `Mode` (Normal/FileList/Queue/Log/Input/Dialog/Filter). Context-specific bindings require mode refinement from T50.
+2. Update `crates/courier-ftp/config/default.json` with the defaults, organised by `Mode` (Normal/FileList/Queue/Log/Input/Dialog/Filter). Context-specific bindings require mode refinement from T50.
 3. Key-parser additions in `config.rs`: function keys `<F1>`…`<F12>` with modifiers, `<Space>`, `<Insert>`, `<Delete>`, `<Backspace>`, `<Tab>`/`<BackTab>`, punctuation keys. Fix `parse_key_sequence(..).unwrap()` → proper error naming the bad key string.
 4. **Multi-key sequences** (`gg`, `gt`, `yu`, `s n`): the current template clears pending keys on each tick (`last_tick_key_events`), which breaks slow typing. Replace with a timeout (default 1 s, configurable) and show pending keys in the status bar (like vim's showcmd).
 5. **Conflict detection** at load: two actions bound to the same sequence in the same mode, or a prefix of another sequence that is also bound → log a warning naming both.
@@ -88,10 +88,10 @@ fully rebindable through the existing config system.
 ## Acceptance criteria
 
 - [ ] Every action reachable by keyboard in xterm, tmux, Windows Terminal (manual checklist).
-- [ ] Sequences work with up to 1 s between keys.
-- [ ] Bad key strings in user config produce a readable error, not a panic.
-- [ ] Conflicts are reported.
-- [ ] `Ctrl-d` conflict resolved and documented.
+- [x] Sequences work with up to 1 s between keys.
+- [x] Bad key strings in user config produce a readable error, not a panic.
+- [x] Conflicts are reported.
+- [x] `Ctrl-d` conflict resolved and documented.
 
 ## Tests
 

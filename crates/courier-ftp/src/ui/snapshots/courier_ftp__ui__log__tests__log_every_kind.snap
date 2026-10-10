@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp/src/ui/log.rs
+expression: t.backend()
+---
+"┌ Message log ─────────────────────────────────────────────────────────────────┐"
+"│12:34:56  Status:   Connecting to 203.0.113.5:21...                           │"
+"│12:34:56  Response: 220 Welcome                                               │"
+"│12:34:56  Command:  USER alice                                                │"
+"│12:34:56  Command:  PASS ****                                                 │"
+"│12:34:56  Error:    530 Login incorrect.                                      │"
+"│12:34:56  Trace:    using EPSV                                                │"
+"│12:34:56  Listing:  drwxr-xr-x 2 alice users 4096 Jan 05 2021 www             │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

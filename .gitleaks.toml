@@ -1,0 +1,9 @@
+# Gitleaks / compatible scanners. Test fixtures contain TEST-ONLY private keys and
+# certificates (tests/keys/ for T20, tests/fixtures/*/keys/ for the T76 e2e
+# servers); they protect nothing.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "test-only fixture keys"
+paths = ['''^tests/keys/''', '''^tests/fixtures/[^/]+/keys/''']

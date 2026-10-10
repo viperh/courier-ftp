@@ -1,26 +1,39 @@
 name: CI # Continuous Integration
 
+# T00: the same job set as sverb, adapted to courier-ftp's crates. Jobs that need
+# code which doesn't exist yet are switched on by the task that adds it:
+#
+#   e2e fixture images   T14/T20/T22 (vsftpd, ProFTPD, Pure-FTPd, OpenSSH; the
+#                        e2e job below already runs the container tests)
+#   server-db            T84  (Postgres tests of courier-ftp-server)
+#   server-docker        T86  (deploy/docker-compose.yml, /healthz, non-root image)
+#   vet                  T91  (supply-chain/, check-vet-crypto.py)
+#   fuzz                 T91  (fuzz/ workspace; first target lands with T13)
+#   canary --require-files and the server dump: T91 (canary fixture) and T84
+#   nix                  optional, only if a flake is added
+
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
 
 jobs:
 
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run tests
-        run: cargo test --locked --all-features --workspace
-
-  rustfmt:
+  fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +43,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all --check
 
@@ -40,13 +52,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # vergen-gix (crates/courier-ftp/build.rs) needs history and tags
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy check
-        run: cargo clippy --all-targets --all-features --workspace -- -D warnings
+      - name: Clippy (all features)
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Clippy (local-only build, no sync)
+        run: cargo clippy -p courier-ftp --all-targets --no-default-features --locked -- -D warnings
 
   docs:
     name: Docs
@@ -54,10 +70,234 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check documentation
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --document-private-items --all-features --workspace
+        run: cargo doc --no-deps --document-private-items --all-features --workspace --locked
+
+  bench-build:
+    name: Benchmarks compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build benchmarks
+        run: cargo bench --workspace --no-run --locked
+      - name: Gate script self-test
+        run: python3 scripts/bench-gate.py self-test
+
+  test-local-only:
+    name: Test (local-only build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests without default features
+        env:
+          COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home # `runner` is only available at step level
+        run: >-
+          cargo test --workspace --no-default-features --locked
+          --exclude courier-ftp-sync --exclude courier-ftp-server --exclude courier-ftp-e2e
+
+  # Our addition (sverb has no Windows/macOS test job): the local filesystem
+  # backend, paths and terminal suspend are OS-specific.
+  test-os:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        env:
+          COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home
+        run: cargo test --workspace --locked --exclude courier-ftp-server --exclude courier-ftp-e2e
+
+  # The Docker e2e suite (T76). Required check. Container tests are
+  # `#[ignore]`d and opted into with COURIER_E2E=1; `require_docker!` fails
+  # (instead of skipping) when Docker is missing on CI. Fixture images are
+  # built here with layer caching as T14/T20/T22 add them.
+  e2e:
+    name: E2E (docker)
+    runs-on: ubuntu-latest
+    env:
+      COURIER_E2E: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Docker info
+        run: docker info
+      - name: Run e2e tests
+        run: cargo test -p courier-ftp-e2e --locked --no-fail-fast -- --include-ignored --test-threads=4
+      - name: Leftover containers
+        if: failure()
+        run: docker ps -a
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Check advisories, bans, licenses and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+          arguments: --all-features --locked
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install stable toolchain (for cargo metadata)
+        uses: dtolnay/rust-toolchain@stable
+      # The MSRV lives only in `[workspace.package] rust-version`; read it from there.
+      - name: Read rust-version
+        id: msrv
+        run: |
+          msrv="$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq -r '[.packages[].rust_version // empty] | unique
+                     | if length == 1 then .[0]
+                       else error("workspace crates disagree on rust-version: \(.)") end')"
+          echo "MSRV is $msrv"
+          echo "version=$msrv" >> "$GITHUB_OUTPUT"
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-${{ steps.msrv.outputs.version }}
+      # `+toolchain` overrides rust-toolchain.toml (channel = "stable").
+      - name: Check on MSRV
+        run: cargo +${{ steps.msrv.outputs.version }} check --workspace --all-features --locked
+
+  layering:
+    name: Crate layering
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Workspace metadata and layering test
+        run: cargo test -p courier-ftp-e2e --test workspace_metadata --locked
+      # Independent second implementation of the same rules, over the
+      # all-features and local-only (no-default-features) graphs.
+      - name: Check dependency direction (script)
+        run: python3 scripts/check-layering.py
+
+  unsafe-check:
+    name: unsafe confinement
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: allow(unsafe_code) only in the allowed modules
+        run: python3 scripts/check-unsafe.py
+
+  # Every temp dir kept under one root, then a scan of all logs, crash reports,
+  # SQLite files and backups for the planted canaries (CONTRIBUTING.md,
+  # "Canary secrets").
+  canary:
+    name: Canary scan
+    runs-on: ubuntu-latest
+    env:
+      COURIER_FTP_LOG_LEVEL: trace
+      COURIER_FTP_KEYRING: "off"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Scanner self-test
+        run: scripts/canary-scan.sh --self-test
+      - name: Prepare the artifact root
+        run: mkdir -p "$RUNNER_TEMP/canary/tmp" "$RUNNER_TEMP/canary/home"
+      - name: Run the test suite at trace level
+        env:
+          TMPDIR: ${{ runner.temp }}/canary/tmp
+          COURIER_FTP_HOME: ${{ runner.temp }}/canary/home
+        run: cargo test --workspace --all-features --locked --no-fail-fast
+      # `--require-files` is added by T91 with the end-to-end canary fixture; until
+      # then the suite may write no artifacts at all.
+      - name: Scan for canaries
+        if: always()
+        run: >-
+          scripts/canary-scan.sh
+          target/tmp "$RUNNER_TEMP/canary/tmp" "$RUNNER_TEMP/canary/home"
+
+  # Release tooling that needs no secrets (the full release dry run is
+  # `workflow_dispatch` of cd.yml).
+  packaging:
+    name: Packaging files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Channel files update (self-test)
+        run: python3 scripts/update-packaging.py --self-test
+      - name: Syntax of the channel files
+        run: |
+          bash -n packaging/aur/courier-ftp/PKGBUILD
+          bash -n packaging/aur/courier-ftp-bin/PKGBUILD
+          ruby -c packaging/homebrew/courier-ftp.rb
+          jq -e . packaging/scoop/courier-ftp.json >/dev/null
+      - name: Archives are reproducible
+        run: |
+          export COURIER_FTP_HOME="$RUNNER_TEMP/home"
+          cargo build --locked -p courier-ftp
+          mkdir -p assets/man assets/completions
+          target/debug/courier-ftp generate man --out-dir assets/man
+          target/debug/courier-ftp generate completions bash >assets/completions/courier-ftp.bash
+          for i in 1 2; do
+            scripts/release-package.sh courier-ftp 0.0.0 linux-x86_64 target/debug/courier-ftp "out$i" assets
+          done
+          cmp out1/courier-ftp-0.0.0-linux-x86_64.tar.gz out2/courier-ftp-0.0.0-linux-x86_64.tar.gz
+          (cd out1 && sha256sum -c ./*.sha256)
+      - name: crates package (cargo install courier-ftp)
+        run: cargo package --workspace --exclude courier-ftp-e2e --locked

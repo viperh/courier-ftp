@@ -54,11 +54,11 @@ pane layout, focus handling, event bridging from core, and layout options.
 
 ## Acceptance criteria
 
-- [ ] Three layouts render correctly at 80×24, 120×40, 200×60 (insta snapshot tests with `ratatui::backend::TestBackend`).
-- [ ] Focus cycling and modal routing work as described.
-- [ ] Core events reach the UI without blocking rendering (spinner animates during a slow mock listing).
-- [ ] `NO_COLOR` honoured.
-- [ ] Help overlay lists bindings from config.
+- [x] Three layouts render correctly at 80×24, 120×40, 200×60 (insta snapshot tests with `ratatui::backend::TestBackend`).
+- [x] Focus cycling and modal routing work as described.
+- [x] Core events reach the UI without blocking rendering (spinner animates during a slow mock listing).
+- [x] `NO_COLOR` honoured.
+- [x] Help overlay lists bindings from config.
 
 ## Tests
 

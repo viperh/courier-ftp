@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp/src/ui/dialog/tests.rs
+expression: "draw_form(&f, 50, 9).backend()"
+---
+"Host                                              "
+"               required                           "
+"Port           21                                 "
+"Password                                          "
+"Save password  [x]                                "
+"                                                  "
+"               [ OK ]  [ Cancel ]                 "
+"Please fix the marked field.                      "
+"                                                  "

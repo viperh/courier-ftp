@@ -1,0 +1,18 @@
+---
+source: crates/courier-ftp/src/ui/file_list/tests.rs
+expression: "render(&mut l, 120, 14).backend()"
+---
+"┌ Remote: /var/www ────────────────────────────────────────────────────────────────────────────────────────────────────┐"
+"│  Name▲                                                Size Type           Modified         Perms      Owner          │"
+"│  ..                                                                                                                  │"
+"│  assets/                                                   Directory      2026-10-08 18:22 drwxr-xr-x alice www      │"
+"│  current/ → releases/42                                    Link (dir)     2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│  .htaccess                                            64 B File           2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│  file2.log                                             2 B Text file      2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│  file10.log                                           10 B Text file      2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│  index.html                                        4.0 KiB HTML file      2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│  notes.txt                                           120 B Text file      2021-01-05       -rw-r--r-- alice www      │"
+"│  style.css                                           900 B CSS file       2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│                                                                                                                      │"
+"│6 files and 2 directories. Total size: 5.1 KiB                                                                        │"
+"└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"

@@ -1,0 +1,4 @@
+# Tests may unwrap/expect (tasks/README.md: "Tests are exempt").
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-dbg-in-tests = false

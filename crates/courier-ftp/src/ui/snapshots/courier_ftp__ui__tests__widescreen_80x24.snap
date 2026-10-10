@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/ui/tests.rs
+expression: terminal.backend()
+---
+"┌ Quickconnect ────────────────────────────────────────────────────────────────┐"
+"│Host: ________   User: ________   Pass: ________   Port: ________   [Connect] │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+" Tabs: [1 local]                                                                "
+"┌ Local:  ─────────────┐┌ Remote: not connected┐┌ Message log ─────────────────┐"
+"│  Name▲               ││Not connected to any s││Status:   Connecting to exampl│"
+"│  assets/             ││Ctrl-s: Site Manager ·││Response: 230 Login successful│"
+"│  index.html          ││                      ││                              │"
+"│  style.css           ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│                      ││                      │└──────────────────────────────┘"
+"│                      ││                      │┌ Queue (0) · Failed (0) · Succ┐"
+"│                      ││                      ││The queue is empty.           │"
+"│                      ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│                      ││                      ││                              │"
+"│2 files and 1 director││                      ││                              │"
+"└──────────────────────┘└──────────────────────┘└──────────────────────────────┘"
+" — │ Auto │ ⇅ limit off │ Queue: empty                                          "

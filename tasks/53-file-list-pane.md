@@ -32,10 +32,10 @@ editable address bar, used for both local and remote sides.
 
 ## Acceptance criteria
 
-- [ ] Snapshot tests: local listing, remote listing, filtered, selection, empty dir, error, not connected, narrow terminal.
-- [ ] Sorting/natural sort unit-tested.
-- [ ] Cursor restored on parent navigation.
-- [ ] 100k entries: render < 5 ms per frame (bench test).
+- [x] Snapshot tests: local listing, remote listing, filtered, selection, empty dir, error, not connected, narrow terminal.
+- [x] Sorting/natural sort unit-tested.
+- [x] Cursor restored on parent navigation.
+- [x] 100k entries: render < 5 ms per frame (bench test).
 
 ## Tests
 

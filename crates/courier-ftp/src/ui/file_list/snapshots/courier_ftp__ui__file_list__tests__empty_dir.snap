@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp/src/ui/file_list/tests.rs
+expression: t.backend()
+---
+"┌ Remote: /var/www/empty ──────────────────────────────────────────────────────┐"
+"│  Name▲                        Size Type           Modified         Perms     │"
+"│  ..                                                                          │"
+"│(empty)                                                                       │"
+"│                                                                              │"
+"│                                                                              │"
+"│0 files and 0 directories. Total size: 0 B                                    │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

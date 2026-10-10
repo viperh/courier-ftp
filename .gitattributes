@@ -1,0 +1,6 @@
+# Generated and compared files keep LF endings on every platform (Windows CI
+# checks out with core.autocrlf=true otherwise).
+*.md   text eol=lf
+*.snap text eol=lf
+*.json text eol=lf
+*.sh   text eol=lf
