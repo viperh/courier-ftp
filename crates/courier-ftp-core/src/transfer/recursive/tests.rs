@@ -1030,6 +1030,55 @@ async fn expander_lists_one_level_with_filters() {
     assert!(!tmp.path().join("only").exists());
 }
 
+/// T67: "Apply filters to transfers" off makes recursive transfers ignore
+/// the filters the panes use.
+#[tokio::test]
+async fn expander_follows_apply_filters_to_transfers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let server = mock_tree();
+    let mut remote = connected(&server).await;
+    let mut local = LocalBackend::new();
+    let cancel = CancellationToken::new();
+    local.connect(cancel.clone()).await.unwrap();
+    let mut s = settings();
+    s.filters.filters.push(Filter {
+        name: "logs".into(),
+        applies_to: AppliesTo::Both,
+        match_mode: MatchMode::All,
+        case_sensitive: false,
+        conditions: vec![Condition::Name {
+            op: StringOp::EndsWith,
+            value: ".log".into(),
+        }],
+        scope: FilterScope::Both,
+    });
+    s.filters.sets[0].enabled_remote = vec!["logs".into()];
+    let expander = RecursiveExpander::new(&s);
+    let top = || {
+        queued(dir_placeholder(
+            quick(),
+            Direction::Download,
+            LocalPath::new(tmp.path().join("dl")),
+            p("/r/tree"),
+        ))
+    };
+    let got = expander
+        .expand(&top(), &mut remote, &mut local, &cancel)
+        .await
+        .unwrap();
+    assert_eq!(names(&got), ["a.txt", "empty/", "sub/"]);
+    s.filters.apply_to_transfers = false;
+    expander.apply_settings(&s);
+    let got = expander
+        .expand(&top(), &mut remote, &mut local, &cancel)
+        .await
+        .unwrap();
+    assert_eq!(
+        names(&got),
+        ["a.txt", "b.log", "empty/", "logs.log/", "sub/"]
+    );
+}
+
 #[tokio::test]
 async fn expander_uploads_create_remote_dirs() {
     let tmp = tempfile::tempdir().unwrap();

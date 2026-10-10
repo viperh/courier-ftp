@@ -6,6 +6,7 @@ pub(crate) mod dialog;
 mod dir_tree;
 mod file_exists;
 mod file_list;
+mod filters;
 mod focus;
 mod layout;
 mod log;

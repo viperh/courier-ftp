@@ -77,6 +77,8 @@ pub(crate) struct App {
     site_snapshot: Option<Snapshot>,
     /// Session log file and raw listings (T71).
     diag: crate::diagnostics::Diagnostics,
+    /// Where `config.json` is saved (empty in tests: nothing is saved).
+    config_dir: std::path::PathBuf,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -245,6 +247,7 @@ impl App {
             sites: Arc::new(tokio::sync::Mutex::new(None)),
             site_snapshot: None,
             diag: crate::diagnostics::Diagnostics::new(offset),
+            config_dir: config.config.config_dir.clone(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -535,6 +538,10 @@ impl App {
                 self.events_tx.log(self.local_session, kind, text.clone());
                 self.screen.flash(&text);
             }
+            Action::SetFilters(filters) => {
+                self.settings.filters = (**filters).clone();
+                self.save_settings();
+            }
             Action::Error(err) => {
                 // Errors name paths and hosts: debug only (T91 §4).
                 tracing::debug!(error = %err, "action failed");
@@ -550,6 +557,22 @@ impl App {
             self.action_tx.send(next)?;
         }
         Ok(())
+    }
+
+    /// Write the settings that differ from the defaults to `config.json`
+    /// (T05 `save_user`); a failure goes to the message log.
+    fn save_settings(&mut self) {
+        if self.config_dir.as_os_str().is_empty() {
+            return;
+        }
+        if let Err(e) = self.settings.save_user(&self.config_dir) {
+            tracing::debug!(error = %e, "saving the settings failed");
+            self.events_tx.log(
+                self.local_session,
+                LogKind::Error,
+                format!("Could not save the settings: {e}"),
+            );
+        }
     }
 
     /// List `dir` (the home directory when `None`) in the background, through
@@ -1342,6 +1365,8 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+#[cfg(test)]
+mod filter_tests;
 #[cfg(test)]
 mod log_tests;
 #[cfg(test)]

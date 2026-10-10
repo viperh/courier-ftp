@@ -19,10 +19,7 @@ const APP_QUALIFIER: &str = "com";
 const APP_ORGANIZATION: &str = "viperh";
 
 #[derive(Clone, Debug, Deserialize, Default)]
-#[expect(
-    dead_code,
-    reason = "read by the settings screen (T68) to save the user config"
-)]
+#[expect(dead_code, reason = "data_dir is read by the settings screen (T68)")]
 pub(crate) struct AppConfig {
     #[serde(default)]
     pub(crate) data_dir: PathBuf,
@@ -33,7 +30,6 @@ pub(crate) struct AppConfig {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub(crate) struct Config {
     #[serde(default, flatten)]
-    #[expect(dead_code, reason = "read by the settings screen (T68)")]
     pub(crate) config: AppConfig,
     #[serde(default)]
     pub(crate) keybindings: KeyBindings,

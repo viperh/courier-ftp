@@ -351,6 +351,12 @@ impl FileList {
         &self.filters
     }
 
+    /// Use other filters (T67), re-filtering at once.
+    pub(crate) fn set_filters(&mut self, filters: FilterEngine) {
+        self.filters = filters;
+        self.rebuild(None);
+    }
+
     /// Show the comparison rows (or the normal view again), keeping the
     /// cursor on the same entry.
     pub(crate) fn set_comparison(&mut self, rows: Option<Vec<CompareRow>>) {

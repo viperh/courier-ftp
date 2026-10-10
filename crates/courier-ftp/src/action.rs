@@ -93,6 +93,9 @@ pub(crate) enum Action {
     SelectCompareDifferent,
     /// Search (T65).
     Search,
+    /// The directory listing filters dialog: which filters are active on
+    /// each side, filter sets, and the filter editor (T67).
+    Filters,
     /// Bookmarks menu (T64).
     Bookmarks,
     /// Disconnect the current tab. Default `<Ctrl-x><d>`: `Ctrl-d` is the
@@ -250,6 +253,10 @@ pub(crate) enum Action {
         side: Side,
         columns: Vec<courier_ftp_core::settings::Column>,
     },
+    /// Filters applied in the filters dialog: re-filter both panes and save
+    /// the settings (T67).
+    #[serde(skip)]
+    SetFilters(Box<courier_ftp_core::filters::FilterSettings>),
     /// New directory comparison options (from the options dialog).
     #[serde(skip)]
     SetCompareOptions(Box<courier_ftp_core::compare::CompareOpts>),

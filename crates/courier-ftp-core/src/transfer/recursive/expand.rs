@@ -58,10 +58,14 @@ struct Config {
 impl Config {
     fn from_settings(settings: &Settings, max_depth: usize) -> Self {
         let t = &settings.transfers;
-        let (local_filter, mut warnings) =
-            FilterEngine::from_settings(&settings.filters, Side::Local);
-        let (remote_filter, more) = FilterEngine::from_settings(&settings.filters, Side::Remote);
-        warnings.extend(more);
+        let (local_filter, remote_filter, warnings) = if settings.filters.apply_to_transfers {
+            let (local, mut warnings) = FilterEngine::from_settings(&settings.filters, Side::Local);
+            let (remote, more) = FilterEngine::from_settings(&settings.filters, Side::Remote);
+            warnings.extend(more);
+            (local, remote, warnings)
+        } else {
+            (FilterEngine::default(), FilterEngine::default(), Vec::new())
+        };
         for w in warnings {
             tracing::debug!("recursive transfers: {w}");
         }
@@ -84,7 +88,8 @@ impl Config {
 ///
 /// - Filters of the source side (remote for downloads, local for uploads)
 ///   apply: excluded entries are not queued, excluded directories not
-///   descended; the count is logged.
+///   descended; the count is logged. Not with
+///   `filters.apply_to_transfers` off.
 /// - The target directory is created (with its missing parents) when the
 ///   level has files to put there, or when it is empty and
 ///   `transfers.empty_dirs` is `create`. A level with only subdirectories

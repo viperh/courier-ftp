@@ -123,6 +123,7 @@
       "<Ctrl-x><a>": "SaveAsSite",
       "<Ctrl-x><c>": "ClearLog",
       "<Ctrl-x><d>": "Disconnect",
+      "<Ctrl-x><f>": "Filters",
       "<Ctrl-x><g>": "SitePicker",
       "<Ctrl-x><i>": "ServerInfo",
       "<Ctrl-x><l>": "ToggleSpeedLimit",
@@ -254,6 +255,7 @@
     },
     "filters": {
       "active_set": "Default",
+      "apply_to_transfers": true,
       "filters": [
         {
           "applies_to": "dirs",

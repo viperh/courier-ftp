@@ -9,7 +9,7 @@ use courier_ftp_core::{
     backend::Listing,
     compare::{CompareOpts, Highlight},
     events::{CoreEvent, PromptRequest},
-    filters::FilterEngine,
+    filters::{FilterEngine, FilterSettings},
     local::display_native,
     model::RemotePath,
     settings::InterfaceSettings,
@@ -23,6 +23,7 @@ use super::{
     compare::{self, CompareState, NavStage, SyncBase, SyncNav, other},
     dir_tree::{DirTree, TreeEffect, is_tree_action},
     file_list::{Effect, FileList},
+    filters::FiltersDialog,
     focus::Region,
     layout::{self, LayoutOptions, Regions, Visibility},
     log::LogPane,
@@ -142,6 +143,18 @@ fn hints(config: &Config) -> Vec<(String, String)> {
 /// popped up under it.
 pub(crate) const PROMPT_IDLE: Duration = Duration::from_secs(1);
 
+/// The filter engines of both sides; problems (an invalid regex in the
+/// config file) are logged.
+fn engines(filters: &FilterSettings) -> (FilterEngine, FilterEngine) {
+    let (local, mut warnings) = FilterEngine::from_settings(filters, Side::Local);
+    let (remote, more) = FilterEngine::from_settings(filters, Side::Remote);
+    warnings.extend(more);
+    for w in warnings {
+        tracing::warn!("filters: {w}");
+    }
+    (local, remote)
+}
+
 /// What the screen did with a key.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum KeyOutcome {
@@ -222,13 +235,7 @@ impl MainScreen {
             },
             compact_side: Side::Local,
         };
-        let filters = &config.settings.filters;
-        let (local_filters, mut warnings) = FilterEngine::from_settings(filters, Side::Local);
-        let (remote_filters, more) = FilterEngine::from_settings(filters, Side::Remote);
-        warnings.extend(more);
-        for w in warnings {
-            tracing::warn!("filters: {w}");
-        }
+        let (local_filters, remote_filters) = engines(&config.settings.filters);
         let local = FileList::new(Side::Local, &config.settings, local_filters);
         let remote = FileList::new(Side::Remote, &config.settings, remote_filters);
         let unicode = status.unicode;
@@ -713,6 +720,12 @@ impl MainScreen {
                     state.built_from = None;
                 }
             }
+            Action::Filters => {
+                let dialog =
+                    FiltersDialog::new(&self.config.settings.filters, self.action_tx.clone());
+                self.modals.push(Box::new(dialog));
+            }
+            Action::SetFilters(filters) => self.set_filters(filters),
             Action::SelectCompareLonely => self.select_by_status(Highlight::Lonely),
             Action::SelectCompareNewer => self.select_by_status(Highlight::Newer),
             Action::SelectCompareDifferent => self.select_by_status(Highlight::Different),
@@ -745,6 +758,20 @@ impl MainScreen {
             Region::Quickconnect => self.opts.visible.quickconnect = true,
             _ => {}
         }
+    }
+
+    /// New filters from the filters dialog (T67): both panes re-filter now.
+    /// The app saves them.
+    fn set_filters(&mut self, filters: &FilterSettings) {
+        let were_equal = self.local.filters().equivalent(self.remote.filters());
+        self.config.settings.filters = filters.clone();
+        let (local, remote) = engines(filters);
+        // Filters now differing: the comparison warns again.
+        if were_equal && !local.equivalent(&remote) {
+            self.compare_warned = false;
+        }
+        self.local.set_filters(local);
+        self.remote.set_filters(remote);
     }
 
     /// A listing arrived for a side's file list: fill in the tree and make
