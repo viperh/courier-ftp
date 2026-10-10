@@ -62,5 +62,10 @@ tracing-subscriber = { workspace = true }
 name = "filters"
 harness = false
 
+# Listing cache patch speed (T46, AC10).
+[[bench]]
+name = "cache"
+harness = false
+
 [lints]
 workspace = true
