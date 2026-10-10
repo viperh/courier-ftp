@@ -459,26 +459,26 @@ once; `Auth`, `HostKey`, `Proxy`, `InvalidInput`, `Cancelled` are not, and
 
 ## Acceptance criteria
 
-- [ ] AC1 `cargo clippy -p courier-ftp-proto-sftp --all-targets --all-features -- -D warnings`, `cargo test -p courier-ftp-proto-sftp`, `cargo doc` (T00 gates) pass; `cargo tree -p courier-ftp-proto-sftp -i ratatui` and `-i clap` print nothing.
+- [x] AC1 `cargo clippy -p courier-ftp-proto-sftp --all-targets --all-features -- -D warnings`, `cargo test -p courier-ftp-proto-sftp`, `cargo doc` (T00 gates) pass; `cargo tree -p courier-ftp-proto-sftp -i ratatui` and `-i clap` print nothing.
 - [ ] AC2 `Normal` with the right stored password authenticates against the in-process server and the `password` Docker profile; with a wrong stored password the user gets exactly 3 `Password` prompts (`retry = true`) before `Error::Auth`.
 - [ ] AC3 `Interactive` completes a two-round keyboard-interactive conversation (password, then OTP `424242`) against the in-process server and the `kbd` profile; each round produces one `KeyboardInteractive` prompt with the sanitized texts and echo flags.
 - [ ] AC4 `KeyFile` authenticates with every fixture key (ed25519, ECDSA P-256, RSA 4096; OpenSSH, PEM PKCS#1/SEC1, PKCS#8, PPK v2 and v3; encrypted and unencrypted) against the in-process server; ed25519, RSA (OpenSSH) and ed25519 PPK v3 also against the `key` profile; RSA uses `rsa-sha2-512` (asserted on the server side).
-- [ ] AC5 `keys::decode` yields the fingerprint listed in `fingerprints.txt` for every fixture.
-- [ ] AC6 Wrong passphrase: exactly 3 `KeyPassphrase` prompts, then `Error::Auth("Wrong passphrase …")`; the server records zero `publickey` requests.
+- [x] AC5 `keys::decode` yields the fingerprint listed in `fingerprints.txt` for every fixture.
+- [x] AC6 Wrong passphrase: exactly 3 `KeyPassphrase` prompts, then `Error::Auth("Wrong passphrase …")`; the server records zero `publickey` requests.
 - [ ] AC7 `Agent` and `try_agent_first` authenticate through an in-process agent (Unix socket test); unreachable agent is skipped with a `Status` line. Windows OpenSSH agent and Pageant: manual check recorded in this file.
 - [ ] AC8 The chain never sends more than 6 requests after `none`; against `maxauth2` the error is `Error::Auth` naming the tried methods.
-- [ ] AC9 Cancelling the token during TCP connect, handshake, an auth request or a pending prompt returns `Error::Cancelled` within 100 ms (paused-time and loopback tests).
-- [ ] AC10 A server that accepts TCP but never sends its version string fails with `Error::Timeout` after `timeout` (test with `timeout = 1 s`, asserts 1.0–1.5 s).
-- [ ] AC11 Host-key prompt time does not count against the handshake timeout (verifier that sleeps 3 s with `timeout = 1 s` still connects).
-- [ ] AC12 Anonymous/Account logon, a missing user and an unresolved `KeySource::VaultItem`
+- [x] AC9 Cancelling the token during TCP connect, handshake, an auth request or a pending prompt returns `Error::Cancelled` within 100 ms (paused-time and loopback tests).
+- [x] AC10 A server that accepts TCP but never sends its version string fails with `Error::Timeout` after `timeout` (test with `timeout = 1 s`, asserts 1.0–1.5 s).
+- [x] AC11 Host-key prompt time does not count against the handshake timeout (verifier that sleeps 3 s with `timeout = 1 s` still connects).
+- [x] AC12 Anonymous/Account logon, a missing user and an unresolved `KeySource::VaultItem`
   return `Error::InvalidInput` without opening a socket.
-- [ ] AC18 A server that disconnects with reason 12 (too many connections) yields
+- [x] AC18 A server that disconnects with reason 12 (too many connections) yields
   `Error::ConnectionLimit`; other disconnect reasons yield `Error::Connection`.
 - [ ] AC13 Against the `legacy` profile (group14-sha1 + aes128-cbc only) the connect fails with `Error::Connection` whose message starts with "No common"; against default OpenSSH the negotiated cipher is `aes128-gcm@openssh.com` or `aes256-gcm@openssh.com` (asserted via `SshSessionInfo`).
-- [ ] AC14 Auth banner and kbd texts containing ESC sequences, C1 controls and bidi overrides reach the log/prompt without them, and are capped as specified.
-- [ ] AC15 `CredentialAccepted` is emitted only for prompts whose answers led to (partial) success; rejected answers produce none.
-- [ ] AC16 Canary test: with `COURIER_FTP_LOG_LEVEL=trace`, session log captured, and canary password/passphrase/OTP values used in AC2–AC6, no canary appears in the tracing output or session log (T91 canary scan also passes in CI).
-- [ ] AC17 PPK parser never panics on arbitrary input (proptest twin of the `ppk_parse` fuzz target, 10 000 cases) and rejects Argon2 parameters above the bounds without running Argon2.
+- [x] AC14 Auth banner and kbd texts containing ESC sequences, C1 controls and bidi overrides reach the log/prompt without them, and are capped as specified.
+- [x] AC15 `CredentialAccepted` is emitted only for prompts whose answers led to (partial) success; rejected answers produce none.
+- [x] AC16 Canary test: with `COURIER_FTP_LOG_LEVEL=trace`, session log captured, and canary password/passphrase/OTP values used in AC2–AC6, no canary appears in the tracing output or session log (T91 canary scan also passes in CI).
+- [x] AC17 PPK parser never panics on arbitrary input (proptest twin of the `ppk_parse` fuzz target, 10 000 cases) and rejects Argon2 parameters above the bounds without running Argon2.
 
 ## Tests
 
@@ -559,3 +559,65 @@ an ed25519 key — AC7.
 3. **`ssh-rsa` (SHA-1) fallback** is used automatically for servers without
    `server-sig-algs` (OpenSSH < 7.2), with a warning line. Keep automatic, or require a
    per-site opt-in like sverb?
+
+## Implementation notes
+
+- **Layout** as specified: `keys/{mod,openssh,pem,pkcs8,ppk}.rs` (+ `tests.rs`,
+  `ppk_tests.rs`), `agent/{mod,testing}.rs`, `ssh/{mod,algorithms,auth,connect,errors,
+  handler,logon,testing}.rs` (+ `auth_tests.rs`), `tests/loopback.rs`, fixtures in
+  `tests/keys/` (written by `tests/keys/derive.py` from the T76 sshd keys; README marks
+  them TEST-ONLY; gitleaks / GitHub secret scanning skip the directory), e2e in
+  `crates/courier-ftp-e2e/tests/ssh_auth.rs`, fuzz target `fuzz/fuzz_targets/ppk_parse.rs`
+  (body `keys::ppk::fuzz_ppk_parse`; `fuzz/seed-corpus.sh` path fixed to `tests/keys/`).
+- **russh features:** `default-features = false, features = ["ring", "rsa"]` (no aws-lc
+  C build, no zlib); compression is always `none`. Workspace deps added for the key
+  formats (aes, cbc, hmac, md-5, p256/384/521, pkcs1, pkcs8, rsa, sec1, sha1), all at the
+  versions russh/ssh-key already pull in. MSRV question: the workspace is already 1.95.
+- **Public API for dependants (T21/T22/T69):** `ssh::{SshConnection, SshConnectParams,
+  SshLogon, SshSessionInfo, HostKeyVerifier, HostKeyVerdict, VerifyCtx, ServerKey,
+  UnverifiedHostKeys, InsecureAcceptAnyHostKey (test-util), SshError}`,
+  `SshConnection::{connect, open_subsystem, info, is_open, end_cause, disconnect}`,
+  `SshConnectParams::{from_connect_info, validate}`, `keys::{decode, detect,
+  is_encrypted, read_key_file, key_bits, KeyFormat, KeyError}`, `agent::{Agent,
+  AgentConnector, SystemAgent, SocketAgent (unix), StreamAgent}`,
+  `agent::testing::{InProcessAgent, UnixSocketAgent, UnreachableAgent}`,
+  `ssh::testing::{TestServer, TestServerConfig, KbdRound, legacy_preferences, sig_algs}`
+  (the server accepts session channels and answers the `sftp` subsystem request; T22
+  adds the SFTP server behind it). `core::text::sanitize_server_text`.
+- **Deviations:**
+  - `KeyError` has two extra variants: `PublicKey` (the ".pub chosen" hint; the spec
+    said `Format` with that message) and `Invalid(String)` (damaged file / PPK bounds).
+  - `AuthIo::accepted` takes a `PromptToken` instead of a `PromptId` (core's `PromptId`
+    has no public constructor, so scripted test IOs could not create one);
+    `PromptIo` maps tokens back to the T04 `PromptId` and calls
+    `EventSender::credential_accepted`. `AuthIo::ask` returns `AuthAnswer { token,
+    values }`.
+  - RSA signature selection: russh's `best_supported_rsa_hash` cannot tell "lists only
+    ssh-rsa" from "lists no RSA algorithm"; both (`server-sig-algs` without `rsa-sha2-*`)
+    skip the key. No `server-sig-algs` → `ssh-rsa` with the Status warning (default kept,
+    open question 3).
+  - AC4 "RSA uses rsa-sha2-512 asserted on the server side": russh's server `Handler`
+    never sees the signature algorithm, so the loopback test asserts the
+    `Trying public key … (rsa-sha2-512 SHA256:…)` line (the unit test asserts the hash
+    passed to the backend); the e2e test asserts it server-side in sshd's DEBUG1 log.
+  - Extra error `SshError::AuthTimeout` (no reply to an auth request within `timeout`
+    → `Error::Timeout`). A disconnect "Too many authentication failures" (OpenSSH
+    `MaxAuthTries`) during auth becomes `Error::Auth` naming the tried methods (AC8).
+    A server that closes the connection while a prompt is open → "The server closed
+    the connection while waiting for your answer", unless it sent reason 12
+    (→ `ConnectionLimit`).
+  - The key file is read (64 KiB cap) before the TCP connect, so a missing/oversized
+    file fails without network I/O; decoding (Argon2, RSA checks) runs on the blocking
+    pool. Cipher order: the in-process russh server picks its own preference
+    (aes256-gcm); OpenSSH follows the client's (aes128-gcm first).
+  - AC16 uses a TRACE `tracing` subscriber in the test (same effect as
+    `COURIER_FTP_LOG_LEVEL=trace`); the passphrase canary uses
+    `tests/keys/canary_ed25519_pkcs8_enc.pem`.
+- **Not done here:** Docker is unavailable locally, so `ssh_auth.rs` (AC2/3/4/8/13 e2e
+  parts) compiles and skips but was not run; AC2/3/4/8/13 stay unticked until CI's e2e
+  job passes. AC7's Windows OpenSSH agent / Pageant manual check is not recorded (the
+  Unix-socket loopback test passes); Windows code is sverb's, unchecked locally (no
+  mingw for `--target x86_64-pc-windows-gnu`).
+- `crates/courier-ftp/src/app/status/tests.rs::cycle_transfer_type_order_and_persist`
+  (T57, binary crate) failed once under load and passed on rerun: a flaky timing test,
+  not touched here.
