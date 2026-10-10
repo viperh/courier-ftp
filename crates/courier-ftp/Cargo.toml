@@ -71,6 +71,8 @@ pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+# Vault item ids in the prompt fixtures (T69).
+uuid = { workspace = true }
 
 # Message log push and render speed (T55, AC9).
 [[bench]]

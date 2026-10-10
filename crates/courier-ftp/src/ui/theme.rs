@@ -45,6 +45,8 @@ const MONOCHROME: &[(&str, Modifier)] = &[
     ("dialog_title", Modifier::BOLD),
     ("field_label_focused", Modifier::BOLD),
     ("field_error", Modifier::BOLD),
+    // Trust prompts (T69): warnings stay bold without colour.
+    ("prompt.danger", Modifier::BOLD),
     ("field_help", Modifier::DIM),
     ("input", Modifier::UNDERLINED),
     ("input_placeholder", Modifier::DIM),

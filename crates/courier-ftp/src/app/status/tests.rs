@@ -182,11 +182,11 @@ fn server_info_dialog_for_sessions() {
     h.action(Action::ServerInfo);
     let screen = h.render(80, 24);
     assert!(screen.contains("[ Details ]"), "{screen}");
-    // `Details` (T69 renders the chain) reports that it is not there yet.
+    // `Details` opens T69's certificate chain view.
     h.keys("backtab enter");
+    assert_eq!(h.app().modals.kinds(), [Some("certificate_chain")]);
+    let screen = h.render(80, 24);
+    assert!(screen.contains("Certificate 1 of"), "{screen}");
+    h.keys("esc");
     assert!(h.app().modals.is_empty());
-    assert_eq!(
-        status_text(&h).map(|s| s.0),
-        Some("Certificate details are not available yet".to_owned())
-    );
 }

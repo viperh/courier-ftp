@@ -1154,6 +1154,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-segmentation",
  "unicode-width",
+ "uuid",
  "vergen-gix",
  "zeroize",
 ]

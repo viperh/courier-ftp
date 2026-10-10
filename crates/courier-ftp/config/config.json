@@ -336,6 +336,8 @@
     "field_label": "",
     "field_label_focused": "bold",
     "field_error": "bold red",
+    "prompt.danger": "bold red",
+    "prompt.ok": "green",
     "field_help": "dim",
     "input": "underline",
     "input_placeholder": "dim",
