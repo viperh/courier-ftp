@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp/src/components/status_bar/snapshot_tests.rs
+expression: "bar(&state_a(&h), w, &sym, &t)"
+---
+ [TLS] | L:500K/100K | Q: 12, 30.2 MiB  
+--- styles ---
+  0   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   1+5   Style::new().fg(Color::Indexed(2)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   6+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   9+11  Style::new().fg(Color::Indexed(3)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  20+20  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

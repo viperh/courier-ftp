@@ -345,15 +345,15 @@ No other fallible operations; rendering never fails.
 
 ## Acceptance criteria
 
-- [ ] AC1 Snapshot tests of the bar at widths 40, 60, 80, 120, 160 for states A, B, C (Unicode and ASCII), and full-screen snapshots at 80×24 and 160×48 including the bar.
-- [ ] AC2 `fit_segments` output equals the mock-ups above for the given states and widths, never exceeds the width, and never drops Vault, Prompts, Pending keys or Message.
-- [ ] AC3 A plain FTP session (including `ExplicitIfAvailable` without TLS) renders `plain FTP` with style `status.insecure`; under `NO_COLOR` it is reverse + bold.
+- [x] AC1 Snapshot tests of the bar at widths 40, 60, 80, 120, 160 for states A, B, C (Unicode and ASCII), and full-screen snapshots at 80×24 and 160×48 including the bar.
+- [x] AC2 `fit_segments` output equals the mock-ups above for the given states and widths, never exceeds the width, and never drops Vault, Prompts, Pending keys or Message.
+- [x] AC3 A plain FTP session (including `ExplicitIfAvailable` without TLS) renders `plain FTP` with style `status.insecure`; under `NO_COLOR` it is reverse + bold.
 - [ ] AC4 Indicators update within one frame of the state change (filters toggled, sync on, vault lock, speed limit toggle, queue event).
-- [ ] AC5 Transient messages expire after 3/5/8 s (paused-time test) and Info messages clear on the next key after 1 s.
-- [ ] AC6 `CycleTransferType` and `ToggleSpeedLimit` change the settings, persist them, and the toggle is refused when both limits are 0.
-- [ ] AC7 Server info dialog shows the correct rows for FTP, FTPS and SFTP sessions (rows filled from `SessionSecurityInfo` fixtures) and the not-connected text.
-- [ ] AC8 The status-bar glyphs exist in both T50 sets; with `interface.unicode_symbols = never` the bar uses only the ASCII forms; `ctrl-x i`, `ctrl-x a` and `ctrl-x k` reach `ServerInfo`, `CycleTransferType` and `ToggleSpeedLimit` with the default keymap.
-- [ ] AC9 In ASCII mode every cell of the bar and dialog is ASCII (test iterates the buffer).
+- [x] AC5 Transient messages expire after 3/5/8 s (paused-time test) and Info messages clear on the next key after 1 s.
+- [x] AC6 `CycleTransferType` and `ToggleSpeedLimit` change the settings, persist them, and the toggle is refused when both limits are 0.
+- [x] AC7 Server info dialog shows the correct rows for FTP, FTPS and SFTP sessions (rows filled from `SessionSecurityInfo` fixtures) and the not-connected text.
+- [x] AC8 The status-bar glyphs exist in both T50 sets; with `interface.unicode_symbols = never` the bar uses only the ASCII forms; `ctrl-x i`, `ctrl-x a` and `ctrl-x k` reach `ServerInfo`, `CycleTransferType` and `ToggleSpeedLimit` with the default keymap.
+- [x] AC9 In ASCII mode every cell of the bar and dialog is ASCII (test iterates the buffer).
 - [ ] AC10 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
 
 ## Tests
@@ -400,3 +400,69 @@ attention styles (AC1, AC3, AC7).
 
 None. (Resolved by the coordinator: `Backend::security_info()` provides the data; the
 keys are `ctrl-x i`, `ctrl-x a`, `ctrl-x k`; T50 owns `Symbols`.)
+
+## Implementation notes
+
+- **Files.** `components/status_bar.rs` (types, segment formatting, `fit_segments`,
+  `FittedBar`, `render`, `StatusBar`, `key_hints`), `components/server_info.rs`
+  (`ServerInfoView`, `ServerInfoDialog`), `app/status.rs` (`StatusSources`,
+  `SessionSnapshot`, `App::status_info`, the toggles and `open_server_info`). Tests in
+  `status_bar/{tests,snapshot_tests}.rs`, `server_info/tests.rs` (also the
+  `SessionSecurityInfo` fixtures `ftp_plain`/`ftps`/`sftp`) and `app/status/tests.rs`.
+- **Messages.** `Action::StatusMessage(String)` stays (an Info message) so the existing
+  senders (T52, T55, T53–T71) are unchanged; levels go through the new internal
+  `Action::StatusNotice(MessageLevel, String)` instead of `StatusMessage(TransientMessage)`
+  (the sender cannot know the arrival time `until` is computed from). `Action::Error` and
+  "Could not save settings" are Error messages now (8 s, `Error: ` prefix). Messages are
+  sanitised when they arrive (so `text.escape` styling of escapes in the bar is gone).
+- **`StatusBar`** is not a `Component`: `MainScreen` owns it (`status()`,
+  `set_status()`, `status_bar_mut()`), `App` feeds `Tick`/keys to it and draws it via
+  `status_bar::render` with the `StatusInfo` it builds each frame.
+- **Sources.** `App::status_sources: StatusSources` holds every indicator source that
+  does not exist in M1 (`session: Option<SessionSnapshot { info, addr }>`, `connecting`,
+  `vault`, `prompts_badge`, `filters_active`, `sync_browsing`, `comparison`, `sync`,
+  `queue`); the owning tasks (T60, T61, T66, T67, T69, T40/T41, T90) set them and mark the
+  app dirty. With no session the security segment is `NotConnected` (`Local` is unused).
+  The transfer type and the speed limits come from the settings (T05), so those two
+  segments always show; `ToggleSpeedLimit` works without T44 and saves through the
+  app's debounced save. No `EngineCommand::SettingsChanged` is sent (no engine yet):
+  T41/T44 must send it (or watch `SettingsStore`) when `transfers.*` changes.
+- **Fitting.** Step 3 shortens every priority, including ≥ 9 (mock-up C at 80 columns
+  shows the vault in its short form); only dropping (step 4) stops at 8. Within one
+  priority, re-expansion goes left to right. The right group is pending keys, then the
+  message or the hints, joined with `Symbols::sep`; padding goes into the gap (or after
+  the left group when the right group is empty). All mock-ups match exactly
+  (`fit_matches_mockups_state_a_b_c`).
+- **Mode label and compact hint.** The bar no longer shows T50's `NORMAL`/`INPUT`/
+  `DIALOG` label (not in the T57 layout); pending keys moved to the right group,
+  title-cased (`Ctrl-x`). T50's "the status bar shows `compact`" is kept as a first
+  hint `compact mode` in the compact layout (dropped last of the hints). T76's PTY
+  launcher now waits for `F1 help` instead of `NORMAL`.
+- **Style keys** `status.bar`, `status.secure`, `status.insecure`, `status.dim`,
+  `status.attention`, `status.active`, `status.msg_{info,ok,warn,error}`,
+  `status.hint_key`, `status.hint` replace T50's `status_bar`, `status_mode`,
+  `status_message`, `status_error` (removed). Monochrome: insecure = reverse + bold,
+  attention = reverse, dim = dim, active/warn/error/hint keys = bold, hints = dim.
+- **Glyphs.** `Symbols` gained `lock`, `unlock`, `vault_locked`, `sep`, `speed`,
+  `filter`, `sync`, `compare`, `sync_status`, `dash`, `rate_down`, `rate_up` and
+  `connecting` (`◌` / `..`). ASCII "unlimited" is `inf`.
+- **Server info dialog.** Rows come only from `SessionSecurityInfo` + `ServerAddress`.
+  `TlsSessionInfo` has no key-exchange or host-name-match field: key exchange shows when
+  the backend puts it in `details`; the host-name row is computed from the leaf's SANs
+  (or CN) against `server_name`. `HostKeyInfo` has no trust state, so there is no
+  "Host key trust" row; the SFTP protocol row reads `SFTP (SSH-2)`. Validity reads
+  `from to until (N days left)` (`to`, not `→`, so ASCII mode stays ASCII; the title's
+  `·` becomes `-` there). `ServerInfoView::from_session_at` takes "now" for tests.
+  Long values wrap at character boundaries. `[ Details ]` closes the dialog with
+  `ServerInfoChoice::Details`, which shows "Certificate details are not available yet"
+  until T69 provides the chain view. The tab label is `Tab 1` until T61.
+- **Hints** come from `key_hints(keymap, mode)`: the first single-key binding of `Help`,
+  `Transfer`, `Move`, `Mkdir`, `Delete`, `Quit` in the focused mode's chain, function
+  keys preferred.
+- **Not done here:** AC4 is tested by setting the sources directly
+  (`indicators_follow_app_state`): filters, sync, vault, queue and session sources do not
+  exist yet, and there is no `CoreEvent::Connected` → security path until T61 holds the
+  session. The PTY scenarios `plain_ftp_warning_visible` and
+  `tls_indicator_after_explicit_tls` need a way to connect from the TUI (T58/T61) and
+  are not written. AC10's `test-os` job could not be run locally; `fmt`, `clippy`,
+  `docs`, the layering/unsafe scripts and the Linux tests pass.

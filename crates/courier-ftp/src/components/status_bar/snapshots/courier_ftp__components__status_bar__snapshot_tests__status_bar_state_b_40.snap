@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp/src/components/status_bar/snapshot_tests.rs
+expression: "bar(&state_b(&h), w, &sym, &t)"
+---
+ 🔓 FTP │ Binary │ ⇅ off │ Q: 0   Ctrl-x 
+--- styles ---
+  0   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   1+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(3)).underline_color(Color::Reset)
+  0   3+3   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(3)).underline_color(Color::Reset)
+  0   6+27  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  33+6   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0  39+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
