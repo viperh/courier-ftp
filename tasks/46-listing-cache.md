@@ -245,17 +245,17 @@ its subtree from the cache; the pane (T53) shows its normal "directory not found
 
 ## Acceptance criteria
 
-- [ ] AC1 A `PreferCache` read of a cached fresh directory makes zero backend calls (mock call counter).
-- [ ] AC2 `Refresh` always calls the backend exactly once and replaces the cached listing.
-- [ ] AC3 Ten concurrent `get_or_fetch` calls for the same uncached directory run `fetch` exactly once.
-- [ ] AC4 Every `CachePatch` variant produces the listing described in the patch table (one test per variant and per edge case listed there).
-- [ ] AC5 Never more than `cache.listing_cache_max_dirs` (default 200) directories or 500 000 entries cached after any sequence of stores; the least recently used directory is evicted first.
-- [ ] AC6 With `cache.listing_cache = false`, every read calls the backend, nothing is stored, and patches still emit `ListingUpdated`.
-- [ ] AC7 With TTL 30 s, a listing is fresh at 29 s and stale at 30 s (paused tokio time).
-- [ ] AC8 A fetch returning `NotFound` removes that directory and its cached subtree.
-- [ ] AC9 `clear_all` leaves `stats().dirs == 0`; no cache content is written to disk (no file I/O in the module; checked by review and the T91 canary scan).
-- [ ] AC10 Patching a 100 000-entry cached directory takes < 5 ms (criterion bench `cache_patch_100k`, release).
-- [ ] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
+- [x] AC1 A `PreferCache` read of a cached fresh directory makes zero backend calls (mock call counter).
+- [x] AC2 `Refresh` always calls the backend exactly once and replaces the cached listing.
+- [x] AC3 Ten concurrent `get_or_fetch` calls for the same uncached directory run `fetch` exactly once.
+- [x] AC4 Every `CachePatch` variant produces the listing described in the patch table (one test per variant and per edge case listed there).
+- [x] AC5 Never more than `cache.listing_cache_max_dirs` (default 200) directories or 500 000 entries cached after any sequence of stores; the least recently used directory is evicted first.
+- [x] AC6 With `cache.listing_cache = false`, every read calls the backend, nothing is stored, and patches still emit `ListingUpdated`.
+- [x] AC7 With TTL 30 s, a listing is fresh at 29 s and stale at 30 s (paused tokio time).
+- [x] AC8 A fetch returning `NotFound` removes that directory and its cached subtree.
+- [x] AC9 `clear_all` leaves `stats().dirs == 0`; no cache content is written to disk (no file I/O in the module; checked by review and the T91 canary scan).
+- [x] AC10 Patching a 100 000-entry cached directory takes < 5 ms (criterion bench `cache_patch_100k`, release).
+- [x] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
 
 ## Tests
 
@@ -309,3 +309,47 @@ None specific; T53/T62 e2e flows exercise the cache against real servers (T76).
 ## Open questions
 
 - Should the cache also be cleared when the last session to a server disconnects? FileZilla keeps it so reconnecting is instant; this task keeps it (cleared only on lock and quit). Product decision for the owner.
+
+## Implementation notes
+
+- Files: `crates/courier-ftp-core/src/cache/mod.rs` (the module), `cache/tests.rs` (unit,
+  proptest and the `MockBackend` single-flight tests: they need the mock, which is only
+  compiled for `cfg(test)`/`test-util`, so they live in the crate rather than `tests/`),
+  bench `crates/courier-ftp-core/benches/cache.rs` (`cache/cache_patch_100k`, gate in
+  `scripts/bench-gates.toml`).
+- Storage is nested (`HashMap<ServerIdentity, HashMap<RemotePath, Slot>>` plus counters)
+  instead of one map keyed by the tuple: lookups need no key clone, `clear_server` and
+  `invalidate_subtree` only scan one server's directories. Behaviour is as specified.
+- Coalescing re-check uses a store sequence number instead of `cached_at >= requested_at`:
+  with paused tokio time (or a coarse clock) a listing stored at the same instant as the
+  request would otherwise satisfy a `Refresh` without fetching (AC2). A waiter reuses a
+  slot only when it was stored after its own request began.
+- Single-flight locks are counted (`users`), so the map entry is removed exactly when the
+  last holder/waiter finishes, also on cancellation.
+- Additions: `ListingCache::policy()`, `CachePolicy::from_settings(&CacheSettings)` and
+  `Default` (= default settings), `CacheStats::raw_bytes`. `max_dirs` is at least 1.
+  `set_policy` with a smaller `max_dirs` evicts at once.
+- Events (choices the spec leaves open):
+  - `store` with the cache disabled stores nothing and sends no event (a pane re-reading
+    after it would just miss and fetch again: a loop).
+  - `invalidate` always sends one event for `dir`; `invalidate_subtree` for `dir` and every
+    dropped directory. The internal NotFound handling of `get_or_fetch` only announces
+    directories that were actually cached, so two panes showing a deleted directory cannot
+    ping-pong NotFound fetches.
+  - `clear_server` / `clear_all` send nothing (lock and quit).
+- Patch details the table leaves open:
+  - `Created` marks the parent unsure when the entry carries only name and kind (no size,
+    mtime, permissions, owner, group): that is how a mkdir entry is recognised. For any
+    non-file entry the cached subtree at `path` (a stale listing of an older directory
+    there) is dropped.
+  - `Renamed` drops the cached subtree at `to` as well (whatever was cached for the
+    overwritten target is wrong now); the "moved entry was a directory" rule applies to
+    every non-`File` kind (symlinks too). The entry takes `to`'s name.
+  - `Uploaded` on an existing `File` keeps its other metadata and sets the size (and
+    `modified` when given); any other kind is replaced by a fresh `File` entry.
+  - `ModeChanged` on an unknown name changes nothing and sends nothing.
+- `ListingCache`'s `Debug` prints only the stats (no hosts or paths).
+- Bench `cache/cache_patch_100k` (rename of the first entry of a 100 000-entry directory,
+  the worst case: removal shifts every entry, the target name is searched over all):
+  ~1.4 ms locally (gate 5 ms, CI 10 ms). AC11 checked locally (fmt, clippy, docs, tests);
+  the CI OS matrix runs on merge.
