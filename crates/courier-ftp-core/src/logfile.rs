@@ -41,14 +41,19 @@ use crate::events::{LogKind, LogMessage, mask_command};
 /// # Errors
 /// The directory or file can't be created or opened.
 pub fn open_private(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    open_private_with(path, options)
+}
+
+fn open_private_with(path: &Path, options: OpenOptions) -> io::Result<File> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         fs::create_dir_all(dir)?;
     }
-    let mut options = OpenOptions::new();
-    options.create(true).append(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut options = options;
         options.mode(0o600);
         let file = options.open(path)?;
         // `mode` applies only when the file is created; narrow older files.
@@ -70,8 +75,11 @@ pub fn open_private(path: &Path) -> io::Result<File> {
 /// # Errors
 /// The file can't be created or written.
 pub fn write_private(path: &Path, text: &str) -> io::Result<()> {
-    let mut file = open_private(path)?;
-    file.set_len(0)?;
+    // Not `open_private`: on Windows an append-only handle can't be
+    // truncated (`set_len` is refused).
+    let mut options = OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    let mut file = open_private_with(path, options)?;
     file.write_all(text.as_bytes())?;
     file.sync_all()
 }
