@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
+use metrics_exporter_prometheus::PrometheusHandle;
 use sqlx_postgres::PgPool;
 
 // Auth runtime (store, clock, OPAQUE setup).
@@ -48,6 +49,7 @@ struct Inner {
     db: PgPool,
     secrets: ServerSecrets,
     rate_limits: Arc<RateLimiters>,
+    metrics: PrometheusHandle,
     readiness: Readiness,
     auth: AuthRuntime,
     sync: SyncRuntime,
@@ -111,6 +113,7 @@ impl AppState {
             db,
             secrets,
             rate_limits: Arc::new(rate_limits),
+            metrics: crate::metrics::handle(),
             readiness: Readiness::default(),
             auth,
             sync,
@@ -141,6 +144,12 @@ impl AppState {
     #[must_use]
     pub fn rate_limits(&self) -> &Arc<RateLimiters> {
         &self.0.rate_limits
+    }
+
+    /// The Prometheus handle.
+    #[must_use]
+    pub fn metrics(&self) -> &PrometheusHandle {
+        &self.0.metrics
     }
 
     /// Authentication state (store, clock, OPAQUE setup).

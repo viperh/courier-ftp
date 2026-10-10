@@ -464,7 +464,7 @@ criteria = "safe-to-run"
 
 [[exemptions.crossbeam-epoch]]
 version = "0.9.21"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.crossbeam-queue]]
 version = "0.3.14"
@@ -734,6 +734,10 @@ criteria = "safe-to-deploy"
 version = "0.5.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.evmap]]
+version = "11.0.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.eyre]]
 version = "0.6.14"
 criteria = "safe-to-deploy"
@@ -836,6 +840,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.futures-util]]
 version = "0.3.34"
+criteria = "safe-to-deploy"
+
+[[exemptions.generator]]
+version = "0.8.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.generic-array]]
@@ -1114,6 +1122,10 @@ criteria = "safe-to-deploy"
 version = "0.3.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.hashbag]]
+version = "0.1.13"
+criteria = "safe-to-deploy"
+
 [[exemptions.hashbrown]]
 version = "0.14.5"
 criteria = "safe-to-deploy"
@@ -1370,6 +1382,10 @@ criteria = "safe-to-deploy"
 version = "0.11.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.left-right]]
+version = "0.11.8"
+criteria = "safe-to-deploy"
+
 [[exemptions.lettre]]
 version = "0.11.23"
 criteria = "safe-to-deploy"
@@ -1418,6 +1434,10 @@ criteria = "safe-to-deploy"
 version = "0.4.34"
 criteria = "safe-to-deploy"
 
+[[exemptions.loom]]
+version = "0.7.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.lru]]
 version = "0.18.4"
 criteria = "safe-to-deploy"
@@ -1452,6 +1472,18 @@ criteria = "safe-to-deploy"
 
 [[exemptions.memoffset]]
 version = "0.9.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.metrics]]
+version = "0.24.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.metrics-exporter-prometheus]]
+version = "0.18.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.metrics-util]]
+version = "0.20.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.mime]]
@@ -1826,6 +1858,14 @@ criteria = "safe-to-deploy"
 version = "0.10.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.rand_xoshiro]]
+version = "0.7.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rapidhash]]
+version = "4.5.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.ratatui]]
 version = "0.30.2"
 criteria = "safe-to-deploy"
@@ -2018,6 +2058,10 @@ criteria = "safe-to-deploy"
 version = "1.2.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.scoped-tls]]
+version = "1.0.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.scopeguard]]
 version = "1.2.0"
 criteria = "safe-to-deploy"
@@ -2164,6 +2208,10 @@ criteria = "safe-to-run"
 
 [[exemptions.siphasher]]
 version = "1.0.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.sketches-ddsketch]]
+version = "0.3.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.slab]]

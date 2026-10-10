@@ -44,6 +44,8 @@ chrono = { workspace = true }
 governor = { workspace = true }
 ipnet = { workspace = true }
 lettre = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 rustls = { workspace = true }
 sqlx-core = { workspace = true }
 sqlx-postgres = { workspace = true }

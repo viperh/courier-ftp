@@ -4,11 +4,12 @@
 //! 1. request ID (assign/validate, echo),
 //! 2. tracing span carrying the request ID,
 //! 3. error normalisation (bare 404/405/408/413/5xx → JSON envelope),
-//! 4. `Courier-Proto` negotiation,
-//! 5. compression, CORS (off unless origins are configured),
-//! 6. client IP resolution (trusted proxies),
-//! 7. body limit (12 MiB), timeout,
-//! 8. the route.
+//! 4. metrics (`http_requests_total`, latency),
+//! 5. `Courier-Proto` negotiation,
+//! 6. compression, CORS (off unless origins are configured),
+//! 7. client IP resolution (trusted proxies),
+//! 8. body limit (12 MiB), timeout,
+//! 9. the route.
 
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request};
@@ -96,6 +97,7 @@ pub fn with_layers(router: Router<AppState>, state: AppState) -> Router {
         .layer(from_fn(request_id::layer))
         .layer(trace)
         .layer(from_fn(errors::layer))
+        .layer(from_fn(crate::metrics::layer))
         .layer(from_fn(proto_version::layer))
         .layer(CompressionLayer::new())
         .layer(cors(&state))

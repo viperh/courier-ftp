@@ -212,6 +212,8 @@ lettre = { version = "0.11.23", default-features = false, features = [
     "webpki-roots",
 ] }
 metrics = "0.24.6"
+# /metrics (Prometheus text exposition), T86.
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 # Not the `sqlx` facade: its optional sqlx-sqlite pins libsqlite3-sys < 0.38,
 # which conflicts (`links = "sqlite3"`) with rusqlite 0.40 even when unused.
 sqlx-core = { version = "0.8.6", default-features = false, features = [

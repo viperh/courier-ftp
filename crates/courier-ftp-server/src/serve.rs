@@ -151,10 +151,28 @@ pub async fn run(config: Config, apply_migrations: bool) -> Result<(), StartupEr
     let config = state.config().clone();
 
     let _cleanup = state.rate_limits().clone().spawn_cleanup();
+    let _upkeep = crate::metrics::spawn_upkeep(state.metrics().clone());
     // Periodic GC (expired tokens, tombstones).
     let _gc = crate::sync::gc::spawn_background(state.clone());
     // LISTEN for fan-out from the start (readiness reflects it).
     state.ws().ensure_started(&state);
+
+    if let Some(addr) = config.metrics_bind {
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .map_err(|source| StartupError::Listen { addr, source })?;
+        let app = crate::routes::ops::metrics_router(state.clone());
+        tracing::info!(%addr, "metrics listener started");
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app).await {
+                tracing::error!(error = %e, "metrics listener failed");
+            }
+        });
+    } else if config.metrics_token.is_none() {
+        tracing::warn!(
+            "/metrics is disabled: set COURIER_METRICS_TOKEN or COURIER_METRICS_BIND to expose it"
+        );
+    }
 
     let app = crate::app::router(state).into_make_service_with_connect_info::<SocketAddr>();
     let addr = config.bind;

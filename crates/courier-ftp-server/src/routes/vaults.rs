@@ -10,6 +10,9 @@ use uuid::Uuid;
 
 use crate::auth::AuthCtx;
 use crate::error::ApiError;
+use crate::metrics::{
+    SYNC_PULL_BYTES_TOTAL, SYNC_PULL_ITEMS_TOTAL, SYNC_PUSH_BYTES_TOTAL, SYNC_PUSH_ITEMS_TOTAL,
+};
 use crate::state::AppState;
 use crate::sync::{pull, push, rev_from_wire};
 
@@ -42,6 +45,9 @@ async fn pull_changes(
         .store()
         .pull(ctx.user_id, vault_id, rev_from_wire(q.since), limit)
         .await?;
+    let bytes: usize = page.items.iter().map(|i| i.envelope.len()).sum();
+    metrics::counter!(SYNC_PULL_ITEMS_TOTAL).increment(page.items.len() as u64);
+    metrics::counter!(SYNC_PULL_BYTES_TOTAL).increment(bytes as u64);
     Ok(Json(page))
 }
 
@@ -65,11 +71,16 @@ async fn push_changes(
         .await?;
     if let Some(head) = outcome.new_head {
         sync.notify(vault_id, head);
-        let accepted = outcome
-            .results
+        let (accepted, bytes) = req
+            .changes
             .iter()
-            .filter(|r| r.revision.is_some())
-            .count();
+            .zip(&outcome.results)
+            .filter(|(_, r)| r.revision.is_some())
+            .fold((0u64, 0u64), |(n, b), (c, _)| {
+                (n + 1, b + c.envelope.len() as u64)
+            });
+        metrics::counter!(SYNC_PUSH_ITEMS_TOTAL).increment(accepted);
+        metrics::counter!(SYNC_PUSH_BYTES_TOTAL).increment(bytes);
         tracing::debug!(%vault_id, head, accepted, "push committed");
     }
     Ok(Json(PushResponse {

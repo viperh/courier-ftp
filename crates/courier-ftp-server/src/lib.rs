@@ -15,23 +15,30 @@
 //! * [`middleware`]: request ids, protocol version, client IP, rate limits,
 //!   error normalisation,
 //! * [`app`]: router and middleware stack,
-//! * [`routes`]: `/healthz`, `/readyz`, `/v1/…`,
+//! * [`routes`]: `/healthz`, `/readyz`, `/metrics`, `/v1/…`,
 //! * [`secrets`]: AEAD-encrypted `server_secrets`,
 //! * [`registration`]: registration modes, setup-token bootstrap,
 //! * [`auth`]: OPAQUE login, tokens, devices, TOTP,
 //! * [`sync`]: vaults, pull, push, quota, tombstone GC,
 //! * [`ws`]: `/v1/ws` notifications and `LISTEN/NOTIFY` fan-out,
 //! * [`mail`]: SMTP for recovery codes and invites,
+//! * [`metrics`]: Prometheus metrics,
+//! * [`admin`]: admin CLI operations, [`cli`]: argument parsing,
+//!   [`healthcheck`]: the container probe,
 //! * [`serve`]: startup checks and listeners.
 
+pub mod admin;
 pub mod app;
 // OPAQUE, tokens, TOTP, the bearer extractor and auth persistence.
 pub mod auth;
+pub mod cli;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod healthcheck;
 pub mod logging;
 pub mod mail;
+pub mod metrics;
 pub mod middleware;
 pub mod registration;
 pub mod routes;

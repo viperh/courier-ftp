@@ -70,6 +70,22 @@ impl Default for WsTiming {
     }
 }
 
+/// Keeps `courier_ws_connections_active` right however the session ends.
+struct ConnGauge;
+
+impl ConnGauge {
+    fn new() -> Self {
+        metrics::gauge!(crate::metrics::WS_CONNECTIONS_ACTIVE).increment(1.0);
+        Self
+    }
+}
+
+impl Drop for ConnGauge {
+    fn drop(&mut self) {
+        metrics::gauge!(crate::metrics::WS_CONNECTIONS_ACTIVE).decrement(1.0);
+    }
+}
+
 async fn close<O>(out: &mut O, code: u16, reason: &str)
 where
     O: Sink<Frame> + Unpin,
@@ -91,7 +107,11 @@ where
     let Ok(text) = serde_json::to_string(msg) else {
         return true;
     };
-    out.send(Frame::Text(text)).await.is_ok()
+    let ok = out.send(Frame::Text(text)).await.is_ok();
+    if ok {
+        metrics::counter!(crate::metrics::WS_MESSAGES_SENT_TOTAL).increment(1);
+    }
+    ok
 }
 
 /// Waits for the auth message; `None` on anything else.
@@ -156,6 +176,7 @@ where
         close(&mut outgoing, CLOSE_AUTH_REQUIRED, "auth_required").await;
         return;
     };
+    let _gauge = ConnGauge::new();
 
     // 2. Subscriptions: the user topic before listing vaults.
     let mut sub = ws.hub().register();
