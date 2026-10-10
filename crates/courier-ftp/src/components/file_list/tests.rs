@@ -753,13 +753,18 @@ fn filelist_default_keys() {
     let tmp = tempfile::tempdir().unwrap();
     let d = PaneDir::Local(LocalPath::new(tmp.path()));
     h.action(Action::PaneInput(pane, PaneInput::Navigate(d.clone())));
-    // Answer the request with a fake listing (request ids start at 1).
+    // Let the real (empty) listing land first, so it cannot replace the fake one later.
+    for _ in 0..500 {
+        if h.settle().render(80, 24).contains("Empty directory.") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     h.action(Action::PaneInput(
         pane,
-        PaneInput::ListingLoaded {
-            request: RequestId(1),
+        PaneInput::ListingUpdated {
             dir: d,
-            result: Ok(listing("/", all)),
+            listing: listing("/", all),
         },
     ));
     let screen = h.render(80, 24);
