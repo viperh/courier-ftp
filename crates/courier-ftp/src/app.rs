@@ -3,10 +3,10 @@
 
 pub(crate) mod status;
 
-use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use courier_ftp_core::{
-    events::{self, CoreEvent, EventReceiver, EventSender, PromptKind, PromptRequest},
+    events::{self, CoreEvent, EventReceiver, EventSender, SessionId, SessionPurpose},
     settings::{InterfaceSettings, Layout, Settings, SettingsStore},
 };
 use ratatui::{Frame, Terminal, backend::Backend, layout::Size};
@@ -30,7 +30,11 @@ use crate::{
         },
         message_log::MessageLogPane,
         modal::ModalStack,
-        status_bar::{self, pretty_keys},
+        prompts::{
+            PendingCredentials, PromptAnswered, PromptEnv, PromptOrigin, PromptQueue, PromptTick,
+            SecretCache, UiFocusState, answer_from_cache, queue::WITHDRAWN_MESSAGE,
+        },
+        status_bar::{self, MessageLevel, pretty_keys},
         which_key,
     },
     config::{Config, check_settings_not_shadowed},
@@ -107,37 +111,6 @@ impl Mode {
     }
 }
 
-/// Prompts from the core waiting for a dialog (T69 answers them).
-#[derive(Debug, Default)]
-pub(crate) struct PromptQueue {
-    queue: VecDeque<PromptRequest>,
-}
-
-impl PromptQueue {
-    /// Queues a request (FIFO).
-    pub(crate) fn push(&mut self, req: PromptRequest) {
-        self.queue.push_back(req);
-    }
-
-    /// Takes the oldest request.
-    pub(crate) fn pop(&mut self) -> Option<PromptRequest> {
-        self.queue.pop_front()
-    }
-}
-
-fn prompt_kind_name(kind: &PromptKind) -> &'static str {
-    match kind {
-        PromptKind::TrustHostKey(_) => "TrustHostKey",
-        PromptKind::TrustCertificate(_) => "TrustCertificate",
-        PromptKind::Password(_) => "Password",
-        PromptKind::KeyPassphrase(_) => "KeyPassphrase",
-        PromptKind::KeyboardInteractive(_) => "KeyboardInteractive",
-        PromptKind::FileExists(_) => "FileExists",
-        PromptKind::Message(_) => "Message",
-        _ => "unknown",
-    }
-}
-
 /// Delay between the last layout change and saving the settings.
 const SAVE_DEBOUNCE: Duration = Duration::from_secs(1);
 /// A region shows its spinner after being busy this long.
@@ -156,7 +129,16 @@ pub(crate) struct App {
     events: EventReceiver,
     /// The sending half of the core bus, handed to backends and the engine (T03, T41).
     events_tx: EventSender,
-    prompts: PromptQueue,
+    /// Core prompts and the visible prompt dialog (T69).
+    pub(crate) prompts: PromptQueue,
+    /// "Remember for this session" secrets (T69).
+    pub(crate) secret_cache: SecretCache,
+    /// Typed secrets waiting for `CredentialAccepted` (T69).
+    pub(crate) pending_credentials: PendingCredentials,
+    /// What each open session is for (prompt origin, T69).
+    session_purposes: HashMap<SessionId, SessionPurpose>,
+    /// The vault is locked (T60 sets it through [`Self::set_vault_locked`]).
+    vault_locked: bool,
     pub(crate) main: MainScreen,
     pub(crate) modals: ModalStack,
     term_env: TermEnv,
@@ -233,6 +215,10 @@ impl App {
             events,
             events_tx,
             prompts: PromptQueue::default(),
+            secret_cache: SecretCache::default(),
+            pending_credentials: PendingCredentials::default(),
+            session_purposes: HashMap::new(),
+            vault_locked: false,
             modals: ModalStack::new(action_tx.clone()),
             term_env,
             theme,
@@ -253,6 +239,7 @@ impl App {
             panes: pane_service,
             status_sources: status::StatusSources::default(),
         };
+        app.prompts.set_env(PromptEnv::from_settings(&interface));
         app.install_panes();
         app
     }
@@ -427,6 +414,14 @@ impl App {
 
     /// The key table in effect.
     pub(crate) fn mode(&mut self) -> Mode {
+        if self.prompts.is_visible() {
+            return Mode::Dialog;
+        }
+        self.base_mode()
+    }
+
+    /// The key table in effect without the prompt dialog.
+    fn base_mode(&mut self) -> Mode {
         if let Some(top) = self.modals.top() {
             return top.key_mode();
         }
@@ -460,6 +455,26 @@ impl App {
         self.dirty = true;
         let now = Instant::now();
         self.main.status_bar_mut().on_key(now);
+        if self.prompts.is_visible() {
+            // The prompt dialog takes every key (T69).
+            self.resolver.clear();
+            if let Some(answered) = self.prompts.handle_key(key, now) {
+                self.on_prompt_answered(answered);
+            }
+            if let Some(n) = self.prompts.take_notice() {
+                self.status(n);
+            }
+            self.run_prompt_tick();
+            return Ok(());
+        }
+        self.prompts.note_key(now);
+        self.route_key(key, now)?;
+        self.run_prompt_tick();
+        Ok(())
+    }
+
+    /// [`Self::handle_key`] without the prompt dialog.
+    fn route_key(&mut self, key: KeyChord, now: Instant) -> color_eyre::Result<()> {
         let mode = self.mode();
         if self.resolver.is_pending() {
             if self.resolver.takes(key, mode, now) {
@@ -520,6 +535,13 @@ impl App {
     /// Bracketed paste: to the top modal, else to the focused component.
     pub(crate) fn handle_paste(&mut self, text: &str) -> color_eyre::Result<()> {
         self.dirty = true;
+        if self.prompts.is_visible() {
+            self.prompts.handle_paste(text);
+            if let Some(n) = self.prompts.take_notice() {
+                self.status(n);
+            }
+            return Ok(());
+        }
         let outcome = if let Some(top) = self.modals.top_mut() {
             let o = top.handle_paste(text)?;
             self.modals.close_done();
@@ -535,12 +557,40 @@ impl App {
         Ok(())
     }
 
-    /// A core event: prompts go to the prompt queue, everything else to the components.
+    /// A core event: prompts go to the prompt queue (answered from the session cache
+    /// when possible), everything else to the components.
     pub(crate) fn handle_core_event(&mut self, ev: CoreEvent) -> color_eyre::Result<()> {
         self.dirty = true;
+        match &ev {
+            CoreEvent::SessionOpened {
+                session, purpose, ..
+            } => {
+                self.session_purposes.insert(*session, *purpose);
+            }
+            CoreEvent::SessionClosed { session } => {
+                self.session_purposes.remove(session);
+                self.pending_credentials.on_session_ended(*session);
+            }
+            CoreEvent::Disconnected { session, .. } => {
+                self.pending_credentials.on_session_ended(*session);
+            }
+            CoreEvent::CredentialAccepted { prompt_id, .. } => {
+                if let Some(save) = self
+                    .pending_credentials
+                    .on_accepted(*prompt_id, &mut self.secret_cache)
+                {
+                    self.queue(Action::SaveCredential(save));
+                }
+            }
+            _ => {}
+        }
         if let CoreEvent::Prompt(req) = ev {
-            self.prompts.push(req);
-            self.answer_unsupported_prompts();
+            if let Some(req) = answer_from_cache(req, &self.secret_cache) {
+                let origin = self.prompt_origin(req.session);
+                // Opened by the next tick (rule 4), so prompts arriving together are
+                // shown foreground first.
+                self.prompts.push(req, origin, Instant::now());
+            }
             return Ok(());
         }
         for a in self.main.on_core_event(&ev)? {
@@ -549,14 +599,70 @@ impl App {
         Ok(())
     }
 
-    /// No prompt has a dialog before T69: each is dropped, which the core treats as
-    /// cancel (T04).
-    fn answer_unsupported_prompts(&mut self) {
-        while let Some(req) = self.prompts.pop() {
-            let kind_name = prompt_kind_name(&req.kind);
-            warn!("prompt kind {kind_name} not supported yet");
-            drop(req);
+    /// Rule 1: prompts of a browsing session are foreground (there is one tab until
+    /// T61, so every browsing session is the active tab's); sessions opened for
+    /// transfers, searches or anything else are background. A session the app has not
+    /// seen open counts as foreground.
+    fn prompt_origin(&self, session: SessionId) -> PromptOrigin {
+        match self.session_purposes.get(&session) {
+            None | Some(SessionPurpose::Browse) => PromptOrigin::Foreground,
+            Some(_) => PromptOrigin::Background,
         }
+    }
+
+    /// Applies the prompt queue's auto-open rules and updates the badge.
+    pub(crate) fn run_prompt_tick(&mut self) {
+        let now = Instant::now();
+        let ui = UiFocusState {
+            mode: self.base_mode(),
+            other_dialog_open: !self.modals.is_empty(),
+            vault_locked: self.vault_locked,
+        };
+        for t in self.prompts.tick(now, &ui) {
+            if let PromptTick::Withdrawn(_) = t {
+                self.notify(MessageLevel::Info, WITHDRAWN_MESSAGE);
+            }
+            self.dirty = true;
+        }
+        let badge = self.prompts.badge(self.symbols.unicode);
+        if badge != self.status_sources.prompts_badge {
+            self.status_sources.prompts_badge = badge;
+            self.dirty = true;
+        }
+    }
+
+    fn on_prompt_answered(&mut self, a: PromptAnswered) {
+        self.dirty = true;
+        debug!(
+            prompt_id = a.id.get(),
+            kind = a.kind,
+            session = a.session.get(),
+            delivered = a.delivered,
+            "prompt answered"
+        );
+        if !a.delivered {
+            self.notify(MessageLevel::Info, WITHDRAWN_MESSAGE);
+            return;
+        }
+        if let Some(p) = a.pending {
+            self.pending_credentials.insert(a.id, p);
+        }
+    }
+
+    /// The vault was locked or unlocked (T30/T60): locking hides the visible prompt
+    /// (it opens again after unlocking) and forgets the session's secrets.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "called by the unlock view (T60)")
+    )]
+    pub(crate) fn set_vault_locked(&mut self, locked: bool) {
+        self.vault_locked = locked;
+        self.prompts.set_suspended(locked);
+        if locked {
+            self.secret_cache.clear();
+        }
+        self.run_prompt_tick();
+        self.dirty = true;
     }
 
     fn status(&mut self, text: impl Into<String>) {
@@ -617,6 +723,8 @@ impl App {
         let current = self.settings.current();
         self.main.set_options(&current.interface);
         self.symbols = Symbols::resolve(current.interface.unicode_symbols, &self.term_env);
+        self.prompts
+            .set_env(PromptEnv::from_settings(&current.interface));
         self.dirty = true;
         self.schedule_save();
         self.notify_panes_settings();
@@ -690,6 +798,8 @@ impl App {
                     out.extend(self.modals.poll_all(Instant::now()));
                     self.dirty = true;
                 }
+                self.pending_credentials.expire(Instant::now());
+                self.run_prompt_tick();
                 for a in out {
                     self.dirty = true;
                     self.queue(a);
@@ -727,6 +837,24 @@ impl App {
             Action::CycleTransferType => self.cycle_transfer_type(),
             Action::ToggleSpeedLimit => self.toggle_speed_limit(),
             Action::ServerInfo => self.open_server_info(),
+            Action::CertificateChain => self.open_certificate_chain(),
+            Action::OpenNextPrompt => {
+                if self.prompts.open_next(Instant::now()) {
+                    self.run_prompt_tick();
+                } else if self.prompts.is_visible() {
+                    self.status("The prompt is already open");
+                } else {
+                    self.status("No prompts are waiting");
+                }
+            }
+            Action::SaveCredential(req) => {
+                // T31 writes it into the site item.
+                debug!(field = ?req.field, "save credential requested");
+                self.notify(
+                    MessageLevel::Warning,
+                    "Saving credentials in the vault is not available yet",
+                );
+            }
             Action::FocusRegion(r) => self.focus_or_explain(r),
             Action::TaskFinished(id) => {
                 self.runner.finished(id);
@@ -920,6 +1048,7 @@ impl App {
         if let Err(e) = self.modals.draw(frame, area, &cx) {
             errors.push(Action::Error(format!("Failed to draw: {e}")));
         }
+        self.prompts.render(frame, area, &cx);
         if let (Some(entries), Some(prefix)) = (
             self.resolver.which_key(now),
             self.resolver.pending_display(),

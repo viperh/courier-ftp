@@ -108,6 +108,8 @@ pub(crate) const INTERNAL: &[&str] = &[
     "Pane",
     "PaneInput",
     "PaneSettings",
+    "SaveCredential",
+    "CertificateChain",
 ];
 
 macro_rules! actions {
@@ -176,6 +178,7 @@ actions! {
         StatusMessage(String),
         /// A transient status-bar message with a level (T57: 3/5/8 s).
         #[serde(skip)]
+        #[cfg_attr(not(test), allow(dead_code, reason = "sent by components (T53–T71)"))]
         StatusNotice(crate::components::status_bar::MessageLevel, String),
         /// Focus a region.
         #[serde(skip)]
@@ -205,6 +208,12 @@ actions! {
         /// New settings for one file list pane (T53).
         #[serde(skip)]
         PaneSettings(PaneId, std::sync::Arc<courier_ftp_core::settings::Settings>),
+        /// Save a typed secret in the vault once the server accepted it (T69 → T31).
+        #[serde(skip)]
+        SaveCredential(crate::components::prompts::SaveRequest),
+        /// Show the certificate chain of the focused tab's session (T57 → T69).
+        #[serde(skip)]
+        CertificateChain,
     }
     bindable {
         // ---- Normal: general ----
