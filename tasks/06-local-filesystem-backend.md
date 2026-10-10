@@ -323,6 +323,9 @@ Not applicable (T76 PtyApp flows browse the local pane).
 - `finish_transfer` with an open stream just clears the transfer flag.
 - The AC4 tests skip when running as root (this container); they were run once as
   `nobody` (via `setpriv`) and passed.
-- Windows code was type-checked with `cargo check --target x86_64-pc-windows-gnu`, not run;
+- Windows code (lib and tests) passes `cargo clippy -p courier-ftp-core --all-targets
+  --all-features --target x86_64-pc-windows-gnu -- -D warnings` (with clang as the C
+  compiler for criterion's `alloca`), but was not run;
   macOS/Windows runs happen in the `test-os` CI job (AC1, AC2, AC3, AC5, AC9 there).
-- Benchmark `list_10k_entries` (ignored): see the result line below.
+- Benchmark `list_10k_entries` (ignored): 10 000 entries in 51 ms on Linux (debug build,
+  ext4/overlay, 2026-10-10); the release build was not run here (shared machine).
