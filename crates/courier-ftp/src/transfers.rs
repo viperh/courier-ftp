@@ -30,7 +30,7 @@ use courier_ftp_core::{
     settings::Settings,
     sites::SiteManager,
     transfer::{
-        EngineHandle, FileExistsPolicy, ServerResolver, SpeedLimiter, TransferEngine,
+        DirExpander, EngineHandle, FileExistsPolicy, ServerResolver, SpeedLimiter, TransferEngine,
         quick_connect_info, recursive::RecursiveExpander,
     },
     vault::{DeviceBlobVault, VaultError},
@@ -229,6 +229,8 @@ pub(crate) struct Transfers {
     pub(crate) engine: EngineHandle,
     pub(crate) resolver: Arc<AppResolver>,
     pub(crate) vault: Arc<VaultSlot>,
+    /// Expands queued directories (T43); keeps its own copy of the filters.
+    expander: Arc<RecursiveExpander>,
     /// Directories to list again (a transfer into them finished), applied on
     /// the next tick so a burst of small files refreshes once.
     pub(crate) refresh: HashSet<(Side, RemotePath)>,
@@ -261,9 +263,11 @@ impl Transfers {
         );
         let resolver = Arc::new(AppResolver::new(Arc::clone(&vault)));
         let on_changed = Arc::clone(&persister);
-        let expander = RecursiveExpander::new(settings)
-            .with_events(events.clone(), SessionId::next())
-            .with_cache(cache);
+        let expander = Arc::new(
+            RecursiveExpander::new(settings)
+                .with_events(events.clone(), SessionId::next())
+                .with_cache(cache),
+        );
         let (engine, handle) = TransferEngine::builder(
             queue.clone(),
             factory,
@@ -274,7 +278,7 @@ impl Transfers {
         // T42: the file-exists rules and prompt; T43: directories expanded
         // level by level; T44: the speed limits.
         .exists_policy(Arc::new(FileExistsPolicy::new(events)))
-        .dir_expander(Arc::new(expander))
+        .dir_expander(Arc::clone(&expander) as Arc<dyn DirExpander>)
         .rate_limiter(Arc::new(SpeedLimiter::new(&settings.transfers)))
         .on_queue_changed(move || on_changed.changed())
         .build();
@@ -287,6 +291,7 @@ impl Transfers {
             engine: handle,
             resolver,
             vault,
+            expander,
             refresh: HashSet::new(),
             persist_cancel,
             persist_task,
@@ -305,6 +310,12 @@ impl Transfers {
         if wake {
             self.engine.wake();
         }
+    }
+
+    /// The filters changed (T67): recursive operations queued from now on
+    /// skip what the new filters hide (when `filters.apply_to_transfers`).
+    pub(crate) fn filters_changed(&self, settings: &Settings) {
+        self.expander.apply_settings(settings);
     }
 
     /// Whether the queue is being processed.

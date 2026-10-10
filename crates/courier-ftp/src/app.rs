@@ -574,6 +574,7 @@ impl App {
             }
             Action::SetFilters(filters) => {
                 self.settings.filters = (**filters).clone();
+                self.transfers.filters_changed(&self.settings);
                 self.save_settings();
             }
             Action::Error(err) => {

@@ -204,6 +204,57 @@ async fn directories_download_recursively_and_disconnected_panes_are_refused() {
     app.transfers.shutdown().await;
 }
 
+/// T67: filters changed in the dialog reach the engine's directory
+/// expander at once (with "Apply filters to transfers" on, the default).
+#[tokio::test]
+async fn recursive_downloads_follow_filters_changed_at_runtime() {
+    use courier_ftp_core::filters::{
+        AppliesTo, Condition, Filter, FilterScope, MatchMode, StringOp,
+    };
+
+    let server = server();
+    let mut app = app(&server);
+    connect(&mut app, "sftp://alice:pw@mock.invalid/srv").await;
+    let local = tempfile::tempdir().unwrap();
+    show_local(&mut app, local.path()).await;
+    server.add_file("/srv/logs/a.log", b"log line");
+    server.add_file("/srv/logs/b.tmp", b"scratch");
+
+    let mut filters = app.settings.filters.clone();
+    filters.filters.push(Filter {
+        name: "tmp".into(),
+        applies_to: AppliesTo::Both,
+        match_mode: MatchMode::All,
+        case_sensitive: false,
+        conditions: vec![Condition::Name {
+            op: StringOp::EndsWith,
+            value: ".tmp".into(),
+        }],
+        scope: FilterScope::Both,
+    });
+    let set = filters
+        .sets
+        .iter_mut()
+        .find(|s| s.name == filters.active_set)
+        .unwrap();
+    set.enabled_remote.push("tmp".into());
+    assert!(filters.apply_to_transfers);
+    app.dispatch(Action::SetFilters(Box::new(filters))).unwrap();
+
+    cursor_to(&mut app, Side::Remote, "logs");
+    app.dispatch(Action::Copy).unwrap();
+    until(&mut app, "directory downloaded", |a| {
+        count(a, QueueList::Queued) == 0 && !a.transfers.processing()
+    })
+    .await;
+    assert_eq!(
+        std::fs::read(local.path().join("logs/a.log")).unwrap(),
+        b"log line"
+    );
+    assert!(!local.path().join("logs/b.tmp").exists());
+    app.transfers.shutdown().await;
+}
+
 #[tokio::test]
 async fn failed_transfers_land_in_the_failed_tab() {
     let server = server();
