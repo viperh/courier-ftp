@@ -27,11 +27,12 @@ use crate::{
         },
         modal::ModalStack,
         quit_confirm::QuitConfirm,
+        which_key,
     },
     config::{Config, check_settings_not_shadowed},
     keymap::{
-        chord::KeyChord,
-        resolver::{KeyResolver, Resolution, display_keys},
+        chord::{KeyChord, display_sequence},
+        resolver::{KeyResolver, Resolution},
     },
     runtime::{Runner, TaskId, TaskOwner},
     tui::{Event, Tui},
@@ -276,7 +277,7 @@ impl App {
         self.init_components(size)?;
 
         loop {
-            let deadline = self.resolver.deadline();
+            let deadline = self.key_deadline();
             tokio::select! {
                 biased;
                 ev = tui.next_event() => match ev {
@@ -285,7 +286,7 @@ impl App {
                 },
                 Some(ev) = self.events.recv() => self.handle_core_event(ev)?,
                 () = sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
-                    self.resolver.on_timeout(Instant::now());
+                    self.on_key_timeout(Instant::now());
                 }
                 Some(action) = self.action_rx.recv() => self.dispatch(action)?,
             }
@@ -396,48 +397,85 @@ impl App {
             .map_or(Mode::Normal, |c| c.key_mode())
     }
 
-    /// Routes one key (first match wins): the top modal, the focused component's raw
-    /// key handler, then the keymap.
+    /// When the key resolver needs a wake-up (sequence timeout or which-key popup).
+    pub(crate) fn key_deadline(&self) -> Option<Instant> {
+        self.resolver.deadline()
+    }
+
+    /// The key resolver's deadline passed.
+    pub(crate) fn on_key_timeout(&mut self, now: Instant) {
+        if self.resolver.on_timeout(now) {
+            self.dirty = true;
+        }
+    }
+
+    /// The keys of a pending sequence (`"ctrl-x"`).
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by the harness"))]
+    pub(crate) fn pending_keys(&self) -> Option<String> {
+        self.resolver.pending_display()
+    }
+
+    /// Routes one key (first match wins): a pending sequence the key continues (or `esc`
+    /// cancels), the top modal, the focused component's raw key handler, then the
+    /// keymap.
     pub(crate) fn handle_key(&mut self, key: KeyChord) -> color_eyre::Result<()> {
         self.dirty = true;
         let now = Instant::now();
+        let mode = self.mode();
+        if self.resolver.is_pending() {
+            if self.resolver.takes(key, mode, now) {
+                let r = self.resolver.resolve(key, mode, now);
+                return self.apply_resolution(r);
+            }
+            // The key does not continue the sequence: drop it and route the key alone.
+            self.resolver.clear();
+        }
         if let Some(top) = self.modals.top_mut() {
             match top.handle_key(key)? {
                 KeyOutcome::Consumed(a) => {
                     if let Some(a) = a {
                         self.queue(a);
                     }
+                    self.modals.close_done();
                 }
                 KeyOutcome::Ignored => {
-                    let mode = top.key_mode();
-                    if let Resolution::Action(a) = self.resolver.resolve(key, mode, now) {
-                        trace!(action = %a, "key action (modal)");
-                        let top = self.modals.top_mut();
-                        if let Some(out) = top.map(|t| t.update(&a)).transpose()?.flatten() {
-                            self.queue(out);
-                        }
-                    }
+                    let r = self.resolver.resolve(key, mode, now);
+                    self.apply_resolution(r)?;
                 }
             }
-            self.modals.close_done();
             return Ok(());
         }
         let Some(focused) = self.main.focused_mut() else {
             return Ok(());
         };
-        let mode = focused.key_mode();
         match focused.handle_key(key)? {
             KeyOutcome::Consumed(a) => {
                 if let Some(a) = a {
                     self.queue(a);
                 }
             }
-            KeyOutcome::Ignored => match self.resolver.resolve(key, mode, now) {
-                Resolution::Action(a) => self.dispatch(a)?,
-                Resolution::Pending | Resolution::Unbound => {}
-            },
+            KeyOutcome::Ignored => {
+                let r = self.resolver.resolve(key, mode, now);
+                self.apply_resolution(r)?;
+            }
         }
         Ok(())
+    }
+
+    /// Runs a resolved key: to the top modal while one is open, else to [`Self::dispatch`].
+    fn apply_resolution(&mut self, r: Resolution) -> color_eyre::Result<()> {
+        let Resolution::Action(a) = r else {
+            return Ok(());
+        };
+        trace!(action = %a, "key action");
+        if let Some(top) = self.modals.top_mut() {
+            if let Some(out) = top.update(&a)? {
+                self.queue(out);
+            }
+            self.modals.close_done();
+            return Ok(());
+        }
+        self.dispatch(a)
     }
 
     /// Bracketed paste: to the top modal, else to the focused component.
@@ -491,10 +529,11 @@ impl App {
     fn key_hint(&self, action: &str, fallback: &str) -> String {
         let keys = self
             .resolver
-            .bindings(&[Mode::Normal])
+            .keymap()
+            .bindings_for(&[Mode::Normal])
             .into_iter()
-            .find(|(_, _, a)| a.to_string() == action)
-            .map_or_else(|| fallback.to_owned(), |(_, k, _)| display_keys(&k));
+            .find(|r| r.action.to_string() == action)
+            .map_or_else(|| fallback.to_owned(), |r| display_sequence(&r.keys));
         pretty_keys(&keys)
     }
 
@@ -641,8 +680,8 @@ impl App {
             Action::QuitConfirmed => self.should_quit = true,
             Action::Help => {
                 let mode = self.mode();
-                let rows = self.resolver.bindings(mode.chain());
-                self.modals.push(Box::new(HelpOverlay::new(rows)));
+                let rows = self.resolver.keymap().bindings_for(mode.chain());
+                self.modals.push(Box::new(HelpOverlay::new(&rows)));
                 self.dirty = true;
             }
             Action::Quit => {
@@ -705,6 +744,14 @@ impl App {
             Action::LayoutClassic => self.change_interface(|i| i.layout = Layout::Classic),
             Action::LayoutExplorer => self.change_interface(|i| i.layout = Layout::Explorer),
             Action::LayoutWidescreen => self.change_interface(|i| i.layout = Layout::Widescreen),
+            other => self.route_to_components(other)?,
+        }
+        // The focus moved away from where a pending sequence started: drop it.
+        if let Some(m) = self.resolver.pending_mode()
+            && m != self.mode()
+        {
+            self.resolver.clear();
+            self.dirty = true;
         }
         Ok(())
     }
@@ -712,11 +759,47 @@ impl App {
     /// Every key bound to `action` in the Normal table, as hints.
     fn key_hint_all(&self, action: &str) -> Vec<String> {
         self.resolver
-            .bindings(&[Mode::Normal])
+            .keymap()
+            .bindings_for(&[Mode::Normal])
             .into_iter()
-            .filter(|(_, _, a)| a.to_string() == action)
-            .map(|(_, k, _)| pretty_keys(&display_keys(&k)))
+            .filter(|r| r.action.to_string() == action)
+            .map(|r| pretty_keys(&display_sequence(&r.keys)))
             .collect()
+    }
+
+    /// A bindable action the app does not handle itself: to the focused component if
+    /// it lists the action in `handled_actions`, else to every component that does,
+    /// else "… is not available yet".
+    fn route_to_components(&mut self, action: Action) -> color_eyre::Result<()> {
+        let handles = |c: &dyn crate::components::Component| {
+            c.handled_actions().iter().any(|a| a.same_variant(&action))
+        };
+        if let Some(c) = self.main.focused_mut()
+            && handles(&*c)
+        {
+            if let Some(out) = c.update(&action)? {
+                self.queue(out);
+            }
+            return Ok(());
+        }
+        let mut handled = false;
+        let mut outs = Vec::new();
+        for c in self.main.components_mut() {
+            if handles(&*c) {
+                handled = true;
+                outs.extend(c.update(&action)?);
+            }
+        }
+        for out in outs {
+            self.queue(out);
+        }
+        if !handled {
+            let what = action
+                .meta()
+                .map_or_else(|| action.to_string(), |m| m.description.to_owned());
+            self.status(format!("{what} is not available yet"));
+        }
+        Ok(())
     }
 
     /// Draws the whole screen (main screen, then modals).
@@ -724,7 +807,10 @@ impl App {
         let now = Instant::now();
         let elapsed_ms = now.duration_since(self.started).as_millis();
         let mode = self.mode();
-        let info = StatusInfo { mode: mode.label() };
+        let info = StatusInfo {
+            mode: mode.label(),
+            pending: self.resolver.pending_display(),
+        };
         let busy_components = self.main.busy_regions();
         let runner = &self.runner;
         let symbols = &self.symbols;
@@ -748,6 +834,12 @@ impl App {
         let mut errors = errors;
         if let Err(e) = self.modals.draw(frame, area, &cx) {
             errors.push(Action::Error(format!("Failed to draw: {e}")));
+        }
+        if let (Some(entries), Some(prefix)) = (
+            self.resolver.which_key(now),
+            self.resolver.pending_display(),
+        ) {
+            which_key::draw(frame, area, &prefix, &entries, &self.theme, &self.symbols);
         }
         for e in errors {
             self.queue(e);

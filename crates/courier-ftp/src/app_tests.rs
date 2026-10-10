@@ -485,36 +485,41 @@ fn help_overlay_lists_effective_bindings() {
     let mut h = harness_with(
         r#"{"keybindings": {"FileList": {"x": "ToggleLog"}, "Normal": {"ctrl-h": "Help", "f1": "Redraw"}}}"#,
     );
-    let (mut resolver, _) = crate::keymap::resolver::KeyResolver::from_config(&{
+    let config = {
         let Some(p) = h.paths() else { panic!() };
         match crate::config::Config::new(&p) {
             Ok(c) => c,
             Err(e) => panic!("{e}"),
         }
-    });
-    let expected = resolver.bindings(Mode::FileList.chain());
-    let _ = resolver.resolve(
-        KeyChord::char('x'),
-        Mode::FileList,
-        tokio::time::Instant::now(),
-    );
+    };
+    let (resolver, _) = crate::keymap::resolver::KeyResolver::from_config(&config);
+    let expected = resolver.keymap().bindings_for(Mode::FileList.chain());
     h.keys("ctrl-h");
     assert_eq!(h.app().modals.len(), 1);
-    let screen = h.render(80, 24);
-    for (_, keys, action) in &expected {
-        let row = format!("{} ", crate::keymap::resolver::display_keys(keys));
-        assert!(screen.contains(&row), "{row} missing:\n{screen}");
-        assert!(screen.contains(&action.to_string()), "{action} missing");
-    }
+    let screen = h.render(160, 48);
+    // Grouped by the registry's groups, with descriptions.
+    assert!(
+        screen.contains("General") && screen.contains("Focus"),
+        "{screen}"
+    );
+    assert!(screen.contains("Clear and redraw the screen"), "{screen}");
+    assert!(screen.contains("?, ctrl-h"), "{screen}");
     // The user's f1 override replaced the default: f1 is Redraw, listed once.
-    assert!(screen.contains("Redraw"));
-    assert_eq!(screen.matches("f1 ").count(), 1, "{screen}");
-    assert!(screen.contains("FileList") && screen.contains("Normal"));
-    // Filtering narrows the rows.
-    h.keys("/ T o g g l e enter");
+    assert!(screen.contains("f1, g r "), "{screen}");
+    assert_eq!(screen.matches("f1,").count(), 1, "{screen}");
+    // FileList's own table comes first in the chain's bindings.
+    assert_eq!(expected.first().map(|r| r.mode), Some(Mode::FileList));
+    assert!(
+        expected
+            .iter()
+            .any(|r| r.mode == Mode::Normal && r.keys_text() == "ctrl-l")
+    );
+    h.keys("/ T o g g l e L o g enter");
     let filtered = h.render(80, 24);
     assert!(
-        filtered.contains("ToggleLog") && !filtered.contains("Redraw"),
+        filtered.contains("x, ctrl-l")
+            && filtered.contains("ToggleLog")
+            && !filtered.contains("Redraw"),
         "{filtered}"
     );
     h.keys("q");

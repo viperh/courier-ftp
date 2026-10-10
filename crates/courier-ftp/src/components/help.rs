@@ -1,5 +1,6 @@
 //! The help overlay: the effective bindings of the mode that was active when it opened,
-//! grouped by key table (T50; T51 adds descriptions and groups).
+//! one row per action with all its keys, grouped by [`Group`], with the registry's
+//! descriptions (T50, T51).
 
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -11,22 +12,22 @@ use ratatui::{
 
 use super::{Component, DrawCx, KeyOutcome, modal::Modal, region_block};
 use crate::{
-    action::Action,
+    action::{Action, Group},
     app::Mode,
-    keymap::{chord::KeyChord, resolver::display_keys},
+    keymap::{chord::KeyChord, dump::grouped, map::BindingRow},
     ui::text::{sanitize, truncate_to_width},
 };
 
 /// One binding row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HelpRow {
-    /// Key table.
-    pub mode: Mode,
-    /// Keys (`ctrl-x d`).
+    /// Help group.
+    pub group: Group,
+    /// Keys (`j, down`).
     pub keys: String,
     /// Action name.
     pub action: String,
-    /// Description (T51).
+    /// Description from the registry.
     pub description: String,
 }
 
@@ -51,15 +52,19 @@ pub(crate) struct HelpOverlay {
 }
 
 impl HelpOverlay {
-    /// From the resolver's effective bindings (`KeyResolver::bindings`).
-    pub(crate) fn new(bindings: Vec<(Mode, Vec<KeyChord>, Action)>) -> Self {
-        let rows = bindings
+    /// From the effective bindings of a chain (`Keymap::bindings_for`).
+    pub(crate) fn new(bindings: &[BindingRow]) -> Self {
+        let rows = grouped(bindings)
             .into_iter()
-            .map(|(mode, keys, action)| HelpRow {
-                mode,
-                keys: display_keys(&keys),
-                action: action.to_string(),
-                description: String::new(),
+            .flat_map(|(group, entries)| {
+                entries.into_iter().map(move |(action, keys)| HelpRow {
+                    group,
+                    keys: keys.join(", "),
+                    description: action
+                        .meta()
+                        .map_or_else(String::new, |m| m.description.to_owned()),
+                    action: action.to_string(),
+                })
             })
             .collect();
         Self {
@@ -82,14 +87,14 @@ impl HelpOverlay {
 
     fn lines(&self, cx: &DrawCx, width: usize) -> Vec<Line<'static>> {
         let mut out = Vec::new();
-        let mut current: Option<Mode> = None;
+        let mut current: Option<Group> = None;
         let rows = self.visible_rows();
         let kw = rows
             .iter()
             .map(|r| r.keys.chars().count())
             .max()
             .unwrap_or(0)
-            .max(4);
+            .clamp(4, 24);
         let aw = rows
             .iter()
             .map(|r| r.action.len())
@@ -98,17 +103,19 @@ impl HelpOverlay {
             .max(6);
         let sep = cx.symbols.separator;
         for r in rows {
-            if current != Some(r.mode) {
+            if current != Some(r.group) {
                 if current.is_some() {
                     out.push(Line::default());
                 }
-                current = Some(r.mode);
+                current = Some(r.group);
                 out.push(Line::from(Span::styled(
-                    format!("{:?}", r.mode),
+                    r.group.title().to_owned(),
                     cx.theme.style("help_group"),
                 )));
             }
-            let keys = format!("{:<kw$}", sanitize(&r.keys));
+            let clean = sanitize(&r.keys);
+            let keys = truncate_to_width(&clean, kw, cx.symbols.ellipsis);
+            let keys = format!("{keys:<kw$}");
             let rest = format!(" {sep} {:<aw$} {sep} {}", r.action, r.description);
             let rest = truncate_to_width(&rest, width.saturating_sub(kw), cx.symbols.ellipsis)
                 .into_owned();
@@ -166,7 +173,7 @@ impl Component for HelpOverlay {
     }
 
     fn update(&mut self, action: &Action) -> color_eyre::Result<Option<Action>> {
-        if matches!(action, Action::Cancel | Action::Help) {
+        if matches!(action, Action::Cancel | Action::DialogCancel | Action::Help) {
             self.done = true;
         }
         Ok(None)

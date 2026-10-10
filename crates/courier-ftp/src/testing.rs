@@ -39,6 +39,8 @@ pub(crate) struct AppHarness {
     frame_every: Duration,
     next_tick: Duration,
     next_frame: Duration,
+    /// The virtual instant of `now == 0`.
+    origin: tokio::time::Instant,
     home: Option<tempfile::TempDir>,
     rt: Runtime,
 }
@@ -88,6 +90,7 @@ impl AppHarness {
     /// An app for `config` in the terminal environment `env`.
     pub(crate) fn with_env(config: Config, env: TermEnv) -> Self {
         let rt = paused_runtime();
+        let origin = rt.block_on(async { tokio::time::Instant::now() });
         let mut app = {
             let _guard = rt.enter();
             App::new(config, 4.0, 60.0, env)
@@ -108,6 +111,7 @@ impl AppHarness {
             frame_every: Duration::from_nanos(1_000_000_000 / 60),
             next_tick: Duration::ZERO,
             next_frame: Duration::ZERO,
+            origin,
             home: None,
             rt,
         }
@@ -237,8 +241,9 @@ impl AppHarness {
         self
     }
 
-    /// Advance the virtual clock, delivering ticks (4 Hz) and frames (60 Hz) on the
-    /// way; frames draw into the harness terminal only when the app needs a redraw.
+    /// Advance the virtual clock, delivering ticks (4 Hz), frames (60 Hz) and the key
+    /// resolver's deadlines (sequence timeout, which-key) on the way; frames draw into
+    /// the harness terminal only when the app needs a redraw.
     pub(crate) fn advance(&mut self, by: Duration) -> &mut Self {
         let target = self.now + by;
         let Self {
@@ -250,11 +255,17 @@ impl AppHarness {
             frame_every,
             next_tick,
             next_frame,
+            origin,
             ..
         } = self;
         rt.block_on(async {
             loop {
-                let next = (*next_tick).min(*next_frame);
+                let key_at = app
+                    .key_deadline()
+                    .map(|d| d.saturating_duration_since(*origin).max(*now));
+                let next = (*next_tick)
+                    .min(*next_frame)
+                    .min(key_at.unwrap_or(Duration::MAX));
                 if next > target {
                     tokio::time::advance(target - *now).await;
                     *now = target;
@@ -264,6 +275,9 @@ impl AppHarness {
                 tokio::time::advance(next - *now).await;
                 *now = next;
                 settle_app(app).await;
+                if key_at == Some(next) {
+                    app.on_key_timeout(tokio::time::Instant::now());
+                }
                 if *next_tick == next {
                     *next_tick += *tick_every;
                     if let Err(e) = app.dispatch(crate::action::Action::Tick) {
@@ -324,6 +338,11 @@ impl AppHarness {
     /// The key table in effect.
     pub(crate) fn mode(&mut self) -> Mode {
         self.app.mode()
+    }
+
+    /// The keys of a pending sequence.
+    pub(crate) fn pending(&self) -> Option<String> {
+        self.app.pending_keys()
     }
 
     /// Frames drawn by the render loop.

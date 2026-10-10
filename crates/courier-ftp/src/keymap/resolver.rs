@@ -1,268 +1,201 @@
-//! Key → action lookup by mode (T50: single chords; T51 replaces the internals with
-//! sequences, a timeout and conflict checks, keeping this API).
+//! Key → action resolution by mode: the sequence state machine with a timeout, `esc`
+//! cancel, the re-resolve rule and the which-key timer (T51; sverb `keymap.rs`).
 
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    fmt,
-};
+use std::time::Duration;
 
 use tokio::time::Instant;
 
-use super::chord::KeyChord;
+pub(crate) use super::map::{KeymapProblem, RawKeymap};
+use super::{
+    chord::{KeyChord, display_sequence},
+    map::{Keymap, Lookup},
+};
 use crate::{action::Action, app::Mode, config::Config};
 
-/// `keybindings` as written in a config file: mode name → key string → action name.
-pub(crate) type RawKeymap = BTreeMap<String, BTreeMap<String, String>>;
+/// A prefix pending this long opens the which-key popup.
+pub(crate) const WHICH_KEY_DELAY: Duration = Duration::from_millis(500);
 
-/// A `keybindings` entry that was skipped.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct KeymapProblem {
-    /// Mode name as written.
-    pub mode: String,
-    /// Key string as written.
-    pub key: String,
-    /// Action name as written.
-    pub action: String,
-    /// What is wrong.
-    pub kind: ProblemKind,
-}
-
-/// What is wrong with a `keybindings` entry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ProblemKind {
-    /// No such mode.
-    UnknownMode,
-    /// The key string does not parse.
-    BadKey(String),
-    /// No such bindable action.
-    UnknownAction,
-    /// Valid, but not supported yet (multi-key sequences arrive with T51).
-    Unsupported(String),
-}
-
-impl fmt::Display for KeymapProblem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (mode, key, action) = (&self.mode, &self.key, &self.action);
-        match &self.kind {
-            ProblemKind::UnknownMode => write!(f, "keybindings: unknown mode `{mode}`"),
-            ProblemKind::BadKey(reason) => {
-                write!(f, "keybindings.{mode}: invalid key `{key}`: {reason}")
-            }
-            ProblemKind::UnknownAction => {
-                write!(f, "keybindings.{mode}.{key}: unknown action `{action}`")
-            }
-            ProblemKind::Unsupported(why) => write!(f, "keybindings.{mode}.{key}: {why}"),
-        }
-    }
-}
+/// The default `interface.key_sequence_timeout_ms`.
+#[cfg(test)]
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// The result of feeding one key to the resolver.
 #[derive(Debug)]
 pub(crate) enum Resolution {
     /// A binding matched.
     Action(Action),
-    /// The key starts a sequence; wait for more (T51).
-    #[expect(dead_code, reason = "key sequences arrive with T51")]
+    /// The key starts or continues a sequence; wait for more.
     Pending,
     /// No binding.
     Unbound,
+    /// `esc` cancelled a pending sequence (the key is consumed).
+    Cancelled,
 }
 
-/// Effective key tables (built-in defaults ⊕ user config).
-#[derive(Debug, Default)]
+/// The keymap plus the pending-sequence state.
+#[derive(Debug, Clone)]
 pub(crate) struct KeyResolver {
-    tables: HashMap<Mode, HashMap<Vec<KeyChord>, Action>>,
+    keymap: Keymap,
+    pending: Vec<KeyChord>,
+    mode: Mode,
+    deadline: Option<Instant>,
+    timeout: Duration,
+    which_key_at: Option<Instant>,
 }
 
 impl KeyResolver {
-    /// Builds the tables from the built-in defaults and the user's `keybindings`. Never
-    /// fails: bad entries are skipped and returned.
+    /// The keymap of `config` (built-in defaults ⊕ user `keybindings`) with its
+    /// `interface.key_sequence_timeout_ms`. Never fails: problems are returned.
     pub(crate) fn from_config(config: &Config) -> (Self, Vec<KeymapProblem>) {
-        Self::build(crate::config::default_keybindings(), &config.keybindings)
+        let (keymap, problems) =
+            Keymap::build(crate::config::default_keybindings(), &config.keybindings);
+        let timeout =
+            Duration::from_millis(u64::from(config.settings.interface.key_sequence_timeout_ms));
+        (Self::new(keymap, timeout), problems)
     }
 
-    /// Builds from raw maps; `user` entries replace defaults for the same chord.
+    /// A resolver for `keymap`.
+    pub(crate) fn new(keymap: Keymap, timeout: Duration) -> Self {
+        Self {
+            keymap,
+            pending: Vec::new(),
+            mode: Mode::Normal,
+            deadline: None,
+            timeout,
+            which_key_at: None,
+        }
+    }
+
+    /// Builds from raw maps with the default timeout (tests).
+    #[cfg(test)]
     pub(crate) fn build(defaults: &RawKeymap, user: &RawKeymap) -> (Self, Vec<KeymapProblem>) {
-        let mut me = Self::default();
-        let mut problems = Vec::new();
-        for raw in [defaults, user] {
-            for (mode_name, entries) in raw {
-                let problem = |key: &str, action: &str, kind| KeymapProblem {
-                    mode: mode_name.clone(),
-                    key: key.to_owned(),
-                    action: action.to_owned(),
-                    kind,
-                };
-                let Ok(mode) =
-                    serde_json::from_value::<Mode>(serde_json::Value::String(mode_name.clone()))
-                else {
-                    problems.push(problem("", "", ProblemKind::UnknownMode));
-                    continue;
-                };
-                let table = me.tables.entry(mode).or_default();
-                for (key, action_name) in entries {
-                    let chords: Result<Vec<KeyChord>, _> =
-                        key.split_whitespace().map(str::parse).collect();
-                    let chords = match chords {
-                        Ok(c) if c.is_empty() => {
-                            problems.push(problem(
-                                key,
-                                action_name,
-                                ProblemKind::BadKey("empty key".into()),
-                            ));
-                            continue;
-                        }
-                        Ok(c) => c,
-                        Err(e) => {
-                            problems.push(problem(key, action_name, ProblemKind::BadKey(e.reason)));
-                            continue;
-                        }
-                    };
-                    let Some(action) = Action::bindable_from_name(action_name) else {
-                        problems.push(problem(key, action_name, ProblemKind::UnknownAction));
-                        continue;
-                    };
-                    if chords.len() > 1 {
-                        problems.push(problem(
-                            key,
-                            action_name,
-                            ProblemKind::Unsupported("key sequences are not supported yet".into()),
-                        ));
-                        continue;
-                    }
-                    table.insert(chords, action);
-                }
-            }
-        }
-        (me, problems)
+        let (keymap, problems) = Keymap::build(defaults, user);
+        (Self::new(keymap, DEFAULT_TIMEOUT), problems)
     }
 
-    /// Resolves `key` in `mode`'s chain.
+    /// The effective keymap.
+    pub(crate) fn keymap(&self) -> &Keymap {
+        &self.keymap
+    }
+
+    /// A sequence is pending.
+    pub(crate) fn is_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    /// Drops the pending sequence.
+    pub(crate) fn clear(&mut self) {
+        self.pending.clear();
+        self.deadline = None;
+        self.which_key_at = None;
+    }
+
+    /// Whether `key` would complete or continue the pending sequence in `mode` (or
+    /// cancel it with `esc`). False when nothing is pending.
+    pub(crate) fn takes(&self, key: KeyChord, mode: Mode, now: Instant) -> bool {
+        if self.pending.is_empty() || mode != self.mode || self.expired(now) {
+            return false;
+        }
+        if key == KeyChord::key(crossterm::event::KeyCode::Esc) {
+            return true;
+        }
+        let mut seq = self.pending.clone();
+        seq.push(key);
+        !matches!(self.keymap.lookup(mode, &seq), Lookup::None)
+    }
+
+    fn expired(&self, now: Instant) -> bool {
+        self.deadline.is_some_and(|d| now >= d)
+    }
+
+    /// Feeds one key typed at `now` while `mode` is in effect.
     pub(crate) fn resolve(&mut self, key: KeyChord, mode: Mode, now: Instant) -> Resolution {
-        let _ = now;
-        let seq = [key];
-        for m in mode.chain() {
-            if let Some(a) = self.tables.get(m).and_then(|t| t.get(&seq[..])) {
-                return Resolution::Action(a.clone());
+        if self.expired(now) {
+            self.clear();
+        }
+        if !self.pending.is_empty() {
+            if key == KeyChord::key(crossterm::event::KeyCode::Esc) {
+                self.clear();
+                return Resolution::Cancelled;
+            }
+            if mode != self.mode {
+                self.clear();
             }
         }
-        Resolution::Unbound
+        let had_pending = !self.pending.is_empty();
+        let mut seq = std::mem::take(&mut self.pending);
+        seq.push(key);
+        match self.step(seq, mode, now) {
+            Resolution::Unbound if had_pending => {
+                // A stray prefix: forget it and try the key on its own.
+                self.clear();
+                self.step(vec![key], mode, now)
+            }
+            r => r,
+        }
     }
 
-    /// When a pending sequence times out (always None before T51).
+    fn step(&mut self, seq: Vec<KeyChord>, mode: Mode, now: Instant) -> Resolution {
+        match self.keymap.lookup(mode, &seq) {
+            Lookup::Exact(a) => {
+                self.clear();
+                Resolution::Action(a)
+            }
+            Lookup::Prefix => {
+                self.pending = seq;
+                self.mode = mode;
+                self.deadline = Some(now + self.timeout);
+                self.which_key_at = Some(now + WHICH_KEY_DELAY);
+                Resolution::Pending
+            }
+            Lookup::None => {
+                self.clear();
+                Resolution::Unbound
+            }
+        }
+    }
+
+    /// When something time-based happens next: the sequence times out or the which-key
+    /// popup opens (whichever is earlier and still ahead).
     pub(crate) fn deadline(&self) -> Option<Instant> {
-        None
+        let deadline = self.deadline?;
+        match self.which_key_at {
+            Some(w) if w < deadline => Some(w),
+            _ => Some(deadline),
+        }
     }
 
-    /// A pending sequence timed out (no-op before T51).
-    pub(crate) fn on_timeout(&mut self, now: Instant) {
-        let _ = now;
+    /// Time passed: drops an expired sequence and marks the which-key popup as due.
+    /// Returns true when the screen changes (popup opened or sequence dropped).
+    pub(crate) fn on_timeout(&mut self, now: Instant) -> bool {
+        if self.expired(now) {
+            self.clear();
+            return true;
+        }
+        if self.which_key_at.is_some_and(|w| now >= w) {
+            // The popup is drawn from now on; only the timeout remains ahead.
+            self.which_key_at = None;
+            return true;
+        }
+        false
     }
 
-    /// The keys typed so far of a pending sequence (None before T51).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "shown by the status bar (T51, T57)")
-    )]
+    /// The keys typed so far of a pending sequence (`"ctrl-x"`, `"g"`).
     pub(crate) fn pending_display(&self) -> Option<String> {
-        None
+        (!self.pending.is_empty()).then(|| display_sequence(&self.pending))
     }
 
-    /// Effective bindings for `chain`, highest priority table first; a key bound in an
-    /// earlier table hides the same key in later ones. Sorted by key within a table.
-    pub(crate) fn bindings(&self, chain: &[Mode]) -> Vec<(Mode, Vec<KeyChord>, Action)> {
-        let mut seen: HashSet<Vec<KeyChord>> = HashSet::new();
-        let mut out = Vec::new();
-        for m in chain {
-            let Some(table) = self.tables.get(m) else {
-                continue;
-            };
-            let mut rows: Vec<_> = table
-                .iter()
-                .filter(|(k, _)| !seen.contains(*k))
-                .map(|(k, a)| (*m, k.clone(), a.clone()))
-                .collect();
-            rows.sort_by_cached_key(|(_, k, a)| (a.to_string(), display_keys(k)));
-            seen.extend(rows.iter().map(|(_, k, _)| k.clone()));
-            out.extend(rows);
+    /// The mode the pending sequence was started in.
+    pub(crate) fn pending_mode(&self) -> Option<Mode> {
+        (!self.pending.is_empty()).then_some(self.mode)
+    }
+
+    /// The which-key entries once the prefix has been pending for
+    /// [`WHICH_KEY_DELAY`].
+    pub(crate) fn which_key(&self, now: Instant) -> Option<Vec<(KeyChord, Action)>> {
+        if self.pending.is_empty() || self.which_key_at.is_some_and(|w| now < w) {
+            return None;
         }
-        out
-    }
-}
-
-/// `"ctrl-x d"`.
-pub(crate) fn display_keys(seq: &[KeyChord]) -> String {
-    seq.iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[cfg(test)]
-mod tests {
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    fn raw(entries: &[(&str, &str, &str)]) -> RawKeymap {
-        let mut m = RawKeymap::new();
-        for (mode, key, action) in entries {
-            m.entry((*mode).to_owned())
-                .or_default()
-                .insert((*key).to_owned(), (*action).to_owned());
-        }
-        m
-    }
-
-    #[test]
-    fn mode_chain_table() {
-        assert_eq!(Mode::Dialog.chain(), [Mode::Dialog]);
-        assert_eq!(Mode::SiteManager.chain(), [Mode::SiteManager]);
-        assert_eq!(Mode::FileList.chain(), [Mode::FileList, Mode::Normal]);
-        assert_eq!(Mode::Input.chain(), [Mode::Input, Mode::Normal]);
-        assert_eq!(Mode::Normal.chain(), [Mode::Normal]);
-    }
-
-    #[test]
-    fn user_overrides_and_problems() {
-        let defaults = raw(&[("Normal", "ctrl-q", "Quit"), ("Normal", "f1", "Help")]);
-        let user = raw(&[
-            ("Normal", "CTRL-Q", "Help"),
-            ("FileList", "f1", "ToggleLog"),
-            ("Nowhere", "a", "Quit"),
-            ("Normal", "notakey", "Quit"),
-            ("Normal", "x", "Explode"),
-            ("Normal", "g g", "Help"),
-        ]);
-        let (mut r, problems) = KeyResolver::build(&defaults, &user);
-        let kinds: Vec<_> = problems.iter().map(|p| p.kind.clone()).collect();
-        assert_eq!(problems.len(), 4, "{problems:?}");
-        assert!(kinds.contains(&ProblemKind::UnknownMode));
-        assert!(kinds.contains(&ProblemKind::UnknownAction));
-        let now = Instant::now();
-        assert!(matches!(
-            r.resolve(KeyChord::ctrl('q'), Mode::Normal, now),
-            Resolution::Action(Action::Help)
-        ));
-        let f1 = KeyChord::key(crossterm::event::KeyCode::F(1));
-        assert!(matches!(
-            r.resolve(f1, Mode::FileList, now),
-            Resolution::Action(Action::ToggleLog)
-        ));
-        assert!(matches!(
-            r.resolve(f1, Mode::Normal, now),
-            Resolution::Action(Action::Help)
-        ));
-        assert!(matches!(
-            r.resolve(f1, Mode::Dialog, now),
-            Resolution::Unbound
-        ));
-        // FileList's f1 hides Normal's f1.
-        let rows = r.bindings(Mode::FileList.chain());
-        assert_eq!(rows.len(), 2, "{rows:?}");
-        assert_eq!(rows[0].0, Mode::FileList);
-        assert!(r.deadline().is_none());
-        assert!(r.pending_display().is_none());
-        assert!(problems.iter().all(|p| !p.to_string().is_empty()));
+        Some(self.keymap.continuations(self.mode.chain(), &self.pending))
     }
 }

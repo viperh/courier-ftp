@@ -84,6 +84,8 @@ pub(crate) struct StatusMessage {
 pub(crate) struct StatusInfo {
     /// `NORMAL`, `INPUT`, `DIALOG`.
     pub mode: &'static str,
+    /// The keys of a pending sequence (`ctrl-x`), shown in the key-hint area.
+    pub pending: Option<String>,
 }
 
 /// The screen.
@@ -423,7 +425,15 @@ impl MainScreen {
             format!(" {}", info.mode),
             theme.style("status_mode"),
         )];
-        if compact {
+        if let Some(p) = &info.pending {
+            // The keys of a pending sequence come first so they always fit.
+            spans.push(Span::raw(sep.clone()));
+            spans.push(Span::styled(
+                format!("{} {}", crate::ui::text::sanitize(p), symbols.ellipsis),
+                theme.style("help_key"),
+            ));
+        }
+        if compact && info.pending.is_none() {
             spans.push(Span::raw(sep.clone()));
             spans.push(Span::raw(
                 "compact: Tab = other side, Shift-Tab = log/queue",

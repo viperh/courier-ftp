@@ -541,17 +541,17 @@ No `courier_ftp_core::Error` is involved (binary-crate config).
 ## Acceptance criteria
 
 - [ ] AC1 Every bindable action has at least one default sequence made only of portable chords (`every_bindable_action_has_portable_default`), and the manual checklist (xterm, tmux 3.x, Windows Terminal; macOS Terminal noted) is ticked in the PR.
-- [ ] AC2 Sequences fire with up to 999 ms between keys at the default timeout and do not fire at 1000 ms (paused-time tests); `interface.key_sequence_timeout_ms = 3000` lets 2.5 s pass.
-- [ ] AC3 Bad key strings, unknown modes and unknown actions in the user config produce the documented one-line messages and never panic (property test over arbitrary strings).
-- [ ] AC4 Duplicate and prefix conflicts are reported with both keys named; the shipped defaults produce zero problems.
-- [ ] AC5 `ctrl-d` is half-page-down in `FileList`, `Disconnect` is `ctrl-x d`, `ToggleQueuePane` is `ctrl-x j`, `ToggleHidden` is `.`, and neither `ctrl-h` nor `ctrl-j` is bound in any mode; documented in `docs/keybindings.md`.
-- [ ] AC6 `G`, `shift-g`, `<G>` parse to the same chord and `g` does not; `parse(display(x)) == x` for every chord (property test).
-- [ ] AC7 Pending keys are shown while a prefix is pending and cleared on completion, `Esc`, timeout and focus change; the which-key popup appears after 500 ms.
-- [ ] AC8 A user binding overrides a default with the same sequence; `"none"` removes a default.
-- [ ] AC9 `docs/keybindings.md` is generated and the staleness test passes; the help overlay shows descriptions from the registry.
-- [ ] AC10 An unimplemented action shows "… is not available yet" instead of doing nothing.
+- [x] AC2 Sequences fire with up to 999 ms between keys at the default timeout and do not fire at 1000 ms (paused-time tests); `interface.key_sequence_timeout_ms = 3000` lets 2.5 s pass.
+- [x] AC3 Bad key strings, unknown modes and unknown actions in the user config produce the documented one-line messages and never panic (property test over arbitrary strings).
+- [x] AC4 Duplicate and prefix conflicts are reported with both keys named; the shipped defaults produce zero problems.
+- [x] AC5 `ctrl-d` is half-page-down in `FileList`, `Disconnect` is `ctrl-x d`, `ToggleQueuePane` is `ctrl-x j`, `ToggleHidden` is `.`, and neither `ctrl-h` nor `ctrl-j` is bound in any mode; documented in `docs/keybindings.md`.
+- [x] AC6 `G`, `shift-g`, `<G>` parse to the same chord and `g` does not; `parse(display(x)) == x` for every chord (property test).
+- [x] AC7 Pending keys are shown while a prefix is pending and cleared on completion, `Esc`, timeout and focus change; the which-key popup appears after 500 ms.
+- [x] AC8 A user binding overrides a default with the same sequence; `"none"` removes a default.
+- [x] AC9 `docs/keybindings.md` is generated and the staleness test passes; the help overlay shows descriptions from the registry.
+- [x] AC10 An unimplemented action shows "… is not available yet" instead of doing nothing.
 - [ ] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
-- [ ] AC12 The default `ctrl-x` continuations are exactly the 36 entries of the `ctrl-x` prefix table (letters, `=`, `<`, `>`, `1`–`7`, `ctrl-l`) with the listed actions; `alt-1`…`alt-9` and `g t`/`g T` switch tabs; `ctrl-x 1`…`ctrl-x 7` focus the listed regions.
+- [x] AC12 The default `ctrl-x` continuations are exactly the 36 entries of the `ctrl-x` prefix table (letters, `=`, `<`, `>`, `1`–`7`, `ctrl-l`) with the listed actions; `alt-1`…`alt-9` and `g t`/`g T` switch tabs; `ctrl-x 1`…`ctrl-x 7` focus the listed regions.
 
 ## Tests
 
@@ -616,3 +616,57 @@ unbound, the `ctrl-x` table is as listed, tabs use `alt-1..9`/`g t`/`g T`, focus
 `ctrl-x 1..7`, the setting is `interface.enter_on_file`. Actions displaced from `ctrl-x`
 by the final table moved to: `Redraw` `g r`, `SwapPanes` `g x`, layouts `z 1/2/3`,
 `QueueCompletionAction` `a` in `Queue`, `QueueOnly` alias `Q`, `MkdirEnter` alias `M`.)
+
+## Implementation notes
+
+- **Files.** The keymap lives in `keymap/map.rs` (not `keymap/keymap.rs`, which trips
+  clippy's `module_inception`); `keymap/dump.rs` groups bindings per action and `Group`
+  (help overlay and docs); `keymap/docs.rs` (test-only) generates `docs/keybindings.md`
+  from `keymap/docs_intro.md`, the registry and `config/config.json`. The which-key
+  popup is `components/which_key.rs`.
+- **`Lookup`** is `Exact(Action) | Prefix | None`. A table that binds both `P` and a
+  longer `P …` answers `Exact` (rule 4). `ProblemKind::Unreachable.blocked_by` holds the
+  winning binding as `Mode."keys": "Action"`, so the line reads exactly as in Errors;
+  the problem's own `mode`/`key`/`action` are the unreachable binding (canonical key
+  text). Each unreachable binding is reported once (first mode in `Mode` order whose
+  chain shows it). `UnknownMode` is reported once per mode, with an empty key.
+- **`BindingRow`** is `{ mode, keys: Vec<KeyChord>, action }`; descriptions and groups
+  come from `action.meta()`. The help overlay shows one row per action with all its
+  keys (`j, down`), grouped by `Group`. T50's `snap_help_overlay_*` snapshots were
+  renamed to the spec's `snap_help_filelist_*` (same scenario).
+- **Routing with a pending sequence.** While a sequence is pending, a key that continues
+  it (or `esc`) goes to the resolver *before* the modal/focused component, so
+  `ctrl-x d` also works while a text field has the focus; a key that does not continue
+  it drops the sequence and is routed normally (so a text field still gets it). Keys a
+  text field consumes never start a sequence. A focus change (any dispatched action
+  after which `App::mode()` differs from the sequence's mode) clears the pending keys.
+- **Pending keys** are drawn right after the mode label in the status bar
+  (`NORMAL │ ctrl-x …`) so they are never cut off by a long message; T57 can move them.
+- **Not available yet** uses the registry description: "Disconnect the current tab is
+  not available yet". App-level actions are the ones `App::dispatch` matches; any other
+  bindable action goes to the focused component if its `handled_actions()` lists it,
+  else to every component that lists it, else the status message.
+- **Deviations from the default tables:**
+  - `Dialog` keeps T50's `f10` / `ctrl-q` → `Quit` (the quit confirmation's "press Quit
+    again" relies on it; dialogs only receive the action, the app does not quit).
+  - `Dialog` adds `ctrl-n` → `NextFormTab` and `ctrl-p` → `PrevFormTab`: the spec's only
+    keys (`ctrl-pagedown`/`ctrl-pageup`) are not portable, and AC1 requires a portable
+    default for every action. Text fields do not use `ctrl-n`/`ctrl-p`.
+  - Until T58 lands, the quickconnect *placeholder* uses the `Normal` table instead of
+    `Input` (it has no text field; with `Input` its `tab`/`backtab` would be the
+    unimplemented `NextField`/`PrevField` and trap the focus). T58's component returns
+    `Mode::Input`.
+- **`OpenSettingsAt(SectionId)`** is not added: `SectionId` is T68's type. The registry
+  test checks that the name is not bindable; T68 adds the `#[serde(skip)]` variant and
+  its name to `action::INTERNAL`.
+- **`Action` is generated by the `actions!` macro** in `action.rs` together with
+  `BINDABLE` (name, description, group, owner), so a new bindable action is one line.
+  New internal variants go in the macro's `internal` block and in `INTERNAL`.
+- **Harness.** `AppHarness::advance` also fires the resolver's deadlines (which-key and
+  timeout), and `AppHarness::pending()` returns the pending keys.
+- **Normalisation** now follows sverb fully: raw control characters (0x01–0x1A, 0x08,
+  0x09, 0x0D, 0x1B, NUL, DEL) map to their keys, `super` is a modifier.
+- **Not done here:** `e2e_pty_sequences_and_fkeys` needs T76's `courier-ftp-e2e` crate
+  (`PtyApp`). The manual terminal checklist of AC1 (xterm, tmux, Windows Terminal, macOS
+  Terminal) and the `test-os` job of AC11 could not be run in this environment; `fmt`,
+  `clippy`, `docs` and the Linux tests pass.

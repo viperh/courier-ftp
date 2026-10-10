@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/snapshot_tests.rs
+expression: "h.render(80, 24)"
+---
+┏▶Help: key bindings ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃General                                                                       ┃
+┃?, f1              │ Help               │ Help: bindings for the current mode ┃
+┃ctrl-q, f10        │ Quit               │ Quit (confirm when transfers run)   ┃
+┃ctrl-z             │ Suspend            │ Suspend to the shell (Unix)         ┃
+┃g r                │ Redraw             │ Clear and redraw the screen         ┃
+┃ctrl-c             │ Cancel             │ Cancel the focused pane's running o…┃
+┃f9                 │ Settings           │ Settings                            ┃
+┃                                                                              ┃
+┃Focus                                                                         ┃
+┃tab                │ FocusOtherSide     │ Switch between local and remote list┃
+┃backtab            │ FocusNextRegion    │ Focus next region (log, trees, list…┃
+┃g l                │ FocusLog           │ Focus message log                   ┃
+┃g q                │ FocusQueue         │ Focus queue                         ┃
+┃g f                │ FocusFiles         │ Focus the last file list            ┃
+┃ctrl-x 1           │ FocusRegion1       │ Focus the quickconnect bar (region …┃
+┃ctrl-x 2           │ FocusRegion2       │ Focus the local tree (region 2)     ┃
+┃ctrl-x 3           │ FocusRegion3       │ Focus the local list (region 3)     ┃
+┃ctrl-x 4           │ FocusRegion4       │ Focus the remote tree (region 4)    ┃
+┃ctrl-x 5           │ FocusRegion5       │ Focus the remote list (region 5)    ┃
+┃ctrl-x 6           │ FocusRegion6       │ Focus the message log (region 6)    ┃
+┃ctrl-x 7           │ FocusRegion7       │ Focus the queue (region 7)          ┃
+┃j/k scroll  / filter  Esc close                                               ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
