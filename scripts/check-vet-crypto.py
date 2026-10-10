@@ -37,6 +37,15 @@ CRYPTO = {
 
 def main() -> int:
     path = sys.argv[1] if len(sys.argv) > 1 else "supply-chain/config.toml"
+    if not os.path.exists(path):
+        # `cargo vet init` has not been run yet (the vet job lands with T91).
+        # Same policy as an exemption: a warning, or a failure in strict mode.
+        message = f"{path} not found: cargo-vet is not initialised, crypto crates are unaudited"
+        if os.environ.get("VET_CRYPTO_STRICT") == "1":
+            print(message, file=sys.stderr)
+            return 1
+        print(f"::warning::{message}")
+        return 0
     with open(path, "rb") as fh:
         config = tomllib.load(fh)
     exempted = sorted(set(config.get("exemptions", {})) & CRYPTO)

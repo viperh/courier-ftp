@@ -7,3 +7,5 @@
 # Listing fixtures are compared byte for byte (tabs, trailing spaces, CRLF,
 # non-UTF-8 names): never convert them.
 crates/courier-ftp-proto-ftp/tests/listings/* -text
+# Binary test fixtures (encrypted envelopes): never touch line endings.
+*.bin  binary

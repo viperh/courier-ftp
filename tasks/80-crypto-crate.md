@@ -51,10 +51,10 @@ without detection.
 
 ## Acceptance criteria
 
-- [ ] All modules ported with their sverb unit tests adapted.
-- [ ] Known-answer tests for envelope, wrap and recovery encoding (fixed keys/nonces).
-- [ ] Tamper tests: flipping any byte of header, AAD inputs or ciphertext fails.
-- [ ] No I/O, no async, no `unsafe`.
+- [x] All modules ported with their sverb unit tests adapted.
+- [x] Known-answer tests for envelope, wrap and recovery encoding (fixed keys/nonces).
+- [x] Tamper tests: flipping any byte of header, AAD inputs or ciphertext fails.
+- [x] No I/O, no async, no `unsafe`.
 
 ## Tests
 
