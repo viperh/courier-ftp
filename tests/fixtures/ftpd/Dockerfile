@@ -15,7 +15,7 @@ FROM public.ecr.aws/docker/library/debian:bookworm-slim
 
 # The three servers all `Conflicts: ftp-server`, so apt refuses to install them together.
 # Download them, install their dependencies through apt, then install the servers with
-# dpkg --force-conflicts. Only one server runs per container (FTPD_PROFILE).
+# dpkg --force-conflicts --force-overwrite (they share /etc/ftpusers). Only one server runs per container (FTPD_PROFILE).
 RUN set -eu; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update; \
@@ -26,7 +26,7 @@ RUN set -eu; \
       | tr ',' '\n' | sed -e 's/|.*//' -e 's/(.*)//' -e 's/:any//' | tr -d ' ' \
       | grep -v -E '^(vsftpd|proftpd|pure-ftpd|$)' | sort -u)"; \
     apt-get install -y --no-install-recommends $deps; \
-    dpkg -i --force-conflicts ./*.deb; \
+    dpkg -i --force-conflicts --force-overwrite ./*.deb; \
     cd /; rm -rf /tmp/debs /var/lib/apt/lists/*; \
     mkdir -p /etc/courier-ftpd/tls /var/run/vsftpd/empty
 
