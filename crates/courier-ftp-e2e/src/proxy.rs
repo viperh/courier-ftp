@@ -90,7 +90,8 @@ impl ProxyServer {
                 matches!(up, Ok(Ok(_))).then_some(())
             },
         )
-        .await?;
+        .await
+        .inspect_err(|_| proxy.fixture.dump_logs())?;
         Ok(proxy)
     }
 
