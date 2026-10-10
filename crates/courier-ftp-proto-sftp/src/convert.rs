@@ -127,9 +127,11 @@ pub fn timestamp(secs: u32) -> Option<Timestamp> {
 /// One `SSH_FXP_NAME` element → [`Entry`]. `None` for `.`, `..`, and names that are
 /// empty, contain `/` or NUL, or are longer than [`MAX_NAME_BYTES`] bytes.
 pub fn entry_from_name(filename: &str, longname: &str, attrs: &FileAttributes) -> Option<Entry> {
-    if !is_acceptable_name(filename) {
-        return None;
-    }
+    is_acceptable_name(filename).then(|| entry_from_attrs(filename, longname, attrs))
+}
+
+/// As [`entry_from_name`] without the name checks (`stat` of a path, the root `/`).
+pub fn entry_from_attrs(filename: &str, longname: &str, attrs: &FileAttributes) -> Entry {
     let parsed = if longname.is_empty() {
         None
     } else {
@@ -151,7 +153,7 @@ pub fn entry_from_name(filename: &str, longname: &str, attrs: &FileAttributes) -
             attrs.gid.map(|g| g.to_string()),
         ),
     };
-    Some(Entry {
+    Entry {
         name: filename.to_owned(),
         kind,
         size,
@@ -160,7 +162,7 @@ pub fn entry_from_name(filename: &str, longname: &str, attrs: &FileAttributes) -
         owner,
         group,
         hidden: filename.starts_with('.'),
-    })
+    }
 }
 
 /// The sanitized server text of a status, or the status code's name.

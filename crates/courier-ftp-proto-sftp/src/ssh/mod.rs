@@ -68,6 +68,7 @@ pub struct SshConnection {
     info: SshSessionInfo,
     keepalive_secs: u64,
     timeout: Duration,
+    peer_addr: std::net::SocketAddr,
 }
 
 impl std::fmt::Debug for SshConnection {
@@ -148,6 +149,16 @@ impl SshConnection {
     /// What was negotiated.
     pub fn info(&self) -> &SshSessionInfo {
         &self.info
+    }
+
+    /// The host key the server presented.
+    pub fn host_key(&self) -> Option<ServerKey> {
+        handler::lock(&self.shared.host_key).clone()
+    }
+
+    /// The connected peer: the server, or the proxy when proxied (T07).
+    pub fn peer_addr(&self) -> std::net::SocketAddr {
+        self.peer_addr
     }
 
     /// False once the transport closed (keepalive timeout, server disconnect).

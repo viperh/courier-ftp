@@ -14,7 +14,7 @@ workspace = true
 [features]
 # In-process russh server, in-process agent and the insecure host-key verifier for
 # tests (T20, T22, T76). The binary never enables it (scripts/check-layering.py).
-test-util = []
+test-util = ["dep:tempfile", "courier-ftp-core/test-util"]
 
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
 # (scripts/check-layering.py and deny.toml enforce it).
@@ -56,6 +56,8 @@ sha2 = { workspace = true }
 # Constant-time compare of hashed known_hosts entries (T21).
 subtle = { workspace = true }
 zeroize = { workspace = true }
+# `testing` (test-util): the SFTP test server's temporary root.
+tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

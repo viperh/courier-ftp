@@ -8,7 +8,9 @@
 //! can disconnect (with any reason code) after the client's `none` request, and has a
 //! silent mode that accepts TCP but never sends its version string. It records the
 //! authentication requests it saw. Session channels are accepted and the `sftp`
-//! subsystem request is answered with success (no SFTP server; T22 adds one).
+//! subsystem request is answered with success; with [`TestServerConfig::sftp`] set, the
+//! channel is handed to that hook (T22's `testing::SftpTestServer` runs its SFTP server
+//! there).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
 
@@ -50,6 +52,16 @@ impl KbdRound {
     }
 }
 
+/// Receives the channel of every accepted `sftp` subsystem request.
+#[derive(Clone)]
+pub struct SubsystemHook(pub Arc<dyn Fn(russh::ChannelStream<Msg>) + Send + Sync>);
+
+impl std::fmt::Debug for SubsystemHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SubsystemHook")
+    }
+}
+
 /// How the server behaves.
 #[derive(Debug, Clone)]
 pub struct TestServerConfig {
@@ -80,6 +92,8 @@ pub struct TestServerConfig {
     /// The host keys (T21: several types, or another key for a "changed key").
     /// Empty: the fixed Ed25519 [`host_key`].
     pub host_keys: Vec<PrivateKey>,
+    /// Serves the `sftp` subsystem (None: the request succeeds, nothing answers).
+    pub sftp: Option<SubsystemHook>,
 }
 
 impl Default for TestServerConfig {
@@ -97,6 +111,7 @@ impl Default for TestServerConfig {
             preferred: None,
             auth_delay: Duration::ZERO,
             host_keys: Vec::new(),
+            sftp: None,
         }
     }
 }
@@ -308,6 +323,12 @@ impl server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         self.note(format!("subsystem:{name}"));
         if name == "sftp" {
+            if let Some(hook) = &self.config.sftp
+                && let Some(i) = self.channels.iter().position(|c| c.id() == channel)
+            {
+                let ch = self.channels.swap_remove(i);
+                (hook.0)(ch.into_stream());
+            }
             session.channel_success(channel)?;
         } else {
             session.channel_failure(channel)?;
@@ -345,7 +366,15 @@ pub fn host_key() -> PrivateKey {
 impl TestServer {
     /// Start a server on `127.0.0.1:0`.
     pub async fn start(config: TestServerConfig) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        Self::spawn(config)
+    }
+
+    /// As [`start`](Self::start), from synchronous code inside a tokio runtime (the
+    /// conformance environments are built synchronously).
+    pub fn spawn(config: TestServerConfig) -> Self {
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = TcpListener::from_std(std_listener).unwrap();
         let addr = listener.local_addr().unwrap();
         let seen = Arc::new(Mutex::new(Seen::default()));
         let keys = if config.host_keys.is_empty() {

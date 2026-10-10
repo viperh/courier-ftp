@@ -215,6 +215,7 @@ async fn connect_inner(
         banner_lines: 0,
         banner_chars: 0,
     };
+    let peer_addr = stream.peer_addr();
     let stream = WatchedStream {
         inner: stream,
         shared: Arc::clone(&shared),
@@ -266,6 +267,7 @@ async fn connect_inner(
         info,
         keepalive_secs,
         timeout: params.timeout,
+        peer_addr,
     })
 }
 
