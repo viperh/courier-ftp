@@ -49,7 +49,7 @@ pub mod text;
 pub mod trust;
 
 #[cfg(test)]
-mod test_server;
+pub(crate) mod test_server;
 #[cfg(test)]
 mod tests;
 
@@ -88,6 +88,9 @@ pub const PASSWORD_TRIES: usize = 3;
 pub const PASSPHRASE_TRIES: usize = 3;
 /// Keep-alives without a reply before the connection is considered dead.
 pub const KEEPALIVE_MAX: usize = 3;
+
+/// The SSH channel window we grant the server (16 MiB, T41b §3).
+pub const CHANNEL_WINDOW: u32 = 16 * 1024 * 1024;
 
 /// The russh client handle of an authenticated session.
 pub type SshHandle = client::Handle<ClientHandler>;
@@ -192,6 +195,9 @@ impl SshOptions {
             keepalive_interval: self.keepalive,
             keepalive_max: KEEPALIVE_MAX,
             nodelay: true,
+            // A large channel window so it doesn't throttle pipelined SFTP
+            // transfers on fast links (T41b §3).
+            window_size: CHANNEL_WINDOW,
             ..client::Config::default()
         }
     }
@@ -367,6 +373,48 @@ impl SshSession {
         Ok(channel)
     }
 
+    /// Open a session channel, request the subsystem `name` and wait (bounded
+    /// by `timeout` and `cancel`) for the server to accept it. The result is
+    /// the channel as a byte stream.
+    ///
+    /// # Errors
+    /// [`Error::Connection`] when the channel can't be opened or the server
+    /// refuses the subsystem; [`Error::Timeout`] / [`Error::Cancelled`].
+    pub async fn open_subsystem_stream(
+        &self,
+        name: &str,
+        timeout: Duration,
+        cancel: &CancellationToken,
+    ) -> Result<russh::ChannelStream<client::Msg>> {
+        bounded(timeout, cancel, async {
+            let mut channel = self.open_subsystem(name).await?;
+            loop {
+                match channel.wait().await {
+                    Some(russh::ChannelMsg::Success) => break,
+                    Some(russh::ChannelMsg::Failure) => {
+                        return Err(Error::Connection(format!(
+                            "the server refused the {name} subsystem"
+                        )));
+                    }
+                    Some(
+                        russh::ChannelMsg::Eof
+                        | russh::ChannelMsg::Close
+                        | russh::ChannelMsg::ExitStatus { .. },
+                    )
+                    | None => {
+                        return Err(Error::Connection(match self.end_reason() {
+                            Some(end) => end,
+                            None => format!("the server closed the {name} channel"),
+                        }));
+                    }
+                    Some(_) => {}
+                }
+            }
+            Ok(channel.into_stream())
+        })
+        .await
+    }
+
     /// Close the connection (`SSH_MSG_DISCONNECT`, "by application").
     ///
     /// # Errors
@@ -405,7 +453,7 @@ fn connection_error(shared: &Mutex<Shared>, err: &russh::Error) -> Error {
 }
 
 /// Run `fut` bounded by `timeout` and `cancel`.
-async fn bounded<T>(
+pub(crate) async fn bounded<T>(
     timeout: Duration,
     cancel: &CancellationToken,
     fut: impl Future<Output = Result<T>>,

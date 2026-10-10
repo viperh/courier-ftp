@@ -7,4 +7,7 @@
 //!
 //! This crate never depends on `ratatui`, `crossterm` or `clap`.
 
+pub mod sftp;
 pub mod ssh;
+
+pub use sftp::{SftpBackend, SftpBackendFactory};

@@ -12,25 +12,27 @@ rust-version.workspace = true
 # Everything here should be testable without a terminal.
 [features]
 # `ssh::agent::InProcessAgent` (an in-memory SSH agent) for other crates' tests.
-test-util = ["dep:futures"]
+test-util = []
 
 [dependencies]
 courier-ftp-core = { workspace = true }
 
 async-trait = { workspace = true }
-futures = { workspace = true, optional = true }
-# SSH transport and authentication (D2, T20). All russh API usage stays in `src/ssh/`.
+futures = { workspace = true }
+# SSH transport and authentication (D2, T20). All russh API usage stays in
+# `src/ssh/`; the SFTP protocol (`russh-sftp`, T22) in `src/sftp/`.
 russh = { workspace = true }
+russh-sftp = { workspace = true }
 secrecy = { workspace = true }
 thiserror = { workspace = true }
-# `added_at` of trusted host keys (T21).
+# `added_at` of trusted host keys (T21), SFTP timestamps (T22).
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-futures = { workspace = true }
+courier-ftp-core = { workspace = true, features = ["test-util"] }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

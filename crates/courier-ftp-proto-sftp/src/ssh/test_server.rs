@@ -2,18 +2,21 @@
 //! (adapted from sverb's `auth_testing`): `password`, `publickey`, a scripted
 //! `keyboard-interactive` conversation, an optional auth banner and an
 //! optional two-factor mode (the first factor is only a partial success).
+//! With [`Policy::sftp`] it also serves the `sftp` subsystem from a directory
+//! (T22, `crate::sftp::test_server`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::{
     borrow::Cow,
+    collections::HashMap,
     net::SocketAddr,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use russh::{
-    MethodKind, MethodSet,
+    Channel, ChannelId, MethodKind, MethodSet,
     keys::{PrivateKey, PublicKey, ssh_key::private::Ed25519Keypair},
     server::{self, Auth, Response},
 };
@@ -41,6 +44,8 @@ pub(crate) struct Policy {
     /// `keyboard-interactive` (the `kbd` rounds) must follow.
     pub(crate) two_factor: bool,
     pub(crate) banner: Option<&'static str>,
+    /// Serve the `sftp` subsystem (T22).
+    pub(crate) sftp: Option<crate::sftp::test_server::SftpRoot>,
 }
 
 impl Default for Policy {
@@ -56,6 +61,7 @@ impl Default for Policy {
             kbd: Vec::new(),
             two_factor: false,
             banner: None,
+            sftp: None,
         }
     }
 }
@@ -64,12 +70,26 @@ impl Default for Policy {
 /// `kbd`, `kbd-answer`.
 pub(crate) type Seen = Arc<Mutex<Vec<String>>>;
 
-#[derive(Clone)]
 struct AuthServer {
     policy: Arc<Policy>,
     seen: Seen,
     round: usize,
     first_factor_done: bool,
+    /// Session channels opened on this connection, until a subsystem starts.
+    channels: HashMap<ChannelId, Channel<server::Msg>>,
+}
+
+impl Clone for AuthServer {
+    /// A handler for a new connection: same policy, no channels.
+    fn clone(&self) -> Self {
+        Self {
+            policy: Arc::clone(&self.policy),
+            seen: Arc::clone(&self.seen),
+            round: self.round,
+            first_factor_done: self.first_factor_done,
+            channels: HashMap::new(),
+        }
+    }
 }
 
 impl AuthServer {
@@ -122,6 +142,33 @@ impl AuthServer {
 
 impl server::Handler for AuthServer {
     type Error = russh::Error;
+
+    async fn channel_open_session(
+        &mut self,
+        channel: Channel<server::Msg>,
+        reply: server::ChannelOpenHandle,
+        _session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
+        self.channels.insert(channel.id(), channel);
+        reply.accept().await;
+        Ok(())
+    }
+
+    async fn subsystem_request(
+        &mut self,
+        channel: ChannelId,
+        name: &str,
+        session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
+        match (name, &self.policy.sftp, self.channels.remove(&channel)) {
+            ("sftp", Some(root), Some(ch)) => {
+                session.channel_success(channel)?;
+                russh_sftp::server::run(ch.into_stream(), root.handler()).await;
+            }
+            _ => session.channel_failure(channel)?,
+        }
+        Ok(())
+    }
 
     async fn authentication_banner(&mut self) -> Result<Option<String>, Self::Error> {
         Ok(self.policy.banner.map(str::to_owned))
@@ -223,6 +270,7 @@ pub(crate) async fn start(policy: Policy) -> (SocketAddr, Seen) {
         seen: Arc::clone(&seen),
         round: 0,
         first_factor_done: false,
+        channels: HashMap::new(),
     };
     tokio::spawn(async move {
         loop {

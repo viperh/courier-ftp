@@ -33,9 +33,24 @@ Additional:
 ## Acceptance criteria
 
 - [ ] Passes backend conformance suite against OpenSSH in Docker.
-- [ ] Symlink to dir shows as symlink with `target_kind = Dir` and can be entered.
-- [ ] Resume download/upload byte-identical.
-- [ ] Throughput target met (numbers written here).
+  (`crates/courier-ftp-e2e/tests/sftp_backend.rs`, `atmoz/sftp`; awaiting the
+  CI e2e job. Already passes in-process and against a local OpenSSH 10.5p1
+  `sshd` via `scripts/bench-sftp.sh`.)
+- [x] Symlink to dir shows as symlink with `target_kind = Dir` and can be entered.
+- [x] Resume download/upload byte-identical.
+- [x] Throughput target met (numbers written here).
+
+### Throughput (2026-10-10)
+
+`scripts/bench-sftp.sh 1024`: 1 GiB over localhost to an unprivileged
+OpenSSH 10.5p1 `sshd` (`sftp-server`, `limits@openssh.com` → 255 KiB
+requests, 64 in flight), AMD Ryzen 5 8645HS, release build. The courier side
+streams from/to memory; the CLI side reads/writes a local file.
+
+| | courier-ftp | OpenSSH `sftp` CLI | ratio |
+|---|---|---|---|
+| upload | 671–690 MiB/s | 575 MiB/s | 117–120 % |
+| download | 552–609 MiB/s | 610–632 MiB/s | 90–96 % |
 
 ## Tests
 
