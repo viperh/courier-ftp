@@ -364,7 +364,7 @@ create directory /var/www/new: Permission denied`).
 - [x] AC14 Killing the server mid-download yields `Error::Connection` from the reader and `is_connected() == false`; `SessionHandle` (T03) reconnects once on the next call.
 - [x] AC15 `raw_command` returns `Unsupported`; `capabilities()` equals the table (incl. `positional_writes = true`); `set_mtime` with a 1960 date returns `InvalidInput`; `chmod` sends only the permissions attribute; `security_info()` reports `encrypted`, "SSH", the host key and negotiated algorithms.
 - [ ] AC16 Throughput: `scripts/bench-sftp.sh` on localhost shows ≥ 80 % of OpenSSH `sftp` CLI throughput for a 1 GiB download and upload; numbers recorded in the table below.
-- [ ] AC17 T00 gates pass (`fmt`, `clippy -D warnings`, `docs`, `test`, `deny`); no `unwrap`/`expect` outside tests.
+- [x] AC17 T00 gates pass (`fmt`, `clippy -D warnings`, `docs`, `test`, `deny`); no `unwrap`/`expect` outside tests.
 - [x] AC18 `stat` of a symlink returns `Symlink` (not the target's kind) with `target_kind` filled; `open_read` with `range_len = Some(n)` returns exactly `n` bytes and the server sees no READ at or past `offset + n`; `WriteAt(n)` keeps bytes before `n` and after the written range.
 
 Benchmark results (fill in when done):
