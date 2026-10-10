@@ -128,3 +128,6 @@ the section matching the tag.
 - Transfer queue model (T40): priorities, reorder, pause, retry and requeue,
   server grouping, stats; persisted encrypted in the vault under a device key,
   with JSON export/import without passwords.
+- FTP proxies (T15): USER@HOST, SITE, OPEN and custom login scripts (%h %u %p
+  %a %s %w), with every password masked in the log; can't be combined with a
+  generic HTTP/SOCKS proxy.

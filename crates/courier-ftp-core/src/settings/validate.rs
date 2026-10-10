@@ -1,6 +1,6 @@
 //! Range and consistency checks for [`Settings`].
 
-use super::{FtpSettings, Settings, TransferSettings};
+use super::{FtpProxy, FtpSettings, GenericProxy, Settings, TransferSettings};
 
 const KEEPALIVE_COMMANDS: &[&str] = &["NOOP", "PWD", "TYPE"];
 
@@ -54,6 +54,15 @@ impl Settings {
         if KEEPALIVE_COMMANDS.contains(&cmd.as_str()) {
             f.send_keepalive_command = cmd;
         }
+
+        // FileZilla: an FTP proxy and a generic proxy can't both apply (T15).
+        let p = &mut self.proxy;
+        check(
+            p.generic == GenericProxy::None || p.ftp_proxy == FtpProxy::None,
+            "proxy.ftp_proxy",
+            "can't be used together with a generic proxy (proxy.generic)",
+            &mut || p.ftp_proxy = FtpProxy::None,
+        );
 
         let t = &mut self.transfers;
         check(
@@ -159,6 +168,26 @@ mod tests {
         let (s, report) = Settings::from_value(&json!({"ftp": {"send_keepalive_command": "pwd"}}));
         assert!(report.warnings.is_empty());
         assert_eq!(s.ftp.send_keepalive_command, "PWD");
+    }
+
+    #[test]
+    fn generic_and_ftp_proxy_together_are_rejected() {
+        let (s, report) = Settings::from_value(&json!({"proxy": {
+            "generic": {"type": "socks5", "host": "socks", "port": 1080},
+            "ftp_proxy": {"type": "site", "host": "proxy.example.com", "port": 2121},
+        }}));
+        assert_eq!(s.proxy.ftp_proxy, FtpProxy::None);
+        assert!(matches!(s.proxy.generic, GenericProxy::Socks5(_)));
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.warnings[0].starts_with("proxy.ftp_proxy:"));
+
+        let (s, report) = Settings::from_value(&json!({"proxy": {"ftp_proxy": {
+            "type": "custom",
+            "server": {"host": "proxy.example.com", "port": 2121, "user": "u"},
+            "script": "USER %u@%h\nPASS %p",
+        }}}));
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert!(matches!(s.proxy.ftp_proxy, FtpProxy::Custom { .. }));
     }
 
     #[test]

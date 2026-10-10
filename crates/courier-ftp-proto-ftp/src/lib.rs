@@ -9,3 +9,4 @@
 
 pub mod control;
 pub mod listing;
+pub mod proxy;

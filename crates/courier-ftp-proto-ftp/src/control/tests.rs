@@ -1016,3 +1016,6 @@ fn login_script_for_logon_types() {
         3
     );
 }
+
+/// FTP proxy logins (T15) against the same fake server.
+mod proxy;
