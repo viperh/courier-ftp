@@ -38,9 +38,20 @@ Additional:
 ## Acceptance criteria
 
 - [ ] `FtpBackend` passes the backend conformance suite (T06) against vsftpd, proftpd and pure-ftpd in Docker (T76), for plain FTP and explicit FTPS.
-- [ ] Error mapping verified for missing file, permission denied, existing dir.
-- [ ] `SITE CHMOD` rejection disables the capability for the session (UI greys it out).
-- [ ] `MLSD` and `LIST` paths both exercised (toggle `use_mlsd`).
+- [x] Error mapping verified for missing file, permission denied, existing dir.
+- [x] `SITE CHMOD` rejection disables the capability for the session (UI greys it out).
+- [x] `MLSD` and `LIST` paths both exercised (toggle `use_mlsd`).
+
+**Status (T14):** `FtpBackend` passes `backend::conformance::run` in-process
+(`src/backend/tests.rs`) against the fake server in three profiles: MLST/MLSD,
+vsftpd-like (no MLST/MFMT, vague error texts) and explicit FTPS with
+required session reuse. The conformance box stays open: the vsftpd Docker
+tests (`crates/courier-ftp-e2e/tests/ftp_backend.rs`, plain with MLSD and
+LIST, explicit FTPS) are written but only run on CI, and the proftpd /
+pure-ftpd fixtures are T76's. The site default remote directory is applied by
+the caller (quickconnect/Site Manager list it after connecting; `ConnectInfo`
+has no such field). The binary's factory routes FTP/FTPS here; a PTY smoke
+test (quickconnect to a local pyftpdlib server) listed the remote directory.
 
 ## Tests
 

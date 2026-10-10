@@ -143,9 +143,24 @@ impl App {
         // host key store and clears the credential cache.
         let host_keys = Arc::clone(&backends.host_keys);
         let credentials = backends.credentials.clone();
+        let certs = Arc::clone(&backends.certs);
+        let ftp = backends.ftp.clone();
+        let proxy_password = match &config.settings.proxy.ftp_proxy {
+            courier_ftp_core::settings::FtpProxy::None => None,
+            courier_ftp_core::settings::FtpProxy::UserAtHost(p)
+            | courier_ftp_core::settings::FtpProxy::Site(p)
+            | courier_ftp_core::settings::FtpProxy::Open(p)
+            | courier_ftp_core::settings::FtpProxy::Custom { server: p, .. } => {
+                p.password_ref.clone()
+            }
+        };
         let app = Self::with_backends(config, Arc::new(backends), tick_rate, frame_rate);
         let opener = crate::vault::opener(crate::config::get_data_dir());
-        Ok(app.with_vault(opener, host_keys, credentials))
+        let mut app = app.with_vault(opener, host_keys, credentials);
+        if let Some(vault) = app.vault.as_mut() {
+            vault.set_ftp(certs, ftp, proxy_password);
+        }
+        Ok(app)
     }
 
     /// Give the app a vault: it starts locked, the panes covered by the

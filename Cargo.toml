@@ -192,7 +192,8 @@ hex = "0.4.3"
 insta = "1.49.0"
 pretty_assertions = "1.4.1"
 proptest = "1.11.0"
-rcgen = "0.14.10"
+# ring, not the default aws-lc-rs (one crypto provider, D9).
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 tempfile = "3.27.0"
 tokio-test = "0.4.6"
 

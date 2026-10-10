@@ -31,12 +31,17 @@ binary, support resume and abort.
 
 ## Acceptance criteria
 
-- [ ] EPSV, PASV, EPRT, PORT all work; IPv6 data channel works.
-- [ ] Unroutable PASV address replaced.
-- [ ] Passive → active fallback works and is remembered.
-- [ ] ASCII adapters correct across chunk boundaries (CR at end of chunk).
-- [ ] Resume download/upload via REST produces byte-identical files.
-- [ ] Cancelling a transfer leaves the control connection usable.
+- [x] EPSV, PASV, EPRT, PORT all work; IPv6 data channel works.
+- [x] Unroutable PASV address replaced.
+- [x] Passive → active fallback works and is remembered.
+- [x] ASCII adapters correct across chunk boundaries (CR at end of chunk).
+- [x] Resume download/upload via REST produces byte-identical files.
+- [x] Cancelling a transfer leaves the control connection usable.
+
+**Status (T11):** all boxes verified in-process (`src/data/tests.rs` against
+`src/test_server.rs`, incl. IPv6 loopback). The Docker tests
+(`crates/courier-ftp-e2e/tests/ftp_data.rs`: vsftpd passive, and active on
+the host network) are written but only run on CI (no Docker locally).
 
 ## Tests
 
