@@ -25,6 +25,7 @@ mod keymap;
 mod logging;
 mod paths;
 mod runtime;
+mod services;
 #[cfg(test)]
 mod snapshot_tests;
 mod tabs;

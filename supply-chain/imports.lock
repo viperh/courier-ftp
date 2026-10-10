@@ -115,6 +115,12 @@ criteria = "safe-to-deploy"
 version = "0.1.6"
 notes = "Contains no unsafe code, no IO, no build.rs."
 
+[[audits.bytecode-alliance.audits.async-task]]
+who = "Chris Fallin <chris@cfallin.org>"
+criteria = "safe-to-deploy"
+version = "4.7.1"
+notes = "Fairly significant chunk of unsafe code in the async executor core, but seems isolated to well-understood patterns, e.g. a manual vtable and some manual layout code."
+
 [[audits.bytecode-alliance.audits.atomic-waker]]
 who = "Alex Crichton <alex@alexcrichton.com>"
 criteria = "safe-to-deploy"
