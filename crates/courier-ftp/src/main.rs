@@ -34,8 +34,14 @@ mod testing;
 mod tui;
 mod ui;
 
+fn main() -> color_eyre::Result<()> {
+    // Before the runtime spawns threads: the `time` crate refuses afterwards (T53).
+    crate::components::file_list::format::capture_local_offset();
+    run()
+}
+
 #[tokio::main]
-async fn main() -> color_eyre::Result<()> {
+async fn run() -> color_eyre::Result<()> {
     crate::errors::init()?;
 
     // Resolved before argument parsing: `--version` prints the directories. On

@@ -194,11 +194,10 @@ fn unimplemented_action_shows_not_available() {
         status_text(&h),
         "Disconnect the current tab is not available yet"
     );
-    h.keys("s n");
-    assert_eq!(
-        status_text(&h),
-        "Sort by name (again = reverse) is not available yet"
-    );
+    // The remote file list (T53) handles list actions; T59's Site Manager is not
+    // there yet.
+    h.keys("ctrl-s");
+    assert_eq!(status_text(&h), "Site Manager is not available yet");
     assert!(seen.borrow().is_empty());
     // A handled action reaches the component instead.
     h.keys("G");

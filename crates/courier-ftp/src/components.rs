@@ -20,6 +20,7 @@ use crate::{
 };
 
 pub(crate) mod dialog;
+pub(crate) mod file_list;
 pub(crate) mod help;
 pub(crate) mod main_screen;
 pub(crate) mod modal;

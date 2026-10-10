@@ -343,7 +343,17 @@
     "compare_only_one": "yellow",
     "compare_newer": "green",
     "compare_size_differs": "red",
-    "compare_placeholder": ""
+    "compare_placeholder": "",
+    "file_list.dir": "bold",
+    "file_list.symlink_target": "dim",
+    "file_list.hidden": "dim",
+    "file_list.special": "magenta",
+    "file_list.marked": "bold yellow",
+    "file_list.cursor": "inverse",
+    "file_list.cursor_inactive": "dim inverse",
+    "file_list.header": "bold",
+    "file_list.footer": "",
+    "file_list.error": "bold red"
   },
   "settings": {
     "interface": {

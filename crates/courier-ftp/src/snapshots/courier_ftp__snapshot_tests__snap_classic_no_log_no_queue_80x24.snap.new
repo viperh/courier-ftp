@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/snapshot_tests.rs
+assertion_line: 45
+expression: "h.render(80, 24)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
+┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ──────────────────────────────┐
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│     Not connected to any server      │
+┃                                      ┃│Ctrl-s Site Manager · Ctrl-k Quickcon…│
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────┘
+ NORMAL                                                       F1 help  F10 quit

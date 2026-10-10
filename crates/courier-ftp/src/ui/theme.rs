@@ -54,6 +54,19 @@ const MONOCHROME: &[(&str, Modifier)] = &[
     ("list_cursor", Modifier::REVERSED),
     ("list_marked", Modifier::BOLD),
     ("list_header", Modifier::BOLD.union(Modifier::UNDERLINED)),
+    // File list (T53).
+    ("file_list.dir", Modifier::BOLD),
+    ("file_list.symlink_target", Modifier::DIM),
+    ("file_list.hidden", Modifier::DIM),
+    ("file_list.special", Modifier::ITALIC),
+    (
+        "file_list.marked",
+        Modifier::BOLD.union(Modifier::UNDERLINED),
+    ),
+    ("file_list.cursor", Modifier::REVERSED),
+    ("file_list.cursor_inactive", Modifier::UNDERLINED),
+    ("file_list.header", Modifier::BOLD),
+    ("file_list.error", Modifier::BOLD),
 ];
 
 fn strip_colours(s: Style) -> Style {

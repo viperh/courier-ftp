@@ -42,6 +42,8 @@ use crate::{
     },
 };
 
+mod panes;
+
 /// Key tables. Keybindings in `config/config.json` (this crate) are keyed by these
 /// names, so adding a variant means adding a section there too.
 #[derive(
@@ -177,6 +179,8 @@ pub(crate) struct App {
     pub(crate) draw_count: u64,
     problems: Vec<String>,
     first_frame_done: bool,
+    /// Listing cache, local backend context and listing tasks of the panes (T53).
+    pub(crate) panes: crate::components::file_list::service::PaneService,
 }
 
 impl std::fmt::Debug for App {
@@ -213,7 +217,8 @@ impl App {
             warn!("configuration problem: {p}");
         }
         let symbols = Symbols::resolve(interface.unicode_symbols, &term_env);
-        Self {
+        let pane_service = panes::pane_service(&settings, &events_tx);
+        let mut app = Self {
             runner: Runner::new(action_tx.clone()),
             main: MainScreen::new(&interface),
             config,
@@ -241,7 +246,10 @@ impl App {
             draw_count: 0,
             problems,
             first_frame_done: false,
-        }
+            panes: pane_service,
+        };
+        app.install_panes();
+        app
     }
 
     /// The core bus sender (backends, transfer engine).
@@ -281,6 +289,7 @@ impl App {
         tui.enter()?;
         let size = tui.size()?;
         self.init_components(size)?;
+        self.start_panes();
         let hook = crate::test_hooks::from_env();
         if let Some(crate::test_hooks::TestHook::ExitAfter(after)) = hook {
             let tx = self.action_tx.clone();
@@ -598,6 +607,7 @@ impl App {
         self.symbols = Symbols::resolve(current.interface.unicode_symbols, &self.term_env);
         self.dirty = true;
         self.schedule_save();
+        self.notify_panes_settings();
     }
 
     async fn save_now(settings: Arc<Settings>, dir: PathBuf) -> Result<(), String> {
@@ -664,6 +674,9 @@ impl App {
                 }
             }
             Action::Wake => {
+                if let Some(c) = self.main.focused_mut() {
+                    c.update(&Action::Wake)?;
+                }
                 for a in self.modals.poll_all(Instant::now()) {
                     self.queue(a);
                 }
@@ -686,6 +699,8 @@ impl App {
                 self.dirty = true;
             }
             Action::StatusMessage(m) => self.status(m),
+            Action::Pane(req) => self.handle_pane_request(req),
+            Action::PaneInput(id, input) => self.route_pane_input(id, input),
             Action::FocusRegion(r) => self.focus_or_explain(r),
             Action::TaskFinished(id) => {
                 self.runner.finished(id);

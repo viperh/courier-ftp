@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/components/dialog/snapshot_tests.rs
+assertion_line: 397
+expression: "h.render(80, 24)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
++ Message log -----------------------------------------------------------------+
+|(not avai+ Site settings -------------------------------------------+         |
+|         |  Host             | example.org                          |         |
++---------| >Password         | **                                   |---------+
+#>Local ==|  Port             | 22                                   |---------+
+#         |  Passive mode     | [x]                                  |         |
+#         |  Execute          | [-]                                  |         |
+#         |  Protocol         | SFTP                               v |         |
+#         |  Transfer mode    | (*) Auto  ( ) ASCII  ( ) Binary      |         |
+#         |  Remote directory | /var/www                             |         |
+#         |  Comments         | first line                           |ver      |
+#         |                     second line                          |Quickcon~|
+#         |  Columns          | [x] Name                             |         |
+#         |                     [x] Size                             |         |
+#         |                     [ ] Owner                            |         |
+#         |                                                          |         |
+#=========|                    [ OK ]  [ Cancel ]                    |---------+
++ Queue --+----------------------------------------------------------+---------+
+|(not available yet)                                                           |
+|                                                                              |
++------------------------------------------------------------------------------+
+ DIALOG                                                       F1 help  F10 quit
