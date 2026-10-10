@@ -1,0 +1,32 @@
+# cargo-fuzz targets (T91 §7). Its own workspace (nightly, libfuzzer-sys); the root
+# workspace excludes this directory. Every target's body is also a property test
+# in its crate, so `cargo test` covers it on stable.
+#
+#   cargo +nightly fuzz run listing
+[package]
+name = "courier-ftp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+courier-ftp-core = { path = "../crates/courier-ftp-core" }
+courier-ftp-proto-ftp = { path = "../crates/courier-ftp-proto-ftp" }
+libfuzzer-sys = "0.4.13"
+time = "0.3.55"
+
+# FTP LIST / MLSD listing parsers (T13); same body as
+# crates/courier-ftp-proto-ftp/tests/no_panic.rs.
+[[bin]]
+name = "listing"
+path = "fuzz_targets/listing.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

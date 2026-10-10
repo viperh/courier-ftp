@@ -1,0 +1,5 @@
+-rw-r--r--   1 hans     users        1234 Jun  1 12:00 Größe.txt
+-rw-r--r--   1 hans     users        1234 Jun  1 12:00 grÃ¼ÃŸe-utf8.txt
+-rw-r--r--   1 hans     users        1234 Jun  1 12:00 café.txt
+-rw-r--r--   1 hans     users        1234 Jun  1 12:00 naïve.txt
+-rw-r--r--   1 hans     users        1234 Jun  1 12:00 €uro.txt
