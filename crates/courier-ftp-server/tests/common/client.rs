@@ -292,10 +292,8 @@ pub async fn login(
         )
         .await;
     if s == StatusCode::OK {
-        for key in ["reauth_token"] {
-            if let Some(t) = v[key].as_str() {
-                h.canary(t);
-            }
+        if let Some(t) = v["reauth_token"].as_str() {
+            h.canary(t);
         }
         for key in ["access_token", "refresh_token"] {
             if let Some(t) = v["tokens"][key].as_str() {
