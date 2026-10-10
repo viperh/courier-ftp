@@ -112,7 +112,7 @@ pub trait HostKeyVerifier: Send + Sync + fmt::Debug {
 /// The reason [`UnverifiedHostKeys`] gives.
 pub const UNVERIFIED_REASON: &str = "host key verification is not available yet";
 
-/// The default until T21: rejects every key.
+/// Rejects every key (the real verifier is [`crate::verify::TrustVerifier`], T21).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnverifiedHostKeys;
 
