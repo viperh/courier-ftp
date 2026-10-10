@@ -53,6 +53,7 @@ Smaller calls made while building, recorded so they can be revisited:
 - **T53** Pane effects (listing requests, dialogs) go through an outbox the app drains after each event. New settings `interface.natural_sort` and `interface.columns`. New keys in file lists: `[`/`]` and `Alt-←`/`Alt-→` history, `C` column menu. The 100k-entry render gate is a release-only test run by `bench.yml`.
 - **T47** A filter has one `scope` field (both / local only / remote only) instead of two booleans. A filter without conditions never matches.
 - **T07** SOCKS and HTTP CONNECT are hand-written (no `tokio-socks`) so replies are read exactly and `connect_tcp` returns a plain `TcpStream`. It takes a `CancellationToken` and `SessionId`. Host names go to the proxy unresolved (SOCKS4a/SOCKS5 domain). The proxy password comes from the vault via `NetOpts::set_proxy_password`, not settings. Neither proxy user nor password is logged.
+- **T69** Prompts open one at a time, only when no dialog is open, the user isn't typing and no key was pressed for 1 s, so a stray Enter can't answer them; `<Ctrl-x><p>` opens the next at once. Unknown host key defaults to *OK* with "Always trust" ticked (trust on first use); changed keys and certificates default to *Cancel* and need an "I have verified" checkbox. "Always trust" is unavailable while the vault is locked (`can_remember`). Server identity types live in `model::server_identity`.
 
 ## Phases and tasks
 

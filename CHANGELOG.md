@@ -59,3 +59,7 @@ the section matching the tag.
   and cancellation on DNS, connect and proxy handshake, TCP
   keep-alive/NODELAY, and HTTP CONNECT, SOCKS4/4a and SOCKS5 proxies with
   authentication.
+- Trust prompts (T69) for SSH host keys (unknown and changed, SHA-256/MD5
+  fingerprints) and TLS certificates (summary, chain details,
+  changed-certificate warning), plus a prompt queue with a status badge and
+  <Ctrl-x><p> to open the next prompt.
