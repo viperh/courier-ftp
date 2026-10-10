@@ -147,3 +147,8 @@ the section matching the tag.
 - Site import/export (T32): import FileZilla's sitemanager.xml (folders, all
   logon types, bookmarks, passwords) and export as courier-ftp JSON
   (optionally passphrase-encrypted with passwords) or FileZilla XML.
+- Logging (T71): the application log rotates daily (7 days kept, 0600), new
+  --debug and --debug-level flags, optional session log file
+  (logging.log_to_file, size-rotated, masked commands), Show raw listing
+  (<Ctrl-x><s>), and copy (Y) or save (S) of the message log; nothing at info
+  and above names hosts, users or paths.
