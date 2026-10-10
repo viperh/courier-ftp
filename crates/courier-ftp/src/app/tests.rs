@@ -254,3 +254,104 @@ async fn connected_screen_snapshot() {
         .collect();
     insta::assert_snapshot!("connected_remote_pane", remote);
 }
+
+/// Draw (which lets the visible trees ask for listings) and run actions
+/// until `done` holds; panics after a generous cap.
+async fn draw_until(app: &mut App, what: &str, done: impl Fn(&App, &str) -> bool) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let text = screen_text(app, 160, 48);
+        if done(app, &text) {
+            return text;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}:\n{text}"
+        );
+        for action in app.screen.take_actions() {
+            app.action_tx.send(action).unwrap();
+        }
+        tokio::select! {
+            Some(action) = app.action_rx.recv() => app.dispatch(action).unwrap(),
+            Some(event) = app.events_rx.recv() => app.core_event(event),
+            () = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn remote_tree_follows_the_file_list() {
+    let server = server();
+    server.add_dir("/srv/www/img");
+    let mut app = app(&server);
+    app.dispatch(Action::ToggleTree).unwrap();
+    quickconnect(&mut app, "sftp://alice:s3cret@mock.invalid/srv").await;
+    // `/` and `/srv` are listed lazily, through the cache.
+    let text = draw_until(&mut app, "the remote tree", |_, t| {
+        t.contains("├─▸ logs") && t.contains("└─▸ www")
+    })
+    .await;
+    assert!(text.contains("▾ srv"), "{text}");
+
+    // Moving in the file list expands the tree.
+    open(&mut app, "www").await;
+    let text = draw_until(&mut app, "www expanded", |_, t| t.contains("▾ www")).await;
+    assert!(text.contains("└─▸ img"), "{text}");
+
+    // Enter in the tree moves the file list.
+    app.dispatch(Action::FocusTree).unwrap();
+    assert_eq!(app.screen.focus(), Region::RemoteTree);
+    app.dispatch(Action::ParentDir).unwrap(); // collapse www
+    app.dispatch(Action::ParentDir).unwrap(); // up to srv
+    app.handle_key_event(key(KeyCode::Enter)).unwrap();
+    draw_until(&mut app, "the list in /srv", |app, _| {
+        remote_dir(app).as_deref() == Some("/srv")
+    })
+    .await;
+
+    // A patched cache entry (T46) reloads the tree.
+    let address = app.remote.as_ref().unwrap().info.address.clone();
+    let session = app.remote.as_ref().unwrap().session;
+    server.add_dir("/srv/new");
+    app.cache.insert_entry(
+        session,
+        Some(&address),
+        &RemotePath::new("/srv"),
+        courier_ftp_core::model::Entry::dir("new"),
+    );
+    draw_until(&mut app, "the new directory", |_, t| t.contains("─▸ new")).await;
+
+    app.dispatch(Action::Disconnect).unwrap();
+    settle(&mut app).await;
+    assert!(screen_text(&mut app, 160, 48).contains("Not connected."));
+}
+
+#[tokio::test]
+async fn local_tree_lists_through_the_local_backend() {
+    let server = server();
+    let mut app = app(&server);
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("alpha/inner")).unwrap();
+    std::fs::create_dir_all(tmp.path().join("beta")).unwrap();
+    std::fs::write(tmp.path().join("file.txt"), b"x").unwrap();
+    let dir = courier_ftp_core::local::local_to_remote(tmp.path()).unwrap();
+    app.dispatch(Action::ToggleTree).unwrap();
+    app.dispatch(Action::ListDir {
+        side: Side::Local,
+        dir: dir.clone(),
+        force: false,
+    })
+    .unwrap();
+    draw_until(&mut app, "the local tree", |_, t| {
+        t.contains("├─▸ alpha") && t.contains("└─▸ beta")
+    })
+    .await;
+    // Focus the tree and expand alpha: listed lazily.
+    app.dispatch(Action::FocusTree).unwrap();
+    assert_eq!(app.screen.focus(), Region::LocalTree);
+    app.dispatch(Action::CursorDown).unwrap();
+    app.dispatch(Action::Open).unwrap();
+    draw_until(&mut app, "alpha expanded", |_, t| t.contains("─▸ inner")).await;
+    // Browsing the tree doesn't move the list.
+    assert_eq!(app.screen.local.dir.as_ref(), Some(&dir));
+}

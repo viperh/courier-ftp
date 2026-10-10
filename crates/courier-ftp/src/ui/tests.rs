@@ -422,3 +422,69 @@ async fn cancelled_prompts_leave_the_queue_and_the_screen() {
     render(&mut s, 120, 40);
     assert!(!s.has_modal(), "the open dialog closed itself");
 }
+
+#[test]
+fn trees_are_off_by_default_and_load_only_when_shown() {
+    let mut s = screen(Layout::Classic);
+    s.update(&Action::ListingLoaded {
+        side: Side::Local,
+        result: Ok(Listing {
+            dir: RemotePath::new("/srv/www"),
+            entries: vec![Entry::dir("img")],
+            fetched_at: std::time::Instant::now(),
+            raw: None,
+        }),
+    });
+    let t = render(&mut s, 120, 40);
+    assert!(!text(&t).contains("Local tree"));
+    assert!(s.take_actions().is_empty(), "a hidden tree lists nothing");
+
+    // `T` focuses the tree of the focused side, showing the trees.
+    s.update(&Action::FocusTree);
+    assert_eq!(s.focus(), Region::LocalTree);
+    assert_eq!(s.mode(), Mode::FileList);
+    let t = render(&mut s, 120, 40);
+    assert!(text(&t).contains("Local tree"), "{}", text(&t));
+    let wanted: Vec<_> = s
+        .take_actions()
+        .into_iter()
+        .filter_map(|a| match a {
+            Action::TreeListDir { side, dir } => Some((side, dir.to_string())),
+            _ => None,
+        })
+        .collect();
+    // `/` is known from the first listing; `/srv/www` from the last.
+    assert_eq!(wanted, vec![(Side::Local, "/srv".to_owned())]);
+
+    s.update(&Action::TreeListingLoaded {
+        side: Side::Local,
+        dir: RemotePath::new("/srv"),
+        result: Ok(Listing {
+            dir: RemotePath::new("/srv"),
+            entries: vec![Entry::dir("www"), Entry::dir("logs")],
+            fetched_at: std::time::Instant::now(),
+            raw: None,
+        }),
+    });
+    let t = render(&mut s, 120, 40);
+    assert!(text(&t).contains("▾ www"), "{}", text(&t));
+    // Tree keys move the tree, not the list; Enter moves the list.
+    s.update(&Action::ParentDir); // collapse www
+    s.update(&Action::ParentDir); // up to /srv
+    assert_eq!(s.handle_key(key(KeyCode::Enter)), KeyOutcome::Consumed);
+    let actions = s.take_actions();
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::ListDir { side: Side::Local, dir, .. } if dir.as_str() == "/srv"
+        )),
+        "{actions:?}"
+    );
+    s.update(&Action::FocusTree);
+    assert_eq!(s.focus(), Region::LocalList);
+    // Hiding the trees moves focus off them.
+    s.update(&Action::FocusTree);
+    s.update(&Action::ToggleTree);
+    render(&mut s, 120, 40);
+    assert_eq!(s.focus(), Region::LocalList);
+}

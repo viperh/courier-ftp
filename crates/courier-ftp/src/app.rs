@@ -217,7 +217,7 @@ impl App {
             LogKind::Status,
             format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
         );
-        self.list(Side::Local, None, false);
+        self.list(Side::Local, None, false, false);
         self.start_vault();
 
         loop {
@@ -229,7 +229,7 @@ impl App {
                 Some(action) = self.action_rx.recv() => {
                     self.handle_action(&mut tui, action)?;
                 }
-                Some(event) = self.events_rx.recv() => self.screen.handle_core(event),
+                Some(event) = self.events_rx.recv() => self.core_event(event),
                 Some(msg) = self.vault_rx.recv() => self.vault_message(msg),
             }
             while let Ok(action) = self.action_rx.try_recv() {
@@ -355,11 +355,24 @@ impl App {
                 self.connect((**request).clone(), *replace);
             }
             Action::Connected { session, result } => self.connected(*session, result),
-            Action::RemoteListingLoaded { session, result } => {
+            Action::RemoteListingLoaded {
+                session,
+                dir,
+                tree,
+                result,
+            } => {
                 if self.current_session() == Some(*session) {
-                    self.action_tx.send(Action::ListingLoaded {
-                        side: Side::Remote,
-                        result: result.clone(),
+                    self.action_tx.send(if *tree {
+                        Action::TreeListingLoaded {
+                            side: Side::Remote,
+                            dir: dir.clone(),
+                            result: result.clone(),
+                        }
+                    } else {
+                        Action::ListingLoaded {
+                            side: Side::Remote,
+                            result: result.clone(),
+                        }
                     })?;
                 }
             }
@@ -375,8 +388,9 @@ impl App {
                 None => self.screen.flash("No server to reconnect to"),
             },
             Action::ListDir { side, dir, force } => {
-                self.list(*side, Some(dir.clone()), *force);
+                self.list(*side, Some(dir.clone()), *force, false);
             }
+            Action::TreeListDir { side, dir } => self.list(*side, Some(dir.clone()), false, true),
             Action::CopyToClipboard(text) => {
                 if let Err(e) = crate::clipboard::copy(text) {
                     tracing::warn!("clipboard: {e}");
@@ -399,21 +413,25 @@ impl App {
     }
 
     /// List `dir` (the home directory when `None`) in the background, through
-    /// the listing cache unless `force`; the pane shows a spinner until
-    /// [`Action::ListingLoaded`] arrives.
-    fn list(&mut self, side: Side, dir: Option<RemotePath>, force: bool) {
+    /// the listing cache unless `force`. For the file list (the pane shows a
+    /// spinner until [`Action::ListingLoaded`] arrives) or, with `tree`, for
+    /// the directory tree ([`Action::TreeListingLoaded`]).
+    fn list(&mut self, side: Side, dir: Option<RemotePath>, force: bool, tree: bool) {
         if side == Side::Remote {
             if let Some(dir) = dir {
-                self.list_remote(dir, force);
+                self.list_remote(dir, force, tree);
             }
             return;
         }
-        self.screen.pane_mut(side).busy = true;
+        if !tree {
+            self.screen.pane_mut(side).busy = true;
+        }
         let tx = self.action_tx.clone();
         let cache = self.cache.clone();
         tokio::spawn(async move {
             let mut backend = LocalBackend::new();
             let cancel = CancellationToken::new();
+            let requested = dir.clone();
             let result = async {
                 backend.connect(cancel.clone()).await?;
                 let dir = match dir {
@@ -424,7 +442,10 @@ impl App {
             }
             .await
             .map_err(|e| e.to_string());
-            let _ = tx.send(Action::ListingLoaded { side, result });
+            let _ = tx.send(match requested.filter(|_| tree) {
+                Some(dir) => Action::TreeListingLoaded { side, dir, result },
+                None => Action::ListingLoaded { side, result },
+            });
         });
     }
 
@@ -433,10 +454,16 @@ impl App {
     }
 
     /// List `dir` on the remote connection, through the cache unless
-    /// `force`.
-    fn list_remote(&mut self, dir: RemotePath, force: bool) {
+    /// `force`, for the file list or (with `tree`) the directory tree.
+    fn list_remote(&mut self, dir: RemotePath, force: bool, tree: bool) {
         let Some(remote) = self.remote.as_ref().filter(|r| r.connected) else {
-            self.screen.pane_mut(Side::Remote).busy = false;
+            if tree {
+                self.screen
+                    .tree_mut(Side::Remote)
+                    .loaded(&dir, &Err("Not connected".to_owned()));
+            } else {
+                self.screen.pane_mut(Side::Remote).busy = false;
+            }
             return;
         };
         let session = remote.session;
@@ -454,8 +481,27 @@ impl App {
                     .inspect(|listing| cache.put(Some(&server), listing.clone())),
             }
             .map_err(|e| e.to_string());
-            let _ = tx.send(Action::RemoteListingLoaded { session, result });
+            let _ = tx.send(Action::RemoteListingLoaded {
+                session,
+                dir,
+                tree,
+                result,
+            });
         });
+    }
+
+    /// Something from the core's event bus. A patched cached listing (T46)
+    /// also refreshes the directory tree of its side.
+    pub(crate) fn core_event(&mut self, event: events::CoreEvent) {
+        if let events::CoreEvent::ListingUpdated { session, dir } = &event {
+            let side = if self.current_session() == Some(*session) {
+                Side::Remote
+            } else {
+                Side::Local
+            };
+            self.screen.tree_mut(side).invalidate(dir);
+        }
+        self.screen.handle_core(event);
     }
 
     /// Quickconnect: connect the remote pane, asking first when that closes
