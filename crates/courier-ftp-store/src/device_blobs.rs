@@ -15,7 +15,7 @@ use crate::error::{Result, StoreError};
 /// Well-known blob names.
 pub mod names {
     /// The persisted transfer queue (T40).
-    pub const TRANSFER_QUEUE: &str = "transfer_queue";
+    pub const TRANSFER_QUEUE: &str = courier_ftp_core::queue::QUEUE_BLOB;
     /// Open tabs and layout.
     pub const TAB_STATE: &str = "tab_state";
 }

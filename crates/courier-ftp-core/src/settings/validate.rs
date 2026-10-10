@@ -91,6 +91,14 @@ impl Settings {
             &mut || v.auto_lock_minutes = defaults.vault.auto_lock_minutes,
         );
 
+        let q = &mut self.queue;
+        check(
+            q.max_successful <= 1_000_000,
+            "queue.max_successful",
+            "must be 0-1000000",
+            &mut || q.max_successful = defaults.queue.max_successful,
+        );
+
         warnings
     }
 }
