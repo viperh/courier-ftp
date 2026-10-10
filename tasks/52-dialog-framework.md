@@ -379,17 +379,17 @@ spinner, progress block characters (`█░`, ASCII `#-`).
 
 ## Acceptance criteria
 
-- [ ] AC1 Every widget and standard dialog has key-handling unit tests and insta snapshots at 80×24 and 160×48 (focused and unfocused, error state where applicable).
-- [ ] AC2 A `SecretInput` containing `hunter2` never puts `hunter2` (or any of its characters in sequence) into the rendered buffer, `Debug` output or logs; the value is zeroed after `take()` (test inspects a `Zeroizing` mock).
-- [ ] AC3 Bracketed paste of `"a\r\nb\tc\x1b[31m\n"` into a single-line field yields `a b c[31m`; into a `TextArea` yields two lines `a` and `b    c[31m`; pastes over `max_chars` are cut with a status message.
-- [ ] AC4 Nested dialogs: a confirm opened on top of a dirty `FormDialog` receives all keys, closing it returns focus to the form with values intact; `Esc` on the dirty form asks "Discard changes?" and `Enter` there keeps editing (danger default).
-- [ ] AC5 `Enter` in a `danger` confirm returns "no" without moving focus; `alt-<mnemonic>` and plain mnemonic letters press buttons (plain letters only when no text widget is focused).
-- [ ] AC6 Form validation: a field validator error and a cross-field error both block submit, show `! message` under the right field and focus the first error; fixing them allows submit and the typed result is delivered.
-- [ ] AC7 `push` delivers results over `oneshot` (awaited in a tokio test) and `push_then` delivers the mapped `Action`; `close_all` delivers `None` to every pending receiver.
-- [ ] AC8 Dialogs and widgets never panic for any screen size from 1×1 to 300×100 (property test) and show `Terminal too small for this dialog` below 30×8 while `Esc` still closes them.
-- [ ] AC9 `PathInput` with `LocalPathCompleter` completes a unique match, inserts the common prefix and shows the popup for several, and falls through to the next field when there is no match (temp-dir test).
-- [ ] AC10 `progress` is not drawn when `finish()` comes within 300 ms, is drawn after 300 ms, and `Cancel` cancels the token and shows `Cancelling…` until `finish()`.
-- [ ] AC11 Dialog text from untrusted sources is sanitised: a title or message containing `\x1b]52;c;…\x07` renders as caret notation.
+- [x] AC1 Every widget and standard dialog has key-handling unit tests and insta snapshots at 80×24 and 160×48 (focused and unfocused, error state where applicable).
+- [x] AC2 A `SecretInput` containing `hunter2` never puts `hunter2` (or any of its characters in sequence) into the rendered buffer, `Debug` output or logs; the value is zeroed after `take()` (test inspects a `Zeroizing` mock).
+- [x] AC3 Bracketed paste of `"a\r\nb\tc\x1b[31m\n"` into a single-line field yields `a b c[31m`; into a `TextArea` yields two lines `a` and `b    c[31m`; pastes over `max_chars` are cut with a status message.
+- [x] AC4 Nested dialogs: a confirm opened on top of a dirty `FormDialog` receives all keys, closing it returns focus to the form with values intact; `Esc` on the dirty form asks "Discard changes?" and `Enter` there keeps editing (danger default).
+- [x] AC5 `Enter` in a `danger` confirm returns "no" without moving focus; `alt-<mnemonic>` and plain mnemonic letters press buttons (plain letters only when no text widget is focused).
+- [x] AC6 Form validation: a field validator error and a cross-field error both block submit, show `! message` under the right field and focus the first error; fixing them allows submit and the typed result is delivered.
+- [x] AC7 `push` delivers results over `oneshot` (awaited in a tokio test) and `push_then` delivers the mapped `Action`; `close_all` delivers `None` to every pending receiver.
+- [x] AC8 Dialogs and widgets never panic for any screen size from 1×1 to 300×100 (property test) and show `Terminal too small for this dialog` below 30×8 while `Esc` still closes them.
+- [x] AC9 `PathInput` with `LocalPathCompleter` completes a unique match, inserts the common prefix and shows the popup for several, and falls through to the next field when there is no match (temp-dir test).
+- [x] AC10 `progress` is not drawn when `finish()` comes within 300 ms, is drawn after 300 ms, and `Cancel` cancels the token and shows `Cancelling…` until `finish()`.
+- [x] AC11 Dialog text from untrusted sources is sanitised: a title or message containing `\x1b]52;c;…\x07` renders as caret notation.
 - [ ] AC12 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
 
 ## Tests
@@ -461,3 +461,60 @@ At 80×24 and 160×48 each (`insta`, `TestBackend`, background = T50 Classic she
 
 None. (Resolved by the coordinator: T50 owns `ui::text::sanitize` and `Symbols`;
 T62/T63/T64 use `confirm(title, text, ConfirmOpts::danger(..))` for destructive confirms.)
+
+## Implementation notes
+
+- **Files.** Widgets are `components/widgets.rs` + `components/widgets/*.rs`, dialogs
+  `components/dialog.rs` + `components/dialog/{form,standard,progress}.rs` (the crate's
+  `foo.rs` + `foo/` style). `ModalStack` stays in T50's `components/modal.rs`: it holds
+  `Box<dyn Modal>`; a dialog is type-erased as `AnyDialog` (`dialog::hosted`,
+  `hosted_then`) and put on the stack by the `DialogModal` adapter. The help overlay is
+  opened with `ModalStack::push_modal`. `ModalStack::new(action_tx)` (results of
+  `push_then` go to the action channel); `close_done()` also opens dialogs a dialog asked
+  for (`DialogStep::Push`) and polls the uncovered dialog at once (so the discard guard
+  sees the confirm's answer); `poll_all(now)` runs on every `Tick` and `Action::Wake`.
+- **Additive trait methods.** `Widget`: `render_overlay` (Select popup, completion
+  candidates; drawn after the whole dialog), `uses_vertical_keys`, `take_notice` →
+  `Notice::{Status, NextField}` (paste cut, "Completion failed", no completion → next
+  field). `Dialog`: `kind()` (logged as `dialog opened: <kind>`), `measure(max_w)` (content
+  size for `Fit`), `is_visible(now)` (progress hides itself), `take_notice()` (shown on the
+  status line). `Modal`: `take_push`, `poll`, `dims_background`, `is_visible`,
+  `dialog_kind` (tests: `ModalStack::kinds()`).
+- **Concrete return types.** `confirm` → `ConfirmDialog`, `message`/`error`/
+  `error_report` → `MessageDialog`, `choose` → `ChooseDialog`, `prompt_text` →
+  `FormDialog<String>`, `prompt_password` → `FormDialog<SecretString>`, `text_viewer`/
+  `problems` → `TextViewerDialog`, `progress` → `ProgressDialog`; all implement `Dialog`.
+  `ChoiceOption::new(label, role)` takes the first letter as mnemonic.
+  `ButtonRow::mnemonic` returns the button index.
+- **Quit.** The quit confirmation is `confirm("Quit", …, ConfirmOpts::danger("Quit"))
+  .confirm_on_quit()`: the `Quit` key pressed again answers yes (T50's "Quit twice
+  confirms"). In any other dialog `Quit` is passed back to the app (no blockers →
+  `close_all()` and quit; blockers → the quit confirmation on top). `QuitConfirmed` also
+  calls `close_all()`.
+- **Startup problems** open `problems(lines)` (title "N configuration problem(s)") after
+  the first frame, in addition to T50's status message. T51's
+  `bad_user_config_starts_app` closes it with `esc` first, and
+  `snap_keymap_problems_status_80x24` now shows the dialog.
+- **Prompts** use `FormDialog::discard_guard(false)` (no "Discard changes?" for a
+  one-field prompt); forms keep the guard. `FormDialog::kind()` names a form for logs.
+  `TabbedForm<T>` wraps a `FormDialog<T>` (minimum width 60).
+- **Fit sizing** also reports "too small" when the screen is narrower than the dialog's
+  `min_w` (40 for message dialogs and forms) — the dialog's own minimum.
+- **SecretInput.** The cursor stays at the end; `ctrl-w`, `ctrl-u` and `alt-backspace`
+  clear the field (deleting by word would reveal word boundaries). The buffer is
+  allocated once at 4 KiB, so typing never reallocates; backspace rebuilds and zeroes.
+  The AC2 "Zeroizing mock" is the test-only `wipes` counter incremented by the zeroing
+  path that `take()` runs.
+- **TextArea paste** drops a trailing line break as well (AC3 expects two lines from
+  `"…c\x1b[31m\n"`). The cut message counts the characters actually inserted
+  ("Pasted text was cut to N characters").
+- **Symbols** gained `radio_on`/`radio_off`, `dropdown`, `scroll_up`/`scroll_down`,
+  `bar_full`/`bar_empty`; checkbox marks `[x] [ ] [-]` are the same in both sets. The
+  style keys are in `config/config.json` and reduce to modifiers under `monochrome`.
+- **`App::action_sender()`** hands the action channel to widgets that wake the app
+  (`PathInput`). `PathInput` spawns its completion on the current tokio runtime and
+  aborts it on drop.
+- **Not done here:** `e2e_pty_paste_into_quickconnect_host` needs T76's
+  `courier-ftp-e2e` crate (`PtyApp`) and T58's quickconnect fields; the manual bracketed
+  paste check (xterm, tmux, Windows Terminal) and the `test-os` job of AC12 could not be
+  run in this environment. `fmt`, `clippy`, `docs` and the Linux tests pass.
