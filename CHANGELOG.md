@@ -169,3 +169,7 @@ the section matching the tag.
   (serve, migrate, admin user/invite/registration/gc, healthcheck), /healthz
   /readyz /metrics, distroless Docker image and compose file, and
   docs/self-hosting.md.
+- Recursive operations (T43): recursive transfers (one directory level
+  expanded at a time in the queue, filters applied, empty-directory and
+  symlink settings, loop-safe), recursive delete, and recursive chmod with
+  files-only/dirs-only and per-bit "leave unchanged".
