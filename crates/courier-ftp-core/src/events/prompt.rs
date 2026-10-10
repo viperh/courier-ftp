@@ -152,19 +152,41 @@ pub enum TrustDecision {
 pub struct FileExistsAnswer {
     /// What to do. `Ask` is not a valid answer and is treated as `Skip`.
     pub action: ExistsAction,
-    /// How widely the answer applies.
+    /// How long the answer is remembered.
     pub apply_to: ApplyTo,
-    /// The new target name for [`ExistsAction::Rename`].
+    /// When remembered: only for transfers going the same direction
+    /// (FileZilla's "apply only to downloads/uploads").
+    pub same_direction_only: bool,
+    /// When remembered: only for transfers to or from the same server.
+    pub same_server_only: bool,
+    /// The new target name for [`ExistsAction::Rename`] (one component), for
+    /// this file only. `None` (and every remembered *Rename*) picks the first
+    /// free `name (1).ext`, `name (2).ext`, ….
     pub new_name: Option<String>,
 }
 
-/// How widely a [`FileExistsAnswer`] applies.
+impl FileExistsAnswer {
+    /// `action` for this file only.
+    pub fn once(action: ExistsAction) -> Self {
+        Self {
+            action,
+            apply_to: ApplyTo::Once,
+            same_direction_only: false,
+            same_server_only: false,
+            new_name: None,
+        }
+    }
+}
+
+/// How long a [`FileExistsAnswer`] is remembered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApplyTo {
     /// This file only.
     Once,
-    /// Every file in the queue.
+    /// Every later conflict of the current queue run ("apply to current
+    /// queue only"); forgotten when the queue finishes.
     AllInQueue,
-    /// Every file in the queue going the same direction.
-    AllForDirection,
+    /// Every later conflict until the program exits ("always use this
+    /// action" for the session).
+    AllInSession,
 }

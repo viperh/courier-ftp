@@ -221,6 +221,7 @@ impl EngineBuilder {
         });
         let (paused_tx, _) = watch::channel(false);
         self.limiter.settings_changed(&self.settings.transfers);
+        let log_session = SessionId::next();
         let shared = Arc::new(Shared {
             queue: self.queue,
             factory: self.factory,
@@ -230,6 +231,8 @@ impl EngineBuilder {
             limiter: self.limiter,
             expander: self.expander,
             local: self.local,
+            log_session,
+            no_mtime_noted: std::sync::Mutex::default(),
         });
         let engine = TransferEngine {
             shared,
@@ -245,7 +248,7 @@ impl EngineBuilder {
             pools: HashMap::new(),
             retry: HashMap::new(),
             run: None,
-            log_session: SessionId::next(),
+            log_session,
         };
         (engine, EngineHandle { tx, status })
     }
@@ -806,6 +809,7 @@ impl TransferEngine {
         if let Some(run) = self.run.take() {
             let mut stats = run.stats;
             stats.elapsed = run.started.elapsed();
+            self.shared.exists.queue_finished();
             self.shared.events.send(CoreEvent::QueueFinished { stats });
         }
     }

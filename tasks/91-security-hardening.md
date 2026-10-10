@@ -129,7 +129,7 @@ only as self-grants signed by this account's own key.
 - [x] Canary scan finds nothing after a full trace-level test run (and its self-test proves it can find planted canaries).
 - [ ] No hostnames at `info`+ in client logs (test).
 - [ ] Approval prompts appear for synced local-acting fields and are re-asked on change.
-- [ ] Hostile filenames (`../x`, `a/b`, names with ESC sequences) can't escape the target dir or affect the terminal.
+- [x] Hostile filenames (`../x`, `a/b`, names with ESC sequences) can't escape the target dir or affect the terminal.
 - [ ] `docs/threat-model.md` complete with a test reference for every mitigation.
 
 ## Tests
@@ -175,8 +175,13 @@ Deferred to later milestones:
   `info`+ ring; the binary still logs every action at `info` (`app.rs`), which can carry
   hosts and paths — this blocks the "no hostnames at `info`+" box.
 - §8 approval prompts (the `local_approvals` table exists; the UI comes later).
-- Hostile filenames: the download path join is T42 and a rendering test with escape
-  sequences belongs to T53/T55 (ratatui already drops graphemes with control characters).
+- Hostile filenames: done in T42. Download names go through
+  `transfer::download_target` / `download_name` and the worker refuses targets with `..`
+  (`transfer::options` tests `hostile_names_stay_in_the_target_dir`,
+  `traversal_in_a_target_path_is_refused`, engine test
+  `engine_downloads_stay_in_the_target_dir`); `ui::file_exists` test
+  `escape_sequences_in_names_are_not_drawn` shows ratatui drops control characters. A
+  file-list (T53) or log (T55) specific rendering test would still be nice.
 - §6 reproducible release flags and SHA256SUMS are T77; auditing the crypto crates so
   `VET_CRYPTO_STRICT=1` can be turned on.
 - The CI jobs `vet`, `fuzz` and `canary --require-files` were not run on GitHub yet; their
