@@ -30,6 +30,7 @@ courier-ftp-core = { path = "../crates/courier-ftp-core" }
 courier-ftp-crypto = { path = "../crates/courier-ftp-crypto" }
 courier-ftp-proto = { path = "../crates/courier-ftp-proto" }
 courier-ftp-proto-ftp = { path = "../crates/courier-ftp-proto-ftp" }
+courier-ftp-proto-sftp = { path = "../crates/courier-ftp-proto-sftp" }
 
 # Not part of the root workspace.
 [workspace]
@@ -99,6 +100,13 @@ bench = false
 [[bin]]
 name = "socks_reply"
 path = "fuzz_targets/socks_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ppk_parse"
+path = "fuzz_targets/ppk_parse.rs"
 test = false
 doc = false
 bench = false

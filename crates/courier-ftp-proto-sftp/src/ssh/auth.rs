@@ -465,19 +465,20 @@ impl Chain<'_, '_> {
                 break;
             }
             let flow = match step {
-                Step::Agent => self.agent_step().await?,
-                Step::StoredPassword => self.stored_password_step().await?,
-                Step::PasswordPrompts => self.password_prompts().await?,
+                Step::Agent => self.agent_step().await,
+                Step::StoredPassword => self.stored_password_step().await,
+                Step::PasswordPrompts => self.password_prompts().await,
                 Step::PasswordPromptsIfNoKbd => {
                     if self.allows(KEYBOARD_INTERACTIVE) {
-                        Flow::Next
+                        Ok(Flow::Next)
                     } else {
-                        self.password_prompts().await?
+                        self.password_prompts().await
                     }
                 }
-                Step::Kbd { auto } => self.kbd_step(auto).await?,
-                Step::KeyFile => self.key_step().await?,
-            };
+                Step::Kbd { auto } => self.kbd_step(auto).await,
+                Step::KeyFile => self.key_step().await,
+            }
+            .map_err(|e| self.auth_disconnect(e))?;
             match flow {
                 Flow::Done => {
                     for token in std::mem::take(&mut self.accepted) {
@@ -493,6 +494,22 @@ impl Chain<'_, '_> {
             tried: self.tried.clone(),
             accepts: self.allowed.clone(),
         })
+    }
+
+    /// A server that disconnects because of too many failed attempts (OpenSSH
+    /// `MaxAuthTries`: "Too many authentication failures") is a permission problem.
+    fn auth_disconnect(&self, err: SshError) -> SshError {
+        match err {
+            SshError::RemoteDisconnect(msg)
+                if msg.to_ascii_lowercase().contains("authentication failures") =>
+            {
+                SshError::Auth {
+                    tried: self.tried.clone(),
+                    accepts: self.allowed.clone(),
+                }
+            }
+            other => other,
+        }
     }
 
     // ------------------------------------------------------------ [A] agent

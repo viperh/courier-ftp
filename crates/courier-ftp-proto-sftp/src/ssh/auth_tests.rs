@@ -134,6 +134,11 @@ impl AuthBackend for Fake {
         _hash: Option<HashAlg>,
     ) -> Result<AuthOutcome, SshError> {
         self.calls.push(format!("agent:{}", identity.comment()));
+        if identity.comment() == "disconnect" {
+            return Err(SshError::RemoteDisconnect(
+                "Too many authentication failures".into(),
+            ));
+        }
         if self.partial_agent == Some(identity.comment()) {
             self.methods = self.methods_after_partial.clone();
             return Ok(AuthOutcome::Failure {
@@ -902,4 +907,22 @@ impl Target {
         };
         run_chain(&target, backend, &mut User::default(), None).await
     }
+}
+
+/// AC8 (OpenSSH `MaxAuthTries`): a disconnect for too many failures is `Auth`.
+#[tokio::test]
+async fn max_auth_tries_disconnect_is_auth() {
+    let mut fake = Fake::new(&[PK]);
+    let err = Target::new(SshLogon::Agent)
+        .run(
+            &mut fake,
+            &mut User::default(),
+            Some(agent(&["a", "disconnect"])),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.message(),
+        "Permission denied (tried: publickey; server accepts: publickey)"
+    );
 }
