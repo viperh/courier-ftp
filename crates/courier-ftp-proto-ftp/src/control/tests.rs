@@ -1487,6 +1487,46 @@ async fn connect_runs_pre_greeting_hook() {
 #[derive(Clone, Default)]
 struct Captured(Arc<Mutex<Vec<u8>>>);
 
+std::thread_local! {
+    static THREAD_CAPTURE: std::cell::RefCell<Option<Captured>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Writes into this thread's capture buffer, if any.
+struct ThreadCapture;
+
+impl io::Write for ThreadCapture {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        THREAD_CAPTURE.with(|c| match &mut *c.borrow_mut() {
+            Some(cap) => cap.write(buf),
+            None => Ok(buf.len()),
+        })
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Captures this thread's tracing output. A thread-local default subscriber is not
+/// enough: callsite interest is cached process-wide, and other tests hitting the same
+/// callsites with no subscriber can leave them disabled. One global TRACE subscriber
+/// (installed once) keeps every callsite enabled and routes output per thread.
+fn capture_tracing() -> Captured {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(|| ThreadCapture)
+            .finish();
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        tracing::callsite::rebuild_interest_cache();
+    });
+    let captured = Captured::default();
+    THREAD_CAPTURE.with(|c| *c.borrow_mut() = Some(captured.clone()));
+    captured
+}
+
 impl io::Write for Captured {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.lock().unwrap().extend_from_slice(buf);
@@ -1500,17 +1540,7 @@ impl io::Write for Captured {
 #[tokio::test(start_paused = true)]
 async fn canary_password_never_logged() {
     const CANARY: &str = "CANARY-PW-3b9f1c";
-    let captured = Captured::default();
-    let writer = captured.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
-    // Callsite interest is cached process-wide; tests running in parallel can
-    // leave it stale, so recompute it now that this subscriber is the default.
-    tracing::callsite::rebuild_interest_cache();
+    let captured = capture_tracing();
 
     let ui = Ui::new(Some(CANARY));
     let (mut conn, server) = open(
