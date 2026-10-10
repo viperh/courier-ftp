@@ -100,3 +100,9 @@ the section matching the tag.
   keyring-based password recovery, auto-lock (idle and suspend), password
   change, store-passwords setting, vault-backed trusted host keys, and the
   .cftp-backup format.
+- Vault unlock UI (T60): first-run master password setup with strength meter
+  and optional keyring unlock, unlock view with backoff countdown, silent
+  keyring unlock with password fallback, "Forgot password?" (keyring reset, or
+  a new empty vault with the old database moved aside), lock overlay with
+  <Ctrl-x><v> and auto-lock, "Continue without vault", and a database-busy
+  retry screen.
