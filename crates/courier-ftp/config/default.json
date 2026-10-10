@@ -412,6 +412,7 @@
       }
     },
     "queue": {
+      "max_successful": 1000,
       "notify": "bell",
       "on_complete": "none",
       "persist": true,
