@@ -64,6 +64,9 @@ jobs:
           else
             echo "No main baseline yet; this run becomes it."
           fi
+      # T53: 100 000 entries render in < 5 ms per frame (release-only test).
+      - name: File list render gate (100k entries)
+        run: cargo test --release --locked -p courier-ftp hundred_thousand -- --include-ignored
       # The new results become the baseline for the next run (master only).
       - name: Promote the baseline
         if: steps.has.outputs.count != '0' && github.ref == 'refs/heads/master'

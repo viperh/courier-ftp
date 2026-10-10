@@ -10,7 +10,10 @@
       "</>": "QuickFilter",
       "<:>": "CommandLine",
       "<=>": "MirrorDir",
+      "<Alt-Left>": "HistoryBack",
+      "<Alt-Right>": "HistoryForward",
       "<Backspace>": "ParentDir",
+      "<C>": "ColumnMenu",
       "<Ctrl-a>": "SelectAll",
       "<Ctrl-d>": "HalfPageDown",
       "<Ctrl-u>": "HalfPageUp",
@@ -26,6 +29,8 @@
       "<Right>": "Open",
       "<Space>": "ToggleSelect",
       "<Up>": "CursorUp",
+      "<[>": "HistoryBack",
+      "<]>": "HistoryForward",
       "<a>": "EditAddress",
       "<c>": "Chmod",
       "<e>": "Edit",
@@ -346,6 +351,22 @@
     },
     "interface": {
       "check_updates": true,
+      "columns": {
+        "local": [
+          "name",
+          "size",
+          "type",
+          "modified"
+        ],
+        "remote": [
+          "name",
+          "size",
+          "type",
+          "modified",
+          "permissions",
+          "owner"
+        ]
+      },
       "confirm_delete": true,
       "date_format": "%Y-%m-%d",
       "dirs_first": true,
@@ -353,6 +374,7 @@
       "key_sequence_timeout_ms": 1000,
       "language": "auto",
       "layout": "classic",
+      "natural_sort": true,
       "show_hidden_local": false,
       "show_log": true,
       "show_queue": true,

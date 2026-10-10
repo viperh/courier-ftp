@@ -1,11 +1,6 @@
-//! The regions of the main screen. These are the T50 shells: the file list
-//! (T53), message log (T55), queue (T56), status bar (T57), quickconnect bar
-//! (T58) and tab bar (T61) tasks replace their bodies.
+//! Shared pane helpers and the remaining T50 shells: the queue (T56),
+//! quickconnect bar (T58) and tab bar (T61) tasks replace their bodies.
 
-use courier_ftp_core::{
-    local::display_native,
-    model::{Entry, RemotePath},
-};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -13,7 +8,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use super::{Side, theme::Theme};
+use super::theme::Theme;
 
 /// Braille spinner shown in a pane title while it waits for the network.
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -28,80 +23,6 @@ pub(crate) fn block<'a>(title: impl Into<Line<'a>>, focused: bool, theme: &Theme
     } else {
         theme.border
     })
-}
-
-/// One side's directory listing.
-#[derive(Debug)]
-pub(crate) struct FilePane {
-    pub(crate) side: Side,
-    pub(crate) dir: Option<RemotePath>,
-    pub(crate) entries: Vec<Entry>,
-    pub(crate) busy: bool,
-    pub(crate) error: Option<String>,
-}
-
-impl FilePane {
-    pub(crate) fn new(side: Side) -> Self {
-        Self {
-            side,
-            dir: None,
-            entries: Vec::new(),
-            busy: false,
-            error: None,
-        }
-    }
-
-    pub(crate) fn draw(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        focused: bool,
-        tick: u64,
-        theme: &Theme,
-    ) {
-        let label = match self.side {
-            Side::Local => "Local",
-            Side::Remote => "Remote",
-        };
-        let place = match (&self.dir, self.side) {
-            (Some(d), Side::Local) => display_native(d),
-            (Some(d), Side::Remote) => d.to_string(),
-            (None, Side::Remote) => "not connected".to_owned(),
-            (None, Side::Local) => String::new(),
-        };
-        let mut title = vec![Span::styled(format!(" {label}: {place} "), theme.title)];
-        if self.busy {
-            title.push(Span::raw(format!("{} ", spinner_frame(tick))));
-        }
-        let lines: Vec<Line> = if let Some(err) = &self.error {
-            vec![Line::styled(err.clone(), theme.error)]
-        } else if self.dir.is_none() && self.side == Side::Remote {
-            vec![Line::styled(
-                "Ctrl-k: quickconnect · Ctrl-s: Site Manager",
-                theme.dim,
-            )]
-        } else {
-            let mut sorted: Vec<&Entry> = self.entries.iter().collect();
-            sorted.sort_by(|a, b| {
-                b.is_dir_like()
-                    .cmp(&a.is_dir_like())
-                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-            });
-            std::iter::once(Line::raw(".."))
-                .chain(sorted.into_iter().map(|e| {
-                    if e.is_dir_like() {
-                        Line::styled(format!("{}/", e.name), theme.dir)
-                    } else {
-                        Line::raw(e.name.clone())
-                    }
-                }))
-                .collect()
-        };
-        frame.render_widget(
-            Paragraph::new(lines).block(block(Line::from(title), focused, theme)),
-            area,
-        );
-    }
 }
 
 pub(crate) fn draw_quickconnect(frame: &mut Frame, area: Rect, focused: bool, theme: &Theme) {

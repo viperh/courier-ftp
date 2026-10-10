@@ -427,6 +427,54 @@ pub struct InterfaceSettings {
     pub key_sequence_timeout_ms: u64,
     /// Unicode symbols (🔒 ⇅ ⚑) or plain ASCII in the status bar (T57).
     pub unicode_symbols: SymbolMode,
+    /// Sort names naturally: `file2` before `file10` (T53).
+    pub natural_sort: bool,
+    /// Which file list columns are shown, in order (T53).
+    pub columns: ColumnSettings,
+}
+
+/// A file list column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Column {
+    /// File name (always shown).
+    Name,
+    /// Size.
+    Size,
+    /// File type, from the extension.
+    Type,
+    /// Last modified.
+    Modified,
+    /// Permissions.
+    Permissions,
+    /// Owner and group.
+    Owner,
+}
+
+/// The columns of each side's file list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ColumnSettings {
+    /// Local pane.
+    pub local: Vec<Column>,
+    /// Remote pane.
+    pub remote: Vec<Column>,
+}
+
+impl Default for ColumnSettings {
+    fn default() -> Self {
+        Self {
+            local: vec![Column::Name, Column::Size, Column::Type, Column::Modified],
+            remote: vec![
+                Column::Name,
+                Column::Size,
+                Column::Type,
+                Column::Modified,
+                Column::Permissions,
+                Column::Owner,
+            ],
+        }
+    }
 }
 
 /// Whether the UI draws Unicode symbols.
@@ -464,6 +512,8 @@ impl Default for InterfaceSettings {
             language: "auto".to_owned(),
             key_sequence_timeout_ms: 1000,
             unicode_symbols: SymbolMode::Auto,
+            natural_sort: true,
+            columns: ColumnSettings::default(),
         }
     }
 }

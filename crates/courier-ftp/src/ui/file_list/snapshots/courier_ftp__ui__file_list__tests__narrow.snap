@@ -1,0 +1,14 @@
+---
+source: crates/courier-ftp/src/ui/file_list/tests.rs
+expression: t.backend()
+---
+"┌ Remote: /var/www ────────────────────────┐"
+"│  Name▲                               Size│"
+"│  ..                                      │"
+"│  assets/                                 │"
+"│  current/ → releases/42                  │"
+"│  .htaccess                           64 B│"
+"│  file2.log                            2 B│"
+"│  file10.log                          10 B│"
+"│6 files and 2 directories. Total size: 5.1│"
+"└──────────────────────────────────────────┘"

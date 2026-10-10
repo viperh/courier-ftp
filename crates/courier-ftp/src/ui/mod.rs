@@ -2,6 +2,7 @@
 //! theme and modal stack.
 
 pub(crate) mod dialog;
+mod file_list;
 mod focus;
 mod layout;
 mod log;

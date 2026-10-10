@@ -1,0 +1,14 @@
+---
+source: crates/courier-ftp/src/ui/file_list/tests.rs
+expression: t.backend()
+---
+"┌ Remote: /var/www (filtered) ─────────────────────────────────────────────────────────────────────┐"
+"│  Name▲                            Size Type           Modified         Perms      Owner          │"
+"│  ..                                                                                              │"
+"│  file2.log                         2 B Text file      2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│  file10.log                       10 B Text file      2026-10-08 18:22 -rw-r--r-- alice www      │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│2 files and 0 directories. Total size: 12 B  filter: *.log                                        │"
+"└──────────────────────────────────────────────────────────────────────────────────────────────────┘"

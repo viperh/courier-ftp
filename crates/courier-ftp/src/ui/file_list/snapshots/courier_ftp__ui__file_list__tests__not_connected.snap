@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp/src/ui/file_list/tests.rs
+expression: t.backend()
+---
+"┌ Remote: not connected ───────────────────────────────────┐"
+"│Not connected to any server.                              │"
+"│Ctrl-s: Site Manager · Ctrl-k: quickconnect               │"
+"│                                                          │"
+"│                                                          │"
+"└──────────────────────────────────────────────────────────┘"

@@ -79,6 +79,7 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<End>` | Bottom |
 | `<G>` | Bottom |
 | `<c>` | Chmod |
+| `<C>` | ColumnMenu |
 | `<:>` | CommandLine |
 | `<y><u>` | CopyUrl |
 | `<Down>` | CursorDown |
@@ -90,6 +91,10 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<a>` | EditAddress |
 | `<Ctrl-d>` | HalfPageDown |
 | `<Ctrl-u>` | HalfPageUp |
+| `<Alt-Left>` | HistoryBack |
+| `<[>` | HistoryBack |
+| `<Alt-Right>` | HistoryForward |
+| `<]>` | HistoryForward |
 | `<*>` | InvertSelection |
 | `<=>` | MirrorDir |
 | `<Enter>` | Open |

@@ -141,6 +141,11 @@ pub(crate) enum Action {
     EditAddress,
     /// Show the equivalent directory in the other pane.
     MirrorDir,
+    /// Previous / next directory in the pane's history.
+    HistoryBack,
+    HistoryForward,
+    /// Choose the pane's columns.
+    ColumnMenu,
 
     // --- message log (T55) ---
     /// Next / previous search match.
@@ -173,6 +178,26 @@ pub(crate) enum Action {
     QueueTabSuccessful,
 
     // --- background results ---
+    /// List a directory for a pane (through the listing cache unless `force`).
+    #[serde(skip)]
+    ListDir {
+        side: Side,
+        dir: courier_ftp_core::model::RemotePath,
+        force: bool,
+    },
+    /// Select (or deselect) the entries matching a glob.
+    #[serde(skip)]
+    ApplyPattern {
+        side: Side,
+        pattern: String,
+        select: bool,
+    },
+    /// The columns chosen in the column menu.
+    #[serde(skip)]
+    SetColumns {
+        side: Side,
+        columns: Vec<courier_ftp_core::settings::Column>,
+    },
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),

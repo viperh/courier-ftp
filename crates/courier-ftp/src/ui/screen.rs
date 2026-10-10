@@ -1,18 +1,20 @@
 //! [`MainScreen`]: the courier-ftp main window (T50).
 
-use courier_ftp_core::{events::CoreEvent, settings::InterfaceSettings};
 use std::time::Instant;
 
+use courier_ftp_core::{events::CoreEvent, filters::FilterEngine, settings::InterfaceSettings};
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::{
     Side,
+    file_list::{Effect, FileList},
     focus::Region,
     layout::{self, LayoutOptions, Regions, Visibility},
     log::LogPane,
     modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
-    panes::{self, FilePane},
+    panes,
     status::{self, StatusState},
     theme::Theme,
 };
@@ -43,6 +45,40 @@ fn is_pane_action(action: &Action) -> bool {
             | Action::ToggleErrorsOnly
             | Action::ScrollLeft
             | Action::ScrollRight
+    )
+}
+
+/// Actions the focused file list handles.
+fn is_list_action(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::CursorDown
+            | Action::CursorUp
+            | Action::PageDown
+            | Action::PageUp
+            | Action::HalfPageDown
+            | Action::HalfPageUp
+            | Action::Top
+            | Action::Bottom
+            | Action::ParentDir
+            | Action::Open
+            | Action::HistoryBack
+            | Action::HistoryForward
+            | Action::ToggleSelect
+            | Action::VisualSelect
+            | Action::SelectAll
+            | Action::InvertSelection
+            | Action::SelectPattern
+            | Action::DeselectPattern
+            | Action::SortName
+            | Action::SortSize
+            | Action::SortModified
+            | Action::SortPermissions
+            | Action::SortOwner
+            | Action::ToggleHidden
+            | Action::QuickFilter
+            | Action::EditAddress
+            | Action::ColumnMenu
     )
 }
 
@@ -94,14 +130,18 @@ pub(crate) struct MainScreen {
     theme: Theme,
     opts: LayoutOptions,
     focus: Region,
-    pub(crate) local: FilePane,
-    pub(crate) remote: FilePane,
+    pub(crate) local: FileList,
+    pub(crate) remote: FileList,
     log: LogPane,
     modals: Vec<Box<dyn Modal>>,
     tick: u64,
     /// The regions of the last frame, for focus checks.
     last: Regions,
     status: StatusState,
+    /// For dialogs that answer later (they send their result as an action).
+    action_tx: Option<UnboundedSender<Action>>,
+    /// Actions the panes asked for, taken by the app after each event.
+    outbox: Vec<Action>,
 }
 
 impl MainScreen {
@@ -129,18 +169,54 @@ impl MainScreen {
             },
             compact_side: Side::Local,
         };
+        let filters = &config.settings.filters;
+        let (local_filters, mut warnings) = FilterEngine::from_settings(filters, Side::Local);
+        let (remote_filters, more) = FilterEngine::from_settings(filters, Side::Remote);
+        warnings.extend(more);
+        for w in warnings {
+            tracing::warn!("filters: {w}");
+        }
+        let local = FileList::new(Side::Local, &config.settings, local_filters);
+        let remote = FileList::new(Side::Remote, &config.settings, remote_filters);
         Self {
             config,
             theme,
             opts,
             focus: Region::LocalList,
-            local: FilePane::new(Side::Local),
-            remote: FilePane::new(Side::Remote),
+            local,
+            remote,
             log,
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
             status,
+            action_tx: None,
+            outbox: Vec::new(),
+        }
+    }
+
+    /// Where dialogs send their results.
+    pub(crate) fn set_action_tx(&mut self, tx: UnboundedSender<Action>) {
+        self.action_tx = Some(tx);
+    }
+
+    /// The actions the panes asked for since the last call.
+    pub(crate) fn take_actions(&mut self) -> Vec<Action> {
+        std::mem::take(&mut self.outbox)
+    }
+
+    fn apply(&mut self, effect: Option<Effect>) {
+        match effect {
+            Some(Effect::Action(a)) => self.outbox.push(a),
+            Some(Effect::Modal(m)) => self.modals.push(m),
+            None => {}
+        }
+    }
+
+    fn focused_list(&mut self) -> Option<&mut FileList> {
+        match self.focus.side()? {
+            Side::Local => Some(&mut self.local),
+            Side::Remote => Some(&mut self.remote),
         }
     }
 
@@ -151,6 +227,18 @@ impl MainScreen {
         }
         if self.log.is_searching() {
             return Mode::Filter;
+        }
+        if let Some(side) = self.focus.side() {
+            let list = match side {
+                Side::Local => &self.local,
+                Side::Remote => &self.remote,
+            };
+            if list.is_editing_address() {
+                return Mode::Input;
+            }
+            if list.is_typing() {
+                return Mode::Filter;
+            }
         }
         match self.focus {
             Region::Quickconnect => Mode::Input,
@@ -190,6 +278,12 @@ impl MainScreen {
         if self.focus == Region::Log && self.log.handle_search_key(key) {
             return KeyOutcome::Consumed;
         }
+        if let Some(list) = self.focused_list()
+            && let Some(effect) = list.handle_key(key)
+        {
+            self.apply(effect);
+            return KeyOutcome::Consumed;
+        }
         KeyOutcome::NotHandled
     }
 
@@ -198,6 +292,8 @@ impl MainScreen {
     pub(crate) fn handle_paste(&mut self, text: &str) {
         if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
+        } else if let Some(list) = self.focused_list() {
+            list.handle_paste(text);
         }
     }
 
@@ -228,6 +324,34 @@ impl MainScreen {
         }
         if matches!(action, Action::ClearLog) {
             return self.log.update(action);
+        }
+        // Results for a particular side, whatever has focus.
+        if let Action::ListingLoaded { side, result } = action {
+            let error = self.pane_mut(*side).listing_loaded(result);
+            self.outbox.extend(error);
+            return None;
+        }
+        if let Action::ApplyPattern { side, .. } | Action::SetColumns { side, .. } = action {
+            let tx = self.action_tx.clone();
+            let effect = self.pane_mut(*side).update(action, tx.as_ref());
+            self.apply(effect);
+            return None;
+        }
+        if matches!(action, Action::Refresh) {
+            let tx = self.action_tx.clone();
+            for side in [Side::Local, Side::Remote] {
+                let effect = self.pane_mut(side).update(action, tx.as_ref());
+                self.apply(effect);
+            }
+            return None;
+        }
+        if is_list_action(action) {
+            let tx = self.action_tx.clone();
+            if let Some(list) = self.focused_list() {
+                let effect = list.update(action, tx.as_ref());
+                self.apply(effect);
+                return None;
+            }
         }
         match action {
             Action::Tick => self.tick = self.tick.wrapping_add(1),
@@ -268,18 +392,6 @@ impl MainScreen {
             Action::ToggleQuickconnect => {
                 self.opts.visible.quickconnect = !self.opts.visible.quickconnect;
             }
-            Action::ListingLoaded { side, result } => {
-                let pane = self.pane_mut(*side);
-                pane.busy = false;
-                match result {
-                    Ok(listing) => {
-                        pane.dir = Some(listing.dir.clone());
-                        pane.entries = listing.entries.clone();
-                        pane.error = None;
-                    }
-                    Err(e) => pane.error = Some(e.clone()),
-                }
-            }
             _ => {}
         }
         None
@@ -299,7 +411,7 @@ impl MainScreen {
         }
     }
 
-    pub(crate) fn pane_mut(&mut self, side: Side) -> &mut FilePane {
+    pub(crate) fn pane_mut(&mut self, side: Side) -> &mut FileList {
         match side {
             Side::Local => &mut self.local,
             Side::Remote => &mut self.remote,
@@ -336,6 +448,7 @@ impl MainScreen {
             }
         }
         self.last = r;
+        self.status.filters_active = self.local.is_filtered() || self.remote.is_filtered();
         let theme = &self.theme;
         let f = self.focus;
         if let Some(a) = r.quickconnect {

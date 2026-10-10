@@ -93,11 +93,13 @@ impl App {
         for warning in &config.settings_warnings {
             events_tx.log(local_session, LogKind::Error, format!("config: {warning}"));
         }
+        let mut screen = MainScreen::new(config.clone(), theme);
+        screen.set_action_tx(action_tx.clone());
         Ok(Self {
             keybindings: config.keybindings.clone(),
             tick_rate,
             frame_rate,
-            screen: MainScreen::new(config, theme),
+            screen,
             should_quit: false,
             should_suspend: false,
             sequencer,
@@ -171,6 +173,9 @@ impl App {
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
         if self.screen.handle_key(key) == KeyOutcome::Consumed {
             self.sequencer.reset();
+            for next in self.screen.take_actions() {
+                self.action_tx.send(next)?;
+            }
         } else {
             let mode = self.screen.mode();
             match self
@@ -210,9 +215,8 @@ impl App {
                 self.render(tui)?;
             }
             Action::Render => self.render(tui)?,
-            Action::Refresh => {
-                let dir = self.screen.local.dir.clone();
-                self.list(Side::Local, dir, true);
+            Action::ListDir { side, dir, force } => {
+                self.list(*side, Some(dir.clone()), *force);
             }
             Action::CopyToClipboard(text) => {
                 if let Err(e) = crate::clipboard::copy(text) {
@@ -227,6 +231,9 @@ impl App {
             _ => {}
         }
         if let Some(next) = self.screen.update(&action) {
+            self.action_tx.send(next)?;
+        }
+        for next in self.screen.take_actions() {
             self.action_tx.send(next)?;
         }
         Ok(())

@@ -50,6 +50,7 @@ Smaller calls made while building, recorded so they can be revisited:
 - **T50** Explorer layout puts each directory tree beside its file list; Classic puts it above. The plan's `Home` component and the template `Component` trait are replaced by a `ui` module (`MainScreen`, layout, focus, modal stack).
 - **T51** Keymaps have context modes (`FileList`, `Queue`, `Log`) that fall back to the global `Normal` map; text input and dialogs don't fall back. Disconnect is `<Ctrl-x><d>`. Bad or conflicting bindings are skipped with a warning instead of stopping startup. `Ctrl-j`/`Ctrl-h` get alternates (`Alt-j`, `.`) because many terminals send them as Enter/Backspace.
 - **T57** Backends report connection details through `Backend::session_info()` (default `None`) as a `SessionInfo`; the status bar and server info dialog read it. New setting `interface.unicode_symbols` (auto/unicode/ascii). New keys: `<Ctrl-x><i>` server info, `<Ctrl-x><t>` transfer type, `<Ctrl-x><l>` speed limit.
+- **T53** Pane effects (listing requests, dialogs) go through an outbox the app drains after each event. New settings `interface.natural_sort` and `interface.columns`. New keys in file lists: `[`/`]` and `Alt-←`/`Alt-→` history, `C` column menu. The 100k-entry render gate is a release-only test run by `bench.yml`.
 - **T47** A filter has one `scope` field (both / local only / remote only) instead of two booleans. A filter without conditions never matches.
 
 ## Phases and tasks

@@ -8,7 +8,8 @@ FileZilla client, built in Rust on [ratatui](https://ratatui.rs) and
 
 > **Status: early development.** The foundation is being built (milestone M1 in
 > [`tasks/`](tasks/README.md)): the domain model, settings, event bus, filters,
-> the `Backend` trait, the local filesystem backend and the main screen exist. There is no usable client yet: no connections,
+> the `Backend` trait, the local filesystem backend and the main screen with a
+> working local file browser exist. There is no usable client yet: no connections,
 > no transfers.
 
 ## What it will do

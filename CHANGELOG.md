@@ -50,3 +50,8 @@ the section matching the tag.
 - Message log pane (T55): coloured prefixes, optional timestamps, a capped ring
   buffer, follow/pause with a new-lines counter, search with highlighting,
   line and range copy (OSC 52), wrap, errors-only and per-tab views.
+- File list pane (T53): columns that drop on narrow terminals, natural sort,
+  directories first, navigation with cursor memory and history, selection
+  (toggle, range, all, invert, by pattern), quick filter, filters, hidden
+  files, address bar with completion, column menu, inline errors. Renders
+  100 000 entries in under 5 ms.
