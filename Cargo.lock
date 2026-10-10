@@ -1203,6 +1203,7 @@ name = "courier-ftp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "better-panic",
  "clap",
  "clap_complete",

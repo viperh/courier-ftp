@@ -32,10 +32,10 @@ Additional:
 
 ## Acceptance criteria
 
-- [ ] Passes backend conformance suite against OpenSSH in Docker.
-  (`crates/courier-ftp-e2e/tests/sftp_backend.rs`, `atmoz/sftp`; awaiting the
-  CI e2e job. Already passes in-process and against a local OpenSSH 10.5p1
-  `sshd` via `scripts/bench-sftp.sh`.)
+- [x] Passes backend conformance suite against OpenSSH in Docker.
+  (`crates/courier-ftp-e2e/tests/sftp_backend.rs`, `atmoz/sftp`; passes in the
+  CI e2e job, in-process, and against a local OpenSSH 10.5p1 `sshd` via
+  `scripts/bench-sftp.sh`.)
 - [x] Symlink to dir shows as symlink with `target_kind = Dir` and can be entered.
 - [x] Resume download/upload byte-identical.
 - [x] Throughput target met (numbers written here).

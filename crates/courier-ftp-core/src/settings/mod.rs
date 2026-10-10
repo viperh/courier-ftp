@@ -401,6 +401,8 @@ pub struct InterfaceSettings {
     pub show_log: bool,
     /// Show the transfer queue.
     pub show_queue: bool,
+    /// Show the quickconnect bar.
+    pub show_quickconnect: bool,
     /// How file sizes are shown.
     pub size_format: SizeFormat,
     /// Group digits in byte counts (`1,234,567`).
@@ -500,6 +502,7 @@ impl Default for InterfaceSettings {
             show_tree: false,
             show_log: true,
             show_queue: true,
+            show_quickconnect: true,
             size_format: SizeFormat::Iec,
             thousands_separator: true,
             date_format: "%Y-%m-%d".to_owned(),
