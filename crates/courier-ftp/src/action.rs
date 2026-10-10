@@ -97,6 +97,7 @@ pub(crate) const INTERNAL: &[&str] = &[
     "TaskFinished",
     "SettingsSaved",
     "QuitConfirmed",
+    "Wake",
 ];
 
 macro_rules! actions {
@@ -162,10 +163,6 @@ actions! {
         Error(String),
         /// A transient status-line message (3 s).
         #[serde(skip)]
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "sent by later components (T53, T62) and tests")
-        )]
         StatusMessage(String),
         /// Focus a region.
         #[serde(skip)]
@@ -183,6 +180,9 @@ actions! {
         /// Quit despite blockers (from the confirm modal).
         #[serde(skip)]
         QuitConfirmed,
+        /// An async widget result is ready (path completion, T52): poll the dialogs.
+        #[serde(skip)]
+        Wake,
     }
     bindable {
         // ---- Normal: general ----

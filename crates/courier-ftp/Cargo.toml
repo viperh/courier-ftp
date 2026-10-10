@@ -48,7 +48,9 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-error = { workspace = true }
 tracing-subscriber = { workspace = true }
+unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
+zeroize = { workspace = true }
 
 # `Tui::suspend` raises SIGTSTP, which only exists on unix.
 [target.'cfg(not(windows))'.dependencies]

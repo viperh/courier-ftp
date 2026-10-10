@@ -216,6 +216,9 @@ fn bad_user_config_starts_app() {
     );
     h.advance(ms(20));
     assert_eq!(status_text(&h), "5 configuration problems — see the log");
+    // The problems dialog (T52) is open; close it first.
+    assert_eq!(h.app().modals.kinds(), [Some("problems")]);
+    h.keys("esc");
     h.keys("q");
     assert_eq!(*seen.borrow(), ["Top"]);
 }
