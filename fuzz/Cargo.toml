@@ -89,6 +89,20 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "http_connect_response"
+path = "fuzz_targets/http_connect_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "socks_reply"
+path = "fuzz_targets/socks_reply.rs"
+test = false
+doc = false
+bench = false
+
 # [[bin]]
 # name = "url_parse"
 # path = "fuzz_targets/url_parse.rs"

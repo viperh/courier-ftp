@@ -60,6 +60,8 @@ futures = "0.3.32"
 pin-project-lite = "0.2.17"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
+# Socket options: keep-alive timing and buffer sizes (T07).
+socket2 = "0.6.5"
 
 # --- cli / config ---
 clap = { version = "4.6.1", features = [
