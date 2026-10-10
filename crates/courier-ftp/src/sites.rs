@@ -306,11 +306,7 @@ async fn export_file(
 /// Writes `bytes` to a file only the user can read (exports name hosts and
 /// users).
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut file = courier_ftp_core::logfile::open_private(path)?;
-    file.set_len(0)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    courier_ftp_core::logfile::write_private_bytes(path, bytes)
 }
 
 /// What connecting to site `id` needs.

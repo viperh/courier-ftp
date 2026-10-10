@@ -100,6 +100,20 @@ impl Settings {
             &mut || v.auto_lock_minutes = defaults.vault.auto_lock_minutes,
         );
 
+        let y = &mut self.sync;
+        check(
+            y.push_debounce_ms <= 60_000,
+            "sync.push_debounce_ms",
+            "must be 0-60000",
+            &mut || y.push_debounce_ms = defaults.sync.push_debounce_ms,
+        );
+        check(
+            (30..=86_400).contains(&y.poll_fallback_secs),
+            "sync.poll_fallback_secs",
+            "must be 30-86400",
+            &mut || y.poll_fallback_secs = defaults.sync.poll_fallback_secs,
+        );
+
         let q = &mut self.queue;
         check(
             q.max_successful <= 1_000_000,

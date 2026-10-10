@@ -1612,13 +1612,32 @@ dependencies = [
 name = "courier-ftp-sync"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "chrono",
+ "ciborium",
  "courier-ftp-core",
  "courier-ftp-crypto",
  "courier-ftp-proto",
+ "courier-ftp-server",
  "courier-ftp-store",
+ "futures",
  "pretty_assertions",
+ "proptest",
+ "rand_core 0.10.1",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.20",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
  "tracing",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]
