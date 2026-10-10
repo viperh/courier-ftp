@@ -1,0 +1,51 @@
+[package]
+name = "courier-ftp-e2e"
+description = "End-to-end test harness for courier-ftp (Docker FTP/FTPS/SFTP fixtures, PTY driver)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# The e2e harness (T76): FTP/FTPS, SFTP and proxy servers in Docker (`Ftpd`, `Sshd`,
+# `ProxyServer`, `Toxiproxy`), in-process misbehaving servers (`HostileFtpd`,
+# `FtpRelayProxy`), a temporary `COURIER_FTP_HOME` (`TestHome`) and the real binary in
+# a PTY (`PtyApp`). Every container test is `#[ignore]`d; run them with
+# `COURIER_E2E=1 cargo test -p courier-ftp-e2e -- --ignored`.
+[features]
+default = ["sync"]
+# The sync server fixture (M7).
+sync = ["dep:courier-ftp-sync"]
+
+[dependencies]
+courier-ftp-core = { workspace = true, features = ["test-util"] }
+courier-ftp-proto-ftp = { workspace = true }
+courier-ftp-proto-sftp = { workspace = true, features = ["test-util"] }
+courier-ftp-store = { workspace = true }
+courier-ftp-sync = { workspace = true, optional = true }
+
+base64 = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+parking_lot = { workspace = true }
+portable-pty = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+testcontainers = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+uuid = { workspace = true }
+vt100 = { workspace = true }
+
+[dev-dependencies]
+cargo_metadata = { workspace = true }
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+toml = { workspace = true }
