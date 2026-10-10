@@ -25,4 +25,4 @@ expression: screen
 │(not avai│                                                         │          │
 │         │                   [ OK ]  [ Cancel ]                    │          │
 └─────────└─────────────────────────────────────────────────────────┘──────────┘
- DIALOG                                                       F1 help  F10 quit
+ – not connected │ Type: Auto │ ⇅ off                                  F10 quit

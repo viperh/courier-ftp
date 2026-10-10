@@ -1,0 +1,14 @@
+---
+source: crates/courier-ftp/src/components/status_bar/snapshot_tests.rs
+expression: "bar(&state_c(&h, &msg, &sym), w, &sym, &t)"
+---
+ – not connected │ 🔐  vault locked │ ⚠ 2 prompts │ Type: Auto │ ⇅ off │ Queue: 3 files, 1.21 GiB, ↓8.40 MiB/s, ~00:02:27                Copied URL to clipboard 
+--- styles ---
+  0   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   1+15  Style::new().fg(Color::Indexed(246)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  16+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  19+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+  0  21+13  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+  0  34+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  37+11  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+  0  48+112 Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

@@ -29,7 +29,7 @@ const HIGH_CONTRAST: &[(&str, &str)] = &[
     ("border_focused", "bold yellow"),
     ("title", "bold white"),
     ("title_focused", "bold yellow"),
-    ("status_bar", "white on black"),
+    ("status.bar", "white on black"),
     ("placeholder", "white"),
     ("help_key", "bold yellow"),
 ];
@@ -38,7 +38,6 @@ const HIGH_CONTRAST: &[(&str, &str)] = &[
 const MONOCHROME: &[(&str, Modifier)] = &[
     ("border_focused", Modifier::BOLD),
     ("title_focused", Modifier::BOLD),
-    ("status_bar", Modifier::REVERSED),
     ("placeholder", Modifier::DIM),
     ("cursor", Modifier::REVERSED),
     ("selection", Modifier::BOLD.union(Modifier::UNDERLINED)),
@@ -77,6 +76,15 @@ const MONOCHROME: &[(&str, Modifier)] = &[
     ("log.visual", Modifier::REVERSED),
     ("log.search_match", Modifier::REVERSED),
     ("log.border_focused", Modifier::BOLD),
+    // Status bar (T57): plain FTP and attention never rely on colour.
+    ("status.insecure", Modifier::REVERSED.union(Modifier::BOLD)),
+    ("status.attention", Modifier::REVERSED),
+    ("status.dim", Modifier::DIM),
+    ("status.active", Modifier::BOLD),
+    ("status.msg_warn", Modifier::BOLD),
+    ("status.msg_error", Modifier::BOLD),
+    ("status.hint_key", Modifier::BOLD),
+    ("status.hint", Modifier::DIM),
 ];
 
 fn strip_colours(s: Style) -> Style {

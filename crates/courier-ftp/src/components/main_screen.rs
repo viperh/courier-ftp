@@ -4,8 +4,6 @@
 
 pub(crate) mod layout;
 
-use std::time::Duration;
-
 use courier_ftp_core::{events::CoreEvent, settings::InterfaceSettings};
 use ratatui::{
     Frame,
@@ -16,19 +14,16 @@ use ratatui::{
 use tokio::time::Instant;
 
 use self::layout::{LayoutOptions, Region, ScreenLayout, compute_layout, focus_order};
-use super::{Component, DrawCx, placeholder::Placeholder};
+use super::{
+    Component, DrawCx,
+    placeholder::Placeholder,
+    status_bar::{self, MessageLevel, StatusBar, StatusInfo, TransientMessage},
+};
 use crate::{
     action::Action,
     tabs::TabId,
-    ui::{
-        symbols::Symbols,
-        text::{sanitize_spans, truncate_to_width, width},
-        theme::Theme,
-    },
+    ui::{symbols::Symbols, theme::Theme},
 };
-
-/// How long a status message stays.
-pub(crate) const STATUS_MESSAGE_TTL: Duration = Duration::from_secs(3);
 
 /// One side of a tab.
 pub(crate) struct SideView {
@@ -68,26 +63,6 @@ impl TabView {
     }
 }
 
-/// A transient status-line message.
-#[derive(Debug, Clone)]
-pub(crate) struct StatusMessage {
-    /// Text (sanitised when drawn).
-    pub text: String,
-    /// Drawn in the error style.
-    pub error: bool,
-    /// When it was set.
-    pub at: Instant,
-}
-
-/// What the status bar shows besides the message (filled by `App`).
-#[derive(Debug, Clone, Default)]
-pub(crate) struct StatusInfo {
-    /// `NORMAL`, `INPUT`, `DIALOG`.
-    pub mode: &'static str,
-    /// The keys of a pending sequence (`ctrl-x`), shown in the key-hint area.
-    pub pending: Option<String>,
-}
-
 /// The screen.
 pub(crate) struct MainScreen {
     quickconnect: Box<dyn Component>,
@@ -99,7 +74,7 @@ pub(crate) struct MainScreen {
     last_list: Region,
     opts: LayoutOptions,
     size: Size,
-    status: Option<StatusMessage>,
+    status_bar: StatusBar,
 }
 
 impl std::fmt::Debug for MainScreen {
@@ -126,7 +101,7 @@ impl MainScreen {
             last_list: Region::LocalList,
             opts: LayoutOptions::default(),
             size: Size::new(80, 24),
-            status: None,
+            status_bar: StatusBar::default(),
         };
         me.set_options(interface);
         me
@@ -300,31 +275,24 @@ impl MainScreen {
             .collect()
     }
 
-    /// Shows a status message.
+    /// Shows a status message (`error`: Error level, else Info).
     pub(crate) fn set_status(&mut self, text: String, error: bool, now: Instant) {
-        self.status = Some(StatusMessage {
-            text,
-            error,
-            at: now,
-        });
+        let level = if error {
+            MessageLevel::Error
+        } else {
+            MessageLevel::Info
+        };
+        self.status_bar.show(&text, level, now);
+    }
+
+    /// The status bar (transient message).
+    pub(crate) fn status_bar_mut(&mut self) -> &mut StatusBar {
+        &mut self.status_bar
     }
 
     /// The current status message.
-    pub(crate) fn status(&self) -> Option<&StatusMessage> {
-        self.status.as_ref()
-    }
-
-    /// Drops an expired status message; true if one was dropped.
-    pub(crate) fn expire_status(&mut self, now: Instant) -> bool {
-        if self
-            .status
-            .as_ref()
-            .is_some_and(|m| now.duration_since(m.at) >= STATUS_MESSAGE_TTL)
-        {
-            self.status = None;
-            return true;
-        }
-        false
+    pub(crate) fn status(&self) -> Option<&TransientMessage> {
+        self.status_bar.message()
     }
 
     /// Draws the screen. `spinner(region)` gives the region's spinner frame.
@@ -334,7 +302,7 @@ impl MainScreen {
         theme: &Theme,
         symbols: &Symbols,
         now: Instant,
-        info: &StatusInfo,
+        info: &StatusInfo<'_>,
         spinner: &dyn Fn(Region) -> Option<&'static str>,
     ) -> Vec<Action> {
         let area = frame.area();
@@ -373,7 +341,11 @@ impl MainScreen {
             match region {
                 Region::TabBar => self.draw_tab_bar(frame, *rect, theme),
                 Region::StatusBar => {
-                    self.draw_status_bar(frame, *rect, theme, symbols, info, layout.is_compact());
+                    let info = StatusInfo {
+                        message: self.status_bar.message(),
+                        ..info.clone()
+                    };
+                    status_bar::render(frame, *rect, &info, symbols, theme);
                 }
                 r => {
                     let cx = DrawCx {
@@ -405,61 +377,5 @@ impl MainScreen {
             spans.push(Span::styled(format!(" {} {} ", i + 1, t.title), style));
         }
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
-    }
-
-    fn draw_status_bar(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        theme: &Theme,
-        symbols: &Symbols,
-        info: &StatusInfo,
-        compact: bool,
-    ) {
-        let bar = theme.style("status_bar");
-        let sep = format!(" {} ", symbols.separator);
-        let mut spans = vec![Span::styled(
-            format!(" {}", info.mode),
-            theme.style("status_mode"),
-        )];
-        if let Some(p) = &info.pending {
-            // The keys of a pending sequence come first so they always fit.
-            spans.push(Span::raw(sep.clone()));
-            spans.push(Span::styled(
-                format!("{} {}", crate::ui::text::sanitize(p), symbols.ellipsis),
-                theme.style("help_key"),
-            ));
-        }
-        if compact && info.pending.is_none() {
-            spans.push(Span::raw(sep.clone()));
-            spans.push(Span::raw(
-                "compact: Tab = other side, Shift-Tab = log/queue",
-            ));
-        }
-        if let Some(m) = &self.status {
-            spans.push(Span::raw(sep));
-            let style = theme.style(if m.error {
-                "status_error"
-            } else {
-                "status_message"
-            });
-            spans.extend(sanitize_spans(&m.text, style, theme.style("text.escape")));
-        }
-        let right = "F1 help  F10 quit ";
-        let used: usize = spans.iter().map(|s| width(&s.content)).sum();
-        let total = usize::from(area.width);
-        if used + width(right) < total {
-            spans.push(Span::raw(" ".repeat(total - used - width(right))));
-            spans.push(Span::raw(right));
-        }
-        let line: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        let fits = width(&line) <= total;
-        let line = if fits {
-            Line::from(spans)
-        } else {
-            // Too long: cut the plain text (escapes were already made safe).
-            Line::from(truncate_to_width(&line, total, symbols.ellipsis).into_owned())
-        };
-        frame.render_widget(Paragraph::new(line).style(bar), area);
     }
 }

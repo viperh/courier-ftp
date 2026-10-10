@@ -29,6 +29,12 @@ case "$profile" in
             echo "courier-proxy: profile ${profile} ok" >&2
             exit 0
         fi
+        # squid reopens its logs as user proxy, which cannot open the container's
+        # root-owned stdout/stderr pipes: log to files and follow them instead.
+        install -d -o proxy -g proxy /var/log/squid
+        touch /var/log/squid/access.log /var/log/squid/cache.log
+        chown proxy:proxy /var/log/squid/access.log /var/log/squid/cache.log
+        tail -q -F /var/log/squid/access.log /var/log/squid/cache.log >&2 &
         echo "courier-proxy: profile ${profile} (squid :3128)" >&2
         exec squid -N -d 1 -f /etc/squid/courier.conf
         ;;

@@ -25,4 +25,4 @@ expression: "h.render(80, 24)"
 │(not available yet)                                 │     q ToggleQuickconnect│
 │                                                    │… 20 more (F1)           │
 └────────────────────────────────────────────────────└─────────────────────────┘
- NORMAL │ ctrl-x …                                            F1 help  F10 quit
+ – not connected │ Type: Auto │ ⇅ off        Ctrl-x │ F1 help  F5 copy  F6 move

@@ -1,6 +1,8 @@
 //! The application: event loop, key routing, focus, modals, the core event bridge,
 //! layout toggles and rendering (T50).
 
+pub(crate) mod status;
+
 use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 
 use courier_ftp_core::{
@@ -23,11 +25,12 @@ use crate::{
         dialog::{ConfirmOpts, confirm, problems},
         help::HelpOverlay,
         main_screen::{
-            MainScreen, STATUS_MESSAGE_TTL, StatusInfo,
+            MainScreen,
             layout::{Region, ScreenLayout},
         },
         message_log::MessageLogPane,
         modal::ModalStack,
+        status_bar::{self, pretty_keys},
         which_key,
     },
     config::{Config, check_settings_not_shadowed},
@@ -100,15 +103,6 @@ impl Mode {
             Mode::Queue => &[Mode::Queue, Mode::Normal],
             Mode::Filter => &[Mode::Filter, Mode::Normal],
             Mode::Input => &[Mode::Input, Mode::Normal],
-        }
-    }
-
-    /// Label in the status bar.
-    fn label(self) -> &'static str {
-        match self {
-            Mode::Input | Mode::Filter => "INPUT",
-            Mode::Dialog | Mode::SiteManager => "DIALOG",
-            _ => "NORMAL",
         }
     }
 }
@@ -186,6 +180,8 @@ pub(crate) struct App {
     first_frame_done: bool,
     /// Listing cache, local backend context and listing tasks of the panes (T53).
     pub(crate) panes: crate::components::file_list::service::PaneService,
+    /// What the status bar shows besides settings and keys (T57).
+    pub(crate) status_sources: status::StatusSources,
 }
 
 impl std::fmt::Debug for App {
@@ -255,6 +251,7 @@ impl App {
             problems,
             first_frame_done: false,
             panes: pane_service,
+            status_sources: status::StatusSources::default(),
         };
         app.install_panes();
         app
@@ -462,6 +459,7 @@ impl App {
     pub(crate) fn handle_key(&mut self, key: KeyChord) -> color_eyre::Result<()> {
         self.dirty = true;
         let now = Instant::now();
+        self.main.status_bar_mut().on_key(now);
         let mode = self.mode();
         if self.resolver.is_pending() {
             if self.resolver.takes(key, mode, now) {
@@ -670,7 +668,11 @@ impl App {
         }
         match action {
             Action::Tick => {
-                if self.main.expire_status(Instant::now()) {
+                if self
+                    .main
+                    .status_bar_mut()
+                    .update(&Action::Tick, Instant::now())
+                {
                     self.dirty = true;
                 }
                 let mut out = Vec::new();
@@ -715,6 +717,10 @@ impl App {
             Action::StatusMessage(m) => self.status(m),
             Action::Pane(req) => self.handle_pane_request(req),
             Action::PaneInput(id, input) => self.route_pane_input(id, input),
+            Action::StatusNotice(level, m) => self.notify(level, &m),
+            Action::CycleTransferType => self.cycle_transfer_type(),
+            Action::ToggleSpeedLimit => self.toggle_speed_limit(),
+            Action::ServerInfo => self.open_server_info(),
             Action::FocusRegion(r) => self.focus_or_explain(r),
             Action::TaskFinished(id) => {
                 self.runner.finished(id);
@@ -877,10 +883,13 @@ impl App {
         let now = Instant::now();
         let elapsed_ms = now.duration_since(self.started).as_millis();
         let mode = self.mode();
-        let info = StatusInfo {
-            mode: mode.label(),
-            pending: self.resolver.pending_display(),
-        };
+        let pending = self.resolver.pending_display().unwrap_or_default();
+        let mut hints = status_bar::key_hints(self.resolver.keymap(), mode);
+        if self.main.layout().is_compact() {
+            // T50: the bar says so while panes are hidden (first hint, dropped last).
+            hints.insert(0, status_bar::compact_hint());
+        }
+        let info = self.status_info(&pending, &hints);
         let busy_components = self.main.busy_regions();
         let runner = &self.runner;
         let symbols = &self.symbols;
@@ -926,10 +935,7 @@ impl App {
         let frame_no = now.duration_since(self.started).as_millis() / 100;
         let animating = self.runner.any_visible_busy()
             || !self.main.busy_regions().is_empty()
-            || self
-                .main
-                .status()
-                .is_some_and(|m| now.duration_since(m.at) < STATUS_MESSAGE_TTL);
+            || self.main.status().is_some_and(|m| now < m.until);
         if !(self.dirty || (animating && self.last_frame != Some(frame_no))) {
             return Ok(false);
         }
@@ -962,23 +968,4 @@ fn quit_hint(all: &[String]) -> String {
     // Function keys first, as in the docs.
     v.sort_by_key(|k| !k.starts_with('F'));
     v.join(" or ")
-}
-
-/// `ctrl-x j` → `Ctrl-x j`, `f10` → `F10`.
-fn pretty_keys(keys: &str) -> String {
-    keys.split(' ')
-        .map(|chord| {
-            let c = chord
-                .replace("ctrl-", "Ctrl-")
-                .replace("alt-", "Alt-")
-                .replace("shift-", "Shift-");
-            match c.strip_prefix('f') {
-                Some(n) if !n.is_empty() && n.chars().all(|d| d.is_ascii_digit()) => {
-                    format!("F{n}")
-                }
-                _ => c,
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }

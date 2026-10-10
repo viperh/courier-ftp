@@ -99,6 +99,7 @@ pub(crate) const INTERNAL: &[&str] = &[
     "ClearScreen",
     "Error",
     "StatusMessage",
+    "StatusNotice",
     "FocusRegion",
     "TaskFinished",
     "SettingsSaved",
@@ -173,6 +174,9 @@ actions! {
         /// A transient status-line message (3 s).
         #[serde(skip)]
         StatusMessage(String),
+        /// A transient status-bar message with a level (T57: 3/5/8 s).
+        #[serde(skip)]
+        StatusNotice(crate::components::status_bar::MessageLevel, String),
         /// Focus a region.
         #[serde(skip)]
         #[cfg_attr(

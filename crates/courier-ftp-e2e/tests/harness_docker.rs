@@ -41,7 +41,7 @@ async fn sftp_ls_inside(sshd: &Sshd) -> Option<String> {
         }
         _ => format!(
             "echo 'ls fixtures' | sshpass -p {PASSWORD} sftp {opts} \
-             -o PubkeyAuthentication=no -b - {USER}@127.0.0.1"
+             -o BatchMode=no -o PubkeyAuthentication=no -b - {USER}@127.0.0.1"
         ),
     };
     let out = sshd.exec_root(&cmd).await.unwrap();
@@ -285,6 +285,9 @@ fn diag_dumps_container_logs_on_failure() {
         .enable_all()
         .build()
         .unwrap();
+    // Containers dropped while the deliberate panic unwinds need a runtime context
+    // (testcontainers' Drop calls Handle::current()).
+    let _rt_guard = rt.enter();
     if let Some(reason) = rt.block_on(courier_ftp_e2e::docker_skip_reason()) {
         eprintln!("skipped: {reason}");
         return;

@@ -26,6 +26,8 @@ pub(crate) mod main_screen;
 pub(crate) mod message_log;
 pub(crate) mod modal;
 pub(crate) mod placeholder;
+pub(crate) mod server_info;
+pub(crate) mod status_bar;
 pub(crate) mod which_key;
 pub(crate) mod widgets;
 
