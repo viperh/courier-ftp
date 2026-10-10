@@ -12,5 +12,6 @@
 - courier-ftp is a terminal (TUI) replacement for the FileZilla client.
 - Feature reference: `FEATURES.md`. Implementation plan: `tasks/README.md` (start with T00,
   follow the milestones in order, respect each task's **Depends on** list).
+- Implementation status, how the work is run, and open follow-ups: `tasks/handoff/README.md`.
 - Decisions D1–D15 in `tasks/README.md` are agreed with the owner; ask before changing them.
 - sverb (`github.com/viperh/sverb`) is the reference for the vault, sync, security, CI and tests.
