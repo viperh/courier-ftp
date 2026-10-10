@@ -52,6 +52,7 @@ Smaller calls made while building, recorded so they can be revisited:
 - **T57** Backends report connection details through `Backend::session_info()` (default `None`) as a `SessionInfo`; the status bar and server info dialog read it. New setting `interface.unicode_symbols` (auto/unicode/ascii). New keys: `<Ctrl-x><i>` server info, `<Ctrl-x><t>` transfer type, `<Ctrl-x><l>` speed limit.
 - **T53** Pane effects (listing requests, dialogs) go through an outbox the app drains after each event. New settings `interface.natural_sort` and `interface.columns`. New keys in file lists: `[`/`]` and `Alt-←`/`Alt-→` history, `C` column menu. The 100k-entry render gate is a release-only test run by `bench.yml`.
 - **T47** A filter has one `scope` field (both / local only / remote only) instead of two booleans. A filter without conditions never matches.
+- **T07** SOCKS and HTTP CONNECT are hand-written (no `tokio-socks`) so replies are read exactly and `connect_tcp` returns a plain `TcpStream`. It takes a `CancellationToken` and `SessionId`. Host names go to the proxy unresolved (SOCKS4a/SOCKS5 domain). The proxy password comes from the vault via `NetOpts::set_proxy_password`, not settings. Neither proxy user nor password is logged.
 
 ## Phases and tasks
 

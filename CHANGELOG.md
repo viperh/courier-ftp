@@ -55,3 +55,7 @@ the section matching the tag.
   (toggle, range, all, invert, by pattern), quick filter, filters, hidden
   files, address bar with completion, column menu, inline errors. Renders
   100 000 entries in under 5 ms.
+- Network layer (T07): IPv6 preference with Happy Eyeballs fallback, timeouts
+  and cancellation on DNS, connect and proxy handshake, TCP
+  keep-alive/NODELAY, and HTTP CONNECT, SOCKS4/4a and SOCKS5 proxies with
+  authentication.
