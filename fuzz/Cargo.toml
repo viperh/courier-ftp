@@ -26,6 +26,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.13"
+courier-ftp-core = { path = "../crates/courier-ftp-core" }
 courier-ftp-crypto = { path = "../crates/courier-ftp-crypto" }
 courier-ftp-proto = { path = "../crates/courier-ftp-proto" }
 courier-ftp-proto-ftp = { path = "../crates/courier-ftp-proto-ftp" }
@@ -77,6 +78,13 @@ bench = false
 [[bin]]
 name = "ftp_listing"
 path = "fuzz_targets/ftp_listing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "remote_name_sanitize"
+path = "fuzz_targets/remote_name_sanitize.rs"
 test = false
 doc = false
 bench = false

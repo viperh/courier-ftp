@@ -229,19 +229,19 @@ The UI shows the Display text; for `Io` it is the OS message.
   target (Unix and Windows-with-developer-mode tests; skipped with a message when the OS
   refuses to create symlinks).
 - [ ] AC3 Hidden files: dotfiles hidden on Unix/macOS; `FILE_ATTRIBUTE_HIDDEN` on Windows.
-- [ ] AC4 A directory without read permission → `PermissionDenied`; an entry whose
+- [x] AC4 A directory without read permission → `PermissionDenied`; an entry whose
   metadata cannot be read is listed as `Other` (Unix test, skipped when running as root).
 - [ ] AC5 Windows: listing `/` returns existing drives within 1 s; `/C:/Windows` lists;
   `\\?\` and UNC paths map both ways.
-- [ ] AC6 `sanitize_local_name` covers every Windows reserved name case-insensitively, with
+- [x] AC6 `sanitize_local_name` covers every Windows reserved name case-insensitively, with
   and without extension, trailing dots/spaces, all invalid characters and control
   characters; `.`/`..`/empty are never returned; the `remote_name_sanitize` fuzz target
   exists (T91 §7).
-- [ ] AC7 Non-UTF-8 names (Unix) are skipped with one Status line giving the count.
-- [ ] AC8 `ResumeAt(n)` produces byte-identical files; preallocation never changes the file
+- [x] AC7 Non-UTF-8 names (Unix) are skipped with one Status line giving the count.
+- [x] AC8 `ResumeAt(n)` produces byte-identical files; preallocation never changes the file
   length (Linux test checks `metadata.len()` after `open_write` with a hint).
 - [ ] AC9 T00 CI gates pass, including `test-os` on Windows and macOS.
-- [ ] AC10 `sync_all` is never called per write: a 7 MiB write stream shut down normally performs 0 syncs, a 9 MiB one exactly 1 (at shutdown), and an aborted (dropped) 9 MiB stream 0 (test counter).
+- [x] AC10 `sync_all` is never called per write: a 7 MiB write stream shut down normally performs 0 syncs, a 9 MiB one exactly 1 (at shutdown), and an aborted (dropped) 9 MiB stream 0 (test counter).
 
 ## Tests
 
@@ -290,3 +290,42 @@ Not applicable (T76 PtyApp flows browse the local pane).
 - Non-UTF-8 local file names are hidden (with a count in the log) because every layer uses
   `String` names. Supporting them would need a byte-string name type throughout. Is hiding
   acceptable for v1?
+
+## Implementation notes
+
+- Files: `crates/courier-ftp-core/src/local/{mod,backend,path_map,sanitize,space,owners}.rs`,
+  tests in `local/tests.rs` (conformance macro with `local_env()`, AC2–AC10 tests) and
+  unit/property tests next to `path_map` and `sanitize`. Fuzz target
+  `fuzz/fuzz_targets/remote_name_sanitize.rs` (the fuzz crate now depends on
+  `courier-ftp-core`; seeds already existed in `fuzz/seed-corpus.sh`).
+- Public API: `local::{LocalBackend, path_map::{to_native, from_native},
+  sanitize_local_name, is_valid_local_name, fuzz_sanitize_local_name, available_space}`,
+  `LocalBackend::{new, canonicalize}`. Crate-internal: `local::map_io(err, &RemotePath)`.
+- Deviation: `disconnect()` sets `is_connected() == false` and `connect()` sets it back
+  (the T03 conformance case `disconnect_then_connect_again` requires it). Operations keep
+  working while "disconnected"; `new()` starts connected. Still no events.
+- Deviation: on Windows the conformance env runs with `large_files: false`: NTFS
+  zero-fills the 5 GiB gap of a non-sparse file, and marking it sparse needs
+  `FSCTL_SET_SPARSE` (`DeviceIoControl`, i.e. `unsafe`, which is confined to
+  `hardening`). Linux and macOS run `large_offset_resume_beyond_4gib`.
+- `to_native` on Windows also rejects components containing '\\' (`InvalidInput`), so a
+  `RemotePath` component cannot add native path levels (`"/C:/a\\..\\b"`).
+  `from_native` applies `..` but never above the drive / UNC share.
+- `sanitize_local_name`: a replacement character that is itself unsafe (control,
+  separator, '.', ' ') falls back to '_', so the guarantees hold for any input. The Windows
+  and Unix rule tables are pure logic and are tested on every OS (plus the named
+  `#[cfg(windows)]` tests); the fuzz body checks reserved names only under `cfg(windows)`.
+- `rename(replace = false)` skips the exists check for a case-only rename in the same
+  directory (`a` → `A`), which would otherwise fail with `AlreadyExists` on
+  case-insensitive filesystems.
+- Preallocation errors other than `EOPNOTSUPP` (e.g. `ENOSPC`) are also logged at
+  `Debug(Info)` and skipped (the hint is advisory; the write itself reports disk-full).
+- `finish_transfer` with an open stream just clears the transfer flag.
+- The AC4 tests skip when running as root (this container); they were run once as
+  `nobody` (via `setpriv`) and passed.
+- Windows code (lib and tests) passes `cargo clippy -p courier-ftp-core --all-targets
+  --all-features --target x86_64-pc-windows-gnu -- -D warnings` (with clang as the C
+  compiler for criterion's `alloca`), but was not run;
+  macOS/Windows runs happen in the `test-os` CI job (AC1, AC2, AC3, AC5, AC9 there).
+- Benchmark `list_10k_entries` (ignored): 10 000 entries in 51 ms on Linux (debug build,
+  ext4/overlay, 2026-10-10); the release build was not run here (shared machine).

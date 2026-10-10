@@ -1938,3 +1938,8 @@ version = "0.15.0"
 who = "Alfredo Garcia <oxarbitrage@gmail.com>"
 criteria = "safe-to-deploy"
 delta = "0.9.4 -> 0.9.5"
+
+[[audits.zcashfoundation.audits.windows-sys]]
+who = "Alfredo Garcia <oxarbitrage@gmail.com>"
+criteria = "safe-to-deploy"
+delta = "0.52.0 -> 0.59.0"
