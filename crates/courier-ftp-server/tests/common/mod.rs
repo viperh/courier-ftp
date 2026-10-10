@@ -495,7 +495,11 @@ impl LogCapture {
             .with_ansi(false)
             .with_writer(move || CaptureWriter(buf.clone()))
             .finish();
-        tracing::subscriber::set_default(subscriber)
+        let guard = tracing::subscriber::set_default(subscriber);
+        // Callsite interest is cached process-wide; tests running in parallel can
+        // leave it stale, so recompute it now that this subscriber is the default.
+        tracing::callsite::rebuild_interest_cache();
+        guard
     }
 
     /// Everything captured so far.

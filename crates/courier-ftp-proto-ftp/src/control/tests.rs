@@ -1508,6 +1508,9 @@ async fn canary_password_never_logged() {
         .with_writer(move || writer.clone())
         .finish();
     let _guard = tracing::subscriber::set_default(subscriber);
+    // Callsite interest is cached process-wide; tests running in parallel can
+    // leave it stale, so recompute it now that this subscriber is the default.
+    tracing::callsite::rebuild_interest_cache();
 
     let ui = Ui::new(Some(CANARY));
     let (mut conn, server) = open(

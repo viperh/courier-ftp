@@ -51,6 +51,9 @@ async fn proxy_password_canary_not_logged() {
         .with_writer(move || writer.clone())
         .finish();
     let _guard = tracing::subscriber::set_default(subscriber);
+    // Callsite interest is cached process-wide; tests running in parallel can
+    // leave it stale, so recompute it now that this subscriber is the default.
+    tracing::callsite::rebuild_interest_cache();
 
     let token = base64::engine::general_purpose::STANDARD.encode(format!("alice:{CANARY}"));
     let expected = format!("Proxy-Authorization: Basic {token}\r\n");

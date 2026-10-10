@@ -796,6 +796,9 @@ async fn loopback_no_secrets_in_logs() {
         .with_writer(move || writer.clone())
         .finish();
     let _guard = tracing::subscriber::set_default(subscriber);
+    // Callsite interest is cached process-wide; tests running in parallel can
+    // leave it stale, so recompute it now that this subscriber is the default.
+    tracing::callsite::rebuild_interest_cache();
 
     let server = TestServer::start(TestServerConfig {
         methods: vec!["password", "keyboard-interactive", "publickey"],
