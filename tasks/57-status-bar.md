@@ -25,9 +25,9 @@ Segments (left → right, each collapsible on narrow terminals):
 
 ## Acceptance criteria
 
-- [ ] Snapshot tests at 80, 120, 200 columns.
-- [ ] Indicators update on state changes.
-- [ ] Server info dialog shows correct details for FTP, FTPS, SFTP.
+- [x] Snapshot tests at 80, 120, 200 columns.
+- [x] Indicators update on state changes.
+- [x] Server info dialog shows correct details for FTP, FTPS, SFTP.
 
 ## Tests
 

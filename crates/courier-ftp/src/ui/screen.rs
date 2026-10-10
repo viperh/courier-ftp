@@ -1,6 +1,8 @@
 //! [`MainScreen`]: the courier-ftp main window (T50).
 
 use courier_ftp_core::{events::CoreEvent, settings::InterfaceSettings};
+use std::time::Instant;
+
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
 
@@ -10,9 +12,45 @@ use super::{
     layout::{self, LayoutOptions, Regions, Visibility},
     modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
     panes::{self, FilePane, LogPane},
+    status::{self, StatusState},
     theme::Theme,
 };
-use crate::{action::Action, app::Mode, config::Config};
+use crate::{
+    action::Action, app::Mode, config::Config, keymap::key_to_string, ui::dialog::message,
+};
+
+/// Status bar hints: the first key of a few common actions, preferring
+/// single function keys.
+fn hints(config: &Config) -> Vec<(String, String)> {
+    let Some(normal) = config.keybindings.0.get(&Mode::Normal) else {
+        return Vec::new();
+    };
+    [
+        (Action::Help, "help"),
+        (Action::Copy, "copy"),
+        (Action::Mkdir, "mkdir"),
+        (Action::Delete, "delete"),
+        (Action::Quit, "quit"),
+    ]
+    .into_iter()
+    .filter_map(|(action, label)| {
+        let mut keys: Vec<_> = normal
+            .iter()
+            .filter(|(_, a)| **a == action)
+            .map(|(k, _)| k)
+            .filter(|k| k.len() == 1)
+            .collect();
+        keys.sort_by_key(|k| {
+            (
+                !matches!(k[0].code, crossterm::event::KeyCode::F(_)),
+                key_to_string(&k[0]),
+            )
+        });
+        keys.first()
+            .map(|k| (key_to_string(&k[0]), label.to_owned()))
+    })
+    .collect()
+}
 
 /// What the screen did with a key.
 #[derive(Debug, PartialEq, Eq)]
@@ -36,13 +74,18 @@ pub(crate) struct MainScreen {
     tick: u64,
     /// The regions of the last frame, for focus checks.
     last: Regions,
-    /// Keys typed so far of an unfinished sequence (shown like vim's showcmd).
-    pending_keys: String,
+    status: StatusState,
 }
 
 impl MainScreen {
     pub(crate) fn new(config: Config, theme: Theme) -> Self {
         let ui: &InterfaceSettings = &config.settings.interface;
+        let mut status = StatusState::new(status::unicode_enabled(ui.unicode_symbols));
+        status.transfer_type = config.settings.file_types.default_type;
+        status.speed_limit = config.settings.transfers.speed_limit_enabled;
+        status.download_limit_kib = config.settings.transfers.download_limit_kib;
+        status.upload_limit_kib = config.settings.transfers.upload_limit_kib;
+        status.hints = hints(&config);
         let opts = LayoutOptions {
             layout: ui.layout,
             swap_panes: ui.swap_panes,
@@ -65,7 +108,7 @@ impl MainScreen {
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
-            pending_keys: String::new(),
+            status,
         }
     }
 
@@ -96,7 +139,7 @@ impl MainScreen {
 
     /// Show the pending keys of an unfinished sequence in the status bar.
     pub(crate) fn set_pending_keys(&mut self, keys: String) {
-        self.pending_keys = keys;
+        self.status.pending_keys = keys;
     }
 
     /// Route a key: the top modal first, then the focused region. Keys nobody
@@ -152,6 +195,22 @@ impl MainScreen {
             Action::ToggleLog => self.opts.visible.log = !self.opts.visible.log,
             Action::ToggleQueue => self.opts.visible.queue = !self.opts.visible.queue,
             Action::ToggleTree => self.opts.visible.tree = !self.opts.visible.tree,
+            Action::ToggleSpeedLimit => {
+                self.status.speed_limit = !self.status.speed_limit;
+                let state = if self.status.speed_limit { "on" } else { "off" };
+                self.status
+                    .flash(format!("Speed limit {state}"), Instant::now());
+            }
+            Action::CycleTransferType => self.status.cycle_transfer_type(),
+            Action::ToggleSyncBrowsing => self.status.sync_browsing = !self.status.sync_browsing,
+            Action::ToggleCompare => self.status.compare = !self.status.compare,
+            Action::ServerInfo => {
+                let (modal, _) = message(
+                    "Server info",
+                    &status::server_info_text(self.status.session.as_ref()),
+                );
+                self.modals.push(modal);
+            }
             Action::ToggleQuickconnect => {
                 self.opts.visible.quickconnect = !self.opts.visible.quickconnect;
             }
@@ -260,7 +319,7 @@ impl MainScreen {
             panes::draw_queue(frame, a, f == Region::Queue, theme);
         }
         if let Some(a) = r.status {
-            panes::draw_status(frame, a, &self.pending_keys, theme);
+            status::draw(frame, a, &self.status, theme);
         }
         if let Some(a) = r.hint {
             panes::draw_hint(frame, a, theme);

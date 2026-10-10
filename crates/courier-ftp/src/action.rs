@@ -85,6 +85,12 @@ pub(crate) enum Action {
     ToggleQuickconnect,
     /// Show or hide hidden files (T53).
     ToggleHidden,
+    /// Speed limits on/off (status bar, T44).
+    ToggleSpeedLimit,
+    /// Auto → ASCII → Binary transfer type (status bar).
+    CycleTransferType,
+    /// Protocol, software and encryption details of the current tab.
+    ServerInfo,
 
     // --- focus ---
     /// `Tab`: switch between the two file lists (Midnight Commander style).

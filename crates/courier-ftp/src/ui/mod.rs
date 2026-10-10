@@ -7,6 +7,7 @@ mod layout;
 mod modal;
 mod panes;
 mod screen;
+mod status;
 mod theme;
 
 pub(crate) use courier_ftp_core::filters::Side;

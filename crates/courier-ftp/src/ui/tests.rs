@@ -18,6 +18,8 @@ use crate::{action::Action, app::Mode, config::Config};
 fn screen(layout: Layout) -> MainScreen {
     let mut config = Config::builtin();
     config.settings.interface.layout = layout;
+    // Independent of the locale of the machine running the tests.
+    config.settings.interface.unicode_symbols = courier_ftp_core::settings::SymbolMode::Unicode;
     let mut s = MainScreen::new(config, Theme::new(None, true));
     // Fixed content, independent of the machine running the test.
     s.update(&Action::ListingLoaded {
@@ -218,4 +220,29 @@ fn spinner_animates_while_a_listing_is_pending() {
         !done.contains('⠙') && done.contains("permission denied"),
         "{done}"
     );
+}
+
+#[test]
+fn status_indicators_follow_actions() {
+    let mut s = screen(Layout::Classic);
+    let before = text(&render(&mut s, 200, 40));
+    assert!(
+        before.contains("⇅ limit off") && before.contains("Auto"),
+        "{before}"
+    );
+    s.update(&Action::ToggleSpeedLimit);
+    s.update(&Action::CycleTransferType);
+    s.update(&Action::ToggleCompare);
+    let after = text(&render(&mut s, 200, 40));
+    assert!(after.contains("⇅ limit ↓∞ ↑∞"), "{after}");
+    assert!(
+        after.contains("ASCII") && after.contains("≠ compare"),
+        "{after}"
+    );
+    assert!(
+        after.contains("Speed limit on"),
+        "the toggle flashes a message: {after}"
+    );
+    s.update(&Action::ServerInfo);
+    assert!(text(&render(&mut s, 200, 40)).contains("Not connected."));
 }

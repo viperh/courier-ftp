@@ -21,4 +21,4 @@ expression: t.backend()
 "│                                                          │"
 "│                                                          │"
 "└──────────────────────────────────────────────────────────┘"
-" Queue: empty   F1 help  Tab switch pane  Ctrl-q quit       "
+" — │ Auto │ ⇅ limit off │ Queue: empty                      "

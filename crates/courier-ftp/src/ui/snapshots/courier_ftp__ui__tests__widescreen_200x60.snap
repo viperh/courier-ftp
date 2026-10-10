@@ -61,4 +61,4 @@ expression: terminal.backend()
 "│                                                          ││                                                          ││                                                                              │"
 "│                                                          ││                                                          ││                                                                              │"
 "└──────────────────────────────────────────────────────────┘└──────────────────────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────┘"
-" Queue: empty   F1 help  Tab switch pane  Ctrl-q quit                                                                                                                                                   "
+" — │ Auto │ ⇅ limit off │ Queue: empty │ F1 help  F5 copy  F7 mkdir  F8 delete  F10 quit                                                                                                                "

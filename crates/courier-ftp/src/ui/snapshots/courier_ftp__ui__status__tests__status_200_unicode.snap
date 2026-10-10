@@ -1,0 +1,5 @@
+---
+source: crates/courier-ftp/src/ui/status.rs
+expression: text
+---
+ 🔒 TLS 1.3 │ Auto │ ⇅ limit ↓500K ↑100K │ ⚑ filters │ ⇄ sync │ Queue: 2 files, 8.0 KiB, ↓1.2 MiB/s │ F1 help  F5 copy  F8 delete

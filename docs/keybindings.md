@@ -22,6 +22,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-b>` | Bookmarks |
 | `<Ctrl-w>` | CloseTab |
 | `<F5>` | Copy |
+| `<Ctrl-x><t>` | CycleTransferType |
 | `<Delete>` | Delete |
 | `<F8>` | Delete |
 | `<Ctrl-x><d>` | Disconnect |
@@ -45,6 +46,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-r>` | Refresh |
 | `<F2>` | Rename |
 | `<Ctrl-f>` | Search |
+| `<Ctrl-x><i>` | ServerInfo |
 | `<F9>` | Settings |
 | `<Ctrl-s>` | SiteManager |
 | `<Ctrl-z>` | Suspend |
@@ -62,6 +64,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-l>` | ToggleLog |
 | `<Alt-j>` | ToggleQueue |
 | `<Ctrl-j>` | ToggleQueue |
+| `<Ctrl-x><l>` | ToggleSpeedLimit |
 | `<Ctrl-y>` | ToggleSyncBrowsing |
 | `<Ctrl-e>` | ToggleTree |
 | `<F3>` | View |

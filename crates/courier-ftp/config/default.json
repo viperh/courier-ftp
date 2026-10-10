@@ -97,6 +97,9 @@
       "<Ctrl-t>": "NewTab",
       "<Ctrl-w>": "CloseTab",
       "<Ctrl-x><d>": "Disconnect",
+      "<Ctrl-x><i>": "ServerInfo",
+      "<Ctrl-x><l>": "ToggleSpeedLimit",
+      "<Ctrl-x><t>": "CycleTransferType",
       "<Ctrl-y>": "ToggleSyncBrowsing",
       "<Ctrl-z>": "Suspend",
       "<Delete>": "Delete",
@@ -345,7 +348,8 @@
       "sort_case_sensitive": false,
       "swap_panes": false,
       "thousands_separator": true,
-      "time_format": "%H:%M"
+      "time_format": "%H:%M",
+      "unicode_symbols": "auto"
     },
     "logging": {
       "level": 2,

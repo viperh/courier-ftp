@@ -425,6 +425,21 @@ pub struct InterfaceSettings {
     pub language: String,
     /// Milliseconds allowed between the keys of a sequence like `gg` (T51).
     pub key_sequence_timeout_ms: u64,
+    /// Unicode symbols (🔒 ⇅ ⚑) or plain ASCII in the status bar (T57).
+    pub unicode_symbols: SymbolMode,
+}
+
+/// Whether the UI draws Unicode symbols.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SymbolMode {
+    /// Unicode when the locale is UTF-8.
+    #[default]
+    Auto,
+    /// Always Unicode.
+    Unicode,
+    /// Always ASCII.
+    Ascii,
 }
 
 impl Default for InterfaceSettings {
@@ -448,6 +463,7 @@ impl Default for InterfaceSettings {
             check_updates: true,
             language: "auto".to_owned(),
             key_sequence_timeout_ms: 1000,
+            unicode_symbols: SymbolMode::Auto,
         }
     }
 }

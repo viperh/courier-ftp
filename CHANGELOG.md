@@ -41,3 +41,6 @@ the section matching the tag.
   checkboxes, dropdowns, radio groups, lists, tabbed forms, standard dialogs
   and a progress dialog; bracketed paste; core password and
   keyboard-interactive prompts now open real dialogs.
+- Status bar (T57): security, transfer type, speed limit, filters, sync and
+  compare, vault and queue indicators, pending keys and transient messages,
+  key hints, ASCII fallback; server info dialog (`Ctrl-x i`).

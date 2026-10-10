@@ -41,6 +41,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     Result,
+    events::CertificateDetails,
     model::{Entry, RemotePath, ServerAddress},
 };
 
@@ -122,6 +123,51 @@ pub trait Backend: Send + Sync {
 
     /// Keep an idle connection alive (`NOOP`, an SSH keep-alive…).
     async fn keepalive(&mut self) -> Result<()>;
+
+    /// What the connection looks like (status bar and server info dialog,
+    /// T57), once connected.
+    fn session_info(&self) -> Option<SessionInfo> {
+        None
+    }
+}
+
+/// Details of an established session, for the status bar's security
+/// indicator and the server info dialog (T57).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionInfo {
+    /// The server.
+    pub address: ServerAddress,
+    /// What the server says it is (FTP greeting or `SYST`, SSH banner).
+    pub server_software: Option<String>,
+    /// How the connection is protected.
+    pub security: SecurityInfo,
+}
+
+/// How a session is protected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SecurityInfo {
+    /// Plain FTP: nothing is encrypted.
+    Plain,
+    /// FTP over TLS.
+    Tls {
+        /// e.g. `TLS 1.3`.
+        version: String,
+        /// e.g. `TLS13_AES_256_GCM_SHA384`.
+        cipher: String,
+        /// The server certificate.
+        certificate: Option<CertificateDetails>,
+    },
+    /// SFTP over SSH.
+    Ssh {
+        /// Key exchange algorithm.
+        kex: String,
+        /// Cipher.
+        cipher: String,
+        /// MAC (empty for AEAD ciphers).
+        mac: String,
+        /// Host key type and `SHA256:` fingerprint.
+        host_key: String,
+    },
 }
 
 /// What a backend supports.
