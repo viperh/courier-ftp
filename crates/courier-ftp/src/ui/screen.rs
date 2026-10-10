@@ -6,6 +6,7 @@ use std::{
 };
 
 use courier_ftp_core::{
+    backend::Listing,
     events::{CoreEvent, PromptRequest},
     filters::FilterEngine,
     settings::InterfaceSettings,
@@ -22,11 +23,16 @@ use super::{
     log::LogPane,
     modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
     panes,
+    quickconnect::{QuickKey, Quickconnect},
     status::{self, StatusState},
     theme::Theme,
 };
 use crate::{
-    action::Action, app::Mode, config::Config, keymap::key_to_string, ui::dialog::message,
+    action::{Action, Connected},
+    app::Mode,
+    config::Config,
+    keymap::key_to_string,
+    ui::dialog::message,
 };
 
 /// Actions the focused pane handles itself (navigation, search, selection).
@@ -145,6 +151,7 @@ pub(crate) struct MainScreen {
     pub(crate) local: FileList,
     pub(crate) remote: FileList,
     log: LogPane,
+    quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
     tick: u64,
     /// The regions of the last frame, for focus checks.
@@ -179,7 +186,7 @@ impl MainScreen {
             layout: ui.layout,
             swap_panes: ui.swap_panes,
             visible: Visibility {
-                quickconnect: true,
+                quickconnect: ui.show_quickconnect,
                 log: ui.show_log,
                 queue: ui.show_queue,
                 tree: ui.show_tree,
@@ -203,6 +210,7 @@ impl MainScreen {
             local,
             remote,
             log,
+            quickconnect: Quickconnect::new(),
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
@@ -298,6 +306,16 @@ impl MainScreen {
         if self.focus == Region::Log && self.log.handle_search_key(key) {
             return KeyOutcome::Consumed;
         }
+        if self.focus == Region::Quickconnect {
+            match self.quickconnect.handle_key(key) {
+                QuickKey::Consumed => return KeyOutcome::Consumed,
+                QuickKey::Submit => {
+                    self.submit_quickconnect();
+                    return KeyOutcome::Consumed;
+                }
+                QuickKey::NotHandled => {}
+            }
+        }
         if let Some(list) = self.focused_list()
             && let Some(effect) = list.handle_key(key)
         {
@@ -307,21 +325,19 @@ impl MainScreen {
         KeyOutcome::NotHandled
     }
 
-    /// Pasted text goes to the top modal (T52); the quickconnect bar takes it
-    /// from T58.
+    /// Pasted text goes to the top modal (T52), the quickconnect bar or the
+    /// focused list's address bar.
     pub(crate) fn handle_paste(&mut self, text: &str) {
         if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
+        } else if self.focus == Region::Quickconnect {
+            self.quickconnect.handle_paste(text);
         } else if let Some(list) = self.focused_list() {
             list.handle_paste(text);
         }
     }
 
     /// Put a dialog on top of the modal stack.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "feature dialogs push themselves from T58 on")
-    )]
     pub(crate) fn push_modal(&mut self, modal: Box<dyn Modal>) {
         self.modals.push(modal);
     }
@@ -398,7 +414,10 @@ impl MainScreen {
             Action::FocusRemote => self.set_focus(Region::RemoteList),
             Action::FocusLog => self.set_focus(Region::Log),
             Action::FocusQueue => self.set_focus(Region::Queue),
-            Action::FocusQuickconnect => self.set_focus(Region::Quickconnect),
+            Action::FocusQuickconnect => {
+                self.set_focus(Region::Quickconnect);
+                self.quickconnect.focus_host();
+            }
             Action::ToggleLog => self.opts.visible.log = !self.opts.visible.log,
             Action::ToggleQueue => self.opts.visible.queue = !self.opts.visible.queue,
             Action::ToggleTree => self.opts.visible.tree = !self.opts.visible.tree,
@@ -438,6 +457,50 @@ impl MainScreen {
             Region::Quickconnect => self.opts.visible.quickconnect = true,
             _ => {}
         }
+    }
+
+    /// Connect with what the quickconnect bar holds, or say what is wrong.
+    /// Focus moves to the remote list so the prompts of the connection (host
+    /// key, password) can open: they wait while a text field has focus.
+    fn submit_quickconnect(&mut self) {
+        match self.quickconnect.request() {
+            Ok(request) => {
+                self.outbox.push(Action::Connect {
+                    request: Box::new(request),
+                    replace: false,
+                });
+                self.set_focus(Region::RemoteList);
+            }
+            Err(e) => self.status.flash(e, Instant::now()),
+        }
+    }
+
+    /// Show `text` in the status bar for a few seconds.
+    pub(crate) fn flash(&mut self, text: impl Into<String>) {
+        self.status.flash(text, Instant::now());
+    }
+
+    /// A connection to `server` is being opened in the remote pane.
+    pub(crate) fn remote_connecting(&mut self, server: String) {
+        self.status.session = None;
+        self.remote.connecting(server);
+    }
+
+    /// The remote pane's connection is up: show its first listing and its
+    /// security in the status bar.
+    pub(crate) fn remote_connected(&mut self, connected: &Connected) {
+        self.status.session = connected.info.clone();
+        self.remote.busy = false;
+        let result: Result<Listing, String> = Ok(connected.listing.clone());
+        let error = self.remote.listing_loaded(&result);
+        self.outbox.extend(error);
+    }
+
+    /// The remote pane is not connected (any more); `error` says why a
+    /// connection failed.
+    pub(crate) fn remote_disconnected(&mut self, error: Option<String>) {
+        self.status.session = None;
+        self.remote.disconnected(error);
     }
 
     pub(crate) fn pane_mut(&mut self, side: Side) -> &mut FileList {
@@ -517,7 +580,8 @@ impl MainScreen {
         let theme = &self.theme;
         let f = self.focus;
         if let Some(a) = r.quickconnect {
-            panes::draw_quickconnect(frame, a, f == Region::Quickconnect, theme);
+            self.quickconnect
+                .draw(frame, a, f == Region::Quickconnect, theme);
         }
         if let Some(a) = r.tabs {
             panes::draw_tabs(frame, a, theme);
