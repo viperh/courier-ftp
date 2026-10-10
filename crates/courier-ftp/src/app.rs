@@ -16,7 +16,7 @@ use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{
     action::{Action, ConnectRequest, Connected},
