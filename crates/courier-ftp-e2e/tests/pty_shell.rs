@@ -29,8 +29,7 @@ fn e2e_pty_starts_and_quits() {
     let home = TestHome::new().unwrap();
     let mut app = launch(&home);
     assert!(app.alternate_screen());
-    app.send_keys("ctrl-q").unwrap();
-    let status = app.wait_exit().unwrap();
+    let status = app.quit().unwrap();
     assert!(status.success(), "{status:?}");
     assert!(!app.alternate_screen(), "the alternate screen was not left");
     let raw = String::from_utf8_lossy(app.raw_output());
@@ -59,8 +58,7 @@ fn e2e_pty_resize_to_compact_and_back() {
             && s.contains("Queue")
     })
     .unwrap();
-    app.send_keys("ctrl-q").unwrap();
-    assert!(app.wait_exit().unwrap().success());
+    assert!(app.quit().unwrap().success());
 }
 
 /// Send `first`, wait like a slow typist, then `second` (one two-key sequence).
@@ -107,6 +105,5 @@ fn e2e_pty_sequences_and_fkeys() {
     slow_sequence(&mut app, "ctrl-x", "j");
     app.wait_for_text("Queue").unwrap();
 
-    app.send_keys("ctrl-q").unwrap();
-    assert!(app.wait_exit().unwrap().success());
+    assert!(app.quit().unwrap().success());
 }

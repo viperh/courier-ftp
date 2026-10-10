@@ -34,8 +34,7 @@ fn pty_app_starts_and_quits() {
     let mut app = PtyApp::launch(&home, PtyOptions::default()).unwrap();
     app.wait_for_text("Local").unwrap();
     assert!(app.alternate_screen());
-    app.send_keys("ctrl-q").unwrap();
-    let status = app.wait_exit().unwrap();
+    let status = app.quit().unwrap();
     assert!(status.success(), "{status:?}");
     assert!(!app.alternate_screen(), "terminal not restored");
 }
@@ -53,8 +52,7 @@ fn pty_app_resize_redraws() {
                 .any(|r| r.starts_with('┌') && r.chars().count() == 100)
     })
     .unwrap();
-    app.send_keys("ctrl-q").unwrap();
-    assert!(app.wait_exit().unwrap().success());
+    assert!(app.quit().unwrap().success());
 }
 
 #[test]
