@@ -67,7 +67,7 @@ esac
 printf '%s\n' "${cmd[@]}" > /etc/courier-ftpd/command
 
 if [[ "${1:-}" == "--check" ]]; then
-    "${cmd[@]}" >&2 &
+    "${cmd[@]}" 0>&2 >&2 &
     pid=$!
     ok=1
     if python3 - "$port" <<'PY'
@@ -99,7 +99,7 @@ tail -q -F /var/log/vsftpd.log /var/log/proftpd.log /var/log/proftpd-tls.log 2>/
 echo "courier-ftpd: profile ${profile}, ip ${ip}, pasv ${pasv}, port ${port}" >&2
 # Supervisor: restart the daemon whenever it exits (courier-set-cert kills it).
 while true; do
-    "${cmd[@]}" &
+    "${cmd[@]}" 0>&2 >&2 &
     echo $! > /run/courier-ftpd.pid
     wait "$(cat /run/courier-ftpd.pid)" || true
     echo "courier-ftpd: daemon exited; restarting" >&2

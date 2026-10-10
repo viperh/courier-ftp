@@ -9,6 +9,9 @@
 # and `canary`/`CANARY-PW-e2e-7f3a`, chrooted to their homes (~/upload writable,
 # ~/fixtures = FIXTURE_TREE); anonymous root /srv/anon (read-only, readme.txt).
 #
+# Run with --cap-add SYS_CHROOT --cap-add SYS_NICE --cap-add DAC_READ_SEARCH (pure-ftpd
+# exits without the last two). Startup errors from the daemons go to the container log.
+#
 # Build: docker build -t courier-ftp-e2e-ftpd:local tests/fixtures/ftpd
 # tls/ is the TEST-ONLY CA (a copy of tests/fixtures/tls/). Never trust it anywhere.
 FROM public.ecr.aws/docker/library/debian:bookworm-slim

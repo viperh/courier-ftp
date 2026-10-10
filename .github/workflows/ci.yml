@@ -240,7 +240,9 @@ jobs:
             local image="$1" var="$2" p
             for p in $(docker run --rm "$image" --list); do
               echo "$var=$p"
-              docker run --rm -e "$var=$p" "$image" --check
+              # pure-ftpd needs SYS_NICE and DAC_READ_SEARCH (it drops to a fixed capability set).
+              docker run --rm --cap-add SYS_CHROOT --cap-add SYS_NICE --cap-add DAC_READ_SEARCH \
+                -e "$var=$p" "$image" --check
             done
           }
           check "$COURIER_E2E_SSHD_IMAGE" SSHD_PROFILE

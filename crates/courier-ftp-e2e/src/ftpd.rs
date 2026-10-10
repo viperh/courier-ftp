@@ -188,7 +188,12 @@ impl Ftpd {
             label: format!("ftpd {}", opts.profile.name()),
             env,
             network: opts.network,
-            cap_add: vec!["SYS_CHROOT".into()],
+            // pure-ftpd keeps SYS_NICE and DAC_READ_SEARCH and exits without them.
+            cap_add: vec![
+                "SYS_CHROOT".into(),
+                "SYS_NICE".into(),
+                "DAC_READ_SEARCH".into(),
+            ],
         })
         .await?;
         let ftpd = Self {
