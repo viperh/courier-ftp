@@ -215,8 +215,47 @@ pub(crate) enum Action {
     QueueTabQueued,
     QueueTabFailed,
     QueueTabSuccessful,
+    /// Move the selected items to the top / bottom of the queue.
+    MoveItemTop,
+    MoveItemBottom,
+    /// Empty the current tab (the queued tab asks first).
+    QueueClear,
+    /// Group the queued tab under server headers, or not.
+    QueueGroupByServer,
+    /// Every queue action for the selection, as a menu.
+    QueueMenu,
+    /// Set the "file exists" action of the selected items.
+    QueueExistsMenu,
+    /// Hold every running transfer mid-stream, or let them continue.
+    ToggleTransfersPaused,
 
     // --- background results ---
+    /// The queue pane changed the queue: cancel `cancel` (removed or paused
+    /// while running), schedule the save and, with `wake`, look for work.
+    #[serde(skip)]
+    QueueEdited {
+        cancel: Vec<courier_ftp_core::events::TransferId>,
+        wake: bool,
+    },
+    /// The "file exists" action chosen for the selected items (`None`: the
+    /// setting).
+    #[serde(skip)]
+    QueueSetExists(Option<courier_ftp_core::settings::ExistsAction>),
+    /// "Remove all" was confirmed.
+    #[serde(skip)]
+    QueueRemoveAll,
+    /// The saved queue was merged in after unlock (how many items).
+    #[serde(skip)]
+    QueueRestored(Result<usize, String>),
+    /// What quitting now would lose.
+    #[serde(skip)]
+    QuitChecked {
+        check: courier_ftp_core::queue::QuitCheck,
+        active: usize,
+    },
+    /// Quit without asking (confirmed).
+    #[serde(skip)]
+    QuitNow,
     /// List a directory for a pane (through the listing cache unless `force`).
     #[serde(skip)]
     ListDir {

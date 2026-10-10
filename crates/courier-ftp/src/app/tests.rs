@@ -35,7 +35,7 @@ async fn settle(app: &mut App) {
     loop {
         tokio::select! {
             Some(action) = app.action_rx.recv() => app.dispatch(action).unwrap(),
-            Some(event) = app.events_rx.recv() => app.screen.handle_core(event),
+            Some(event) = app.events_rx.recv() => app.core_event(event),
             Some(msg) = app.vault_rx.recv() => app.vault_message(msg),
             () = tokio::time::sleep(Duration::from_millis(100)) => break,
         }

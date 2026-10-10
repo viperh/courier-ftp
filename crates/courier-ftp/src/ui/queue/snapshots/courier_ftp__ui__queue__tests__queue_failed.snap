@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp/src/ui/queue/tests.rs
+assertion_line: 160
+expression: text
+---
+"┌ Queued files (5) │ Failed transfers (1) │ Successful transfers (2) ──────────────────────────────────────────────────┐"
+"│Local file                         Remote file                     Size       Time     Reason                         │"
+"│▾ sftp://alice@web01 — 1 file                                                                                         │"
+"│  /home/alice/site/logo.png      → /var/www/logo.png               48.8 KiB   14:30:00 permission denied              │"
+"│                                                                                                                      │"
+"│                                                                                                                      │"
+"│                                                                                                                      │"
+"└ Queue: 5 files, 306.0 MiB · processing ──────────────────────────────────────────────────────────────────────────────┘"

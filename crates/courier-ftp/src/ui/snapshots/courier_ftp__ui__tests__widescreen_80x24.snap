@@ -1,5 +1,6 @@
 ---
 source: crates/courier-ftp/src/ui/tests.rs
+assertion_line: 86
 expression: terminal.backend()
 ---
 "┌ Quickconnect ────────────────────────────────────────────────────────────────┐"
@@ -16,13 +17,13 @@ expression: terminal.backend()
 "│                      ││                      ││                              │"
 "│                      ││                      ││                              │"
 "│                      ││                      │└──────────────────────────────┘"
-"│                      ││                      │┌ Queue (0) · Failed (0) · Succ┐"
-"│                      ││                      ││The queue is empty.           │"
-"│                      ││                      ││                              │"
+"│                      ││                      │┌ Queued files (0) │ Failed tra┐"
+"│                      ││                      ││    Size       Priority Status│"
+"│                      ││                      ││The queue is empty. F5 transfe│"
 "│                      ││                      ││                              │"
 "│                      ││                      ││                              │"
 "│                      ││                      ││                              │"
 "│                      ││                      ││                              │"
 "│2 files and 1 director││                      ││                              │"
-"└──────────────────────┘└──────────────────────┘└──────────────────────────────┘"
+"└──────────────────────┘└──────────────────────┘└ Queue: empty ────────────────┘"
 " — │ Auto │ ⇅ limit off │ Queue: empty                                          "

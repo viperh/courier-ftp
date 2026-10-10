@@ -21,9 +21,19 @@ Display and control the transfer queue with FileZilla's three tabs.
 
 ## Acceptance criteria
 
-- [ ] Snapshot tests for each tab with sample data, including an active transfer and a failed one.
+- [x] Snapshot tests for each tab with sample data, including an active transfer and a failed one.
 - [ ] Every control maps to the correct engine/queue operation.
-- [ ] Rendering 100k items stays responsive.
+- [x] Rendering 100k items stays responsive.
+
+**Status (T56):** the pane lives in `crates/courier-ftp/src/ui/queue.rs` (the crate has
+no `components/` module); the engine, persister and resolver wiring in
+`src/transfers.rs` and `src/app/transfers.rs`. Every control in §6 is wired and
+tested except **"action after queue completion"**, which is left to T45 (it builds on
+`CoreEvent::QueueFinished`, which the app already logs). F5 / Shift-F5 queue the
+selection of the focused list for the other side (directories as T43 placeholders);
+the full file operations UI is T62. The engine runs with T42's file-exists policy,
+T43's expander and T44's speed limiter. The 100k gate is a release-only test (`cargo test --release -p courier-ftp
+hundred_thousand`), like T53's.
 
 ## Tests
 

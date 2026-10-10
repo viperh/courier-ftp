@@ -416,11 +416,16 @@ impl FileList {
         self.entry_at(self.cursor)
     }
 
+    /// The selected entries (in name order), or the entry under the cursor
+    /// (not `..`).
+    pub(crate) fn target_entries(&self) -> Vec<Entry> {
+        self.targets()
+            .iter()
+            .filter_map(|name| self.index.get(name).map(|&i| self.entries[i].clone()))
+            .collect()
+    }
+
     /// The names of the selected entries, or the entry under the cursor.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "file operations use it from T62")
-    )]
     pub(crate) fn targets(&self) -> Vec<String> {
         if self.selected.is_empty() {
             self.current()
