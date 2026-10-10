@@ -692,4 +692,13 @@ the cursor cell is `REVERSED` and directories are bold.
   gate (80 ms, CI 160 ms). `file_list_render_100k` is an ignored timing test
   (`cargo test --release -p courier-ftp -- --ignored file_list_`), not a criterion
   bench: the renderer needs the theme/config modules of the binary.
+- **Measured** (shared 4-CPU machine, release): `file_list_view_build_100k` criterion
+  bench ≈ 65 ms (after switching the sort to precomputed natural byte keys,
+  `natural::natural_key`; `natural_cmp` stays as the test reference); the ignored
+  `file_list_render_100k` timing test: median 0.22 ms, p99 0.55 ms at 160×48. AC6 is
+  left unticked only because its render target is a release timing test, not a
+  criterion bench with a `bench-gates.toml` gate.
+- **T57 status bar:** `App::status_sources.filters_active` is not set by the pane (the
+  pane state is behind `dyn Component`); T67, which owns the filter sets, can set it
+  from `FilterEngine::is_active`. The pane title shows `[filtered]`.
 - **E2E.** `crates/courier-ftp-e2e/tests/pty_file_list.rs::browse_local_dir_and_sort`.

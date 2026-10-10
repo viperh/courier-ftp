@@ -79,11 +79,11 @@ pub(crate) fn natural_cmp(a: &str, b: &str) -> Ordering {
         .then_with(|| ab.cmp(bb))
 }
 
-/// A byte key whose plain (`memcmp`) order is the natural order of [`natural_cmp`]
+/// A byte key whose plain (`memcmp`) order is the natural order of `natural_cmp`
 /// for names without control characters: each digit run becomes `0x01`, its length
 /// without leading zeros (4 bytes) and the digits; after a `0x00` separator come the
 /// leading-zero counts (the tie-breaker). Sorting by precomputed keys is much faster
-/// than calling [`natural_cmp`] in every comparison.
+/// than calling `natural_cmp` in every comparison.
 pub(crate) fn natural_key(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut key = Vec::with_capacity(b.len() + 8);
