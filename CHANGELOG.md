@@ -70,3 +70,7 @@ the section matching the tag.
   Argon2id KDF with CBOR parameters, key wrapping, OPAQUE, account and
   recovery keys (BIP39), HPKE vault-key grants, Ed25519 signing and safety
   numbers, adapted from sverb.
+- SSH connection and authentication via russh (T20): password,
+  ask-for-password, keyboard-interactive/2FA, OpenSSH/PEM/PKCS#8/PuTTY PPK
+  v2/v3 key files with passphrase prompts, SSH agent and Pageant, through the
+  generic proxy, with a pluggable host key verifier.
