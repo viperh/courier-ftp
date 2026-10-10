@@ -75,5 +75,9 @@ tracing-subscriber = { workspace = true }
 name = "filters"
 harness = false
 
+[[bench]]
+name = "ratelimit"
+harness = false
+
 [lints]
 workspace = true
