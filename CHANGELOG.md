@@ -201,3 +201,7 @@ the section matching the tag.
 - Bookmarks menu (T64, Ctrl-b): global and site bookmarks with fuzzy search;
   add the directories shown now, edit, delete and reorder; applying one opens
   its directories and turns synchronized browsing or comparison on.
+- Filters dialog (T67, Ctrl-x f): per-side filter checklists, named filter
+  sets, a filter editor with live regex checking and built-in filters, and
+  Apply filters to transfers; changes re-filter both panes and are saved to
+  config.json.
