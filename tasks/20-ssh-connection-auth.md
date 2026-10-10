@@ -33,9 +33,9 @@ FileZilla offers for SFTP.
 ## Acceptance criteria
 
 - [ ] Password, keyboard-interactive (with multiple prompts), key file (ed25519, RSA, ECDSA; encrypted and unencrypted; OpenSSH and PPK v2/v3) and agent all authenticate against an OpenSSH server in Docker (T76).
-- [ ] 2FA flow: two sequential keyboard-interactive rounds work.
-- [ ] Wrong passphrase re-prompts up to 3 times then fails cleanly.
-- [ ] No secret ever logged.
+- [x] 2FA flow: two sequential keyboard-interactive rounds work.
+- [x] Wrong passphrase re-prompts up to 3 times then fails cleanly.
+- [x] No secret ever logged.
 
 ## Tests
 
