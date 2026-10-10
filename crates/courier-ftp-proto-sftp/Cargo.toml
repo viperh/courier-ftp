@@ -23,6 +23,8 @@ futures = { workspace = true, optional = true }
 russh = { workspace = true }
 secrecy = { workspace = true }
 thiserror = { workspace = true }
+# `added_at` of trusted host keys (T21).
+time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

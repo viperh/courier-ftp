@@ -24,6 +24,7 @@ pub mod search;
 pub mod settings;
 pub mod sites;
 pub mod transfer;
+pub mod trust;
 pub mod vault;
 
 pub use error::{Error, Result};

@@ -16,6 +16,12 @@ test-util = []
 
 [dependencies]
 async-trait = { workspace = true }
+# Host key trust (T21): hashed known_hosts hosts and key fingerprints.
+base64ct = { workspace = true }
+hmac = { workspace = true }
+md5 = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
 encoding_rs = { workspace = true }
 fs4 = { workspace = true }
 regex = { workspace = true }
