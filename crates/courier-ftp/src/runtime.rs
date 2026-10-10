@@ -16,7 +16,7 @@ pub(crate) static BLOCKING_IN_FLIGHT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 /// [`tokio::task::spawn_blocking`] for UI-started work. In tests the job is counted in
-/// [`BLOCKING_IN_FLIGHT`] so the harness can wait for it; paused time does not.
+/// `BLOCKING_IN_FLIGHT` so the harness can wait for it; paused time does not.
 pub(crate) fn spawn_blocking<R: Send + 'static>(
     f: impl FnOnce() -> R + Send + 'static,
 ) -> tokio::task::JoinHandle<R> {
