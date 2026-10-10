@@ -329,3 +329,8 @@ Not applicable (T76 PtyApp flows browse the local pane).
   macOS/Windows runs happen in the `test-os` CI job (AC1, AC2, AC3, AC5, AC9 there).
 - Benchmark `list_10k_entries` (ignored): 10 000 entries in 51 ms on Linux (debug build,
   ext4/overlay, 2026-10-10); the release build was not run here (shared machine).
+- Windows CI: the shared conformance cases `dotfile_is_hidden` and
+  `names_with_spaces_unicode_and_leading_dash` are skipped on Windows (hidden is the
+  attribute, covered by `hidden_attribute_is_hidden`; Win32 strips trailing spaces).
+  `available_space` checks that the path exists first, because Windows answers for the
+  volume even when the path is missing.

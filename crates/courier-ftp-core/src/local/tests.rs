@@ -58,7 +58,22 @@ fn local_env() -> ConformanceEnv {
         }),
         // NTFS zero-fills the 5 GiB gap of a non-sparse file (see Implementation notes).
         large_files: !cfg!(windows),
-        skip: Vec::new(),
+        // Windows marks hidden files with an attribute (tested by
+        // `hidden_attribute_is_hidden`) and its file API drops trailing spaces.
+        skip: if cfg!(windows) {
+            vec![
+                (
+                    "dotfile_is_hidden",
+                    "Windows hides by attribute, not by a leading dot",
+                ),
+                (
+                    "names_with_spaces_unicode_and_leading_dash",
+                    "Windows strips trailing spaces from file names",
+                ),
+            ]
+        } else {
+            Vec::new()
+        },
         make_symlink: symlinks.then(|| {
             Box::new(|link: &RemotePath, target: &str| {
                 let native = to_native(link)?;
