@@ -1,11 +1,15 @@
 use courier_ftp_core::{
-    backend::Backend,
+    backend::{Backend, BackendFactory, ConnectInfo, Listing, SessionHandle},
     cache::ListingCache,
     events::{self, EventReceiver, EventSender, LogKind, SessionId},
     local::LocalBackend,
-    model::RemotePath,
+    model::{RemotePath, ServerAddress},
+    settings::Settings,
 };
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
@@ -15,7 +19,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use crate::{
-    action::Action,
+    action::{Action, ConnectRequest, Connected},
+    backends::Backends,
     config::Config,
     keymap::{Feed, KeyBindings, Sequencer},
     tui::{Event, Tui},
@@ -45,6 +50,44 @@ pub(crate) struct App {
     local_session: SessionId,
     /// Directory listings, shared by every pane (T46).
     cache: ListingCache,
+    settings: Settings,
+    /// Creates a backend for each connection (T03).
+    backends: Arc<dyn BackendFactory>,
+    /// The remote pane's connection.
+    remote: Option<Remote>,
+    /// The last connection of this run, without its password, for
+    /// [`Action::Reconnect`].
+    last_connect: Option<ConnectRequest>,
+}
+
+/// The remote pane's connection (one tab until T61).
+struct Remote {
+    session: SessionId,
+    info: ConnectInfo,
+    handle: Arc<SessionHandle>,
+    /// Cancels the connection attempt, its prompts and running listings.
+    cancel: CancellationToken,
+    /// Whether `connect` finished; listings wait for it.
+    connected: bool,
+}
+
+/// `alice@host` (with the port when it isn't the protocol's default), for
+/// titles and dialogs.
+fn server_label(a: &ServerAddress) -> String {
+    let mut out = String::new();
+    if let Some(user) = &a.user {
+        out.push_str(user);
+        out.push('@');
+    }
+    if a.host.contains(':') {
+        out.push_str(&format!("[{}]", a.host));
+    } else {
+        out.push_str(&a.host);
+    }
+    if a.port != a.default_port() {
+        out.push_str(&format!(":{}", a.port));
+    }
+    out
 }
 
 /// Input modes. Keybindings and styles in `config/default.json` are keyed by
@@ -78,6 +121,17 @@ impl Mode {
 impl App {
     pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
         let config = Config::new()?;
+        let backends = Arc::new(Backends::new(&config.settings));
+        Ok(Self::with_backends(config, backends, tick_rate, frame_rate))
+    }
+
+    /// An app using `backends` for connections (tests pass a mock server).
+    pub(crate) fn with_backends(
+        config: Config,
+        backends: Arc<dyn BackendFactory>,
+        tick_rate: f64,
+        frame_rate: f64,
+    ) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let (events_tx, events_rx) = events::channel(config.settings.logging.level);
         events_tx.set_raw_listing(config.settings.logging.show_raw_listing);
@@ -95,7 +149,7 @@ impl App {
         }
         let mut screen = MainScreen::new(config.clone(), theme);
         screen.set_action_tx(action_tx.clone());
-        Ok(Self {
+        Self {
             keybindings: config.keybindings.clone(),
             tick_rate,
             frame_rate,
@@ -109,7 +163,11 @@ impl App {
             events_rx,
             local_session,
             cache,
-        })
+            settings: config.settings.clone(),
+            backends,
+            remote: None,
+            last_connect: None,
+        }
     }
 
     pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
@@ -195,6 +253,20 @@ impl App {
     }
 
     fn handle_action(&mut self, tui: &mut Tui, action: Action) -> color_eyre::Result<()> {
+        match &action {
+            Action::ClearScreen => tui.terminal.clear()?,
+            Action::Resize(w, h) => {
+                tui.resize(Rect::new(0, 0, *w, *h))?;
+                self.render(tui)?;
+            }
+            Action::Render => self.render(tui)?,
+            _ => {}
+        }
+        self.dispatch(action)
+    }
+
+    /// Apply an action that doesn't need the terminal.
+    fn dispatch(&mut self, action: Action) -> color_eyre::Result<()> {
         if !matches!(action, Action::Tick | Action::Render) {
             debug!("{action}");
         }
@@ -209,12 +281,29 @@ impl App {
             Action::Quit => self.should_quit = true,
             Action::Suspend => self.should_suspend = true,
             Action::Resume => self.should_suspend = false,
-            Action::ClearScreen => tui.terminal.clear()?,
-            Action::Resize(w, h) => {
-                tui.resize(Rect::new(0, 0, *w, *h))?;
-                self.render(tui)?;
+            Action::Connect { request, replace } => {
+                self.connect((**request).clone(), *replace);
             }
-            Action::Render => self.render(tui)?,
+            Action::Connected { session, result } => self.connected(*session, result),
+            Action::RemoteListingLoaded { session, result } => {
+                if self.current_session() == Some(*session) {
+                    self.action_tx.send(Action::ListingLoaded {
+                        side: Side::Remote,
+                        result: result.clone(),
+                    })?;
+                }
+            }
+            Action::Disconnect => {
+                if self.remote.is_some() {
+                    self.disconnect();
+                } else {
+                    self.screen.flash("Not connected");
+                }
+            }
+            Action::Reconnect => match self.last_connect.clone() {
+                Some(request) => self.start_connect(request),
+                None => self.screen.flash("No server to reconnect to"),
+            },
             Action::ListDir { side, dir, force } => {
                 self.list(*side, Some(dir.clone()), *force);
             }
@@ -244,7 +333,10 @@ impl App {
     /// [`Action::ListingLoaded`] arrives.
     fn list(&mut self, side: Side, dir: Option<RemotePath>, force: bool) {
         if side == Side::Remote {
-            return; // remote sessions arrive with T14/T22 and T58/T61
+            if let Some(dir) = dir {
+                self.list_remote(dir, force);
+            }
+            return;
         }
         self.screen.pane_mut(side).busy = true;
         let tx = self.action_tx.clone();
@@ -266,8 +358,176 @@ impl App {
         });
     }
 
+    fn current_session(&self) -> Option<SessionId> {
+        self.remote.as_ref().map(|r| r.session)
+    }
+
+    /// List `dir` on the remote connection, through the cache unless
+    /// `force`.
+    fn list_remote(&mut self, dir: RemotePath, force: bool) {
+        let Some(remote) = self.remote.as_ref().filter(|r| r.connected) else {
+            self.screen.pane_mut(Side::Remote).busy = false;
+            return;
+        };
+        let session = remote.session;
+        let handle = Arc::clone(&remote.handle);
+        let cancel = remote.cancel.clone();
+        let server = remote.info.address.clone();
+        let cache = self.cache.clone();
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let result = match cache.get(Some(&server), &dir).filter(|_| !force) {
+                Some(hit) => Ok(hit),
+                None => handle
+                    .list(&dir, &cancel)
+                    .await
+                    .inspect(|listing| cache.put(Some(&server), listing.clone())),
+            }
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Action::RemoteListingLoaded { session, result });
+        });
+    }
+
+    /// Quickconnect: connect the remote pane, asking first when that closes
+    /// a connection (unless `replace`).
+    fn connect(&mut self, request: ConnectRequest, replace: bool) {
+        let Some(remote) = self.remote.as_ref().filter(|_| !replace) else {
+            self.start_connect(request);
+            return;
+        };
+        let (modal, rx) = crate::ui::dialog::confirm(
+            "Replace connection",
+            &format!(
+                "Disconnect from {} and connect to {}?",
+                server_label(&remote.info.address),
+                server_label(&request.info.address)
+            ),
+            true,
+        );
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(true) = rx.await {
+                let _ = tx.send(Action::Connect {
+                    request: Box::new(request),
+                    replace: true,
+                });
+            }
+        });
+    }
+
+    /// Close any connection and open one for `request` in the background;
+    /// [`Action::Connected`] reports the result.
+    fn start_connect(&mut self, request: ConnectRequest) {
+        if self.remote.is_some() {
+            self.disconnect();
+        }
+        let session = SessionId::next();
+        let c = &self.settings.connection;
+        let keepalive = c
+            .keepalive
+            .then(|| Duration::from_secs(c.keepalive_interval_secs.max(1)));
+        let backend = self
+            .backends
+            .create(&request.info, session, self.events_tx.clone());
+        let handle = Arc::new(SessionHandle::new(backend, keepalive));
+        let cancel = CancellationToken::new();
+        self.remote = Some(Remote {
+            session,
+            info: request.info.clone(),
+            handle: Arc::clone(&handle),
+            cancel: cancel.clone(),
+            connected: false,
+        });
+        self.last_connect = Some(request.without_password());
+        self.screen
+            .remote_connecting(server_label(&request.info.address));
+
+        let tx = self.action_tx.clone();
+        let events = self.events_tx.clone();
+        let cache = self.cache.clone();
+        let server = request.info.address.clone();
+        let start = request.path;
+        tokio::spawn(async move {
+            let result = async {
+                handle.connect(cancel.clone()).await?;
+                let info = handle.lock().await.session_info();
+                let listing = match start {
+                    Some(dir) => match handle.list(&dir, &cancel).await {
+                        Ok(listing) => listing,
+                        Err(e) => {
+                            events.log(session, LogKind::Error, format!("{dir}: {e}"));
+                            first_listing(&handle, &cancel).await?
+                        }
+                    },
+                    None => first_listing(&handle, &cancel).await?,
+                };
+                cache.put(Some(&server), listing.clone());
+                Ok::<_, courier_ftp_core::Error>(Box::new(Connected { info, listing }))
+            }
+            .await
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Action::Connected { session, result });
+        });
+    }
+
+    /// A connection attempt finished; results of replaced attempts are
+    /// dropped.
+    fn connected(&mut self, session: SessionId, result: &Result<Box<Connected>, String>) {
+        let Some(remote) = self.remote.as_mut().filter(|r| r.session == session) else {
+            return;
+        };
+        match result {
+            Ok(connected) => {
+                remote.connected = true;
+                self.screen.remote_connected(connected);
+            }
+            Err(e) => {
+                let label = server_label(&remote.info.address);
+                self.events_tx.log(
+                    session,
+                    LogKind::Error,
+                    format!("Could not connect to {label}"),
+                );
+                self.remote = None;
+                self.screen.remote_disconnected(Some(e.clone()));
+            }
+        }
+    }
+
+    /// Close the remote connection (in the background) and empty the pane.
+    fn disconnect(&mut self) {
+        let Some(remote) = self.remote.take() else {
+            return;
+        };
+        remote.cancel.cancel();
+        self.cache.clear_server(Some(&remote.info.address));
+        self.events_tx.log(
+            remote.session,
+            LogKind::Status,
+            format!("Disconnected from {}", server_label(&remote.info.address)),
+        );
+        let handle = remote.handle;
+        tokio::spawn(async move {
+            let _ = handle.disconnect().await;
+        });
+        self.screen.remote_disconnected(None);
+    }
+
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| self.screen.draw(frame))?;
         Ok(())
     }
 }
+
+/// The home directory's listing.
+async fn first_listing(
+    handle: &SessionHandle,
+    cancel: &CancellationToken,
+) -> courier_ftp_core::Result<Listing> {
+    let home = handle.home_dir(cancel).await?;
+    handle.list(&home, cancel).await
+}
+
+#[cfg(test)]
+mod tests;

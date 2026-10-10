@@ -44,6 +44,7 @@ Active everywhere except in text fields and dialogs.
 | `<Shift-F5>` | QueueSelection |
 | `<Ctrl-q>` | Quit |
 | `<F10>` | Quit |
+| `<Ctrl-x><r>` | Reconnect |
 | `<Ctrl-F5>` | Refresh |
 | `<Ctrl-r>` | Refresh |
 | `<F2>` | Rename |

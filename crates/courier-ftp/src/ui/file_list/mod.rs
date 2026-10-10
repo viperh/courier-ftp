@@ -142,6 +142,9 @@ pub(crate) struct FileList {
     /// Name → index into `entries`, for the shown entries.
     index: HashMap<String, usize>,
     rows: usize,
+    /// Remote side: the server shown in the title (`alice@host`), set while
+    /// connecting and connected.
+    server: Option<String>,
 }
 
 impl FileList {
@@ -200,7 +203,38 @@ impl FileList {
             totals: Totals::default(),
             index: HashMap::new(),
             rows: 1,
+            server: None,
         }
+    }
+
+    /// Remote side: a connection to `server` is being opened.
+    pub(crate) fn connecting(&mut self, server: String) {
+        self.disconnected(None);
+        self.server = Some(server);
+        self.busy = true;
+    }
+
+    /// Remote side: back to "not connected", with the reason when a
+    /// connection failed.
+    pub(crate) fn disconnected(&mut self, error: Option<String>) {
+        self.dir = None;
+        self.entries.clear();
+        self.view.clear();
+        self.index.clear();
+        self.cursor = 0;
+        self.scroll = 0;
+        self.selected.clear();
+        self.visual = None;
+        self.quick = None;
+        self.busy = false;
+        self.error = error;
+        self.pending = None;
+        self.back.clear();
+        self.forward.clear();
+        self.remembered.clear();
+        self.address = None;
+        self.totals = Totals::default();
+        self.server = None;
     }
 
     /// Use this offset for times instead of the local one (tests).
@@ -713,8 +747,14 @@ impl FileList {
     fn title_place(&self) -> String {
         match (&self.dir, self.side) {
             (Some(d), Side::Local) => display_native(d),
-            (Some(d), Side::Remote) => d.to_string(),
-            (None, Side::Remote) => "not connected".to_owned(),
+            (Some(d), Side::Remote) => match &self.server {
+                Some(server) => format!("{server} {d}"),
+                None => d.to_string(),
+            },
+            (None, Side::Remote) => match &self.server {
+                Some(server) => format!("connecting to {server}"),
+                None => "not connected".to_owned(),
+            },
             (None, Side::Local) => String::new(),
         }
     }
@@ -748,12 +788,21 @@ impl FileList {
             return;
         }
 
-        if self.dir.is_none() && self.side == Side::Remote && !self.busy {
-            frame.render_widget(
-                Paragraph::new(vec![
+        if self.dir.is_none() && self.side == Side::Remote {
+            let mut lines = if self.busy {
+                vec![Line::raw("Connecting…")]
+            } else {
+                vec![
                     Line::raw("Not connected to any server."),
                     Line::styled("Ctrl-s: Site Manager · Ctrl-k: quickconnect", theme.dim),
-                ]),
+                ]
+            };
+            if let Some(err) = &self.error {
+                lines.push(Line::raw(""));
+                lines.push(Line::styled(format!("⚠ {err}"), theme.error));
+            }
+            frame.render_widget(
+                Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
                 inner,
             );
             return;

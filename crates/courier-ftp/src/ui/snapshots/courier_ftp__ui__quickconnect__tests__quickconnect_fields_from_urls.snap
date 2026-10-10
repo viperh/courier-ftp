@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp/src/ui/quickconnect.rs
+expression: out
+---
+sftp://alice@host:2222/var/www     → host="sftp://host/var/www" user="alice" pass= port="2222"
+sftp://alice:s3cret@example.com    → host="sftp://example.com" user="alice" pass=•••••• port=""
+ftpes://bob@ftp.example.com/pub    → host="ftpes://ftp.example.com/pub" user="bob" pass= port=""
+ftps://ftp.example.com             → host="ftps://ftp.example.com" user="" pass= port=""
+ftp://[::1]:2121/                  → host="ftp://[::1]/" user="" pass= port="2121"
+me%40corp@host:22                  → host="host" user="me@corp" pass= port="22"
+example.com                        → host="example.com" user="" pass= port=""
+example.com:21                     → host="example.com" user="" pass= port="21"
+::1                                → host="[::1]" user="" pass= port=""

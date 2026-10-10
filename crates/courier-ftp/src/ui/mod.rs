@@ -8,6 +8,7 @@ mod layout;
 mod log;
 mod modal;
 mod panes;
+mod quickconnect;
 mod screen;
 mod status;
 mod theme;

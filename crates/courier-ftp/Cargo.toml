@@ -24,6 +24,7 @@ courier-ftp-proto-ftp = { workspace = true }
 courier-ftp-proto-sftp = { workspace = true }
 courier-ftp-sync = { workspace = true, optional = true }
 
+async-trait = { workspace = true }
 better-panic = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
@@ -58,6 +59,7 @@ anyhow = { workspace = true }
 vergen-gix = { workspace = true }
 
 [dev-dependencies]
+courier-ftp-core = { workspace = true, features = ["test-util"] }
 pretty_assertions = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
