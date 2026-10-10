@@ -136,3 +136,8 @@ the section matching the tag.
   backoff that resume at the reached offset, pause/cancel, 10 Hz progress with
   speed and ETA, and automatic back-off when a server refuses extra
   connections.
+- Directory comparison (T66, Ctrl-o) with FileZilla's colours (yellow only on
+  one side, green newer, red size differs), options for size or time,
+  threshold and hide identical, and select all yellow/green/red (m y / m g / m
+  r); synchronized browsing (Ctrl-y) that follows directory changes in both
+  panes and offers to create a missing directory.
