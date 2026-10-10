@@ -9,7 +9,7 @@
 //! reported and replaced by its default. [`Settings::save_user`] writes back only
 //! the values that differ from the defaults.
 //!
-//! Later tasks add their own sections and fields here (vault T30, sync T88,
+//! Later tasks add their own sections and fields here (sync T88,
 //! segmented transfers T41b, more interface options T50–T62).
 
 mod persist;
@@ -49,6 +49,8 @@ pub struct Settings {
     pub cache: CacheSettings,
     /// Filename filters and filter sets (T47).
     pub filters: FilterSettings,
+    /// The encrypted vault: auto-lock and password storage (T30).
+    pub vault: VaultSettings,
 }
 
 /// Timeouts, retries and keep-alive.
@@ -696,6 +698,36 @@ impl Default for CacheSettings {
         Self {
             listing_cache: true,
             listing_cache_ttl_secs: 0,
+        }
+    }
+}
+
+/// Vault settings (T30). Keyring unlock is per device and lives in the
+/// vault's own database, not here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VaultSettings {
+    /// Lock the vault after this many minutes without input; 0 = never
+    /// (0–1440).
+    pub auto_lock_minutes: u32,
+    /// Lock when a system suspend/resume is detected.
+    pub lock_on_suspend: bool,
+    /// Close connections when the vault locks (otherwise they keep running;
+    /// transfers that need a secret wait for the unlock).
+    pub lock_disconnects: bool,
+    /// Save site passwords, account and key passphrases in the vault. When
+    /// off, password fields are never written (FileZilla's "do not save
+    /// passwords").
+    pub store_passwords: bool,
+}
+
+impl Default for VaultSettings {
+    fn default() -> Self {
+        Self {
+            auto_lock_minutes: 15,
+            lock_on_suspend: true,
+            lock_disconnects: false,
+            store_passwords: true,
         }
     }
 }

@@ -119,15 +119,15 @@ VK  ──HKDF(salt = item_id, info = "courier-ftp/item/v1")──▶ per-item k
 
 ## Acceptance criteria
 
-- [ ] Initialize → lock → unlock returns identical items.
-- [ ] Keyring unlock (mock keyring) works, falls back to password on error, and "forgot password" via keyring sets a new password.
-- [ ] Wrong password fails without modifying any data except the failure counter.
-- [ ] Backoff timings match the table (paused-time tests), shared across two engine instances on the same DB.
-- [ ] Auto-lock fires after the timeout and is reset by input.
-- [ ] Live-key counter is zero after `lock()`.
-- [ ] Tampered `kdf` params outside bounds are rejected before running Argon2.
-- [ ] Weak passwords rejected with zxcvbn feedback.
-- [ ] No secret appears in `Debug` output or logs (canary-secret test, see T71).
+- [x] Initialize → lock → unlock returns identical items.
+- [x] Keyring unlock (mock keyring) works, falls back to password on error, and "forgot password" via keyring sets a new password.
+- [x] Wrong password fails without modifying any data except the failure counter.
+- [x] Backoff timings match the table (paused-time tests), shared across two engine instances on the same DB.
+- [x] Auto-lock fires after the timeout and is reset by input.
+- [x] Live-key counter is zero after `lock()`.
+- [x] Tampered `kdf` params outside bounds are rejected before running Argon2.
+- [x] Weak passwords rejected with zxcvbn feedback.
+- [x] No secret appears in `Debug` output or logs (canary-secret test, see T71).
 
 ## Tests
 

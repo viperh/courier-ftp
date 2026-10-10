@@ -25,6 +25,8 @@
 //!   by `courier-ftp-crypto` (checked on every write); wrapped keys and tokens
 //!   arrive already wrapped. Decrypted search labels may only go to the TEMP
 //!   `item_index` ([`search`]), which lives in memory.
+//! - [`vault::VaultEngine`] (T30) sits on top: it owns the keys, seals and opens
+//!   envelopes, and implements `courier_ftp_core::vault::ItemVault` for core.
 
 pub mod approvals;
 pub mod clock;
@@ -39,6 +41,7 @@ pub mod pins;
 pub mod schema;
 pub mod search;
 pub mod sync_state;
+pub mod vault;
 pub mod vaults;
 
 pub use approvals::{ApprovalRepo, LocalApproval};

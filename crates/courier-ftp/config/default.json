@@ -428,6 +428,12 @@
       "replace_invalid_chars": true,
       "speed_limit_enabled": false,
       "upload_limit_kib": 0
+    },
+    "vault": {
+      "auto_lock_minutes": 15,
+      "lock_disconnects": false,
+      "lock_on_suspend": true,
+      "store_passwords": true
     }
   },
   "styles": {

@@ -11,11 +11,18 @@ rust-version.workspace = true
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
 # Everything here should be testable without a terminal.
 [features]
-# MockBackend / MockServer for other crates' tests (T03).
+# MockBackend / MockServer for other crates' tests (T03); MemItemVault (T30).
 test-util = []
 
 [dependencies]
 async-trait = { workspace = true }
+# Vault (T30): key wrapping, envelopes, Argon2 for backups; master-password
+# strength; zeroizing buffers; `.cftp-backup` compression.
+courier-ftp-crypto = { workspace = true }
+rand_core = { workspace = true }
+zeroize = { workspace = true }
+zstd = { workspace = true }
+zxcvbn = { workspace = true }
 # Host key trust (T21): hashed known_hosts hosts and key fingerprints.
 base64ct = { workspace = true }
 hmac = { workspace = true }
@@ -43,8 +50,8 @@ tracing = { workspace = true }
 uzers = { workspace = true }
 
 [dev-dependencies]
-# The item model's CBOR bytes are what the envelope seals (model::item tests).
-courier-ftp-crypto = { workspace = true }
+# Cheap Argon2 (`Argon2Cost::TEST`) for the vault tests.
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
 criterion = { workspace = true }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }

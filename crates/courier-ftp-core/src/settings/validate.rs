@@ -83,6 +83,14 @@ impl Settings {
             &mut || l.log_file_max_mib = defaults.logging.log_file_max_mib,
         );
 
+        let v = &mut self.vault;
+        check(
+            v.auto_lock_minutes <= 1440,
+            "vault.auto_lock_minutes",
+            "must be 0-1440",
+            &mut || v.auto_lock_minutes = defaults.vault.auto_lock_minutes,
+        );
+
         warnings
     }
 }
@@ -131,10 +139,11 @@ mod tests {
             "connection": {"timeout_secs": 0},
             "transfers": {"max_concurrent": 0, "invalid_char_replacement": "/"},
             "logging": {"level": 9},
-            "ftp": {"send_keepalive_command": "rm -rf"}
+            "ftp": {"send_keepalive_command": "rm -rf"},
+            "vault": {"auto_lock_minutes": 100000}
         }));
         assert_eq!(s, Settings::default());
-        assert_eq!(report.warnings.len(), 5, "{report:?}");
+        assert_eq!(report.warnings.len(), 6, "{report:?}");
     }
 
     #[test]
