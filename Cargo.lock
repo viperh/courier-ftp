@@ -1379,6 +1379,7 @@ dependencies = [
  "courier-ftp-core",
  "courier-ftp-proto-ftp",
  "courier-ftp-proto-sftp",
+ "rcgen",
  "secrecy",
  "testcontainers",
  "tokio",

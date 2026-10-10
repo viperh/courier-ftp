@@ -253,7 +253,21 @@ impl DataSession {
             },
         };
         let stream: BoxedStream = Box::new(tcp);
-        let tls = false;
+        let (stream, tls) = match conn.data_tls() {
+            None => (stream, false),
+            Some(tls) => match tls.handshake_data(stream, self.opts.timeout, cancel).await {
+                Ok(stream) => (stream, true),
+                Err(err) => {
+                    conn.events().log(
+                        conn.session(),
+                        LogKind::Error,
+                        format!("TLS on the data connection failed: {err}"),
+                    );
+                    abort_after_failed_open(conn).await;
+                    return Err(err);
+                }
+            },
+        };
         Ok(DataOpen::Stream(DataStream::new(
             stream,
             self.opts.timeout,

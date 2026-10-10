@@ -3,14 +3,18 @@
 //!
 //! # Opening a session
 //!
-//! [`connect`] runs the whole start sequence for plain FTP:
+//! [`connect`] runs the whole start sequence (FTPS steps per
+//! [`FtpOptions::encryption`], T12, see [`crate::tls`]):
 //!
 //! 1. asks for the password first when the logon type wants one
 //!    (`Prompt(Password)`), so no prompt is ever open while a connection
 //!    waits;
 //! 2. TCP through [`courier_ftp_core::net::connect_tcp`] (DNS, IPv6, Happy
 //!    Eyeballs, the generic HTTP/SOCKS proxy);
-//! 3. the greeting (`220`; `120` means "wait", the next reply is read);
+//! 3. implicit FTPS: the TLS handshake ([`ControlConnection::start_tls`]);
+//!    then the greeting (`220`; `120` means "wait", the next reply is read);
+//!    explicit FTPS: `AUTH TLS` and the handshake
+//!    ([`ControlConnection::auth_tls`]) — before any FTP proxy login;
 //! 4. the login script ([`LoginScript`], `USER` → `331` → `PASS` → `332` →
 //!    `ACCT`, `230` straight after `USER` accepted), or the FTP proxy's
 //!    script ([`crate::proxy`], T15; the TCP connection then goes to the
@@ -18,7 +22,9 @@
 //! 5. `SYST`, `FEAT` (parsed into [`Features`]; `500` keeps the defaults),
 //!    `CLNT` when announced, `OPTS UTF8 ON` when `UTF8` is announced and the
 //!    charset is Auto or UTF-8 (its failure is ignored);
-//! 6. `PWD` (a failure there is logged, not fatal).
+//! 6. on TLS connections `PBSZ 0` + `PROT P`
+//!    ([`ControlConnection::protect_data`]);
+//! 7. `PWD` (a failure there is logged, not fatal).
 //!
 //! Each step is also a public method, so later tasks can insert theirs:
 //! implicit FTPS (T12) wraps the stream before [`ControlConnection::new`],
@@ -71,11 +77,13 @@ mod features;
 mod login;
 mod pwd;
 mod reply;
+mod secure;
 
 use std::{
     borrow::Cow,
     hash::BuildHasher,
     net::SocketAddr,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -85,7 +93,7 @@ use courier_ftp_core::{
     events::{
         EventSender, LogKind, PromptKind, PromptResponse, SessionId, mask_command, mask_secrets,
     },
-    model::{Charset, LogonType},
+    model::{Charset, FtpEncryption, LogonType},
     net::{HostPort, NetOpts, connect_tcp},
     settings::Settings,
 };
@@ -102,7 +110,10 @@ pub use self::{
     pwd::parse_quoted_path,
     reply::{MAX_LINE, MAX_REPLY_BYTES, Reply, ReplyError, ReplyParser},
 };
-use crate::proxy::FtpProxyConfig;
+use crate::{
+    proxy::FtpProxyConfig,
+    tls::{TlsSession, TlsTrust},
+};
 
 /// How long [`ControlConnection::quit`] waits for the `221`.
 pub const QUIT_WAIT: Duration = Duration::from_secs(2);
@@ -175,6 +186,13 @@ pub struct FtpOptions {
     /// The FTP proxy (T15): the control connection goes to its server and
     /// logs in with its script. `None` connects to `host` directly.
     pub ftp_proxy: Option<FtpProxyConfig>,
+    /// FTPS mode (T12). [`FtpOptions::new`] uses
+    /// [`FtpEncryption::PlainOnly`]; [`FtpOptions::from_connect_info`] the
+    /// site's mode.
+    pub encryption: FtpEncryption,
+    /// Certificate trust for FTPS; `None` uses a locked in-memory store
+    /// (every unknown certificate is asked about, nothing is remembered).
+    pub tls: Option<Arc<TlsTrust>>,
 }
 
 impl FtpOptions {
@@ -192,6 +210,8 @@ impl FtpOptions {
             timeout: Duration::from_secs(settings.connection.timeout_secs.max(1)),
             client_name: Some(CLIENT_NAME.to_owned()),
             ftp_proxy,
+            encryption: FtpEncryption::PlainOnly,
+            tls: None,
         }
     }
 
@@ -200,6 +220,7 @@ impl FtpOptions {
     pub fn from_connect_info(info: &ConnectInfo, settings: &Settings) -> Self {
         let mut opts = Self::new(HostPort::from(&info.address), info.logon.clone(), settings);
         opts.charset = info.charset;
+        opts.encryption = info.ftp_encryption().unwrap_or_default();
         if info.proxy == ProxyChoice::Bypass {
             opts.net = opts.net.bypass_proxy(true);
             opts.ftp_proxy = None;
@@ -275,8 +296,30 @@ pub async fn connect(opts: &FtpOptions, ctx: FtpContext) -> Result<ControlConnec
     let password = ask_password(opts, &ctx).await?;
     let script = opts.login_script(password)?;
     let mut conn = ControlConnection::connect_tcp(opts, ctx).await?;
+    let tls = match opts.encryption {
+        FtpEncryption::PlainOnly => None,
+        _ => Some(Arc::new(TlsSession::new(
+            opts.tls.clone().unwrap_or_else(|| {
+                Arc::new(TlsTrust::new(Arc::new(
+                    courier_ftp_core::trust::MemoryCertTrustStore::locked(),
+                )))
+            }),
+            // The TLS peer is whoever the control connection talks to (the
+            // FTP proxy when one is used: AUTH TLS goes before its login).
+            opts.control_target(),
+        )?)),
+    };
+    if let (FtpEncryption::RequireImplicit, Some(tls)) = (opts.encryption, &tls) {
+        conn.start_tls(Arc::clone(tls)).await?;
+    }
     conn.read_greeting().await?;
-    // T12: explicit FTPS (`AUTH TLS`, `PBSZ 0`, `PROT P`) goes here.
+    if let (
+        encryption @ (FtpEncryption::ExplicitIfAvailable | FtpEncryption::RequireExplicit),
+        Some(tls),
+    ) = (opts.encryption, tls)
+    {
+        conn.auth_tls(encryption, tls).await?;
+    }
     if let Some(proxy) = &opts.ftp_proxy {
         conn.log(
             LogKind::Status,
@@ -285,6 +328,7 @@ pub async fn connect(opts: &FtpOptions, ctx: FtpContext) -> Result<ControlConnec
     }
     conn.login(&script).await?;
     conn.negotiate(opts.client_name.as_deref()).await?;
+    conn.protect_data(opts.encryption).await?;
     match conn.pwd().await {
         Ok(_) => {}
         Err(err @ (Error::Cancelled | Error::Timeout | Error::Connection(_))) => return Err(err),
@@ -347,6 +391,10 @@ pub struct ControlConnection {
     local_addr: Option<SocketAddr>,
     last_activity: Instant,
     keepalive_count: u64,
+    /// TLS on the control connection (T12).
+    tls: Option<Arc<TlsSession>>,
+    /// `PROT P` accepted: data connections use TLS.
+    prot_private: bool,
 }
 
 impl std::fmt::Debug for ControlConnection {
@@ -387,6 +435,8 @@ impl ControlConnection {
             local_addr: None,
             last_activity: Instant::now(),
             keepalive_count: 0,
+            tls: None,
+            prot_private: false,
         }
     }
 

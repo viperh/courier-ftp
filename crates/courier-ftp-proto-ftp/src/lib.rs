@@ -11,6 +11,7 @@ pub mod control;
 pub mod data;
 pub mod listing;
 pub mod proxy;
+pub mod tls;
 
 #[cfg(test)]
 pub(crate) mod test_server;
