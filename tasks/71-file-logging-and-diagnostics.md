@@ -21,11 +21,26 @@ for users diagnosing connection problems).
 
 ## Acceptance criteria
 
-- [ ] Rotation works for both logs.
-- [ ] Session log contains masked commands.
-- [ ] Secret-leak test passes over the integration test logs.
+- [x] Rotation works for both logs.
+- [x] Session log contains masked commands.
+- [x] Secret-leak test passes over the integration test logs.
 - [ ] Raw listing dialog works for FTP (LIST/MLSD) and SFTP (longname lines).
 
 ## Tests
 
 - Unit tests for rotation; integration secret-leak test.
+
+## Status
+
+- Core `logfile`: `DailyRotating` (application log, 7 days), `SizeRotating` +
+  `SessionLogFile` (session log), `BackgroundWriter` (bounded, drops and notes the
+  count), files `0600`. Binary: `logging.rs` (daily file, `--debug`, filter fallback,
+  flush at exit/panic), `diagnostics.rs` (session log on/off, raw listings, Save log
+  as…), `ui/text_viewer.rs`. Keys: `<Ctrl-x><s>` raw listing, `Y`/`S` in the log.
+- Debug level: `--debug-level` and `App::apply_logging` (the hook the settings screen,
+  T68, calls); level 3+ also lets `ListingRaw` lines through. TLS details at level 3 come
+  with FTPS (T12); SSH negotiation lines already log at `Debug(3)`.
+- Raw listing box left open: the dialog shows `Listing.raw` for any backend and is
+  tested with SFTP-style and MLSD-style text, but no FTP backend exists yet. **T14** must
+  set `Listing.raw = Some(parsed.raw)` from T13's `ParsedListing` and log `ListingRaw`
+  lines when `events.enabled(LogKind::ListingRaw)` (as the SFTP backend does).

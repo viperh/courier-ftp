@@ -57,6 +57,9 @@ pub(crate) enum Action {
     SiteManager,
     /// Re-list the directories shown in both panes.
     Refresh,
+    /// Show the raw listing (LIST/MLSD text, SFTP long names) of the focused
+    /// pane's directory (T71).
+    ShowRawListing,
     NewTab,
     CloseTab,
     NextTab,
@@ -171,6 +174,10 @@ pub(crate) enum Action {
     SearchPrev,
     /// Copy the selected lines to the clipboard (OSC 52).
     CopySelection,
+    /// Copy the whole log (as the filters show it) to the clipboard (T71).
+    CopyLog,
+    /// Save the log (as the filters show it) to a file (T71).
+    SaveLog,
     ClearLog,
     /// Wrap long lines on/off.
     ToggleWrap,
@@ -232,6 +239,15 @@ pub(crate) enum Action {
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),
+    /// Ask where to save this log text (T71).
+    #[serde(skip)]
+    SaveLogText(String),
+    /// "Save log as…" finished.
+    #[serde(skip)]
+    LogSaved {
+        path: std::path::PathBuf,
+        result: Result<(), String>,
+    },
     /// A directory listing finished in the background.
     #[serde(skip)]
     ListingLoaded {

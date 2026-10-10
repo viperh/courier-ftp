@@ -48,7 +48,11 @@ fn test_home_layout_and_cleanup() {
 fn failing_tests_keep_their_home_and_dump_it() {
     let (result, dumps) = diag::capture(|| {
         let home = TestHome::new_in(std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap();
-        std::fs::write(home.data_dir().join("courier-ftp.log"), "line 1\nline 2\n").unwrap();
+        std::fs::write(
+            home.data_dir().join("courier-ftp.2026-10-10.log"),
+            "line 1\nline 2\n",
+        )
+        .unwrap();
         let path = home.path().to_path_buf();
         std::panic::panic_any(path);
     });

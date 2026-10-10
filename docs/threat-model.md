@@ -50,7 +50,7 @@ the document is completed at the end of the project.
 | Tampered vault or backup | Envelopes bind vault id, item id and key version in the AAD; tampered items are skipped and logged by id; backup header is part of the AAD and its KDF bounds are checked before Argon2 | T30, T80 | `courier-ftp-crypto` `tests/envelope.rs::{tamper_every_byte, tamper_aad_other_item_vault_or_key_version}`; `courier-ftp-store` `tests/vault.rs::tampered_item_envelopes_are_skipped`; `courier-ftp-core` `vault::backup::tests::{tampering_is_detected, out_of_bounds_kdf_is_refused_before_argon2, decompression_is_capped}` |
 | Memory scraping | `zeroize`/`secrecy` on every secret type; LMK and vault keys in `mlock`ed pages (best effort); core dumps off and same-user `ptrace` blocked (Linux `PR_SET_DUMPABLE 0` + `RLIMIT_CORE 0`; macOS `RLIMIT_CORE 0`; Windows no WER heap, no fault dialogs) | **T91** | `courier-ftp-core` `tests/hardening.rs` (`t01_harden_process_disables_core_dumps`, `t02_mlock_fallback_with_zero_memlock_limit`), `hardening::tests`; `courier-ftp` `tests/hardening.rs::binary_hardens_itself_at_startup` |
 | Secrets in logs, crash reports or `Debug` output | Secret types print `[REDACTED]` (or `****`); canary values planted in tests; `scripts/canary-scan.sh` scans every log, DB, WAL/SHM and backup left after a `COURIER_FTP_LOG_LEVEL=trace` run | T30, **T91** | `scripts/canary-scan.sh --self-test`; `courier-ftp-store` `tests/canary_artifacts.rs`, `tests/vault_canary.rs`; `courier-ftp-proto-sftp` `ssh::tests::canary_secrets_stay_out_of_trace_logs` (password + keyboard-interactive code, russh's own trace output included); CI job `canary` |
-| Hostnames, user names and paths in logs | No hostnames, user names or paths at `info`+ in client crates (ids only); debug may contain hostnames | T71, **T91** | canary scan (hostname canary on `info`+ lines, any canary in DB/backup); fixed in T91: `known_hosts` file paths moved to `debug`. Open items: see the review checklist |
+| Hostnames, user names and paths in logs | No hostnames, user names or paths at `info`+ in client crates (ids only); debug may contain hostnames; log files `0600` | **T71**, **T91** | `courier-ftp` `app::log_tests::info_and_above_never_name_hosts_users_or_paths` (full session with canary host, user and paths at `trace`, then the canary scan); canary scan (hostname canary on `info`+ lines, any canary in DB/backup); `courier-ftp-core` `logfile::tests::log_files_are_private` |
 | MITM on SFTP | Strict host-key verification against the vault and `known_hosts` (hashed entries, `@revoked`); a changed key prompts with both fingerprints, cancel fails | T21 | `courier-ftp-proto-sftp` `ssh::trust::tests::{a_changed_key_prompts_with_both_fingerprints_and_cancel_fails, a_revoked_key_is_rejected_without_a_prompt, a_hashed_known_hosts_entry_matches_silently, first_connect_prompts_and_always_makes_the_next_one_silent}` |
 | MITM on FTPS, certificate changes | rustls only (D9), certificate pinning on change | T12 (**planned**) | added with T12 |
 | Plain FTP | Warnings when credentials or data go unencrypted | T12, T57 (**planned**) | added with T12/T57 |
@@ -126,14 +126,21 @@ Planned with their tasks: FTP reply parser (T10), PASV/EPSV parser (T11), FileZi
   `VaultEngine`).
 - `info`+ logging: the vault engine logs ids and counts only. Fixed in T91: `known_hosts`
   file paths (which contain the user name) moved from `warn`/`info` to `debug`.
-  **Open (T71)**: the binary logs every action at `info` (`app.rs`, `Got action: {action:?}`;
-  actions may carry hosts and paths) and config/filter warnings may include paths; T71's
-  logging rework moves these to `debug`.
+  Fixed in T71: actions are logged at `debug` by variant name only; `Action::Error` (paths,
+  hosts) and the vault-open error (database path) went to `debug`. Remaining `info`+ call
+  sites in client crates (core, proto-ftp, proto-sftp, store, binary) log ids, counts,
+  setting/keybinding names, key fingerprints and error kinds only. Test:
+  `courier-ftp` `app::log_tests::info_and_above_never_name_hosts_users_or_paths`.
+  Panic reports stay at `error` (see residual risks).
 
 ## Residual risks
 
-- **Debug logs contain hostnames** (`COURIER_FTP_LOG_LEVEL=debug`); the `--debug` warning
-  comes with T71.
+- **Debug logs contain hostnames** (`COURIER_FTP_LOG_LEVEL=debug` or `--debug`, which
+  prints a warning saying so, T71).
+- **The session log file** (`logging.log_to_file`, off by default) names servers, users and
+  paths by design; it is created `0600` and never contains secrets (commands masked again
+  when written; `courier-ftp-core` `logfile::tests`, `courier-ftp-proto-ftp`
+  `control::tests::session_log_file_has_masked_commands`).
 - **`mlock` is best effort**: not available with a low `RLIMIT_MEMLOCK`, and values copied
   before they reach `Locked` (stack temporaries, Argon2 buffers, the KEK during unlock) are
   only zeroized, not locked.

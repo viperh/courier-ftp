@@ -54,6 +54,8 @@ fn is_pane_action(action: &Action) -> bool {
             | Action::SearchPrev
             | Action::VisualSelect
             | Action::CopySelection
+            | Action::CopyLog
+            | Action::SaveLog
             | Action::ClearLog
             | Action::ToggleWrap
             | Action::ToggleLogAll
@@ -435,6 +437,11 @@ impl MainScreen {
         } else if let Some(list) = self.focused_list() {
             list.handle_paste(text);
         }
+    }
+
+    /// The side of the file list or tree that last had focus.
+    pub(crate) fn active_side(&self) -> Side {
+        self.opts.compact_side
     }
 
     /// Put a dialog on top of the modal stack.
