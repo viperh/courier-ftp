@@ -26,10 +26,12 @@ response structs, error shape, limits and protocol version. Serde only, no I/O.
 
 ## Acceptance criteria
 
-- [ ] All DTOs serialise to the documented JSON (snapshot tests with `insta`).
-- [ ] Version negotiation helper rejects unsupported versions with a clear error.
-- [ ] No dependency on tokio, axum or reqwest.
+- [x] All DTOs serialise to the documented JSON (snapshot tests with `insta`).
+- [x] Version negotiation helper rejects unsupported versions with a clear error.
+- [x] No dependency on tokio, axum or reqwest.
 
 ## Tests
 
 - JSON snapshot tests for every DTO.
+
+**Status:** done. Golden JSON for every DTO in `crates/courier-ftp-proto/tests/golden.rs` (insta snapshots in `tests/snapshots/`); `version::negotiate` / `check_server`; the no-tokio/axum/reqwest rule is enforced by `scripts/check-layering.py` and `workspace_metadata.rs`.

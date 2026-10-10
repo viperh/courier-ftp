@@ -55,9 +55,18 @@ impl Timestamp {
     /// Compare at the coarser of the two precisions.
     ///
     /// `2021-01-05` (day) and `2021-01-05 12:30` (minute) are `Equal`.
+    /// Both sides are truncated in the coarser timestamp's UTC offset, so a
+    /// day at +02:00 covers 22:00 UTC the day before.
     pub fn cmp_coarse(&self, other: &Timestamp) -> Ordering {
         let p = self.precision.min(other.precision);
-        self.truncated(p).cmp(&other.truncated(p))
+        let offset = if self.precision <= other.precision {
+            self.time.offset()
+        } else {
+            other.time.offset()
+        };
+        let a = truncate(self.time.to_offset(offset), p);
+        let b = truncate(other.time.to_offset(offset), p);
+        a.cmp(&b)
     }
 
     /// Shift by a server time-zone offset (Site Manager setting, T31).
@@ -119,5 +128,18 @@ mod tests {
         let t = Timestamp::new(datetime!(2024-02-29 23:59:59 +02:00), Precision::Second);
         let json = serde_json::to_string(&t).unwrap();
         assert_eq!(serde_json::from_str::<Timestamp>(&json).unwrap(), t);
+    }
+
+    #[test]
+    fn cmp_coarse_truncates_in_the_coarser_offset() {
+        use time::macros::datetime;
+        // 2021-01-05 at +02:00 spans 2021-01-04 22:00 UTC .. 2021-01-05 22:00 UTC.
+        let day = Timestamp::new(datetime!(2021-01-05 0:00 +2), Precision::Day);
+        let late_utc = Timestamp::new(datetime!(2021-01-04 23:30 UTC), Precision::Minute);
+        assert_eq!(day.cmp_coarse(&late_utc), Ordering::Equal);
+        assert_eq!(late_utc.cmp_coarse(&day), Ordering::Equal);
+        let early_utc = Timestamp::new(datetime!(2021-01-04 21:30 UTC), Precision::Minute);
+        assert_eq!(day.cmp_coarse(&early_utc), Ordering::Greater);
+        assert_eq!(early_utc.cmp_coarse(&day), Ordering::Less);
     }
 }
