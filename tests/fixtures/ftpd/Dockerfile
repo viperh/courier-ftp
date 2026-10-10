@@ -13,11 +13,22 @@
 # tls/ is the TEST-ONLY CA (a copy of tests/fixtures/tls/). Never trust it anywhere.
 FROM public.ecr.aws/docker/library/debian:bookworm-slim
 
-RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      vsftpd proftpd-core proftpd-mod-crypto pure-ftpd openssl python3 procps \
- && rm -rf /var/lib/apt/lists/* \
- && mkdir -p /etc/courier-ftpd/tls /var/run/vsftpd/empty
+# The three servers all `Conflicts: ftp-server`, so apt refuses to install them together.
+# Download them, install their dependencies through apt, then install the servers with
+# dpkg --force-conflicts. Only one server runs per container (FTPD_PROFILE).
+RUN set -eu; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends openssl python3 procps; \
+    mkdir /tmp/debs; cd /tmp/debs; \
+    apt-get download vsftpd proftpd-core proftpd-mod-crypto pure-ftpd pure-ftpd-common; \
+    deps="$(for d in *.deb; do dpkg-deb -f "$d" Depends; done \
+      | tr ',' '\n' | sed -e 's/|.*//' -e 's/(.*)//' -e 's/:any//' | tr -d ' ' \
+      | grep -v -E '^(vsftpd|proftpd|pure-ftpd|$)' | sort -u)"; \
+    apt-get install -y --no-install-recommends $deps; \
+    dpkg -i --force-conflicts ./*.deb; \
+    cd /; rm -rf /tmp/debs /var/lib/apt/lists/*; \
+    mkdir -p /etc/courier-ftpd/tls /var/run/vsftpd/empty
 
 COPY base/ /etc/courier-ftpd/base/
 COPY profiles/ /etc/courier-ftpd/profiles/
