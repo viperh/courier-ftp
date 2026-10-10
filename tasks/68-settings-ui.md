@@ -20,7 +20,7 @@ Settings dialog, saving to the user config file.
    - **Transfers**: concurrency limits, speed limits + burst tolerance, preallocate, preserve timestamps, invalid char replacement, empty dirs, follow symlinks.
      - **File types**: default type, ASCII extension list editor, dotfiles/no-extension ASCII.
      - **File exists action**: download/upload defaults.
-   - **Interface**: layout, swap panes, show tree/log/queue/quickconnect, unicode symbols, confirm delete/transfer, restore tabs, language (T75), splash, update check (T74).
+   - **Interface**: layout, swap panes, show tree/log/queue/quickconnect, unicode symbols, confirm delete/transfer, restore tabs, splash, update check (T74).
      - **File lists**: size format, thousands separator, date/time format (live preview), dirs first, sort case sensitivity, natural sort, columns.
      - **Theme**: pick from built-in colour schemes (default, high contrast, monochrome); note that fine-grained styles live in config.
      - **Keybindings**: read-only list with "open config file" hint (full rebinding UI is out of scope v1).

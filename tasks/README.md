@@ -273,7 +273,7 @@ Within a milestone the tasks are listed in a valid order (each task after its ha
 1. [T72 Network configuration wizard](72-network-wizard.md)
 1. [T73 Settings import / export](73-settings-import-export.md)
 1. [T74 Update check and splash screen](74-update-check-and-splash.md)
-1. [T75 Internationalisation](75-i18n.md)
+1. ~~[T75 Internationalisation](75-i18n.md)~~ — dropped, translations not needed
 1. [T77 Documentation and release](77-docs-and-release.md)
 
 Notes:
