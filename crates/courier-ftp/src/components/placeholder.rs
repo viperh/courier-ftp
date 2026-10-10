@@ -33,7 +33,8 @@ impl Component for Placeholder {
             Region::LocalTree | Region::RemoteTree => Mode::Tree,
             Region::Log => Mode::Log,
             Region::Queue => Mode::Queue,
-            Region::Quickconnect => Mode::Input,
+            // No text field until T58: the global table applies.
+            Region::Quickconnect => Mode::Normal,
             Region::TabBar | Region::StatusBar => Mode::Normal,
         }
     }

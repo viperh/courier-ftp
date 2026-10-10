@@ -60,7 +60,7 @@ impl Component for QuitConfirm {
     fn update(&mut self, action: &Action) -> color_eyre::Result<Option<Action>> {
         Ok(match action {
             Action::Quit => self.finish(true),
-            Action::Cancel => self.finish(false),
+            Action::Cancel | Action::DialogCancel => self.finish(false),
             _ => None,
         })
     }

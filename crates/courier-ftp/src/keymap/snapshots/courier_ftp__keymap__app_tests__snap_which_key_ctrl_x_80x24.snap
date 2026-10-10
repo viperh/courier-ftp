@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/keymap/app_tests.rs
+expression: "h.render(80, 24)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
+┌ Message log ─────────────────────────────────────────────────────────────────┐
+│(not available yet)                                                           │
+│                                                    ┌ ctrl-x ─────────────────┐
+└────────────────────────────────────────────────────│     a CycleTransferType │
+┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ────│     b AddBookmark       │
+┃(not available yet)                   ┃│(not availab│     c CompareOptions    │
+┃                                      ┃│            │     d Disconnect        │
+┃                                      ┃│            │     D ShowAppLog        │
+┃                                      ┃│            │     e EditedFilesList   │
+┃                                      ┃│            │     f FiltersDialog     │
+┃                                      ┃│            │     i ServerInfo        │
+┃                                      ┃│            │     j ToggleQueuePane   │
+┃                                      ┃│            │     k ToggleSpeedLimit  │
+┃                                      ┃│            │     l ClearLog          │
+┃                                      ┃│            │     m ManualTransfer    │
+┃                                      ┃│            │     n NewFile           │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└────────────│     N NetworkWizard     │
+┌ Queue ─────────────────────────────────────────────│     p OpenNextPrompt    │
+│(not available yet)                                 │     q ToggleQuickconnect│
+│                                                    │… 20 more (F1)           │
+└────────────────────────────────────────────────────└─────────────────────────┘
+ NORMAL │ ctrl-x …                                            F1 help  F10 quit
