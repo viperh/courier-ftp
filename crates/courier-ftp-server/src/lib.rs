@@ -19,6 +19,8 @@
 //! * [`secrets`]: AEAD-encrypted `server_secrets`,
 //! * [`registration`]: registration modes, setup-token bootstrap,
 //! * [`auth`]: OPAQUE login, tokens, devices, TOTP,
+//! * [`sync`]: vaults, pull, push, quota, tombstone GC,
+//! * [`ws`]: `/v1/ws` notifications and `LISTEN/NOTIFY` fan-out,
 //! * [`mail`]: SMTP for recovery codes and invites,
 //! * [`serve`]: startup checks and listeners.
 
@@ -37,6 +39,10 @@ pub mod secrets;
 pub mod serve;
 pub mod settings;
 pub mod state;
+// Vault list, pull, push, quota and tombstone GC (T85).
+pub mod sync;
+// WebSocket notifications and multi-replica fan-out (T85).
+pub mod ws;
 
 pub use config::Config;
 pub use error::ApiError;

@@ -101,10 +101,11 @@ fn new_credentials(upload: &[u8], bundle: &[u8], version: u32) -> Result<NewCred
     })
 }
 
-/// Tells the user's other devices that the account keys changed (T85 adds
-/// the WebSocket `account_changed` message); `origin` is not notified.
-fn notify_account_changed(_state: &AppState, user_id: Uuid, version: u32, _origin: Option<Uuid>) {
+/// Tells the user's other devices over WebSocket
+/// (`{"type":"account_changed","key_version"}`); `origin` is not notified.
+fn notify_account_changed(state: &AppState, user_id: Uuid, version: u32, origin: Option<Uuid>) {
     tracing::info!(%user_id, key_version = version, "account_changed");
+    state.ws().account_changed(user_id, version, origin);
 }
 
 /// `POST /v1/account/totp`: without `code`, start enabling (new pending
@@ -372,5 +373,7 @@ async fn delete_account(
         .delete_account(ctx.user_id, &reauth, auth.now())
         .await?;
     tracing::info!(user_id = %ctx.user_id, "account deleted");
+    // Every open socket of the account closes with 4401.
+    state.ws().user_disabled(ctx.user_id);
     Ok(StatusCode::NO_CONTENT)
 }

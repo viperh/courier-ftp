@@ -16,6 +16,7 @@
 )]
 
 pub mod client;
+pub mod sync;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -226,6 +227,12 @@ impl Server {
         let auth = AuthRuntime::new(store, clock.clone());
         let state = AppState::with_auth(cfg, pool, limits, auth);
         serve::startup_checks(&state).await.expect("startup checks");
+        Self::from_state(state, backend, clock).await
+    }
+
+    /// Serves an already prepared state.
+    pub async fn from_state(state: AppState, backend: Backend, clock: Arc<ManualClock>) -> Self {
+        install_crypto();
         let (addr, task) = spawn(state.clone()).await;
         let http = reqwest::Client::builder()
             .no_proxy()

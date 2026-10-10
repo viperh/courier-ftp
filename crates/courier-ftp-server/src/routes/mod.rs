@@ -7,6 +7,8 @@ pub mod account;
 pub mod auth;
 pub mod devices;
 pub mod ops;
+// Vault list, pull and push (T85).
+pub mod vaults;
 
 use axum::Router;
 
@@ -18,4 +20,6 @@ pub fn api_v1() -> Router<AppState> {
         .merge(auth::router())
         .merge(account::router())
         .merge(devices::router())
+        .merge(vaults::router())
+        .merge(crate::ws::router())
 }

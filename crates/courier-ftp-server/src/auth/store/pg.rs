@@ -830,6 +830,32 @@ pub(super) async fn insert_secret_if_absent(pool: &PgPool, name: &str, value: &[
     Ok(())
 }
 
+pub(super) async fn purge_expired(pool: &PgPool, now: DateTime<Utc>) -> Res<super::PurgeReport> {
+    let tokens = query("DELETE FROM auth_tokens WHERE expires_at < $1")
+        .bind(now)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    let mut other = 0;
+    for table in ["login_states", "reauth_tokens", "recovery_codes"] {
+        other += query(&format!("DELETE FROM {table} WHERE expires_at < $1"))
+            .bind(now)
+            .execute(pool)
+            .await?
+            .rows_affected();
+    }
+    let invites = query("DELETE FROM invites WHERE accepted_at IS NULL AND expires_at < $1")
+        .bind(now)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(super::PurgeReport {
+        tokens,
+        other,
+        invites,
+    })
+}
+
 pub(super) async fn list_secrets(pool: &PgPool) -> Res<Vec<(String, Vec<u8>)>> {
     Ok(
         query_as("SELECT name, value_enc FROM server_secrets ORDER BY name")

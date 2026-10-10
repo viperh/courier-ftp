@@ -195,6 +195,17 @@ pub struct NewCredentials {
     pub version: i32,
 }
 
+/// What [`AuthStore::purge_expired`] removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PurgeReport {
+    /// Expired access and refresh tokens.
+    pub tokens: u64,
+    /// Expired login states, reauth tokens and recovery codes.
+    pub other: u64,
+    /// Expired invites that were never accepted.
+    pub invites: u64,
+}
+
 /// Maximum failed attempts per recovery code before it is discarded.
 pub const RECOVERY_CODE_MAX_ATTEMPTS: i32 = 5;
 
@@ -532,6 +543,15 @@ impl AuthStore {
     /// Database errors.
     pub async fn insert_secret_if_absent(&self, name: &str, value: &[u8]) -> Result<(), ApiError> {
         dispatch!(self, insert_secret_if_absent(name, value))
+    }
+
+    /// Deletes expired tokens, login states, reauth tokens, recovery codes
+    /// and unaccepted invites (background GC and `admin gc`).
+    ///
+    /// # Errors
+    /// Database errors.
+    pub async fn purge_expired(&self, now: DateTime<Utc>) -> Result<PurgeReport, ApiError> {
+        dispatch!(self, purge_expired(now))
     }
 
     /// Every `server_secrets` row (name, sealed value), by name.

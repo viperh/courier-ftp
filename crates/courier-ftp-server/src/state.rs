@@ -10,6 +10,8 @@ use crate::auth::AuthRuntime;
 use crate::config::Config;
 use crate::middleware::rate_limit::RateLimiters;
 use crate::secrets::ServerSecrets;
+use crate::sync::SyncRuntime;
+use crate::ws::{Bus, WsRuntime, WsTiming};
 
 /// Components that can mark the server "not ready" without being fatal
 /// (e.g. the LISTEN/NOTIFY listener reconnecting).
@@ -48,6 +50,8 @@ struct Inner {
     rate_limits: Arc<RateLimiters>,
     readiness: Readiness,
     auth: AuthRuntime,
+    sync: SyncRuntime,
+    ws: WsRuntime,
     mailer: std::sync::RwLock<crate::mail::Mailer>,
 }
 
@@ -78,7 +82,28 @@ impl AppState {
         rate_limits: RateLimiters,
         auth: AuthRuntime,
     ) -> Self {
+        // LISTEN/NOTIFY on PostgreSQL, in-process for the memory model.
+        let bus = WsRuntime::bus_for_auth(auth.store());
+        Self::with_bus(config, db, rate_limits, auth, bus)
+    }
+
+    /// Like [`Self::with_auth`] on an explicit fan-out bus (tests: several
+    /// states sharing one [`crate::ws::LocalBus`] and one store are several
+    /// replicas sharing one database).
+    #[must_use]
+    pub fn with_bus(
+        config: Config,
+        db: PgPool,
+        rate_limits: RateLimiters,
+        auth: AuthRuntime,
+        bus: std::sync::Arc<dyn Bus>,
+    ) -> Self {
         let secrets = ServerSecrets::new(&config.server_secret);
+        // Sync runs on the same backend as auth.
+        let sync = SyncRuntime::for_auth(&auth, &config);
+        // Push commits publish `vault_changed` on the bus.
+        let ws = WsRuntime::new(bus, WsTiming::default());
+        sync.set_notifier(ws.notifier());
         // Recovery-code and invite mail when SMTP is configured.
         let mailer = std::sync::RwLock::new(crate::mail::Mailer::from_config(config.smtp.as_ref()));
         Self(Arc::new(Inner {
@@ -88,6 +113,8 @@ impl AppState {
             rate_limits: Arc::new(rate_limits),
             readiness: Readiness::default(),
             auth,
+            sync,
+            ws,
             mailer,
         }))
     }
@@ -120,6 +147,18 @@ impl AppState {
     #[must_use]
     pub fn auth(&self) -> &AuthRuntime {
         &self.0.auth
+    }
+
+    /// Sync state (store, limits, change notifier).
+    #[must_use]
+    pub fn sync(&self) -> &SyncRuntime {
+        &self.0.sync
+    }
+
+    /// WebSocket hub and fan-out bus.
+    #[must_use]
+    pub fn ws(&self) -> &WsRuntime {
+        &self.0.ws
     }
 
     /// The mailer (recovery codes, invites).

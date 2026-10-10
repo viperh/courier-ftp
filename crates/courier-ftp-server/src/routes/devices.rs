@@ -66,5 +66,7 @@ async fn revoke(
             auth.now(),
         )
         .await?;
+    // The device's open sockets close with 4401 right away.
+    state.ws().device_revoked(ctx.user_id, id);
     Ok(StatusCode::NO_CONTENT)
 }

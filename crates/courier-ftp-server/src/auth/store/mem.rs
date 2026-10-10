@@ -1010,6 +1010,31 @@ impl MemStore {
         Ok(())
     }
 
+    pub(super) fn purge_expired(&self, now: DateTime<Utc>) -> Res<super::PurgeReport> {
+        let mut d = self.lock();
+        let n = |a: usize, b: usize| (a - b) as u64;
+        let before = d.tokens.len();
+        d.tokens.retain(|_, t| t.expires_at >= now);
+        let tokens = n(before, d.tokens.len());
+        let before = d.login_states.len() + d.reauth.len() + d.recovery_codes.len();
+        d.login_states.retain(|_, s| s.expires_at >= now);
+        d.reauth.retain(|_, (_, exp)| *exp >= now);
+        d.recovery_codes.retain(|_, c| c.expires_at >= now);
+        let other = n(
+            before,
+            d.login_states.len() + d.reauth.len() + d.recovery_codes.len(),
+        );
+        let before = d.invites.len();
+        d.invites
+            .retain(|i| i.accepted || i.expires_at.is_none_or(|e| e >= now));
+        let invites = n(before, d.invites.len());
+        Ok(super::PurgeReport {
+            tokens,
+            other,
+            invites,
+        })
+    }
+
     pub(super) fn list_secrets(&self) -> Res<Vec<(String, Vec<u8>)>> {
         Ok(self
             .lock()

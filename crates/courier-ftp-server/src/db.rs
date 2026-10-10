@@ -18,6 +18,8 @@ use sqlx_postgres::{PgPool, PgPoolOptions};
 pub const MIGRATIONS: &[(i64, &str, &str)] = &[
     // Accounts, devices, tokens, login states, vault tables (T84).
     (1, "init", include_str!("../migrations/0001_init.sql")),
+    // Tombstone GC index (T85).
+    (2, "sync", include_str!("../migrations/0002_sync.sql")),
 ];
 
 /// The migrator over [`MIGRATIONS`].

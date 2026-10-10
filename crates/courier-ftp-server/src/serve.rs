@@ -151,6 +151,10 @@ pub async fn run(config: Config, apply_migrations: bool) -> Result<(), StartupEr
     let config = state.config().clone();
 
     let _cleanup = state.rate_limits().clone().spawn_cleanup();
+    // Periodic GC (expired tokens, tombstones).
+    let _gc = crate::sync::gc::spawn_background(state.clone());
+    // LISTEN for fan-out from the start (readiness reflects it).
+    state.ws().ensure_started(&state);
 
     let app = crate::app::router(state).into_make_service_with_connect_info::<SocketAddr>();
     let addr = config.bind;
