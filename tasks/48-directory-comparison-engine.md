@@ -26,9 +26,9 @@ exactly as FileZilla's directory comparison does.
 
 ## Acceptance criteria
 
-- [ ] All statuses covered by tests, including precision edge cases (minute vs second).
-- [ ] Alignment correct with sorting by name and with dirs-first.
-- [ ] Case-insensitive matching on Windows-like sides.
+- [x] All statuses covered by tests, including precision edge cases (minute vs second).
+- [x] Alignment correct with sorting by name and with dirs-first.
+- [x] Case-insensitive matching on Windows-like sides.
 
 ## Tests
 
