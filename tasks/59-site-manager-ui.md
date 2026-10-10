@@ -45,11 +45,19 @@ editor on the right, connect buttons at the bottom.
 
 ## Acceptance criteria
 
-- [ ] All fields editable and persisted; fields hide/show by protocol/logon type.
-- [ ] Unsaved changes guarded.
-- [ ] Import/export flows work end-to-end.
-- [ ] Fuzzy site picker connects in ≤ 3 keystrokes for a known site name.
-- [ ] Snapshot tests for each tab and protocol variant.
+- [x] All fields editable and persisted; fields hide/show by protocol/logon type.
+- [x] Unsaved changes guarded.
+- [x] Import/export flows work end-to-end.
+- [x] Fuzzy site picker connects in ≤ 3 keystrokes for a known site name. *(`<Ctrl-x><g>`, then e.g. `mo` + Enter.)*
+- [x] Snapshot tests for each tab and protocol variant.
+
+**Status (T59 done):** the screen lives in `ui/site_manager/` (tree, editor,
+picker) and the app side in `sites.rs`. Left for later tasks:
+*Connect in new tab* (T61; the button is not shown until tabs exist), editing
+bookmarks from the Bookmarks tab (T64; it lists them read-only), choosing a
+vault SSH key instead of a key file (a site imported with one keeps it; the
+key file field explains it), and `--site` launch intents waiting for unlock
+(T70, via `SiteManager::find_site`).
 
 ## Tests
 

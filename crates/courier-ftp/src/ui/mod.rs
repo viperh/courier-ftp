@@ -13,6 +13,7 @@ mod modal;
 mod panes;
 mod quickconnect;
 mod screen;
+pub(crate) mod site_manager;
 mod status;
 mod text_viewer;
 mod theme;

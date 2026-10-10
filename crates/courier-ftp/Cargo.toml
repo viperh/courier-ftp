@@ -35,6 +35,7 @@ color-eyre = { workspace = true }
 config = { workspace = true }
 crossterm = { workspace = true }
 directories = { workspace = true }
+encoding_rs = { workspace = true }
 futures = { workspace = true }
 human-panic = { workspace = true }
 json5 = { workspace = true }
