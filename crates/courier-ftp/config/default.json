@@ -118,6 +118,7 @@
       "<Ctrl-x><d>": "Disconnect",
       "<Ctrl-x><i>": "ServerInfo",
       "<Ctrl-x><l>": "ToggleSpeedLimit",
+      "<Ctrl-x><p>": "OpenPrompt",
       "<Ctrl-x><t>": "CycleTransferType",
       "<Ctrl-y>": "ToggleSyncBrowsing",
       "<Ctrl-z>": "Suspend",

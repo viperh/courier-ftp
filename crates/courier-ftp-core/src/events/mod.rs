@@ -31,8 +31,7 @@ use std::{
 
 pub use mask::{mask_command, mask_secrets};
 pub use prompt::{
-    ApplyTo, CertificateDetails, FileExistsAnswer, PromptId, PromptKind, PromptRequest,
-    PromptResponse, TrustDecision,
+    ApplyTo, FileExistsAnswer, PromptId, PromptKind, PromptRequest, PromptResponse, TrustDecision,
 };
 use time::OffsetDateTime;
 use tokio::sync::{Notify, mpsc, oneshot};

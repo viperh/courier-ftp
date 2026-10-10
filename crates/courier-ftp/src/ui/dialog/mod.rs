@@ -31,7 +31,7 @@ use std::collections::HashMap;
 pub(crate) use buttons::ButtonRow;
 pub(crate) use choice::{Checkbox, RadioGroup, Select, TriState, TriStateCheckbox};
 use crossterm::event::KeyEvent;
-pub(crate) use form::{Form, FormDialog, TabbedForm};
+pub(crate) use form::{Form, FormDialog, TabbedForm, dialog_frame_styled};
 pub(crate) use list::ListView;
 use ratatui::{Frame, layout::Rect};
 use secrecy::SecretString;

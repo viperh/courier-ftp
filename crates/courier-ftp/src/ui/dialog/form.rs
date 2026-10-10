@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::Rect,
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
@@ -622,6 +623,28 @@ pub(crate) fn dialog_frame(
     inner_height: u16,
     theme: &Theme,
 ) -> Option<Rect> {
+    dialog_frame_styled(
+        frame,
+        screen,
+        title,
+        width,
+        inner_height,
+        theme,
+        theme.focused_border,
+    )
+}
+
+/// [`dialog_frame`] with its own border (and title) style (the red frame of
+/// a security warning).
+pub(crate) fn dialog_frame_styled(
+    frame: &mut Frame,
+    screen: Rect,
+    title: &str,
+    width: u16,
+    inner_height: u16,
+    theme: &Theme,
+    border: Style,
+) -> Option<Rect> {
     if screen.width < MIN_DIALOG.0 || screen.height < MIN_DIALOG.1 {
         frame.render_widget(Clear, screen);
         frame.render_widget(
@@ -637,7 +660,7 @@ pub(crate) fn dialog_frame(
     );
     let block = Block::bordered()
         .title(format!(" {title} "))
-        .border_style(theme.focused_border);
+        .border_style(border);
     let inner = block.inner(rect);
     frame.render_widget(Clear, rect);
     frame.render_widget(block, rect);

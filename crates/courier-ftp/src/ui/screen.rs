@@ -1,8 +1,15 @@
 //! [`MainScreen`]: the courier-ftp main window (T50).
 
-use std::time::Instant;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
-use courier_ftp_core::{events::CoreEvent, filters::FilterEngine, settings::InterfaceSettings};
+use courier_ftp_core::{
+    events::{CoreEvent, PromptRequest},
+    filters::FilterEngine,
+    settings::InterfaceSettings,
+};
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
 use tokio::sync::mpsc::UnboundedSender;
@@ -115,6 +122,11 @@ fn hints(config: &Config) -> Vec<(String, String)> {
     .collect()
 }
 
+/// How long the user must not press a key before a queued prompt opens by
+/// itself, so a key meant for the file list can't answer a dialog that
+/// popped up under it.
+pub(crate) const PROMPT_IDLE: Duration = Duration::from_secs(1);
+
 /// What the screen did with a key.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum KeyOutcome {
@@ -142,6 +154,11 @@ pub(crate) struct MainScreen {
     action_tx: Option<UnboundedSender<Action>>,
     /// Actions the panes asked for, taken by the app after each event.
     outbox: Vec<Action>,
+    /// Questions from the core waiting for their turn (T69). One prompt is
+    /// shown at a time; see [`MainScreen::pump_prompts`].
+    prompts: VecDeque<PromptRequest>,
+    /// When the user last pressed a key.
+    last_key: Option<Instant>,
 }
 
 impl MainScreen {
@@ -192,6 +209,8 @@ impl MainScreen {
             status,
             action_tx: None,
             outbox: Vec::new(),
+            prompts: VecDeque::new(),
+            last_key: None,
         }
     }
 
@@ -268,6 +287,7 @@ impl MainScreen {
     /// Route a key: the top modal first, then the focused region. Keys nobody
     /// takes go to the keymap.
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> KeyOutcome {
+        self.last_key = Some(Instant::now());
         if let Some(top) = self.modals.last_mut() {
             if top.handle_key(key) == ModalOutcome::Close {
                 self.modals.pop();
@@ -354,7 +374,16 @@ impl MainScreen {
             }
         }
         match action {
-            Action::Tick => self.tick = self.tick.wrapping_add(1),
+            Action::Tick => {
+                self.tick = self.tick.wrapping_add(1);
+                self.pump_prompts(Instant::now(), false);
+            }
+            Action::OpenPrompt => {
+                if self.prompts.is_empty() {
+                    self.status.flash("No prompt waiting", Instant::now());
+                }
+                self.pump_prompts(Instant::now(), true);
+            }
             Action::Help => self.open_help(),
             Action::CloseDialog => {
                 self.modals.pop();
@@ -422,11 +451,46 @@ impl MainScreen {
     pub(crate) fn handle_core(&mut self, event: CoreEvent) {
         match event {
             CoreEvent::Log(msg) => self.log.push(msg),
-            CoreEvent::Prompt(request) => self.modals.push(prompt_modal(request)),
+            CoreEvent::Prompt(request) => {
+                self.prompts.push_back(request);
+                self.pump_prompts(Instant::now(), false);
+            }
             // Connection, listing, transfer and queue events get their UI in
             // T53/T56/T57/T61.
             _ => {}
         }
+    }
+
+    /// Show the next queued prompt when nothing else is in the way (T69).
+    ///
+    /// A prompt opens by itself only when no dialog is open, the user isn't
+    /// typing (input or filter mode) and no key was pressed for
+    /// [`PROMPT_IDLE`]. Until then the status bar shows `⚠ N prompts` and
+    /// `<Ctrl-x><p>` (`force`) opens the next one at once. Prompts the core
+    /// stopped waiting for are dropped.
+    pub(crate) fn pump_prompts(&mut self, now: Instant, force: bool) {
+        self.prompts.retain(|p| !p.reply.is_closed());
+        let busy = !self.modals.is_empty()
+            || (!force
+                && (matches!(self.mode(), Mode::Input | Mode::Filter)
+                    || self
+                        .last_key
+                        .is_some_and(|t| now.saturating_duration_since(t) < PROMPT_IDLE)));
+        if !busy && let Some(request) = self.prompts.pop_front() {
+            self.modals.push(prompt_modal(request, self.status.unicode));
+        }
+        self.status.pending_prompts = self.prompts.len();
+    }
+
+    /// Prompts waiting for their turn.
+    #[cfg(test)]
+    pub(crate) fn queued_prompts(&self) -> usize {
+        self.prompts.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_last_key(&mut self, at: Option<Instant>) {
+        self.last_key = at;
     }
 
     fn open_help(&mut self) {
@@ -440,6 +504,7 @@ impl MainScreen {
     pub(crate) fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
         self.modals.retain(|m| !m.is_done());
+        self.status.pending_prompts = self.prompts.len();
         let r = layout::compute(area, &self.opts);
         if !self.focus.visible_in(&r) {
             self.focus = Region::list(self.opts.compact_side);
