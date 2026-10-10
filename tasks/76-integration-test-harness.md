@@ -650,19 +650,19 @@ locally `cargo insta review`.
 ## Acceptance criteria
 
 - [ ] AC1 `crates/courier-ftp-e2e` exists with the modules above; its crate docs describe the pieces, how to run the suite and the reliability rules (like sverb's `lib.rs`); `cargo doc -p courier-ftp-e2e` has no warnings.
-- [ ] AC2 Without `COURIER_E2E`, `cargo test -p courier-ftp-e2e -- --ignored` passes and every container test prints `skipped: set COURIER_E2E=1 …`; the normal `cargo test --workspace` runs the harness self-tests and no container.
-- [ ] AC3 With `COURIER_E2E=1` and `CI=true` but no Docker, `docker_skip_reason` panics (unit test with an injected ping failure); with `CI` unset it skips.
+- [x] AC2 Without `COURIER_E2E`, `cargo test -p courier-ftp-e2e -- --ignored` passes and every container test prints `skipped: set COURIER_E2E=1 …`; the normal `cargo test --workspace` runs the harness self-tests and no container.
+- [x] AC3 With `COURIER_E2E=1` and `CI=true` but no Docker, `docker_skip_reason` panics (unit test with an injected ping failure); with `CI` unset it skips.
 - [ ] AC4 Every fixture image builds, `--list` prints exactly the profiles of its enum (`SshdProfile::ALL`, `FtpdProfile::ALL`, `ProxyProfile`), and `--check` passes for each profile (CI `e2e` job steps).
-- [ ] AC5 `tests/fixtures.rs` passes: profile files ↔ enum names, keys present, every fixture key dir has a TEST-ONLY README, `check-configs.sh` passes when `sshd` is installed.
-- [ ] AC6 `tests/workspace_metadata.rs` and `tests/forbid_unsafe.rs` pass, and each fails when its rule is broken (self-tests over doctored metadata / a probe crate).
-- [ ] AC7 No fixed sleeps: `grep -rnE 'thread::sleep|time::sleep' crates/courier-ftp-e2e/src` matches only inside `poll_until` and the PTY reader loop.
+- [x] AC5 `tests/fixtures.rs` passes: profile files ↔ enum names, keys present, every fixture key dir has a TEST-ONLY README, `check-configs.sh` passes when `sshd` is installed.
+- [x] AC6 `tests/workspace_metadata.rs` and `tests/forbid_unsafe.rs` pass, and each fails when its rule is broken (self-tests over doctored metadata / a probe crate).
+- [x] AC7 No fixed sleeps: `grep -rnE 'thread::sleep|time::sleep' crates/courier-ftp-e2e/src` matches only inside `poll_until` and the PTY reader loop.
 - [ ] AC8 Every scenario in the "E2E scenarios" table for the milestones reached so far exists and passes in the CI `e2e` job.
-- [ ] AC9 Every TUI view has snapshots at both 80×24 and 160×48: `crates/courier-ftp/tests/snapshot_sizes.rs` fails if a `*@80x24.snap` has no `*@160x48.snap` twin or vice versa.
+- [x] AC9 Every TUI view has snapshots at both 80×24 and 160×48: `crates/courier-ftp/tests/snapshot_sizes.rs` fails if a `*@80x24.snap` has no `*@160x48.snap` twin or vice versa.
 - [ ] AC10 The CI `e2e` job finishes in under 30 minutes on `ubuntu-latest` (recorded from the last 5 runs in the PR that completes M4).
-- [ ] AC11 A deliberately failing harness self-test (`diag::capture`) shows the container log tail, the last screen and the message-log tail in its captured output.
+- [x] AC11 A deliberately failing harness self-test (`diag::capture`) shows the container log tail, the last screen and the message-log tail in its captured output.
 - [ ] AC12 `startup.rs` reports a median below 200 ms on CI (`bench.yml`) once T60 lands.
 - [ ] AC13 `backend_conformance.rs` uses the T03 suite only (`courier_ftp_core::backend::conformance` via `backend_conformance_tests!(ignored, env_fn)`, feature `test-util`); the e2e crate defines no conformance cases of its own.
-- [ ] AC14 `FtpRelayProxy` relays a login, a listing and a passive download for each `FtpRelayMode` to `HostileFtpd` in-process (normal `test` job), refuses targets outside `allowed_targets`, and never records an unmasked `PASS` argument in `commands()`.
+- [x] AC14 `FtpRelayProxy` relays a login, a listing and a passive download for each `FtpRelayMode` to `HostileFtpd` in-process (normal `test` job), refuses targets outside `allowed_targets`, and never records an unmasked `PASS` argument in `commands()`.
 - [ ] AC15 MLSD scenarios run only on `proftpd-*`/`pureftpd-*` profiles; `mlsd_used_on_proftpd_and_pureftpd` passes and a vsftpd profile is listed via LIST.
 
 ## Tests
@@ -741,3 +741,70 @@ None. Resolved by the coordinator:
 - ~~`COURIER_FTP_KEYRING=off`~~ — honoured by T30.
 - ~~FTP proxy fixture~~ — the in-process `FtpRelayProxy` is listed above (T15).
 - ~~MLSD on vsftpd~~ — MLSD scenarios use proftpd/pure-ftpd profiles.
+
+## Implementation notes
+
+Done in this pass (M1, plus the Docker-free and container plumbing of M2/M3):
+`crates/courier-ftp-e2e` with `lib` (`timeout`, `on_ci`, `e2e_requested`,
+`docker_skip_reason`, `require_docker!`, `poll_until`, `E2eError`, `WaitError`), `diag`,
+`docker`, `sshd`, `ftpd`, `proxy`, `toxi`, `ftp_proxy`, `hostile`, `keys`, `files`,
+`home`, `session`, `pty`; tests `workspace_metadata`, `forbid_unsafe`, `fixtures`,
+`harness_local`, `harness_docker`, `pty_shell`; fixture images `tests/fixtures/{sshd,
+ftpd,proxy}`, the CA in `tests/fixtures/tls/`, `tests/fixtures/editor/fake-editor.sh`;
+in the binary `src/test_hooks.rs` (`exit-after-panes`, `exit:<ms>`), the snapshot helper
+in `src/testing.rs` and `tests/snapshot_sizes.rs`.
+
+Deviations and open items:
+- **Docker could not be run here.** The images, `--list`/`--check` and every
+  `harness_docker.rs` test compile and skip cleanly (`skipped: set COURIER_E2E=1 …`) but
+  were never executed against Docker; the first CI `e2e` run is their real test
+  (AC4, AC8, AC10 unticked). All base images are `public.ecr.aws/docker/library/…`;
+  toxiproxy is `ghcr.io/shopify/toxiproxy:2.9.0`; the CI job pre-pulls it and builds
+  the binary with `--features test-hooks`.
+- **Not yet possible (depend on unimplemented tasks):** `sync_server.rs` (M7);
+  `TestHome::with_vault/vault/add_site/add_bookmark/trust_host_key/trust_cert/list` (T30,
+  T31, T33, T21, T12); `Headless::download/upload/run_queue` (M4); `PtyApp::unlock` is
+  written against the text `Unlock` (T60 must match or adjust it); `startup.rs` (step 9);
+  `backend_conformance.rs` (AC13: `ConformanceEnv::make` is synchronous while a container
+  start is async, and `E2eBackendFactory` answers `Unsupported` until T14/T22 wire the
+  FTP/SFTP backends — those tasks add the file); the scenario files of the table
+  (`ssh_auth.rs`, `ftp_modes.rs`, …, AC15) belong to their feature tasks; the panic hooks
+  (`panic-ui`, `panic-thread`, `panic-blocking`) and `COURIER_FTP_KEYRING=file:` are T91/T30.
+- **`poll_until`** takes `FnMut() -> impl Future<Output = Option<T>>` instead of
+  `BoxFuture<'_, …>` (an elided lifetime in a no-argument `Fn` bound does not compile;
+  the generic form is strictly more flexible). `WaitError::last` is filled by the
+  callers that know the state (screen, log tail).
+- **`Headless`** returns `HeadlessError::{Core(courier_ftp_core::Error), Harness(E2eError)}`
+  (spec: "core errors surface unchanged" and "unexpected prompt → E2eError" cannot both
+  be `Result<_, E2eError>`); `Headless::connect_with(factory, …)` exists for self-tests,
+  and `headless_lists_mock_server` uses core's `MockServer` until T22 provides the
+  in-process SFTP server.
+- **No `reqwest`:** toxiproxy's API is driven by a 30-line HTTP/1.1 client over
+  `tokio::net::TcpStream` (no TLS provider needed); the sync server fixture (M7) can add
+  reqwest. `ssh-key` is a dev-dependency so `fixtures.rs::fixture_keys_parse` parses and
+  decrypts every fixture key (OpenSSH and PPK v2/v3/v3-encrypted) like the client.
+- **Keys** were generated with `tests/fixtures/sshd/keys/generate.py` (Python
+  `cryptography` + `bcrypt`; no `ssh-keygen`/`puttygen` in this environment). PuTTY
+  stores the Ed25519 private key as a 32-byte SSH string (as in `ssh-key`'s own
+  examples), not a minimal mpint.
+- **`kbd` profile:** pam_exec cannot show a custom prompt, so the image builds a
+  20-line PAM module (`pam/pam_courier_otp.c`, multi-stage build) that asks
+  `Verification code: ` after pam_unix's `Password: `.
+- **The TLS CA is duplicated** in `tests/fixtures/ftpd/tls/` (the image's build context
+  cannot reach `tests/fixtures/tls/`); `fixtures.rs` checks both copies (and the two
+  `make-fixture-tree` copies) are identical; gitleaks/secret scanning skip both.
+- **ftpd `--check`** starts the daemon once and checks its control port (vsftpd and
+  pure-ftpd have no config-test mode; proftpd also runs `proftpd -t`).
+- **`courier_ftp_binary()`** always runs `cargo build -p courier-ftp --features
+  test-hooks --locked` once per process (a no-op when fresh, so a stale binary is never
+  tested) and falls back to an existing binary if the build fails.
+- **AC9:** `snapshot_sizes.rs` checks every `*@80x24.snap` / `*@160x48.snap` pair; T50's
+  existing snapshots use `snap_<view>_<w>x<h>` names and are not covered until they move
+  to `assert_view_snapshots!`. The style legend compares against `Cell::EMPTY`'s style.
+- **AC11:** `harness_local.rs::diag_dumps_on_failure` checks the screen, raw-output and
+  message-log dumps; the container-log dump is `harness_docker.rs::
+  diag_dumps_container_logs_on_failure` (Docker).
+- The deferred PTY tests of T50 (`e2e_pty_starts_and_quits`,
+  `e2e_pty_resize_to_compact_and_back`) and T51 (`e2e_pty_sequences_and_fkeys`) are in
+  `crates/courier-ftp-e2e/tests/pty_shell.rs` and pass.
+
