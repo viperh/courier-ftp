@@ -15,7 +15,14 @@
 //! Layering: depends only on `courier-ftp-core`; never on a UI crate.
 
 pub mod agent;
+pub mod backend;
+pub mod convert;
+pub mod io;
 pub mod keys;
 pub mod known_hosts;
 pub mod ssh;
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing;
 pub mod verify;
+
+pub use backend::SftpBackend;

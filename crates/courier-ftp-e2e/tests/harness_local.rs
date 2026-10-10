@@ -131,16 +131,30 @@ fn headless_lists_mock_server() {
     });
 }
 
+/// FTP (T14) is not wired yet: `Unsupported`; SFTP (T22) builds an `SftpBackend`.
 #[test]
 fn headless_factory_reports_missing_backends() {
+    use courier_ftp_core::backend::{BackendFactory, mock::test_context};
     rt().block_on(async {
-        let err = Headless::connect(None, mock_info(), HeadlessOptions::default())
+        let mut ftp = mock_info();
+        ftp.address = ServerAddress::new(
+            Protocol::Ftp,
+            FtpEncryption::default(),
+            "mock.invalid",
+            None,
+            Some(USER.into()),
+        )
+        .unwrap();
+        let err = Headless::connect(None, ftp, HeadlessOptions::default())
             .await
             .unwrap_err();
         assert!(
             matches!(err.core(), Some(courier_ftp_core::Error::Unsupported(_))),
             "{err}"
         );
+        let (ctx, _rx) = test_context();
+        let sftp = courier_ftp_e2e::E2eBackendFactory.create(Arc::new(mock_info()), ctx);
+        assert!(sftp.is_ok_and(|b| !b.is_connected()));
     });
 }
 

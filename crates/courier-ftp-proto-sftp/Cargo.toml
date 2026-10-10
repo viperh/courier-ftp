@@ -14,7 +14,7 @@ workspace = true
 [features]
 # In-process russh server, in-process agent and the insecure host-key verifier for
 # tests (T20, T22, T76). The binary never enables it (scripts/check-layering.py).
-test-util = []
+test-util = ["dep:tempfile"]
 
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
 # (scripts/check-layering.py and deny.toml enforce it).
@@ -32,6 +32,10 @@ tracing = { workspace = true }
 # The SSH transport (D2). All russh / ssh-key usage stays in `ssh/`, `keys/`, `agent/`.
 russh = { workspace = true }
 ssh-key = { workspace = true }
+# The SFTP protocol (T22): `RawSftpSession` on the subsystem channel; the protocol
+# types also drive the in-process test server (`testing`).
+russh-sftp = { workspace = true }
+bytes = { workspace = true }
 
 # Private key formats (`keys/`, copied from sverb's keychain formats).
 aes = { workspace = true }
@@ -52,6 +56,8 @@ sha2 = { workspace = true }
 # Constant-time compare of hashed known_hosts entries (T21).
 subtle = { workspace = true }
 zeroize = { workspace = true }
+# `testing` (test-util): the SFTP test server's temporary root.
+tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

@@ -73,28 +73,47 @@ pub struct HeadlessOptions {
     pub settings: Option<Settings>,
 }
 
-/// Maps the protocol to the FTP / SFTP backend exactly like the binary's factory.
+/// Maps the protocol to the FTP / SFTP backend like the binary's factory.
 ///
-/// The FTP (T14) and SFTP (T22) backends do not exist yet; until they do, both
-/// protocols answer `Unsupported` (the container scenarios that need them are written
-/// in those tasks).
+/// SFTP (T22): `SftpBackend` with a `TrustVerifier` over a process-wide in-memory host
+/// key store (no OpenSSH `known_hosts`), so host-key prompts reach [`Headless`] and
+/// are answered by [`HeadlessOptions::host_key`]. The FTP backend (T14) does not exist
+/// yet and answers `Unsupported`.
 #[derive(Debug, Default)]
 pub struct E2eBackendFactory;
+
+/// The host-key verifier every e2e SFTP backend shares.
+fn sftp_verifier() -> Arc<dyn courier_ftp_proto_sftp::ssh::HostKeyVerifier> {
+    use courier_ftp_core::trust::{MemoryHostKeyStore, SessionTrust};
+    use courier_ftp_proto_sftp::{known_hosts::OpenSshKnownHosts, verify::TrustVerifier};
+    static VERIFIER: std::sync::OnceLock<Arc<TrustVerifier>> = std::sync::OnceLock::new();
+    let v = VERIFIER.get_or_init(|| {
+        Arc::new(TrustVerifier::new(
+            Arc::new(MemoryHostKeyStore::default()),
+            Arc::new(SessionTrust::default()),
+            Arc::new(OpenSshKnownHosts::disabled()),
+        ))
+    });
+    Arc::clone(v) as Arc<dyn courier_ftp_proto_sftp::ssh::HostKeyVerifier>
+}
 
 impl BackendFactory for E2eBackendFactory {
     fn create(
         &self,
         info: Arc<ConnectInfo>,
-        _ctx: BackendContext,
+        ctx: BackendContext,
     ) -> courier_ftp_core::Result<Box<dyn Backend>> {
         info.validate()?;
         match info.address.protocol {
             Protocol::Ftp => Err(CoreError::Unsupported(
                 "the FTP backend is not wired into the e2e harness yet (T14)".into(),
             )),
-            Protocol::Sftp => Err(CoreError::Unsupported(
-                "the SFTP backend is not wired into the e2e harness yet (T22)".into(),
-            )),
+            Protocol::Sftp => Ok(Box::new(courier_ftp_proto_sftp::SftpBackend::new(
+                info,
+                ctx,
+                sftp_verifier(),
+                None,
+            ))),
         }
     }
 }

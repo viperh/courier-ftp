@@ -151,6 +151,8 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 #[derive(Debug)]
 pub(crate) struct Shared {
     pub(crate) info: Mutex<SshSessionInfo>,
+    /// The key the server presented (T22 server info dialog).
+    pub(crate) host_key: Mutex<Option<ServerKey>>,
     pub(crate) host_key_rejection: Mutex<Option<String>>,
     /// Why the transport ended (set once).
     pub(crate) end: watch::Sender<Option<EndCause>>,
@@ -164,6 +166,7 @@ impl Default for Shared {
     fn default() -> Self {
         Self {
             info: Mutex::default(),
+            host_key: Mutex::default(),
             host_key_rejection: Mutex::default(),
             end: watch::Sender::new(None),
             closed: watch::Sender::new(false),
@@ -272,6 +275,7 @@ impl client::Handler for ClientHandler {
             let mut info = lock(&self.shared.info);
             info.host_key_fingerprint = key.fingerprint_sha256.clone();
         }
+        *lock(&self.shared.host_key) = Some(key.clone());
         self.shared.verifying.send_replace(true);
         let verifier = Arc::clone(&self.verifier);
         let ctx = VerifyCtx {
