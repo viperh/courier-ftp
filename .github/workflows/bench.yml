@@ -67,6 +67,9 @@ jobs:
       # T53: 100 000 entries render in < 5 ms per frame (release-only test).
       - name: File list render gate (100k entries)
         run: cargo test --release --locked -p courier-ftp hundred_thousand -- --include-ignored
+      # T40: 100 000 queue items: add, reorder and render model < 50 ms each.
+      - name: Queue gate (100k items)
+        run: cargo test --release --locked -p courier-ftp-core --lib queue_100k_items_gate -- --include-ignored
       # The new results become the baseline for the next run (master only).
       - name: Promote the baseline
         if: steps.has.outputs.count != '0' && github.ref == 'refs/heads/master'

@@ -118,3 +118,13 @@ the section matching the tag.
 - FTP control connection (T10): multi-line replies, login (normal, anonymous,
   ACCT, proxy-ready scripts), FEAT/SYST/UTF8 negotiation, keep-alive, raw
   commands, inactivity timeouts and cancellation.
+- Directory trees for the local and remote side (T54; Ctrl-e to show, T to
+  focus): listed lazily through the listing cache, they follow the file list,
+  with expand/collapse and Enter to open a folder in the list.
+- Site model (T31): Site Manager folder tree with every FileZilla site
+  setting, stored encrypted in the vault (passwords included), device-local
+  default directories and key paths, path lookup (Work/Production/web01), and
+  saved SSH key passphrases and vault SSH keys used when connecting.
+- Transfer queue model (T40): priorities, reorder, pause, retry and requeue,
+  server grouping, stats; persisted encrypted in the vault under a device key,
+  with JSON export/import without passwords.
