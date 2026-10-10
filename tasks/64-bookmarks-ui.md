@@ -17,8 +17,8 @@ Add, manage and jump to bookmarks quickly.
 
 ## Acceptance criteria
 
-- [ ] Add/edit/delete/reorder persisted.
-- [ ] Applying navigates both panes and toggles sync/compare as configured.
+- [x] Add/edit/delete/reorder persisted.
+- [x] Applying navigates both panes and toggles sync/compare as configured.
 
 ## Tests
 

@@ -198,3 +198,6 @@ the section matching the tag.
   progress and full queue controls; F5/Shift-F5 transfer the selection through
   the transfer engine, and the queue is saved in the vault and restored after
   unlock.
+- Bookmarks menu (T64, Ctrl-b): global and site bookmarks with fuzzy search;
+  add the directories shown now, edit, delete and reorder; applying one opens
+  its directories and turns synchronized browsing or comparison on.

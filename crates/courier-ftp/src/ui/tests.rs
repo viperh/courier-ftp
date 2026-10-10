@@ -906,3 +906,82 @@ fn sync_and_compare_need_both_sides() {
     let t = text(&render(&mut s, 200, 40));
     assert!(!t.contains("⇄ sync") && !t.contains("≠ compare"), "{t}");
 }
+
+#[test]
+fn applying_a_bookmark_turns_sync_on_once_both_panes_moved() {
+    use courier_ftp_core::{local::local_to_remote, model::LocalPath, sites::BookmarkTarget};
+    let local_path = std::env::temp_dir();
+    let local = local_to_remote(&local_path).unwrap();
+    let mut s = screen(Layout::Classic);
+    s.update(&loaded(Side::Local, "/l", vec![]));
+    s.update(&loaded(Side::Remote, "/r", vec![]));
+    s.take_actions();
+    let target = BookmarkTarget {
+        local_dir: Some(LocalPath::new(&local_path)),
+        remote_dir: Some(RemotePath::new("/srv/www")),
+        sync_browsing: true,
+        comparison: false,
+    };
+    s.apply_bookmark(target.clone());
+    let asked: Vec<_> = s
+        .take_actions()
+        .into_iter()
+        .filter_map(|a| match a {
+            Action::ListDir { side, dir, .. } => Some((side, dir)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            (Side::Local, local.clone()),
+            (Side::Remote, RemotePath::new("/srv/www"))
+        ]
+    );
+    // Sync browsing waits for both listings.
+    s.update(&loaded(Side::Local, local.as_ref(), vec![]));
+    assert!(!s.sync_on());
+    s.update(&loaded(Side::Remote, "/srv/www", vec![]));
+    assert!(s.sync_on() && !s.compare_on());
+
+    // Applying one without sync turns it off; a failed listing doesn't
+    // turn it on.
+    s.apply_bookmark(BookmarkTarget {
+        local_dir: None,
+        remote_dir: Some(RemotePath::new("/r")),
+        sync_browsing: false,
+        comparison: false,
+    });
+    assert!(!s.sync_on());
+    s.update(&loaded(Side::Remote, "/r", vec![]));
+    s.apply_bookmark(BookmarkTarget {
+        comparison: true,
+        ..target
+    });
+    s.update(&Action::ListingLoaded {
+        side: Side::Remote,
+        result: Err("550 No such directory".into()),
+    });
+    s.update(&loaded(Side::Local, local.as_ref(), vec![]));
+    assert!(!s.sync_on() && !s.compare_on());
+    let t = text(&render(&mut s, 120, 30));
+    assert!(t.contains("could not be opened"), "{t}");
+}
+
+#[test]
+fn applying_a_remote_bookmark_while_disconnected_says_so() {
+    use courier_ftp_core::sites::BookmarkTarget;
+    let mut s = screen(Layout::Classic);
+    s.update(&loaded(Side::Local, "/l", vec![]));
+    s.take_actions();
+    s.apply_bookmark(BookmarkTarget {
+        local_dir: None,
+        remote_dir: Some(RemotePath::new("/srv")),
+        sync_browsing: false,
+        comparison: true,
+    });
+    assert!(s.take_actions().is_empty());
+    assert!(!s.compare_on());
+    let t = text(&render(&mut s, 120, 30));
+    assert!(t.contains("Not connected: the remote directory"), "{t}");
+}

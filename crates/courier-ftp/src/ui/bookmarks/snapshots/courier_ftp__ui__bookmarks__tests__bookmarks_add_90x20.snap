@@ -1,0 +1,25 @@
+---
+source: crates/courier-ftp/src/ui/bookmarks/tests.rs
+assertion_line: 203
+expression: "render(&mut menu, 90, 20)"
+---
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"      ┌ Bookmarks ─────────────────────────────────────────────────────────────────┐      "
+"      │/ to ┌ Add bookmark ──────────────────────────────────────────────────┐     │      "
+"      │     │Name:                       public                              │     │      "
+"      │Globa│Type:                       ( ) Global  (•) Site-specific       │     │      "
+"      │> Doc│Local directory:            /home/me/projects/site              │     │      "
+"      │  Web│Remote directory:           /srv/site/public                    │     │      "
+"      │Bookm│Use synchronized browsing:  [ ]                                 │     │      "
+"      │  Log│Directory comparison:       [ ]                                 │     │      "
+"      │  Con│                                                                │     │      "
+"      │     │                     [ Save ]  [ Cancel ]                       │     │      "
+"      │Enter└────────────────────────────────────────────────────────────────┘     │      "
+"      └────────────────────────────────────────────────────────────────────────────┘      "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
