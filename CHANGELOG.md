@@ -47,3 +47,6 @@ the section matching the tag.
 - `courier-ftp-e2e` test harness, first stage (T76): Docker opt-in and CI
   enforcement, polling helpers, failure diagnostics, temporary homes, workspace
   layering and `unsafe` policy tests; CI `e2e` job.
+- Message log pane (T55): coloured prefixes, optional timestamps, a capped ring
+  buffer, follow/pause with a new-lines counter, search with highlighting,
+  line and range copy (OSC 52), wrap, errors-only and per-tab views.

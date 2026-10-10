@@ -10,14 +10,41 @@ use super::{
     Side,
     focus::Region,
     layout::{self, LayoutOptions, Regions, Visibility},
+    log::LogPane,
     modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
-    panes::{self, FilePane, LogPane},
+    panes::{self, FilePane},
     status::{self, StatusState},
     theme::Theme,
 };
 use crate::{
     action::Action, app::Mode, config::Config, keymap::key_to_string, ui::dialog::message,
 };
+
+/// Actions the focused pane handles itself (navigation, search, selection).
+fn is_pane_action(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::CursorDown
+            | Action::CursorUp
+            | Action::PageDown
+            | Action::PageUp
+            | Action::HalfPageDown
+            | Action::HalfPageUp
+            | Action::Top
+            | Action::Bottom
+            | Action::QuickFilter
+            | Action::SearchNext
+            | Action::SearchPrev
+            | Action::VisualSelect
+            | Action::CopySelection
+            | Action::ClearLog
+            | Action::ToggleWrap
+            | Action::ToggleLogAll
+            | Action::ToggleErrorsOnly
+            | Action::ScrollLeft
+            | Action::ScrollRight
+    )
+}
 
 /// Status bar hints: the first key of a few common actions, preferring
 /// single function keys.
@@ -86,6 +113,11 @@ impl MainScreen {
         status.download_limit_kib = config.settings.transfers.download_limit_kib;
         status.upload_limit_kib = config.settings.transfers.upload_limit_kib;
         status.hints = hints(&config);
+        let log = LogPane::new(
+            config.settings.logging.log_lines,
+            config.settings.logging.show_timestamps,
+            time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC),
+        );
         let opts = LayoutOptions {
             layout: ui.layout,
             swap_panes: ui.swap_panes,
@@ -104,7 +136,7 @@ impl MainScreen {
             focus: Region::LocalList,
             local: FilePane::new(Side::Local),
             remote: FilePane::new(Side::Remote),
-            log: LogPane::default(),
+            log,
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
@@ -116,6 +148,9 @@ impl MainScreen {
     pub(crate) fn mode(&self) -> Mode {
         if !self.modals.is_empty() {
             return Mode::Dialog;
+        }
+        if self.log.is_searching() {
+            return Mode::Filter;
         }
         match self.focus {
             Region::Quickconnect => Mode::Input,
@@ -151,8 +186,10 @@ impl MainScreen {
             }
             return KeyOutcome::Consumed;
         }
-        // The focused regions take no keys of their own yet: the file list
-        // (T53), log (T55), queue (T56) and quickconnect (T58) add them.
+        // A region typing text of its own (a search query) takes every key.
+        if self.focus == Region::Log && self.log.handle_search_key(key) {
+            return KeyOutcome::Consumed;
+        }
         KeyOutcome::NotHandled
     }
 
@@ -175,6 +212,23 @@ impl MainScreen {
 
     /// Apply an action. May return a follow-up action.
     pub(crate) fn update(&mut self, action: &Action) -> Option<Action> {
+        if let Action::CopyToClipboard(text) = action {
+            let lines = text.lines().count();
+            let what = if lines == 1 {
+                "line".to_owned()
+            } else {
+                format!("{lines} lines")
+            };
+            self.status
+                .flash(format!("Copied {what} to the clipboard"), Instant::now());
+            return None;
+        }
+        if self.focus == Region::Log && is_pane_action(action) {
+            return self.log.update(action);
+        }
+        if matches!(action, Action::ClearLog) {
+            return self.log.update(action);
+        }
         match action {
             Action::Tick => self.tick = self.tick.wrapping_add(1),
             Action::Help => self.open_help(),

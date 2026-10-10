@@ -55,18 +55,31 @@
       "<Tab>": "FocusNext"
     },
     "Log": {
+      "</>": "QuickFilter",
       "<Ctrl-d>": "HalfPageDown",
       "<Ctrl-u>": "HalfPageUp",
       "<Down>": "CursorDown",
       "<End>": "Bottom",
       "<G>": "Bottom",
       "<Home>": "Top",
+      "<Left>": "ScrollLeft",
+      "<N>": "SearchPrev",
       "<PageDown>": "PageDown",
       "<PageUp>": "PageUp",
+      "<Right>": "ScrollRight",
       "<Up>": "CursorUp",
+      "<c>": "ClearLog",
+      "<e>": "ToggleErrorsOnly",
       "<g><g>": "Top",
+      "<h>": "ScrollLeft",
       "<j>": "CursorDown",
-      "<k>": "CursorUp"
+      "<k>": "CursorUp",
+      "<l>": "ScrollRight",
+      "<n>": "SearchNext",
+      "<t>": "ToggleLogAll",
+      "<v>": "VisualSelect",
+      "<w>": "ToggleWrap",
+      "<y>": "CopySelection"
     },
     "Normal": {
       "<?>": "Help",
@@ -96,6 +109,7 @@
       "<Ctrl-s>": "SiteManager",
       "<Ctrl-t>": "NewTab",
       "<Ctrl-w>": "CloseTab",
+      "<Ctrl-x><c>": "ClearLog",
       "<Ctrl-x><d>": "Disconnect",
       "<Ctrl-x><i>": "ServerInfo",
       "<Ctrl-x><l>": "ToggleSpeedLimit",
@@ -356,8 +370,10 @@
       "log_file": null,
       "log_file_keep": 3,
       "log_file_max_mib": 10,
+      "log_lines": 5000,
       "log_to_file": false,
-      "show_raw_listing": false
+      "show_raw_listing": false,
+      "show_timestamps": true
     },
     "proxy": {
       "ftp_proxy": {

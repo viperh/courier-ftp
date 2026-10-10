@@ -510,6 +510,10 @@ pub struct LoggingSettings {
     pub log_file_keep: u32,
     /// Show raw directory listings in the message log (T71).
     pub show_raw_listing: bool,
+    /// Prefix message-log lines with the time (T55).
+    pub show_timestamps: bool,
+    /// Lines the message log keeps per tab (T55).
+    pub log_lines: usize,
 }
 
 impl Default for LoggingSettings {
@@ -521,6 +525,8 @@ impl Default for LoggingSettings {
             log_file_max_mib: 10,
             log_file_keep: 3,
             show_raw_listing: false,
+            show_timestamps: true,
+            log_lines: 5000,
         }
     }
 }

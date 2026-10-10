@@ -2,10 +2,7 @@
 //! (T53), message log (T55), queue (T56), status bar (T57), quickconnect bar
 //! (T58) and tab bar (T61) tasks replace their bodies.
 
-use std::collections::VecDeque;
-
 use courier_ftp_core::{
-    events::{LogKind, LogMessage},
     local::display_native,
     model::{Entry, RemotePath},
 };
@@ -102,48 +99,6 @@ impl FilePane {
         };
         frame.render_widget(
             Paragraph::new(lines).block(block(Line::from(title), focused, theme)),
-            area,
-        );
-    }
-}
-
-/// The message log: the last lines the core reported.
-#[derive(Debug, Default)]
-pub(crate) struct LogPane {
-    lines: VecDeque<LogMessage>,
-}
-
-const LOG_CAPACITY: usize = 1000;
-
-impl LogPane {
-    pub(crate) fn push(&mut self, msg: LogMessage) {
-        if self.lines.len() == LOG_CAPACITY {
-            self.lines.pop_front();
-        }
-        self.lines.push_back(msg);
-    }
-
-    pub(crate) fn draw(&self, frame: &mut Frame, area: Rect, focused: bool, theme: &Theme) {
-        let rows = usize::from(area.height.saturating_sub(2));
-        let skip = self.lines.len().saturating_sub(rows);
-        let lines: Vec<Line> = self
-            .lines
-            .iter()
-            .skip(skip)
-            .map(|m| {
-                let label = match m.kind {
-                    LogKind::Status => "Status:",
-                    LogKind::Command => "Command:",
-                    LogKind::Response => "Response:",
-                    LogKind::Error => "Error:",
-                    LogKind::ListingRaw => "Listing:",
-                    LogKind::Debug(_) => "Trace:",
-                };
-                Line::styled(format!("{label:<10}{}", m.text), theme.log(m.kind))
-            })
-            .collect();
-        frame.render_widget(
-            Paragraph::new(lines).block(block(" Message log ", focused, theme)),
             area,
         );
     }

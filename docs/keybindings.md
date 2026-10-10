@@ -20,6 +20,7 @@ Active everywhere except in text fields and dialogs.
 | Key | Action |
 |---|---|
 | `<Ctrl-b>` | Bookmarks |
+| `<Ctrl-x><c>` | ClearLog |
 | `<Ctrl-w>` | CloseTab |
 | `<F5>` | Copy |
 | `<Ctrl-x><t>` | CycleTransferType |
@@ -153,6 +154,8 @@ When the message log has focus.
 |---|---|
 | `<End>` | Bottom |
 | `<G>` | Bottom |
+| `<c>` | ClearLog |
+| `<y>` | CopySelection |
 | `<Down>` | CursorDown |
 | `<j>` | CursorDown |
 | `<Up>` | CursorUp |
@@ -161,8 +164,19 @@ When the message log has focus.
 | `<Ctrl-u>` | HalfPageUp |
 | `<PageDown>` | PageDown |
 | `<PageUp>` | PageUp |
+| `</>` | QuickFilter |
+| `<Left>` | ScrollLeft |
+| `<h>` | ScrollLeft |
+| `<Right>` | ScrollRight |
+| `<l>` | ScrollRight |
+| `<n>` | SearchNext |
+| `<N>` | SearchPrev |
+| `<e>` | ToggleErrorsOnly |
+| `<t>` | ToggleLogAll |
+| `<w>` | ToggleWrap |
 | `<Home>` | Top |
 | `<g><g>` | Top |
+| `<v>` | VisualSelect |
 
 ## Text fields
 

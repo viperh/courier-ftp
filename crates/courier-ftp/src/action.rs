@@ -142,6 +142,22 @@ pub(crate) enum Action {
     /// Show the equivalent directory in the other pane.
     MirrorDir,
 
+    // --- message log (T55) ---
+    /// Next / previous search match.
+    SearchNext,
+    SearchPrev,
+    /// Copy the selected lines to the clipboard (OSC 52).
+    CopySelection,
+    ClearLog,
+    /// Wrap long lines on/off.
+    ToggleWrap,
+    /// All sessions' messages, or only the current tab's.
+    ToggleLogAll,
+    /// Only errors, or everything.
+    ToggleErrorsOnly,
+    ScrollLeft,
+    ScrollRight,
+
     // --- queue (T56) ---
     /// Pause or resume the item under the cursor.
     QueueToggleItem,
@@ -157,6 +173,9 @@ pub(crate) enum Action {
     QueueTabSuccessful,
 
     // --- background results ---
+    /// Put text on the clipboard (OSC 52) and say so in the status bar.
+    #[serde(skip)]
+    CopyToClipboard(String),
     /// A directory listing finished in the background.
     #[serde(skip)]
     ListingLoaded {

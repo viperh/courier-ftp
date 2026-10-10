@@ -23,10 +23,10 @@ coloured by type, per tab.
 
 ## Acceptance criteria
 
-- [ ] Snapshot tests of each message kind's colour/prefix.
-- [ ] Ring buffer caps memory.
-- [ ] Follow/pause behaviour correct.
-- [ ] Search and copy work.
+- [x] Snapshot tests of each message kind's colour/prefix.
+- [x] Ring buffer caps memory.
+- [x] Follow/pause behaviour correct.
+- [x] Search and copy work.
 
 ## Tests
 

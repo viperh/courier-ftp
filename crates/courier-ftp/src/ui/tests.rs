@@ -20,6 +20,8 @@ fn screen(layout: Layout) -> MainScreen {
     config.settings.interface.layout = layout;
     // Independent of the locale of the machine running the tests.
     config.settings.interface.unicode_symbols = courier_ftp_core::settings::SymbolMode::Unicode;
+    // Log lines carry the current time; leave it out of snapshots.
+    config.settings.logging.show_timestamps = false;
     let mut s = MainScreen::new(config, Theme::new(None, true));
     // Fixed content, independent of the machine running the test.
     s.update(&Action::ListingLoaded {

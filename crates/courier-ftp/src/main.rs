@@ -12,6 +12,7 @@ use crate::app::App;
 mod action;
 mod app;
 mod cli;
+mod clipboard;
 mod config;
 mod errors;
 mod keymap;

@@ -4,6 +4,7 @@
 pub(crate) mod dialog;
 mod focus;
 mod layout;
+mod log;
 mod modal;
 mod panes;
 mod screen;

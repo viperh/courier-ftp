@@ -214,6 +214,11 @@ impl App {
                 let dir = self.screen.local.dir.clone();
                 self.list(Side::Local, dir, true);
             }
+            Action::CopyToClipboard(text) => {
+                if let Err(e) = crate::clipboard::copy(text) {
+                    tracing::warn!("clipboard: {e}");
+                }
+            }
             Action::Error(err) => {
                 tracing::error!(?err);
                 self.events_tx
