@@ -90,3 +90,8 @@ the section matching the tag.
   reader pool, migrations that refuse newer schemas, an outbox entry on every
   write, device-local data and blobs, key pins, local approvals, in-memory
   search labels, 0700/0600 permissions.
+- Quickconnect bar (T58): connect to SFTP servers from host, user, password
+  and port fields or a pasted URL (sftp://user@host:port/path); browse the
+  remote pane, disconnect (Ctrl-x d), reconnect (Ctrl-x r, password asked
+  again), confirm before replacing a connection; host key and password prompts
+  open automatically; new setting interface.show_quickconnect.
