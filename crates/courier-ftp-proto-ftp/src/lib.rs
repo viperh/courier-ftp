@@ -7,4 +7,6 @@
 //!
 //! This crate never depends on `ratatui`, `crossterm` or `clap`.
 
+pub mod control;
 pub mod listing;
+pub mod proxy;

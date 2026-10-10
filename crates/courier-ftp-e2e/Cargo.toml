@@ -24,6 +24,8 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 cargo_metadata = { workspace = true }
+# The FTP control connection tests (tests/ftp_control.rs, T10).
+courier-ftp-proto-ftp = { workspace = true }
 # The OpenSSH fixture tests (tests/sftp_auth.rs, T20).
 courier-ftp-proto-sftp = { workspace = true, features = ["test-util"] }
 secrecy = { workspace = true }

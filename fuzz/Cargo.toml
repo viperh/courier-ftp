@@ -30,6 +30,15 @@ test = false
 doc = false
 bench = false
 
+# FTP control connection replies (T10); same body as
+# crates/courier-ftp-proto-ftp/tests/no_panic.rs.
+[[bin]]
+name = "ftp_reply"
+path = "fuzz_targets/ftp_reply.rs"
+test = false
+doc = false
+bench = false
+
 # Item envelopes (T80).
 [[bin]]
 name = "envelope_open"

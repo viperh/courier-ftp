@@ -115,3 +115,19 @@ the section matching the tag.
 - Sync protocol types (T83, courier-ftp-proto): auth, device, vault,
   pull/push, org, invite, rotation and WebSocket messages with golden JSON
   tests, version negotiation and size limits.
+- FTP control connection (T10): multi-line replies, login (normal, anonymous,
+  ACCT, proxy-ready scripts), FEAT/SYST/UTF8 negotiation, keep-alive, raw
+  commands, inactivity timeouts and cancellation.
+- Directory trees for the local and remote side (T54; Ctrl-e to show, T to
+  focus): listed lazily through the listing cache, they follow the file list,
+  with expand/collapse and Enter to open a folder in the list.
+- Site model (T31): Site Manager folder tree with every FileZilla site
+  setting, stored encrypted in the vault (passwords included), device-local
+  default directories and key paths, path lookup (Work/Production/web01), and
+  saved SSH key passphrases and vault SSH keys used when connecting.
+- Transfer queue model (T40): priorities, reorder, pause, retry and requeue,
+  server grouping, stats; persisted encrypted in the vault under a device key,
+  with JSON export/import without passwords.
+- FTP proxies (T15): USER@HOST, SITE, OPEN and custom login scripts (%h %u %p
+  %a %s %w), with every password masked in the log; can't be combined with a
+  generic HTTP/SOCKS proxy.

@@ -99,13 +99,11 @@ impl std::fmt::Debug for SftpBackend {
 }
 
 impl SftpBackend {
-    /// A backend for `info` (address, logon, proxy choice, key file, timezone
-    /// offset) with the timeouts and keep-alive from `settings`. `ctx` carries
-    /// the event bus, the host-key verifier, the agent and the credential
-    /// cache. A vault key ([`KeySource::Vault`]) must be resolved by the
-    /// caller into [`SftpBackend::options_mut`]`().key`.
-    ///
-    /// [`KeySource::Vault`]: courier_ftp_core::backend::KeySource::Vault
+    /// A backend for `info` (address, logon, proxy choice, key file or vault
+    /// key, saved passphrase, timezone offset; see
+    /// [`SshOptions::from_connect_info`]) with the timeouts and keep-alive
+    /// from `settings`. `ctx` carries the event bus, the host-key verifier,
+    /// the agent and the credential cache.
     pub fn new(info: &ConnectInfo, settings: &Settings, ctx: SshContext) -> Self {
         Self {
             address: info.address.clone(),

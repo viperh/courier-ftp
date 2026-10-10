@@ -480,9 +480,14 @@ name = "courier-ftp-proto-ftp"
 version = "0.1.0"
 dependencies = [
  "courier-ftp-core",
+ "encoding_rs",
+ "secrecy",
  "thiserror",
  "time",
+ "tokio",
+ "tokio-util",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
