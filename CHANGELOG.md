@@ -109,3 +109,15 @@ the section matching the tag.
 - Security hardening (T91, M2 pass): no core dumps or same-user ptrace at
   startup, vault keys in mlocked memory, nine new fuzz targets, cargo-vet,
   canary fixtures for the vault and SSH, a threat model and SECURITY.md.
+- Directory comparison engine (T48): by size or modification time with a
+  threshold, precision-aware, aligned rows, case-insensitive names on
+  Windows-like sides, hide identical, warning when filters differ.
+- Sync protocol types (T83, courier-ftp-proto): auth, device, vault,
+  pull/push, org, invite, rotation and WebSocket messages with golden JSON
+  tests, version negotiation and size limits.
+- FTP control connection (T10): multi-line replies, login (normal, anonymous,
+  ACCT, proxy-ready scripts), FEAT/SYST/UTF8 negotiation, keep-alive, raw
+  commands, inactivity timeouts and cancellation.
+- Directory trees for the local and remote side (T54; Ctrl-e to show, T to
+  focus): listed lazily through the listing cache, they follow the file list,
+  with expand/collapse and Enter to open a folder in the list.

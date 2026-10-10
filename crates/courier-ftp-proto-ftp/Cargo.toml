@@ -13,14 +13,21 @@ rust-version.workspace = true
 [dependencies]
 courier-ftp-core = { workspace = true }
 
+# Site charsets other than UTF-8 for commands (T10).
+encoding_rs = { workspace = true }
+secrecy = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

@@ -28,6 +28,7 @@
       "<PageUp>": "PageUp",
       "<Right>": "Open",
       "<Space>": "ToggleSelect",
+      "<T>": "FocusTree",
       "<Up>": "CursorUp",
       "<[>": "HistoryBack",
       "<]>": "HistoryForward",

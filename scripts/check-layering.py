@@ -52,8 +52,11 @@ RULES: dict[str, tuple[set[str] | None, set[str]]] = {
         set(),
         UI | {"tokio", "mio", "rusqlite", "russh", "reqwest"},
     ),
-    # Sync wire types.
-    "courier-ftp-proto": ({"courier-ftp-crypto"}, UI | {"rusqlite", "russh"}),
+    # Sync wire types: serde only (T83), no runtime, no HTTP stack, no storage.
+    "courier-ftp-proto": (
+        {"courier-ftp-crypto"},
+        UI | {"rusqlite", "russh", "tokio", "mio", "hyper", "axum", "reqwest"},
+    ),
     "courier-ftp-core": ({"courier-ftp-crypto", "courier-ftp-proto"}, UI),
     "courier-ftp-store": ({"courier-ftp-core", "courier-ftp-crypto"}, UI),
     # Protocol crates (D5): implement core's Backend trait, nothing above it.

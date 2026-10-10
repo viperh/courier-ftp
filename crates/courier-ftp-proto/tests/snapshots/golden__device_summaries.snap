@@ -1,0 +1,22 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+[
+  {
+    "id": "01900000-0000-7000-8000-000000000004",
+    "name": "laptop",
+    "platform": "linux",
+    "created_at": "2026-10-10T12:00:00Z",
+    "last_seen_at": "2026-10-10T12:34:56.5Z",
+    "current": true
+  },
+  {
+    "id": "01900000-0000-7000-8000-000000000005",
+    "name": "phone",
+    "platform": "macos",
+    "created_at": "2026-10-10T12:00:00Z",
+    "last_seen_at": null,
+    "current": false
+  }
+]

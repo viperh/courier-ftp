@@ -1,0 +1,15 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+[
+  "conflict",
+  "forbidden",
+  "not_found",
+  "rate_limited",
+  "invalid",
+  "gone",
+  "rotating",
+  "auth_required",
+  "internal"
+]

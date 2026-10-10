@@ -117,6 +117,9 @@ pub(crate) enum Action {
     FocusLog,
     FocusQueue,
     FocusQuickconnect,
+    /// Move focus between a file list and the directory tree of the same
+    /// side, showing the trees when they are hidden (T54).
+    FocusTree,
 
     // --- file list, log and queue navigation (T53/T55/T56) ---
     CursorDown,
@@ -200,6 +203,19 @@ pub(crate) enum Action {
         dir: courier_ftp_core::model::RemotePath,
         force: bool,
     },
+    /// List a directory for a side's directory tree (through the cache).
+    #[serde(skip)]
+    TreeListDir {
+        side: Side,
+        dir: courier_ftp_core::model::RemotePath,
+    },
+    /// A listing asked for by [`Action::TreeListDir`] finished.
+    #[serde(skip)]
+    TreeListingLoaded {
+        side: Side,
+        dir: courier_ftp_core::model::RemotePath,
+        result: Result<Listing, String>,
+    },
     /// Select (or deselect) the entries matching a glob.
     #[serde(skip)]
     ApplyPattern {
@@ -235,11 +251,14 @@ pub(crate) enum Action {
         session: SessionId,
         result: Result<Box<Connected>, String>,
     },
-    /// A remote listing finished; dropped when `session` is no longer the
+    /// A remote listing of `dir` finished, for the file list or (with
+    /// `tree`) the directory tree; dropped when `session` is no longer the
     /// current connection.
     #[serde(skip)]
     RemoteListingLoaded {
         session: SessionId,
+        dir: RemotePath,
+        tree: bool,
         result: Result<Listing, String>,
     },
 }

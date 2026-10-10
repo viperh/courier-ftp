@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "access_token": "access",
+  "refresh_token": "refresh",
+  "access_expires_in_s": 900,
+  "refresh_expires_in_s": 2592000
+}

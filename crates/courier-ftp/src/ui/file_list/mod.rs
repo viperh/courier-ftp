@@ -360,6 +360,19 @@ impl FileList {
             .map(|p| p + usize::from(self.has_parent()))
     }
 
+    /// Whether hidden entries are shown (the directory tree follows it).
+    pub(crate) fn show_hidden(&self) -> bool {
+        self.show_hidden
+    }
+
+    /// Go to `dir` (from the directory tree), recorded in the history.
+    pub(crate) fn go_to(&mut self, dir: RemotePath) -> Option<Effect> {
+        if self.dir.as_ref() == Some(&dir) {
+            return None;
+        }
+        self.navigate(dir, None, History::Push, false)
+    }
+
     /// Ask for a listing of `dir`; it is applied when it arrives.
     fn navigate(
         &mut self,
