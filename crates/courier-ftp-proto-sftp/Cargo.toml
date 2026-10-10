@@ -12,10 +12,51 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-# In-process russh SFTP server for harness self-tests (T22, T76).
+# In-process russh server, in-process agent and the insecure host-key verifier for
+# tests (T20, T22, T76). The binary never enables it (scripts/check-layering.py).
 test-util = []
 
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
 # (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
 courier-ftp-core = { workspace = true }
+
+async-trait = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+# The SSH transport (D2). All russh / ssh-key usage stays in `ssh/`, `keys/`, `agent/`.
+russh = { workspace = true }
+ssh-key = { workspace = true }
+
+# Private key formats (`keys/`, copied from sverb's keychain formats).
+aes = { workspace = true }
+argon2 = { workspace = true }
+base64 = { workspace = true }
+cbc = { workspace = true }
+hmac = { workspace = true }
+md-5 = { workspace = true }
+p256 = { workspace = true }
+p384 = { workspace = true }
+p521 = { workspace = true }
+pkcs1 = { workspace = true }
+pkcs8 = { workspace = true }
+rsa = { workspace = true }
+sec1 = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }
+# The in-process server and agent (`ssh::testing`, `agent::testing`) for the
+# integration tests. Path-only, so `cargo publish` drops it.
+courier-ftp-proto-sftp = { path = ".", features = ["test-util"] }
+courier-ftp-core = { workspace = true, features = ["test-util"] }

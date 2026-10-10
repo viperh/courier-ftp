@@ -120,11 +120,27 @@ x509-parser = "0.18.1"
 webpki-roots = "1.0.9"
 
 # --- ssh / sftp (D2) ---
-russh = "0.64.1"
+# No default features: `ring` instead of aws-lc-rs (D9: no C crypto beside ring), no
+# zlib; `rsa` for RSA user keys (T20).
+russh = { version = "0.64.1", default-features = false, features = ["ring", "rsa"] }
 russh-sftp = "3.0.1"
 # russh 0.64 requires exactly this pre-release. `encryption` decrypts
 # passphrase-protected OpenSSH keys, `ppk` reads PuTTY keys.
 ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "encryption", "ppk"] }
+# Private key formats (T20: PEM, PKCS#8, PuTTY; copied from sverb). The versions are
+# the ones russh / ssh-key already pull in.
+aes = "0.9.3"
+cbc = "0.2.1"
+hmac = "0.13.0"
+md-5 = "0.10.6"
+p256 = { version = "0.14.0", features = ["pkcs8"] }
+p384 = { version = "0.14.0", features = ["pkcs8"] }
+p521 = { version = "0.14.0", features = ["pkcs8"] }
+pkcs1 = { version = "0.8.0-rc.4", features = ["pem", "std"] }
+pkcs8 = { version = "0.11.0", features = ["encryption", "pem", "std"] }
+rsa = "=0.10.0-rc.18"
+sec1 = { version = "0.8.1", features = ["der", "pem", "std"] }
+sha1 = "0.11.0"
 
 # --- crypto / vault (T30, T80; versions copied from sverb) ---
 argon2 = "0.6.0"

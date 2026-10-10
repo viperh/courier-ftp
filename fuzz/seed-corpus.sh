@@ -42,7 +42,7 @@ seed_files envelope_open "$ROOT"/crates/courier-ftp-crypto/tests/fixtures/envelo
 seed_files device_blob_open "$ROOT"/crates/courier-ftp-crypto/tests/fixtures/device_blobs/*
 seed_files bundle_open "$ROOT"/crates/courier-ftp-crypto/tests/fixtures/bundles/*
 seed_files grant_open "$ROOT"/crates/courier-ftp-crypto/tests/fixtures/grants/*
-seed_files ppk_parse "$ROOT"/tests/fixtures/sshd/keys/*.ppk "$ROOT"/crates/courier-ftp-proto-sftp/tests/fixtures/keys/*.ppk
+seed_files ppk_parse "$ROOT"/tests/fixtures/sshd/keys/*.ppk "$ROOT"/crates/courier-ftp-proto-sftp/tests/keys/*.ppk
 seed_files known_hosts_parse "$ROOT"/tests/fixtures/known_hosts/*
 seed_listing() { # <dir> <selector byte (octal)> : prefix each fixture with fuzz_listing's selector byte
   has_target ftp_listing || return 0
