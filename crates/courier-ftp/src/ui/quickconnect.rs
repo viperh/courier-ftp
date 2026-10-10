@@ -256,6 +256,8 @@ impl Quickconnect {
         Ok(ConnectRequest {
             info: ConnectInfo::new(address, logon),
             path: url.path,
+            sync_browsing: false,
+            compare: false,
         })
     }
 
