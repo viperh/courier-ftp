@@ -109,3 +109,6 @@ the section matching the tag.
 - Security hardening (T91, M2 pass): no core dumps or same-user ptrace at
   startup, vault keys in mlocked memory, nine new fuzz targets, cargo-vet,
   canary fixtures for the vault and SSH, a threat model and SECURITY.md.
+- Directory comparison engine (T48): by size or modification time with a
+  threshold, precision-aware, aligned rows, case-insensitive names on
+  Windows-like sides, hide identical, warning when filters differ.
