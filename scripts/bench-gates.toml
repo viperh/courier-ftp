@@ -39,3 +39,13 @@ ci_max_ms = 20
 bench = "cache/cache_patch_100k"            # T46 AC10
 max_ms = 5
 ci_max_ms = 10
+
+[[gate]]
+bench = "message_log/log_push"              # T55 AC9: >= 200 000 lines/s
+max_ms = 0.005
+ci_max_ms = 0.01
+
+[[gate]]
+bench = "message_log/log_render_full_ring"  # T55 AC9
+max_ms = 1
+ci_max_ms = 2
