@@ -753,16 +753,16 @@ database name (T30 `move_database_aside`): `courier-ftp.db.bak-YYYYMMDD-HHMMSS` 
 
 ## Acceptance criteria
 
-- [ ] AC1 Without keyring unlock, every start shows the unlock view and no pane is drawn before unlock.
-- [ ] AC2 With keyring unlock enabled (mock keyring), start unlocks without a prompt; a keyring error falls back to the prompt with the reason.
-- [ ] AC3 Wrong password clears the field and shows the attempt count; from the 5th failure the countdown shows and input is ignored until it ends (paused-time test).
-- [ ] AC4 First run creates the vault only with matching passwords of zxcvbn score ≥ 3; weaker passwords show the zxcvbn feedback; the keyring checkbox appears only when a keyring is available.
-- [ ] AC5 Forgot password: keyring path leads to the recovery change-password form and sets a new password; sync path opens T90's recovery (once T90 exists); with neither, the explanation and only `b`/`n` are shown; `n` keeps the old database file.
-- [ ] AC6 Auto-lock locks after `vault.auto_lock_minutes` of no input; input resets it; 0 never locks; resume from sleep locks when `lock_on_suspend`.
-- [ ] AC7 While locked no key reaches panes or sessions; only the unlock form and Quit work; `vault.lock_disconnects` closes sessions; dirty forms are discarded with the toast after unlock.
-- [ ] AC8 A launch intent (T70) waits until unlock and then runs; with "continue without vault" a URL intent runs and a `--site` intent fails with the message.
-- [ ] AC9 Snapshot tests at 80×24 and 160×48 for: unlock, wrong password, backoff, busy, first run, forgot (both variants), new-vault confirm, lock overlay, change password (both variants), password changed elsewhere; ASCII + `NO_COLOR` variants contain only ASCII.
-- [ ] AC10 No password text appears in `Debug` output, snapshots, logs or files (canary test).
+- [x] AC1 Without keyring unlock, every start shows the unlock view and no pane is drawn before unlock.
+- [x] AC2 With keyring unlock enabled (mock keyring), start unlocks without a prompt; a keyring error falls back to the prompt with the reason.
+- [x] AC3 Wrong password clears the field and shows the attempt count; from the 5th failure the countdown shows and input is ignored until it ends (paused-time test).
+- [x] AC4 First run creates the vault only with matching passwords of zxcvbn score ≥ 3; weaker passwords show the zxcvbn feedback; the keyring checkbox appears only when a keyring is available.
+- [x] AC5 Forgot password: keyring path leads to the recovery change-password form and sets a new password; sync path opens T90's recovery (once T90 exists); with neither, the explanation and only `b`/`n` are shown; `n` keeps the old database file.
+- [x] AC6 Auto-lock locks after `vault.auto_lock_minutes` of no input; input resets it; 0 never locks; resume from sleep locks when `lock_on_suspend`.
+- [x] AC7 While locked no key reaches panes or sessions; only the unlock form and Quit work; `vault.lock_disconnects` closes sessions; dirty forms are discarded with the toast after unlock.
+- [x] AC8 A launch intent (T70) waits until unlock and then runs; with "continue without vault" a URL intent runs and a `--site` intent fails with the message.
+- [x] AC9 Snapshot tests at 80×24 and 160×48 for: unlock, wrong password, backoff, busy, first run, forgot (both variants), new-vault confirm, lock overlay, change password (both variants), password changed elsewhere; ASCII + `NO_COLOR` variants contain only ASCII.
+- [x] AC10 No password text appears in `Debug` output, snapshots, logs or files (canary test).
 - [ ] AC11 CI gates `fmt`, `clippy`, `test-local-only`, `test-os`, `canary` pass.
 
 ## Tests
@@ -820,3 +820,80 @@ real `VaultEngine` on a temp DB with `Argon2Cost::TEST` and a mock keyring):
 
 1. sverb's `Ctrl-r` goes straight to keyring unlock; this task shows a "Forgot password" chooser first because courier-ftp has more recovery paths (sync key, backup, new vault). Confirm this deviation.
 2. T30 lists "Continue without vault" but does not say whether a vault can later be created from that mode on first run (no vault exists yet). This task shows the first-run screen again at the next start only. Should "Create vault" also be offered inside the running session?
+
+## Implementation notes
+
+- **Files.** `views.rs` (`Look`: `vault.*` styles and the Unicode/ASCII glyphs) and
+  `views/{unlock,first_run,forgot,lock_overlay}.rs` (forms; `ChangePasswordForm`,
+  `PasswordElsewhereForm`, `render_box`, `BoxLine` are in `unlock.rs`), `views/tests.rs`
+  (unit + property tests); `app/vault.rs` (reducer) with `app/vault/tests.rs` (UI flows)
+  and `app/vault/snapshot_tests.rs` (snapshots in `app/vault/snapshots/`);
+  `services/vault.rs` (`VaultService`, `VaultConfig`, `VAULT_DB`); `timers.rs`
+  (`Timers<K>`: one-shot tokio sleeps per kind, `take_due` refuses stale firings).
+- **Service.** `VaultService::spawn(VaultConfig, action_tx)` opens the store in
+  `spawn_blocking`, sends `Status`, then loops: `Lock` and `StartNewVault` run in the
+  loop itself (so a lock is never queued behind an Argon2 run), every other effect in
+  its own task. A generation counter re-locks an unlock that finishes after a lock.
+  `VaultService::engine()` hands the engine to later tasks (T31…). A database that
+  cannot be opened shows the prompt; every unlock then answers
+  `Other("The vault database is damaged: …")` (Forgot offers a new vault).
+  `InFlight` (`runtime.rs`) counts an effect until its answer is sent, so
+  `AppHarness::settle` waits for real engines.
+- **Events/effects added** (`#[non_exhaustive]`): `VaultEvent::{KeyringChangeFailed,
+  NewVaultFailed, Relogin(Result<(), String>)}`; `Relogin` answers "not available yet"
+  until T87. Internal actions `Action::{Vault, VaultTimer, VaultRequest}` (all
+  `#[serde(skip)]`; `VaultPassword` `Debug` is redacted).
+- **App API for later tasks.** `App::{with_vault, start_vault, attach_vault_service,
+  vault_service, lock_state, vault_available, vault_screen, open_change_password (T68),
+  toggle_keyring_unlock(enable) (T68), request_unlock (T58/T59/T64),
+  vault_defer_launch / on_launch (T70), lock_vault, vault_hides_panes}`; fields
+  `App::vault: VaultUi`, `App::disconnect_requests` (see below). `UnlockForm` has an
+  extra `notice` (the "press Ctrl-q again" text). `AppHarness::{with_vault,
+  attach_vault}`.
+- **`LaunchIntent`** is a stand-in (`Url(String)`, `Site(String)` in `app/vault.rs`)
+  until T70; `on_launch` shows "… is not available yet" for what runs and records it in
+  tests.
+- **CLI.** `--no-vault` and `--no-keyring` were added to `cli.rs` (T70 owns the rest);
+  `COURIER_FTP_KEYRING=off` also counts as `--no-keyring` (`keyring_env_off()`), and
+  the service then gets `NoKeyring` (no checkbox on first run).
+- **Deviations.** (1) Only the locked app (normal mode) hides the panes; the forms
+  shown while unlocked (change password, password changed elsewhere) and the unlock
+  form of "continue without vault" are drawn over the app, as in sverb (nothing
+  decrypted is hidden by the lock then). (2) The lock overlay is drawn from the first
+  unlock on; the startup screens are blank behind the box (mock-up). (3)
+  `vault.lock_disconnects` records the open sessions in `App::disconnect_requests`
+  and the form says nothing keeps running; T61 (which owns session handles) must
+  close them. (4) Step 4 (drop decrypted UI data) has nothing to drop yet (T58/T59/T64
+  add theirs in `lock_vault`). (5) Forgot `s`/`b` and first-run `Ctrl-b`/`Ctrl-g` stay
+  hidden (`ForgotScreen { sync, restore }`, `FirstRunForm { restore_available,
+  sync_available }` are false) until T90/T73 set them; `VaultStatusInfo::sync_account`
+  is always false until T87. (6) Lock reason sent to the engine is always `Manual`
+  (`VaultEffect::Lock` has no reason). (7) Suspend detection uses T30's
+  `SuspendDetector` (wall − monotonic > 10 s, or a frozen process > 30 s) on every
+  tick. (8) Auto-lock keeps one timer and re-arms it from the last input when it fires
+  early (no task per key). (9) Meter feedback is cut at the box width.
+- **Theme.** Style keys `vault.{title,border,text,dim,accent,error,warn,ok,info,overlay}`
+  in `config/config.json`; monochrome: title/border/accent/error/warn bold, dim/overlay
+  dim. `Modal::is_dirty` / `AnyDialog::is_dirty` / `ModalStack::any_dirty` were added
+  for the discarded-forms toast.
+- **PTY (T76).** `PtyApp::unlock` works unchanged (the box title is
+  `🔒 Unlock courier-ftp`). `PtyOptions::no_vault()` (adds `--no-vault`) is used by the
+  shell, file-list and harness PTY tests that are not about the vault;
+  `e2e_pty_resize_to_compact_and_back` now unlocks a `TestHome::with_vault` home (the
+  `no vault` segment would hide the compact hint at 60 columns). `TestHome::env` sets
+  `COURIER_FTP_TEST_ARGON2=test`: test-hooks binaries then create and re-wrap vaults
+  with `Argon2Cost::TEST` (debug Argon2 at 256 MiB takes far too long).
+  `exit-after-panes` now waits until the panes are drawn (after unlock).
+  New `tests/pty_vault.rs`: `first_run_create_vault_quit_unlock`,
+  `keyring_unlock_skips_the_prompt` (test-hooks `FileKeyring`), `lock_and_unlock`.
+- **Tests beyond the list:** `startup_without_keyring_shows_the_prompt`,
+  `password_changed_elsewhere_and_change_password_forms`,
+  `keyring_toggle_asks_for_the_password`, `vault_screens_render_at_small_sizes`,
+  `timers::tests::reschedule_cancels_and_stale_firings_are_refused`. The canary test
+  installs one global TRACE subscriber writing to a thread-local buffer.
+- **Not done here:** `lock_and_unlock_keeps_sftp_session` (Docker, `sshd` password
+  profile) needs a way to connect from the TUI (T58 quickconnect, T61 tabs); the
+  Docker-free `lock_and_unlock` covers the lock/unlock part. AC11's `test-os` and
+  `canary` CI jobs could not be run here; `fmt`, `clippy` (all features and
+  `--no-default-features`), the workspace tests, docs and the layering/unsafe scripts
+  pass locally.
