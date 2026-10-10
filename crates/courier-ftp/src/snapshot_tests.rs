@@ -113,17 +113,17 @@ fn snap_too_small_30x8() {
 }
 
 #[test]
-fn snap_help_overlay_80x24() {
+fn snap_help_filelist_80x24() {
     let mut h = harness(|_| {});
     h.keys("f1");
-    assert_snapshot!("snap_help_overlay_80x24", h.render(80, 24));
+    assert_snapshot!("snap_help_filelist_80x24", h.render(80, 24));
 }
 
 #[test]
-fn snap_help_overlay_160x48() {
+fn snap_help_filelist_160x48() {
     let mut h = harness(|_| {});
     h.keys("?");
-    assert_snapshot!("snap_help_overlay_160x48", h.render(160, 48));
+    assert_snapshot!("snap_help_filelist_160x48", h.render(160, 48));
 }
 
 #[test]

@@ -24,6 +24,7 @@ pub(crate) mod main_screen;
 pub(crate) mod modal;
 pub(crate) mod placeholder;
 pub(crate) mod quit_confirm;
+pub(crate) mod which_key;
 
 /// What a component did with a raw key.
 #[derive(Debug)]
@@ -88,6 +89,12 @@ pub(crate) trait Component {
     fn handle_paste(&mut self, text: &str) -> color_eyre::Result<KeyOutcome> {
         let _ = text;
         Ok(KeyOutcome::Ignored)
+    }
+
+    /// Bindable actions this component implements. A bindable action that no component
+    /// lists and the app does not handle itself shows "… is not available yet" (T51).
+    fn handled_actions(&self) -> &'static [Action] {
+        &[]
     }
 
     /// Actions (from the keymap or other components); most logic lives here.
