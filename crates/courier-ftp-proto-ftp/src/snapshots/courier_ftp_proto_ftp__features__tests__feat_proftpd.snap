@@ -1,0 +1,81 @@
+---
+source: crates/courier-ftp-proto-ftp/src/features.rs
+expression: p
+---
+Features {
+    feat_supported: true,
+    mlst: Some(
+        [
+            MlstFact {
+                name: "modify",
+                enabled: true,
+            },
+            MlstFact {
+                name: "perm",
+                enabled: true,
+            },
+            MlstFact {
+                name: "size",
+                enabled: true,
+            },
+            MlstFact {
+                name: "type",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unique",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.group",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.groupname",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.mode",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.owner",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.ownername",
+                enabled: true,
+            },
+        ],
+    ),
+    mlsd: true,
+    size: true,
+    mdtm: true,
+    mfmt: true,
+    mff: true,
+    rest_stream: true,
+    utf8: true,
+    epsv: true,
+    eprt: true,
+    tvfs: true,
+    clnt: true,
+    mode_z: false,
+    host: true,
+    auth: [
+        "TLS",
+    ],
+    pbsz: true,
+    prot: true,
+    ccc: true,
+    hash: None,
+    site: [
+        "COPY",
+    ],
+    lang: Some(
+        "en-US.UTF-8*;en-US",
+    ),
+    raw: [
+        "RANG STREAM",
+        "SSCN",
+    ],
+}

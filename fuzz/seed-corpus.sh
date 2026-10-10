@@ -64,10 +64,15 @@ seed_files filezilla_xml_import "$ROOT"/crates/courier-ftp-core/tests/fixtures/f
 seed_files queue_import_json "$ROOT"/crates/courier-ftp-core/tests/fixtures/queue/*.json
 seed_files sync_dto_decode "$ROOT"/crates/courier-ftp-proto/tests/fixtures/dto/*
 
-# FTP control replies: single line, multi-line, and odd spacing.
-seed_bytes ftp_reply single '220 Welcome\r\n'
-seed_bytes ftp_reply multi '230-Hello\r\n there\r\n230 Logged in\r\n'
-seed_bytes ftp_reply lf-only '211-Features:\n MLST type*;size*;modify*;\n UTF8\n211 End\n'
+# FTP control replies (fuzz_reply_parser: first byte = split selector, then the
+# server's bytes): single line, multi-line, odd spacing, Telnet, FEAT and PWD.
+seed_bytes ftp_reply single '\x40220 Welcome\r\n'
+seed_bytes ftp_reply multi '\x80230-Hello\r\n there\r\n230 Logged in\r\n'
+seed_bytes ftp_reply lf-only '\x11211-Features:\n MLST type*;size*;modify*;\n UTF8\n211 End\n'
+seed_bytes ftp_reply rfc959 '\x33123-First line\r\nSecond line\r\n234 A line beginning with numbers\r\n123 The last line\r\n'
+seed_bytes ftp_reply telnet '\x07\xff\xfb\x01220 a\xff\xffb\r\n'
+seed_bytes ftp_reply pwd '\x99257 "/a ""b"" c" is current\r\n'
+seed_bytes ftp_reply feat '\x5a211-Features:\r\n AUTH TLS;SSL\r\n REST STREAM\r\n HASH SHA-256*;MD5\r\n211 End\r\n'
 
 # PASV / EPSV answers.
 seed_bytes ftp_pasv pasv '227 Entering Passive Mode (192,168,1,2,195,80)\r\n'

@@ -1295,14 +1295,21 @@ dependencies = [
 name = "courier-ftp-proto-ftp"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "courier-ftp-core",
  "criterion",
  "encoding_rs",
+ "fastrand",
  "insta",
  "proptest",
  "serde",
  "serde_json",
  "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]

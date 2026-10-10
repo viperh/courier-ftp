@@ -1,0 +1,72 @@
+---
+source: crates/courier-ftp-proto-ftp/src/features.rs
+expression: u
+---
+Features {
+    feat_supported: true,
+    mlst: Some(
+        [
+            MlstFact {
+                name: "type",
+                enabled: true,
+            },
+            MlstFact {
+                name: "size",
+                enabled: true,
+            },
+            MlstFact {
+                name: "sizd",
+                enabled: true,
+            },
+            MlstFact {
+                name: "modify",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.mode",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.uid",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unix.gid",
+                enabled: true,
+            },
+            MlstFact {
+                name: "unique",
+                enabled: true,
+            },
+        ],
+    ),
+    mlsd: true,
+    size: true,
+    mdtm: true,
+    mfmt: true,
+    mff: false,
+    rest_stream: true,
+    utf8: true,
+    epsv: true,
+    eprt: true,
+    tvfs: true,
+    clnt: false,
+    mode_z: false,
+    host: false,
+    auth: [
+        "TLS",
+    ],
+    pbsz: true,
+    prot: true,
+    ccc: false,
+    hash: None,
+    site: [],
+    lang: None,
+    raw: [
+        "IDLE",
+        "PRET",
+        "ESTA",
+        "PASV",
+        "ESTP",
+    ],
+}
