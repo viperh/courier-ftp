@@ -1,0 +1,143 @@
+//! Shared application state handed to every handler.
+
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
+
+use sqlx_postgres::PgPool;
+
+// Auth runtime (store, clock, OPAQUE setup).
+use crate::auth::AuthRuntime;
+use crate::config::Config;
+use crate::middleware::rate_limit::RateLimiters;
+use crate::secrets::ServerSecrets;
+
+/// Components that can mark the server "not ready" without being fatal
+/// (e.g. the LISTEN/NOTIFY listener reconnecting).
+#[derive(Debug, Default)]
+pub struct Readiness {
+    degraded: Mutex<BTreeSet<&'static str>>,
+}
+
+impl Readiness {
+    /// Marks `component` degraded (`true`) or healthy (`false`).
+    pub fn set_degraded(&self, component: &'static str, degraded: bool) {
+        if let Ok(mut set) = self.degraded.lock() {
+            if degraded {
+                set.insert(component);
+            } else {
+                set.remove(component);
+            }
+        }
+    }
+
+    /// The currently degraded components.
+    #[must_use]
+    pub fn degraded(&self) -> Vec<&'static str> {
+        self.degraded
+            .lock()
+            .map(|s| s.iter().copied().collect())
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Debug)]
+struct Inner {
+    config: Config,
+    db: PgPool,
+    secrets: ServerSecrets,
+    rate_limits: Arc<RateLimiters>,
+    readiness: Readiness,
+    auth: AuthRuntime,
+    mailer: std::sync::RwLock<crate::mail::Mailer>,
+}
+
+/// Cheaply clonable state (`Arc` inside).
+#[derive(Debug, Clone)]
+pub struct AppState(Arc<Inner>);
+
+impl AppState {
+    /// Builds the state; derives the `server_secrets` key from the config.
+    #[must_use]
+    pub fn new(config: Config, db: PgPool) -> Self {
+        Self::with_rate_limits(config, db, RateLimiters::default())
+    }
+
+    /// Like [`Self::new`] with custom rate limiters.
+    #[must_use]
+    pub fn with_rate_limits(config: Config, db: PgPool, rate_limits: RateLimiters) -> Self {
+        let auth = AuthRuntime::postgres(db.clone());
+        Self::with_auth(config, db, rate_limits, auth)
+    }
+
+    /// Like [`Self::with_rate_limits`] with a custom auth runtime
+    /// (tests: the in-memory store and a manual clock).
+    #[must_use]
+    pub fn with_auth(
+        config: Config,
+        db: PgPool,
+        rate_limits: RateLimiters,
+        auth: AuthRuntime,
+    ) -> Self {
+        let secrets = ServerSecrets::new(&config.server_secret);
+        // Recovery-code and invite mail when SMTP is configured.
+        let mailer = std::sync::RwLock::new(crate::mail::Mailer::from_config(config.smtp.as_ref()));
+        Self(Arc::new(Inner {
+            config,
+            db,
+            secrets,
+            rate_limits: Arc::new(rate_limits),
+            readiness: Readiness::default(),
+            auth,
+            mailer,
+        }))
+    }
+
+    /// The configuration.
+    #[must_use]
+    pub fn config(&self) -> &Config {
+        &self.0.config
+    }
+
+    /// The database pool.
+    #[must_use]
+    pub fn db(&self) -> &PgPool {
+        &self.0.db
+    }
+
+    /// The `server_secrets` helper.
+    #[must_use]
+    pub fn secrets(&self) -> &ServerSecrets {
+        &self.0.secrets
+    }
+
+    /// The rate limiters.
+    #[must_use]
+    pub fn rate_limits(&self) -> &Arc<RateLimiters> {
+        &self.0.rate_limits
+    }
+
+    /// Authentication state (store, clock, OPAQUE setup).
+    #[must_use]
+    pub fn auth(&self) -> &AuthRuntime {
+        &self.0.auth
+    }
+
+    /// The mailer (recovery codes, invites).
+    #[must_use]
+    pub fn mailer(&self) -> crate::mail::Mailer {
+        self.0.mailer.read().map(|m| m.clone()).unwrap_or_default()
+    }
+
+    /// Replaces the mailer (tests: [`crate::mail::Mailer::Recording`]).
+    pub fn set_mailer(&self, mailer: crate::mail::Mailer) {
+        if let Ok(mut m) = self.0.mailer.write() {
+            *m = mailer;
+        }
+    }
+
+    /// Non-fatal readiness flags.
+    #[must_use]
+    pub fn readiness(&self) -> &Readiness {
+        &self.0.readiness
+    }
+}
