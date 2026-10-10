@@ -24,7 +24,7 @@ use russh::{
 };
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use super::{SshSessionInfo, errors::EndCause};
 use crate::keys::key_bits;
@@ -134,7 +134,7 @@ pub struct InsecureAcceptAnyHostKey;
 #[async_trait]
 impl HostKeyVerifier for InsecureAcceptAnyHostKey {
     async fn verify(&self, _: &str, _: u16, key: &ServerKey, _: &VerifyCtx<'_>) -> HostKeyVerdict {
-        warn!(
+        tracing::warn!(
             key_type = %key.key_type,
             "host key accepted WITHOUT verification (insecure test verifier)"
         );

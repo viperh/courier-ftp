@@ -157,6 +157,9 @@ pub(crate) struct App {
     started: Instant,
     last_frame: Option<u128>,
     save_task: Option<TaskId>,
+    /// Bumped by every scheduled save; an older save that reaches the disk later skips
+    /// its write, so the newest settings always win.
+    save_generation: Arc<std::sync::atomic::AtomicU64>,
     pub(crate) draw_count: u64,
     problems: Vec<String>,
     first_frame_done: bool,
@@ -233,6 +236,7 @@ impl App {
             started: Instant::now(),
             last_frame: None,
             save_task: None,
+            save_generation: Arc::default(),
             draw_count: 0,
             problems,
             first_frame_done: false,
@@ -345,9 +349,13 @@ impl App {
     /// Saves pending settings and stops every task.
     pub(crate) async fn finish(&mut self) {
         if self.save_task.take().is_some() {
+            // Newer than any save still in flight: those skip their write.
+            self.save_generation
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let res = Self::save_now(
                 self.settings.current(),
                 self.settings.config_dir().to_path_buf(),
+                None,
             )
             .await;
             if let Err(e) = res {
@@ -730,8 +738,23 @@ impl App {
         self.notify_panes_settings();
     }
 
-    async fn save_now(settings: Arc<Settings>, dir: PathBuf) -> Result<(), String> {
+    /// Writes `settings`. With `generation`, skips the write when a newer save has been
+    /// scheduled since. Writes are serialized, so they cannot finish out of order.
+    async fn save_now(
+        settings: Arc<Settings>,
+        dir: PathBuf,
+        generation: Option<(Arc<std::sync::atomic::AtomicU64>, u64)>,
+    ) -> Result<(), String> {
+        static SAVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         crate::runtime::spawn_blocking(move || {
+            let _serial = SAVE_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some((current, mine)) = generation
+                && current.load(std::sync::atomic::Ordering::SeqCst) != mine
+            {
+                return Ok(());
+            }
             check_settings_not_shadowed(&dir).map_err(|e| e.to_string())?;
             settings.save_user(&dir).map_err(|e| e.to_string())
         })
@@ -752,12 +775,17 @@ impl App {
         }
         let settings = Arc::clone(&self.settings.current());
         let dir = self.settings.config_dir().to_path_buf();
+        let mine = self
+            .save_generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        let generation = Some((Arc::clone(&self.save_generation), mine));
         let id = self.runner.spawn(TaskOwner::App, move |token| async move {
             tokio::select! {
                 // Superseded by a newer change (or shutdown, which saves itself).
                 () = token.cancelled() => Action::SettingsSaved(Ok(())),
                 () = tokio::time::sleep(SAVE_DEBOUNCE) => {
-                    Action::SettingsSaved(Self::save_now(settings, dir).await)
+                    Action::SettingsSaved(Self::save_now(settings, dir, generation).await)
                 }
             }
         });
