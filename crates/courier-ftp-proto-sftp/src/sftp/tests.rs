@@ -427,3 +427,98 @@ async fn works_through_factory_and_session_handle() {
     let listing = handle.list(&RemotePath::root(), &cancel).await.unwrap();
     assert_eq!(listing.entries.len(), 1);
 }
+
+/// Resolves every queue server to the in-process test server.
+struct TestResolver(u16);
+
+#[async_trait::async_trait]
+impl courier_ftp_core::transfer::ServerResolver for TestResolver {
+    async fn resolve(
+        &self,
+        _: &courier_ftp_core::queue::QueueServer,
+        _: &CancellationToken,
+    ) -> courier_ftp_core::Result<ConnectInfo> {
+        Ok(info(self.0))
+    }
+}
+
+/// The transfer engine (T41) over real SFTP connections: several files up
+/// and down in parallel, byte-identical.
+#[tokio::test]
+async fn transfer_engine_moves_files_over_sftp() {
+    use courier_ftp_core::{
+        model::{Direction, LocalPath},
+        queue::{NewItem, Queue, QueueList, QueueServer},
+        settings::TransferTypeChoice,
+        transfer::TransferEngine,
+    };
+
+    let (remote_dir, port) = server(false).await;
+    let local_dir = tempfile::tempdir().unwrap();
+    let count = 6;
+    for i in 0..count {
+        let size = 100_000 * i + 7;
+        std::fs::write(local_dir.path().join(format!("up{i}")), pattern(size)).unwrap();
+        let mut down = pattern(size + 1);
+        down.reverse();
+        std::fs::write(remote_dir.path().join(format!("down{i}")), down).unwrap();
+    }
+    let queue = Arc::new(Mutex::new(Queue::default()));
+    let quick = QueueServer::Quick {
+        address: info(port).address,
+        password: None,
+    };
+    {
+        let mut q = queue.lock().unwrap();
+        for i in 0..count {
+            for (direction, name) in [(Direction::Upload, "up"), (Direction::Download, "down")] {
+                let name = format!("{name}{i}");
+                q.add(
+                    NewItem::file(
+                        quick.clone(),
+                        direction,
+                        LocalPath::new(local_dir.path().join(&name)),
+                        RemotePath::new(format!("/{name}")),
+                        None,
+                    ),
+                    time::OffsetDateTime::UNIX_EPOCH,
+                );
+            }
+        }
+    }
+    let (tx, mut rx) = events::channel(2);
+    let mut engine_settings = settings();
+    engine_settings.transfers.max_concurrent = 3;
+    engine_settings.file_types.default_type = TransferTypeChoice::Binary;
+    let (engine, handle) = TransferEngine::builder(
+        Arc::clone(&queue),
+        Arc::new(factory()),
+        Arc::new(TestResolver(port)),
+        tx,
+    )
+    .settings(engine_settings)
+    .build();
+    let task = engine.spawn();
+    handle.start();
+    let stats = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if let Some(CoreEvent::QueueFinished { stats }) = rx.recv().await {
+                return stats;
+            }
+        }
+    })
+    .await
+    .expect("queue did not finish");
+    assert_eq!(stats.files_ok, 2 * count as u64, "{stats:?}");
+    assert_eq!(queue.lock().unwrap().count(QueueList::Failed), 0);
+    for i in 0..count {
+        let a = std::fs::read(local_dir.path().join(format!("up{i}"))).unwrap();
+        let b = std::fs::read(remote_dir.path().join(format!("up{i}"))).unwrap();
+        assert!(a == b, "upload {i} differs");
+        let a = std::fs::read(remote_dir.path().join(format!("down{i}"))).unwrap();
+        let b = std::fs::read(local_dir.path().join(format!("down{i}"))).unwrap();
+        assert!(a == b, "download {i} differs");
+    }
+    handle.shutdown();
+    task.await.unwrap();
+}
