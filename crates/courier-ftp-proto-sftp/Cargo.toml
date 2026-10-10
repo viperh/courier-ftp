@@ -10,14 +10,28 @@ rust-version.workspace = true
 
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
 # Everything here should be testable without a terminal.
+[features]
+# `ssh::agent::InProcessAgent` (an in-memory SSH agent) for other crates' tests.
+test-util = ["dep:futures"]
+
 [dependencies]
 courier-ftp-core = { workspace = true }
 
+async-trait = { workspace = true }
+futures = { workspace = true, optional = true }
+# SSH transport and authentication (D2, T20). All russh API usage stays in `src/ssh/`.
+russh = { workspace = true }
+secrecy = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+futures = { workspace = true }
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true
