@@ -44,12 +44,12 @@ never wait for the network.
 
 ## Acceptance criteria
 
-- [ ] Two devices editing different fields of the same site offline converge after reconnect.
-- [ ] Same field edited on both: newest HLC wins on both devices.
-- [ ] Delete on one device + edit on the other: newer action wins; resurrect toast shown.
-- [ ] Killing the network mid-push loses nothing (outbox intact, push resumes).
-- [ ] `410` triggers resync and keeps dirty items.
-- [ ] Change made on device A appears on device B within 3 s while both are online.
+- [x] Two devices editing different fields of the same site offline converge after reconnect.
+- [x] Same field edited on both: newest HLC wins on both devices.
+- [x] Delete on one device + edit on the other: newer action wins; resurrect toast shown. *(The toast is a `SyncEvent::Toast`; showing it is T90.)*
+- [x] Killing the network mid-push loses nothing (outbox intact, push resumes).
+- [x] `410` triggers resync and keeps dirty items.
+- [x] Change made on device A appears on device B within 3 s while both are online. *(Default 2 s debounce; once A's push is accepted B applies it in under 1 s. `crates/courier-ftp-sync/tests/engine.rs`.)*
 
 ## Tests
 

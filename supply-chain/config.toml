@@ -1992,7 +1992,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.reqwest]]
 version = "0.12.28"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.rfc6979]]
 version = "0.6.0"

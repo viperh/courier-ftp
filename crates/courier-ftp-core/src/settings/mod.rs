@@ -51,6 +51,8 @@ pub struct Settings {
     pub filters: FilterSettings,
     /// The encrypted vault: auto-lock and password storage (T30).
     pub vault: VaultSettings,
+    /// Device sync timers and what syncs (T88; used with feature `sync`).
+    pub sync: SyncSettings,
 }
 
 /// Timeouts, retries and keep-alive.
@@ -737,6 +739,30 @@ impl Default for VaultSettings {
             lock_on_suspend: true,
             lock_disconnects: false,
             store_passwords: true,
+        }
+    }
+}
+
+/// Device sync settings (T88). The account itself lives in the vault's
+/// database, not here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncSettings {
+    /// Push this many milliseconds after the last local change (0–60000).
+    pub push_debounce_ms: u32,
+    /// Pull every vault this often even without live notifications
+    /// (30–86400 seconds).
+    pub poll_fallback_secs: u32,
+    /// Also sync the quickconnect history between devices.
+    pub history: bool,
+}
+
+impl Default for SyncSettings {
+    fn default() -> Self {
+        Self {
+            push_debounce_ms: 2000,
+            poll_fallback_secs: 300,
+            history: false,
         }
     }
 }

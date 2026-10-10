@@ -68,6 +68,10 @@ pub enum VaultError {
     /// The database failed.
     #[error("vault storage error: {0}")]
     Storage(String),
+    /// A sync-account recovery can't restore this device's data (T87): the
+    /// recovered account does not hold the key of the local personal vault.
+    #[error("this device's vault can't be recovered: {0}")]
+    NotRecoverable(String),
 }
 
 impl VaultError {
