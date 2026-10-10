@@ -6,9 +6,8 @@ Read this first when continuing. Branch `claude/lucid-fermat-bhtbd0`, draft PR v
 
 - **Done and merged (31 tasks):** T00–T07, T10, T11, T13, T20, T21, T22, T30, T46, T47,
   T50–T53, T55, T57, T60, T69, T76, T80–T84. Milestone M1 is complete; M2 is mostly done.
-- **CI:** green up to `29b55c5` (T22). The last push, `ab379a4` (merge of T60), passed
-  fmt, both clippy runs and the layering/unsafe checks locally; its full test run was
-  stopped when the session ended, so check CI on `ab379a4` first.
+- **CI:** fully green (Windows, macOS, Docker e2e) on `847ff5d`, which includes every
+  merged task above.
 - **Stopped mid-way:**
   - **T12 (FTPS/TLS):** partial work saved as `tasks/handoff/t12-ftps-wip.patch`
     (applies cleanly to `ab379a4`; unverified, gates not run). It has `TlsSession`, the
