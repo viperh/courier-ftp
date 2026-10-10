@@ -29,6 +29,9 @@ pub mod keys {
     /// Random id of this database (UUID text), so several data directories use
     /// distinct OS-keyring accounts.
     pub const DB_ID: &str = "db_id";
+    /// The device data key (T40) wrapped under the LMK (`WrapPurpose::Device`),
+    /// sealing the `device_blobs`. Created on first use; never synced.
+    pub const DEVICE_KEY_WRAPPED: &str = "device_key_wrapped";
 }
 
 impl ReadTx<'_> {

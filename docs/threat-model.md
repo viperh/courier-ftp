@@ -21,7 +21,8 @@ the document is completed at the end of the project.
 | Decrypted index | memory only (the engine's in-memory map), zeroized on lock |
 | Account keys and sync tokens (sync, planned) | `meta` / `sync_state`, AEAD under the LMK |
 | Trusted host keys (SFTP) and certificates (FTPS, planned) | vault items; integrity matters, not secrecy. `~/.ssh/known_hosts` is read, never written |
-| Transfer queue, edit temp files (planned: T40s, T63) | the data directory / a private temp dir |
+| Transfer queue (hosts, paths, quickconnect passwords) | SQLite `device_blobs`, an envelope under a device data key wrapped by the LMK; never synced, never written while the vault is locked. Queue exports (JSON) carry no passwords |
+| Edit temp files (planned: T63) | a private temp dir |
 | Transferred data in flight | SSH channel (SFTP), TLS (FTPS, planned), plaintext for plain FTP |
 | Backups (`.cftp-backup`) | Argon2id + XChaCha20-Poly1305 under a backup password; the header is authenticated |
 

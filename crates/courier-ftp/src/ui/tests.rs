@@ -12,7 +12,7 @@ use pretty_assertions::assert_eq;
 use ratatui::{Terminal, backend::TestBackend};
 use tokio_util::sync::CancellationToken;
 
-use super::{KeyOutcome, MainScreen, Region, Side, Theme};
+use super::{KeyOutcome, MainScreen, Region, Side, Theme, dir_tree::DirTree};
 use crate::{action::Action, app::Mode, config::Config};
 
 fn screen(layout: Layout) -> MainScreen {
@@ -23,6 +23,8 @@ fn screen(layout: Layout) -> MainScreen {
     // Log lines carry the current time; leave it out of snapshots.
     config.settings.logging.show_timestamps = false;
     let mut s = MainScreen::new(config, Theme::new(None, true));
+    // The same tree on every OS (Windows adds a "Computer" root and shortcuts).
+    s.local_tree = DirTree::with_shortcuts(Side::Local, true, false, false);
     // Fixed content, independent of the machine running the test.
     s.update(&Action::ListingLoaded {
         side: Side::Local,

@@ -1060,3 +1060,6 @@ async fn session_log_file_has_masked_commands() {
     assert!(text.contains(" Response: 230 User logged in\n"), "{text}");
     assert!(!text.contains(PW), "{text}");
 }
+
+/// FTP proxy logins (T15) against the same fake server.
+mod proxy;
