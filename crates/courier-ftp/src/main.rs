@@ -19,6 +19,7 @@ mod diagnostics;
 mod errors;
 mod keymap;
 mod logging;
+mod sites;
 mod tui;
 mod ui;
 mod vault;

@@ -55,6 +55,11 @@ pub(crate) enum Action {
     Settings,
     /// Open the Site Manager (T59).
     SiteManager,
+    /// Pick a saved site by typing part of its name and connect (T59).
+    SitePicker,
+    /// Open the Site Manager with a new site prefilled from the current
+    /// quickconnect connection, password included (T58 §7, T59).
+    SaveAsSite,
     /// Re-list the directories shown in both panes.
     Refresh,
     /// Show the raw listing (LIST/MLSD text, SFTP long names) of the focused
@@ -301,6 +306,12 @@ pub(crate) enum Action {
     /// The quickconnect history was (re)loaded from the vault.
     #[serde(skip)]
     HistoryLoaded(Vec<crate::ui::HistoryItem>),
+    /// The Site Manager screen asks for an operation (T59).
+    #[serde(skip)]
+    SiteOp(Shared<crate::sites::SiteOp>),
+    /// A Site Manager operation finished.
+    #[serde(skip)]
+    SitesReply(Shared<crate::sites::SitesReply>),
     /// A connection attempt started by [`Action::Connect`] finished.
     #[serde(skip)]
     Connected {
@@ -340,6 +351,8 @@ pub(crate) struct ConnectRequest {
     pub(crate) sync_browsing: bool,
     /// Turn directory comparison on once connected (site setting, bookmark).
     pub(crate) compare: bool,
+    /// The Site Manager entry connected to (`None` for quickconnect).
+    pub(crate) site: Option<courier_ftp_core::model::item::ItemId>,
 }
 
 impl ConnectRequest {
@@ -366,6 +379,32 @@ impl PartialEq for ConnectRequest {
 }
 
 impl Eq for ConnectRequest {}
+
+/// A value carried by an action that can't be compared or serialized (a
+/// background task's request or result). Two `Shared` values are equal only
+/// when they are the same allocation.
+#[derive(Clone)]
+pub(crate) struct Shared<T>(pub(crate) std::sync::Arc<T>);
+
+impl<T> Shared<T> {
+    pub(crate) fn new(value: T) -> Self {
+        Self(std::sync::Arc::new(value))
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for Shared<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T> PartialEq for Shared<T> {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl<T> Eq for Shared<T> {}
 
 /// A successful connection: what the status bar shows and the first listing.
 #[derive(Debug, Clone, PartialEq, Eq)]

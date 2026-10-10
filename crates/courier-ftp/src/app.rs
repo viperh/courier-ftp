@@ -3,9 +3,9 @@ use courier_ftp_core::{
     cache::ListingCache,
     events::{self, EventReceiver, EventSender, LogKind, SessionId},
     local::LocalBackend,
-    model::{RemotePath, ServerAddress},
+    model::{RemotePath, ServerAddress, item::ItemId},
     settings::{LoggingSettings, Settings},
-    sites::History,
+    sites::{History, HistoryEntry},
 };
 use std::{
     sync::Arc,
@@ -20,12 +20,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    action::{Action, ConnectRequest, Connected},
+    action::{Action, ConnectRequest, Connected, Shared},
     backends::Backends,
     config::Config,
     keymap::{Feed, KeyBindings, Sequencer},
+    sites::{SiteOp, SitesSlot, Snapshot},
     tui::{Event, Tui},
-    ui::{KeyOutcome, MainScreen, Side, Theme, VaultFacts, VaultRequest, VaultView},
+    ui::{
+        KeyOutcome, MainScreen, Side, Theme, VaultFacts, VaultRequest, VaultView,
+        site_manager::{SiteManagerView, ViewOpts, site_paths, site_picker},
+    },
     vault::{Phase, Vault, VaultMsg},
 };
 
@@ -66,6 +70,11 @@ pub(crate) struct App {
     vault_rx: mpsc::UnboundedReceiver<VaultMsg>,
     /// The quickconnect history (T33); `None` while the vault is locked.
     history: Option<History>,
+    /// The Site Manager's data (T59): loaded after unlock, dropped on lock.
+    sites: SitesSlot,
+    /// The last tree the Site Manager loaded, for the screen and the site
+    /// picker; `None` while locked or loading.
+    site_snapshot: Option<Snapshot>,
     /// Session log file and raw listings (T71).
     diag: crate::diagnostics::Diagnostics,
 }
@@ -86,6 +95,8 @@ struct Remote {
     /// the typed password; the vault drops it unless
     /// `vault.store_passwords`).
     record: Option<ConnectInfo>,
+    /// The Site Manager entry connected to (`None`: quickconnect).
+    site: Option<ItemId>,
 }
 
 /// `alice@host` (with the port when it isn't the protocol's default), for
@@ -231,6 +242,8 @@ impl App {
             vault_tx,
             vault_rx,
             history: None,
+            sites: Arc::new(tokio::sync::Mutex::new(None)),
+            site_snapshot: None,
             diag: crate::diagnostics::Diagnostics::new(offset),
         };
         app.apply_logging(&config.settings.logging);
@@ -393,17 +406,32 @@ impl App {
                 Some(Phase::Unlocked) => self.screen.flash("The vault is already unlocked"),
                 Some(_) => self.screen.show_vault(true),
             },
-            Action::SiteManager | Action::Bookmarks
+            Action::SiteManager | Action::Bookmarks | Action::SitePicker | Action::SaveAsSite
                 if self
                     .vault
                     .as_ref()
                     .is_some_and(|v| v.phase != Phase::Unlocked) =>
             {
-                self.offer_unlock(if matches!(action, Action::SiteManager) {
-                    "the Site Manager"
-                } else {
-                    "bookmarks"
+                if matches!(action, Action::SiteManager) {
+                    // "Unlock the vault to view sites" stays if the user
+                    // says no (T59 §7).
+                    self.screen
+                        .open_site_manager(SiteManagerView::locked(self.site_view_opts()));
+                }
+                self.offer_unlock(match action {
+                    Action::SiteManager => "the Site Manager",
+                    Action::Bookmarks => "bookmarks",
+                    _ => "saved sites",
                 });
+            }
+            Action::SiteManager => self.open_site_manager(None),
+            Action::SaveAsSite => self.save_as_site(),
+            Action::SitePicker => self.site_picker(),
+            Action::SiteOp(op) => self.site_op((*op.0).clone()),
+            Action::SitesReply(reply) => {
+                if let Some(snapshot) = &reply.0.snapshot {
+                    self.site_snapshot = Some(snapshot.clone());
+                }
             }
             // No transfers exist yet, so nothing needs confirming (T41 adds the
             // "transfers are running, quit anyway?" dialog).
@@ -447,6 +475,8 @@ impl App {
                 let history = self.screen.quickconnect_mut().history()?;
                 history.first().map(|item| item.request.clone())
             }) {
+                // A site: its saved credentials, read again.
+                Some(ConnectRequest { site: Some(id), .. }) => self.connect_site(id),
                 Some(request) => self.start_connect(request),
                 None => self.screen.flash("No server to reconnect to"),
             },
@@ -714,7 +744,9 @@ impl App {
             connected: false,
             sync_browsing: request.sync_browsing,
             compare: request.compare,
-            record: Some(request.info.clone()),
+            // Sites are not quickconnect history.
+            record: request.site.is_none().then(|| request.info.clone()),
+            site: request.site,
         });
         self.last_connect = Some(request.without_password());
         self.screen
@@ -764,10 +796,15 @@ impl App {
                 );
                 self.diag.listing_shown(Side::Remote, &connected.listing);
                 let record = remote.record.take();
+                let site = remote.site;
                 self.screen.remote_connected(connected);
                 self.screen.connected_view(sync, compare, case_sensitive);
                 if let Some(info) = record {
                     self.record_history(info);
+                }
+                if let Some(id) = site {
+                    let slot = Arc::clone(&self.sites);
+                    tokio::spawn(async move { crate::sites::record_connected(&slot, id).await });
                 }
             }
             Err(e) => {
@@ -1033,7 +1070,8 @@ impl App {
         }
     }
 
-    /// The vault is unlocked: hide the view, update the status bar.
+    /// The vault is unlocked: hide the view, update the status bar, load
+    /// the history and the Site Manager.
     fn vault_unlocked(&mut self, message: Option<&str>) {
         if let Some(engine) = self.vault.as_ref().and_then(Vault::engine) {
             let history = History::new(Arc::new(engine.clone()), Arc::new(engine.store().clone()));
@@ -1041,6 +1079,12 @@ impl App {
             let loader = history.clone();
             tokio::spawn(async move { load_history(&loader, &tx).await });
             self.history = Some(history);
+            self.load_sites(engine.clone());
+        }
+        if let Some(view) = self.screen.site_manager_mut()
+            && view.is_locked()
+        {
+            view.unlocked(self.site_snapshot.clone());
         }
         self.screen.show_vault(false);
         self.screen.set_vault_locked(false);
@@ -1064,6 +1108,10 @@ impl App {
         };
         vault.lock();
         self.history = None;
+        self.site_snapshot = None;
+        self.screen.close_site_manager();
+        let slot = Arc::clone(&self.sites);
+        tokio::spawn(async move { *slot.lock().await = None });
         self.screen.quickconnect_mut().set_history(None);
         let facts = self.vault_facts();
         let now = Instant::now();
@@ -1104,6 +1152,170 @@ impl App {
         });
     }
 
+    /// Load the Site Manager over the unlocked vault; the tree arrives as
+    /// [`Action::SitesReply`].
+    fn load_sites(&mut self, engine: courier_ftp_store::vault::VaultEngine) {
+        let slot = Arc::clone(&self.sites);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let reply = match crate::sites::load(&engine).await {
+                Ok(sites) => {
+                    let snapshot = crate::sites::snapshot(&sites).await;
+                    *slot.lock().await = Some(sites);
+                    crate::sites::SitesReply {
+                        snapshot: Some(snapshot),
+                        outcome: crate::sites::SiteOutcome::Loaded,
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "sites not loaded");
+                    crate::sites::SitesReply {
+                        snapshot: None,
+                        outcome: crate::sites::SiteOutcome::Failed(format!(
+                            "Could not load the sites: {e}"
+                        )),
+                    }
+                }
+            };
+            let _ = tx.send(Action::SitesReply(Shared::new(reply)));
+        });
+    }
+
+    /// What the Site Manager screen needs from the settings and the system.
+    fn site_view_opts(&self) -> ViewOpts {
+        let home = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+        let appdata = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
+        let candidates =
+            courier_ftp_core::sites::import::filezilla_locations(home.clone(), appdata);
+        let import_default = candidates
+            .iter()
+            .find(|p| p.exists())
+            .or(candidates.first())
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let export_default = home
+            .map(|h| h.join("courier-ftp-sites.json"))
+            .unwrap_or_else(|| std::path::PathBuf::from("courier-ftp-sites.json"))
+            .display()
+            .to_string();
+        ViewOpts {
+            unicode: crate::ui::unicode_symbols(&self.settings),
+            store_passwords: self.settings.vault.store_passwords,
+            import_default,
+            export_default,
+        }
+    }
+
+    /// `<Ctrl-s>`: open the Site Manager (vault unlocked), optionally with a
+    /// new site to fill in.
+    fn open_site_manager(&mut self, new_site: Option<courier_ftp_core::sites::Site>) {
+        if self.vault.is_none() {
+            self.screen.flash("The Site Manager needs the vault");
+            return;
+        }
+        let mut view = SiteManagerView::new(self.site_snapshot.clone(), self.site_view_opts());
+        if let Some(site) = new_site {
+            view = view.with_new_site(site);
+        }
+        self.screen.open_site_manager(view);
+    }
+
+    /// "Save as site": the current quickconnect connection, password
+    /// included, as a new site in the Site Manager.
+    fn save_as_site(&mut self) {
+        let Some(remote) = self.remote.as_ref() else {
+            self.screen.flash("Not connected");
+            return;
+        };
+        if remote.site.is_some() {
+            self.screen.flash("This connection is already a saved site");
+            return;
+        }
+        let site = HistoryEntry::from_connect_info(&remote.info).to_site();
+        self.open_site_manager(Some(site));
+    }
+
+    /// The site picker: type part of a name, Enter connects.
+    fn site_picker(&mut self) {
+        let sites = self
+            .site_snapshot
+            .as_ref()
+            .map(|s| site_paths(&s.tree))
+            .unwrap_or_default();
+        if sites.is_empty() {
+            self.screen
+                .flash("No saved sites yet: create one in the Site Manager (<Ctrl-s>)");
+            return;
+        }
+        let (modal, rx) = site_picker(sites);
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(Some(id)) = rx.await {
+                let _ = tx.send(Action::SiteOp(Shared::new(SiteOp::Connect(id))));
+            }
+        });
+    }
+
+    /// Run a Site Manager operation in the background.
+    fn site_op(&mut self, op: SiteOp) {
+        if let SiteOp::Connect(id) = op {
+            self.connect_site(id);
+            return;
+        }
+        let slot = Arc::clone(&self.sites);
+        let cost = self
+            .vault
+            .as_ref()
+            .and_then(Vault::engine)
+            .map_or(courier_ftp_crypto::kdf::Argon2Cost::DEFAULT, |e| e.cost());
+        let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+        let today = time::OffsetDateTime::now_utc().to_offset(offset).date();
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let reply = crate::sites::run(&slot, op, cost, today).await;
+            let _ = tx.send(Action::SitesReply(Shared::new(reply)));
+        });
+    }
+
+    /// Connect the remote pane to a saved site: its default local directory
+    /// opens first, then the connection with its remote directory, and
+    /// synchronized browsing / comparison once connected (T66).
+    fn connect_site(&mut self, id: ItemId) {
+        self.screen.close_site_manager();
+        let slot = Arc::clone(&self.sites);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            match crate::sites::connect(&slot, id).await {
+                Ok(site) => {
+                    if let Some(local) = &site.local_dir
+                        && let Ok(dir) = courier_ftp_core::local::local_to_remote(local.as_path())
+                    {
+                        let _ = tx.send(Action::ListDir {
+                            side: Side::Local,
+                            dir,
+                            force: false,
+                        });
+                    }
+                    let request = ConnectRequest {
+                        info: site.info,
+                        path: site.remote_dir,
+                        sync_browsing: site.sync_browsing,
+                        compare: site.directory_comparison,
+                        site: Some(id),
+                    };
+                    let _ = tx.send(Action::Connect {
+                        request: Box::new(request),
+                        replace: false,
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(Action::Error(format!("Could not connect to the site: {e}")));
+                }
+            }
+        });
+    }
+
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| self.screen.draw(frame))?;
         Ok(())
@@ -1132,6 +1344,8 @@ async fn first_listing(
 
 #[cfg(test)]
 mod log_tests;
+#[cfg(test)]
+mod site_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -1372,6 +1372,7 @@ dependencies = [
  "courier-ftp-sync",
  "crossterm 0.29.0",
  "directories",
+ "encoding_rs",
  "futures",
  "human-panic",
  "insta",
