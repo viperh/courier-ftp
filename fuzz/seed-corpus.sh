@@ -44,4 +44,10 @@ printf '\001\000\132\000\000\000\000\000\000' >"$corpus/proxy_reply/seed-socks4"
 printf '\002\005\000\005\000\000\001\177\000\000\001\000\026' >"$corpus/proxy_reply/seed-socks5"
 printf '\003\005\002\001\000\005\000\000\001\177\000\000\001\000\026' >"$corpus/proxy_reply/seed-socks5-auth"
 
+# ftp_reply (T10): a login and FEAT exchange (first byte: read size).
+mkdir -p "$corpus/ftp_reply"
+printf '\007220-Welcome\r\n220 Ready\r\n331 Password\r\n230 Logged in\r\n215 UNIX Type: L8\r\n' >"$corpus/ftp_reply/seed-login"
+printf '\003211-Features:\r\n MDTM\r\n REST STREAM\r\n MLST type*;size*;\r\n UTF8\r\n AUTH TLS\r\n211 End\r\n257 "/a ""b"""\r\n' >"$corpus/ftp_reply/seed-feat"
+printf '\000123-First line\r\nSecond line\r\n  234 A line\r\n123 The last line\n' >"$corpus/ftp_reply/seed-rfc959"
+
 echo "seeded $(find "$corpus" -type f | wc -l) corpus files"
