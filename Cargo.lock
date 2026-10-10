@@ -1307,6 +1307,7 @@ dependencies = [
  "serde_json",
  "time",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "tracing",
  "tracing-subscriber",

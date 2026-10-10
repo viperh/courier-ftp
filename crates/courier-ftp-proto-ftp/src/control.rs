@@ -337,7 +337,6 @@ impl ControlConnection {
     }
 
     /// T11 guard: a data transfer is open (only `ABOR` may be written).
-    #[allow(dead_code)] // T11 (data connections) is the caller.
     pub(crate) fn mark_transfer_open(&mut self, open: bool) {
         self.transfer_open = open;
     }

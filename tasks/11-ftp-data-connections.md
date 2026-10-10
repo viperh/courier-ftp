@@ -365,28 +365,28 @@ Settings (T05, none added): `ftp.transfer_mode` (`Passive`), `ftp.fallback_to_ac
 
 ## Acceptance criteria
 
-- [ ] AC1 `parse_pasv` accepts the format variants in the test table and rejects > 255
+- [x] AC1 `parse_pasv` accepts the format variants in the test table and rejects > 255
   values, < 6 numbers and port 0; `parse_epsv` accepts any repeated delimiter and rejects
   mismatched delimiters and ports > 65535.
-- [ ] AC2 EPSV, PASV, EPRT (IPv4 + IPv6) and PORT each complete a `RETR` against the fake
+- [x] AC2 EPSV, PASV, EPRT (IPv4 + IPv6) and PORT each complete a `RETR` against the fake
   server; an IPv6 data channel works against `[::1]`.
-- [ ] AC3 PASV address rules: unroutable address replaced by the peer when the setting is
+- [x] AC3 PASV address rules: unroutable address replaced by the peer when the setting is
   on (kept when off); a different routable address is always replaced; Status line logged.
-- [ ] AC4 Passive failure with `fallback_to_active` retries once in active mode, succeeds,
+- [x] AC4 Passive failure with `fallback_to_active` retries once in active mode, succeeds,
   and the next transfer uses active mode without trying passive.
-- [ ] AC5 Active mode honours the port range (bound port within range) and rejects a data
+- [x] AC5 Active mode honours the port range (bound port within range) and rejects a data
   connection from an unexpected IP; through a generic proxy it fails with `Unsupported`;
   with `active_no_external_ip_on_local` on and a loopback/private control peer, `PORT`/`EPRT`
   carries the local IP even when `external_ip` is `Fixed`/`FromUrl` (no URL request made),
   and with it off the external IP is sent.
-- [ ] AC6 `AsciiDecode`/`AsciiEncode` output is independent of chunking (CR at chunk end)
+- [x] AC6 `AsciiDecode`/`AsciiEncode` output is independent of chunking (CR at chunk end)
   and `decode(encode(x)) == x` for LF-only text.
-- [ ] AC7 Resume via `REST` produces byte-identical files for download and upload, including
+- [x] AC7 Resume via `REST` produces byte-identical files for download and upload, including
   an offset > 4 GiB (fake server, sparse data) — `REST 5368709120` on the wire.
-- [ ] AC8 Cancelling a transfer mid-stream runs ABOR + resync and the next `PWD` succeeds
+- [x] AC8 Cancelling a transfer mid-stream runs ABOR + resync and the next `PWD` succeeds
   within 1 s (paused time) for each server reply variant (426+226, 226 only, 225, 500).
-- [ ] AC9 A `226` received before the data EOF does not cause an error or data loss.
-- [ ] AC10 `ensure_type` sends `TYPE A`/`TYPE I` only when the requested type differs from
+- [x] AC9 A `226` received before the data EOF does not cause an error or data loss.
+- [x] AC10 `ensure_type` sends `TYPE A`/`TYPE I` only when the requested type differs from
   the tracked type; a `Retr` with `range_len: Some(n)` yields exactly `n` bytes, then the
   abort sequence leaves the control usable and `finish` returns Ok.
 - [ ] AC11 Docker e2e: passive and active downloads/uploads (SHA-256 verified) against
@@ -462,3 +462,75 @@ Not applicable (no UI, no corpus).
   with the peer address (safe default, same as curl). FileZilla connects to such addresses
   unless they are unroutable. Do we need a setting (e.g. `ftp.trust_pasv_address`, off by
   default) for server farms that really hand out another host?
+
+## Implementation notes
+
+- **Layout:** `crates/courier-ftp-proto-ftp/src/{data,passive,active,ascii,transfer}.rs`.
+  `data` holds the types (`DataMode`, `DataConfig`, `DataState`, `RawData`, `DataIo`,
+  `DataTlsHook`, `TransferCommand`, `DataStream`); `transfer` holds `FtpData` (the
+  sequence, fallback, `REST`, finish, abort/resync, listings). Tests: `passive/tests.rs`
+  (parsers, unroutable table, address rules, property tests incl. the fuzz body),
+  `ascii/tests.rs`, inline `active` tests, and `transfer/tests.rs` (every `FakeServer`
+  integration test of the list plus extras: PORT→EPRT fallback, EPSV over IPv6, invalid
+  227, 550 keeps the control ready, empty listing/`226` without `1xx`, cancel during a
+  listing, server never connects in active mode, port range exhausted, upload data
+  failure reporting the server's `452`). E2e:
+  `crates/courier-ftp-e2e/tests/ftp_data.rs`. Fuzz: `fuzz/fuzz_targets/ftp_pasv.rs`
+  (+ `[[bin]]`, an EPRT seed in `seed-corpus.sh`).
+- **Real time, not paused time,** in the `FakeServer` data tests: with loopback TCP the
+  paused clock auto-advances while socket I/O is in flight and fires the 20 s timeouts.
+  Tests that need short timeouts set `DataConfig.timeout` to 300 ms; AC8's "next `PWD`
+  within 1 s" is measured with `Instant` (each variant takes a few ms).
+- **New dependency:** `tokio-rustls` (workspace, already in `Cargo.lock`) for the
+  `DataIo::Tls` variant of the spec; no new crates, `supply-chain/` unchanged.
+- **API additions beyond the spec:** `passive::AddrParseError` (the parsers' error type —
+  `std::net::AddrParseError` cannot be constructed), `TransferCommand::{offset,
+  is_upload, is_file}`, `DataStream::is_complete`, `data::DEFAULT_SOCKET_BUFFER`,
+  `transfer::{MAX_LISTING_BYTES, FALLBACK_STATUS, ACTIVE_THROUGH_PROXY,
+  EXTERNAL_IP_FAILED}`, `AsciiDecode/AsciiEncode::{new, get_ref, get_mut}`.
+  `FakeServer::tcp_on(bind, script)` (IPv6 loopback), `testing::pattern_bytes`, and the
+  steps `ReplyText(String)`, `PasvListen`, `PasvListenAs(Ipv4Addr)`, `EpsvListen`,
+  `ExpectPortThenConnect`, `DataConnectFrom(IpAddr)`, `SendData`, `SendPattern`,
+  `RecvData`, `CloseData`, `ExpectAbor`. `ExpectPortThenConnect` connects to the
+  announced port on the control peer's IP (the client's real address), so tests of the
+  advertised IP (`Fixed`/`FromUrl`) check the `PORT` line in the transcript.
+- **Deviations / choices the spec left open:**
+  - PASV address rule: anything that is not the peer's address is replaced by the peer
+    address, except an unroutable address with `ignore_unroutable_pasv_ip` off. So an
+    unroutable PASV address is replaced even when the peer itself is private (e.g. the
+    Docker fixture at 172.17.x announcing 10.255.255.1); the table only covered a
+    routable peer.
+  - A refused `PASV` (5xx, remembered in `pasv_failed`) and a non-229 `EPSV` reply are
+    passive failures eligible for the active fallback, like connect failures and `425`.
+  - `finish(None)` and `finish` of a download not read to EOF run the abort sequence and
+    return `Err(Cancelled)` (a partial transfer is never reported as success); `abort()`
+    returns `Ok` once resynchronised. `finish` shuts an upload down itself (TLS
+    `close_notify` + FIN) when the caller did not.
+  - Cancellation while waiting for the `1xx` reply, or while reading a listing, runs the
+    abort sequence (control stays usable) instead of T10's "cancel mid-reply → Broken".
+  - A data socket error (not a timeout) first waits up to 2 s for the server's final
+    reply (e.g. `452`/`552` on a full disk → `Protocol { code }`) and only runs the
+    ABOR sequence when none comes.
+  - ABOR reply reading stops at the first reply that is not `1xx`/`4xx` (`225`, `226`,
+    `5xx`): later stray replies are skipped by the `NOOP` resync, so a responsive
+    server costs no 2 s grace.
+  - Ranged reads: after `range_len` bytes `finish` waits up to 200 ms for the data EOF;
+    EOF → normal `226` path, otherwise abort (the transfer's reply counts as success).
+  - The external IP lookup failure is not cached (the next transfer tries again); a
+    success is cached in `DataState::external_ip_cache`. A `Fixed` address of the wrong
+    family logs a Status warning and uses the local IP.
+  - `bytes_transferred` counts bytes delivered to/accepted from the caller (after ASCII
+    conversion).
+  - 4xx/5xx replies are returned as `Error::Protocol { code, text }`; T14's table maps
+    them further (e.g. 550 → `NotFound`).
+  - `active_rejects_foreign_peer` is `#[cfg(target_os = "linux")]` (it connects from
+    127.0.0.2, which only Linux routes on loopback).
+- The `x86_64-pc-windows-gnu` clippy check could not run here (`ring` needs a MinGW C
+  compiler); the `cfg(windows)` ASCII identity test runs in CI's Windows job.
+- Docker is not available here: the four e2e tests compile and skip (`require_docker!`);
+  CI's e2e job runs them. Nightly `cargo fuzz` was not run (the property test runs the
+  same body on random input).
+- **Unticked ACs:** AC11 (Docker e2e: the tests exist in `ftp_data.rs` and skip here;
+  CI's e2e job runs them) and AC12 (all local gates pass — fmt, both clippy runs, tests,
+  docs, layering, unsafe check, `cargo vet`, `cargo deny`; the 30 s `ftp_pasv` fuzz run
+  and the OS matrix are CI jobs).
