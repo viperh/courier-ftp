@@ -98,6 +98,8 @@ libc = "0.2.189"
 strum = { version = "0.28.0", features = ["derive"] }
 # Display width of text in the TUI (T50; already a ratatui dependency).
 unicode-width = "0.2.2"
+# Grapheme clusters in text fields (T52; already a ratatui dependency).
+unicode-segmentation = "1.13.3"
 # Log file rotation (T71).
 tracing-appender = "0.2.5"
 # Process hardening on Windows (T91).

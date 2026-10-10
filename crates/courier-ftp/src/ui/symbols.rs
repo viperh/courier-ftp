@@ -111,6 +111,20 @@ pub(crate) struct Symbols {
     pub ellipsis: &'static str,
     /// Spinner frames, one every 100 ms.
     pub spinner: &'static [&'static str],
+    /// Selected radio button (T52).
+    pub radio_on: &'static str,
+    /// Unselected radio button.
+    pub radio_off: &'static str,
+    /// Drop-down marker of a closed `Select`.
+    pub dropdown: &'static str,
+    /// More content above (dialog scroll marker).
+    pub scroll_up: &'static str,
+    /// More content below.
+    pub scroll_down: &'static str,
+    /// Filled part of a progress bar.
+    pub bar_full: &'static str,
+    /// Empty part of a progress bar.
+    pub bar_empty: &'static str,
 }
 
 const ASCII_BORDER: border::Set<'static> = border::Set {
@@ -153,6 +167,13 @@ impl Symbols {
             separator: "│",
             ellipsis: "…",
             spinner: &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+            radio_on: "(•)",
+            radio_off: "( )",
+            dropdown: "▾",
+            scroll_up: "▲",
+            scroll_down: "▼",
+            bar_full: "█",
+            bar_empty: "░",
         }
     }
 
@@ -173,6 +194,13 @@ impl Symbols {
             separator: "|",
             ellipsis: "~",
             spinner: &["|", "/", "-", "\\"],
+            radio_on: "(*)",
+            radio_off: "( )",
+            dropdown: "v",
+            scroll_up: "^",
+            scroll_down: "v",
+            bar_full: "#",
+            bar_empty: "-",
         }
     }
 

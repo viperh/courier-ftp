@@ -19,12 +19,13 @@ use crate::{
     ui::{symbols::Symbols, theme::Theme},
 };
 
+pub(crate) mod dialog;
 pub(crate) mod help;
 pub(crate) mod main_screen;
 pub(crate) mod modal;
 pub(crate) mod placeholder;
-pub(crate) mod quit_confirm;
 pub(crate) mod which_key;
+pub(crate) mod widgets;
 
 /// What a component did with a raw key.
 #[derive(Debug)]
@@ -45,7 +46,6 @@ pub(crate) struct DrawCx<'a> {
     /// The component has the focus.
     pub focused: bool,
     /// Now (tokio `Instant`, virtual in tests); spinners derive frames from it.
-    #[expect(dead_code, reason = "read by the panes' own timers (T53, T55, T57)")]
     pub now: Instant,
     /// The spinner frame to show in the title while the component's owner has been
     /// busy for more than 150 ms.

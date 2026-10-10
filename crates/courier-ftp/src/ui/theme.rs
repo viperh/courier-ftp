@@ -42,6 +42,18 @@ const MONOCHROME: &[(&str, Modifier)] = &[
     ("placeholder", Modifier::DIM),
     ("cursor", Modifier::REVERSED),
     ("selection", Modifier::BOLD.union(Modifier::UNDERLINED)),
+    // Dialogs and widgets (T52).
+    ("dialog_title", Modifier::BOLD),
+    ("field_label_focused", Modifier::BOLD),
+    ("field_error", Modifier::BOLD),
+    ("field_help", Modifier::DIM),
+    ("input", Modifier::UNDERLINED),
+    ("input_placeholder", Modifier::DIM),
+    ("button_focused", Modifier::REVERSED.union(Modifier::BOLD)),
+    ("button_danger", Modifier::BOLD),
+    ("list_cursor", Modifier::REVERSED),
+    ("list_marked", Modifier::BOLD),
+    ("list_header", Modifier::BOLD.union(Modifier::UNDERLINED)),
 ];
 
 fn strip_colours(s: Style) -> Style {

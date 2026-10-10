@@ -20,13 +20,13 @@ use crate::{
     action::Action,
     components::{
         DrawCx, KeyOutcome,
+        dialog::{ConfirmOpts, confirm, problems},
         help::HelpOverlay,
         main_screen::{
             MainScreen, STATUS_MESSAGE_TTL, StatusInfo,
             layout::{Region, ScreenLayout},
         },
         modal::ModalStack,
-        quit_confirm::QuitConfirm,
         which_key,
     },
     config::{Config, check_settings_not_shadowed},
@@ -224,7 +224,7 @@ impl App {
             events,
             events_tx,
             prompts: PromptQueue::default(),
-            modals: ModalStack::default(),
+            modals: ModalStack::new(action_tx.clone()),
             term_env,
             theme,
             symbols,
@@ -251,6 +251,12 @@ impl App {
     )]
     pub(crate) fn events_sender(&self) -> &EventSender {
         &self.events_tx
+    }
+
+    /// The action channel (dialog widgets that wake the app, T52).
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by tests and T53–T71"))]
+    pub(crate) fn action_sender(&self) -> mpsc::UnboundedSender<Action> {
+        self.action_tx.clone()
     }
 
     /// Registers handlers and initialises every component.
@@ -647,10 +653,21 @@ impl App {
                 for c in self.main.components_mut() {
                     out.extend(c.update(&Action::Tick)?);
                 }
+                if !self.modals.is_empty() {
+                    // Dialog timers: progress, withdrawn prompts, spinners.
+                    out.extend(self.modals.poll_all(Instant::now()));
+                    self.dirty = true;
+                }
                 for a in out {
                     self.dirty = true;
                     self.queue(a);
                 }
+            }
+            Action::Wake => {
+                for a in self.modals.poll_all(Instant::now()) {
+                    self.queue(a);
+                }
+                self.dirty = true;
             }
             Action::Render => self.render_requested = true,
             Action::Resize(w, h) => {
@@ -689,19 +706,31 @@ impl App {
                     self.dirty = true;
                 }
             }
-            Action::QuitConfirmed => self.should_quit = true,
+            Action::QuitConfirmed => {
+                self.modals.close_all();
+                self.should_quit = true;
+            }
             Action::Help => {
                 let mode = self.mode();
                 let rows = self.resolver.keymap().bindings_for(mode.chain());
-                self.modals.push(Box::new(HelpOverlay::new(&rows)));
+                self.modals.push_modal(Box::new(HelpOverlay::new(&rows)));
                 self.dirty = true;
             }
             Action::Quit => {
                 let blockers = self.main.quit_blockers();
                 if blockers.is_empty() {
+                    self.modals.close_all();
                     self.should_quit = true;
                 } else {
-                    self.modals.push(Box::new(QuitConfirm::new(blockers)));
+                    let mut text = "Quit courier-ftp?\n".to_owned();
+                    for b in &blockers {
+                        text.push_str(&format!("\n{} {b}", self.symbols.bullet));
+                    }
+                    let dialog =
+                        confirm("Quit", &text, ConfirmOpts::danger("Quit")).confirm_on_quit();
+                    self.modals.push_then(dialog, |yes| {
+                        (yes == Some(true)).then_some(Action::QuitConfirmed)
+                    });
                     self.dirty = true;
                 }
             }
@@ -887,6 +916,8 @@ impl App {
                 let n = self.problems.len();
                 let s = if n == 1 { "" } else { "s" };
                 self.status(format!("{n} configuration problem{s} — see the log"));
+                self.modals
+                    .push_then(problems(self.problems.clone()), |_| None);
             }
         }
         Ok(true)
