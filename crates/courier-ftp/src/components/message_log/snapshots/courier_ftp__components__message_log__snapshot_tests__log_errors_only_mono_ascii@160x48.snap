@@ -1,0 +1,59 @@
+---
+source: crates/courier-ftp/src/components/message_log/snapshot_tests.rs
+expression: text
+---
++ Message log - All [errors only] -----------------------------------------------------------------------------------------------------------------------------+
+|12:00:09 [1] Error:    Failed to retrieve directory listing: the server sent a reply that is long enough to wrap onto a second line of the pane               |
+|12:03:40 [T] Error:    Disk full: /home/alice/Downloads (needed 1.21 GiB, 812 MiB free); queue paused                                                         |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
+|                                                                                                                                                              |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+--- styles ---
+  1   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  1  14+6   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  1  24+120 Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2  14+6   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2  24+78  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()

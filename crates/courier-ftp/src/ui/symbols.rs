@@ -26,10 +26,8 @@ pub(crate) struct TermEnv {
     /// `NO_COLOR` set and non-empty.
     pub no_color: bool,
     /// `SSH_CONNECTION` set.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by the clipboard (T55)"))]
     pub ssh_connection: bool,
     /// `SSH_TTY` set.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by the clipboard (T55)"))]
     pub ssh_tty: bool,
     /// Running on Windows.
     pub windows: bool,
@@ -55,7 +53,6 @@ impl TermEnv {
     }
 
     /// `SSH_CONNECTION` or `SSH_TTY` set (used by T55's clipboard).
-    #[cfg_attr(not(test), expect(dead_code, reason = "used by the clipboard (T55)"))]
     pub(crate) fn over_ssh(&self) -> bool {
         self.ssh_connection || self.ssh_tty
     }

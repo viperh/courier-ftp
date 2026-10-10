@@ -1,0 +1,156 @@
+---
+source: crates/courier-ftp/src/components/message_log/snapshot_tests.rs
+expression: text
+---
+┌ Message log · All ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│12:00:01 [1] Status:   Connecting to 203.0.113.5:21...                                                                                                        │
+│12:00:01 [1] Status:   Connection established, waiting for welcome message...                                                                                 │
+│12:00:01 [1] Response: 220 (vsFTPd 3.0.5)                                                                                                                     │
+│12:00:01 [1] Command:  AUTH TLS                                                                                                                               │
+│12:00:01 [1] Response: 234 Proceed with negotiation.                                                                                                          │
+│12:00:01 [1] Status:   Initializing TLS...                                                                                                                    │
+│12:00:02 [1] Status:   TLS connection established (TLS 1.3, TLS_AES_256_GCM_SHA384).                                                                          │
+│12:00:02 [1] Command:  USER alice                                                                                                                             │
+│12:00:02 [1] Response: 331 Please specify the password.                                                                                                       │
+│12:00:02 [1] Command:  PASS ****                                                                                                                              │
+│12:00:02 [1] Response: 230 Login successful.                                                                                                                  │
+│12:00:02 [1] Status:   Logged in                                                                                                                              │
+│12:00:02 [1] Status:   Retrieving directory listing...                                                                                                        │
+│12:00:02 [1] Command:  PWD                                                                                                                                    │
+│12:00:02 [1] Response: 257 "/var/www" is the current directory                                                                                                │
+│12:00:02 [1] Command:  PASV                                                                                                                                   │
+│12:00:02 [1] Response: 227 Entering Passive Mode (203,0,113,5,195,80).                                                                                        │
+│12:00:02 [1] Command:  MLSD                                                                                                                                   │
+│12:00:03 [1] Response: 150 Here comes the directory listing.                                                                                                  │
+│12:00:03 [1] Response: 226 Directory send OK.                                                                                                                 │
+│12:00:03 [1] Status:   Directory listing of "/var/www" successful                                                                                             │
+│12:00:09 [1] Command:  CWD /root                                                                                                                              │
+│12:00:09 [1] Response: 550 Failed to change directory.                                                                                                        │
+│12:00:09 [1] Error:    Failed to retrieve directory listing: the server sent a reply that is long enough to wrap onto a second line of the pane               │
+│12:03:10 [T] Status:   Connecting to web01.example.com:22...                                                                                                  │
+│12:03:10 [T] Status:   Using username "deploy".                                                                                                               │
+│12:03:10 [T] Trace:    Server version: SSH-2.0-OpenSSH_9.6                                                                                                    │
+│12:03:10 [T] Trace:    kex curve25519-sha256, cipher chacha20-poly1305@openssh.com, mac <implicit>                                                            │
+│12:03:11 [T] Status:   Connected to web01.example.com                                                                                                         │
+│12:03:11 [T] Status:   Starting upload of /home/alice/site/index.html                                                                                         │
+│12:03:11 [T] Status:   File transfer successful, transferred 4,198 bytes in 1 second                                                                          │
+│12:03:40 [T] Error:    Disk full: /home/alice/Downloads (needed 1.21 GiB, 812 MiB free); queue paused                                                         │
+│12:03:41 [-] Status:   Warning: the vault is locked; saved passwords are not available                                                                        │
+│12:04:02 [1] Command:  NOOP                                                                                                                                   │
+│12:04:02 [1] Response: 200 NOOP ok.                                                                                                                           │
+│12:04:30 [1] Command:  CWD /var/www/html                                                                                                                      │
+│12:04:30 [1] Response: 250 Directory successfully changed.                                                                                                    │
+│12:04:30 [1] Command:  PASV                                                                                                                                   │
+│12:04:30 [1] Response: 227 Entering Passive Mode (203,0,113,5,195,81).                                                                                        │
+│12:04:30 [1] Command:  MLSD                                                                                                                                   │
+│12:04:30 [1] Response: 150 Here comes the directory listing.                                                                                                  │
+│12:04:30 [1] Response: 226 Directory send OK.                                                                                                                 │
+│12:04:30 [1] Status:   Directory listing of "/var/www/html" successful                                                                                        │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+--- styles ---
+  1   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  3   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  3  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+  3  24+18  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+  4   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  4  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+  4  24+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+  5   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  5  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+  5  24+29  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+  6   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  8   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  8  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+  8  24+10  Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+  9   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  9  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+  9  24+32  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 10   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 10  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 10  24+9   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 11   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 11  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 11  24+21  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 12   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 13   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 14  24+3   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 15   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 15  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 15  24+39  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 16   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 16  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 16  24+4   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 17   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 17  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 17  24+47  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 18   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 18  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 18  24+4   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 19   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 19  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 19  24+37  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 20   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 20  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 20  24+22  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 21   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 22   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 22  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 22  24+9   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 23   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 23  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 23  24+31  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 24   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 24  14+6   Style::new().fg(Color::Indexed(1)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24  24+120 Style::new().fg(Color::Indexed(1)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 26   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 27   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 27  14+6   Style::new().fg(Color::Indexed(8)).bg(Color::Reset).underline_color(Color::Reset)
+ 27  24+35  Style::new().fg(Color::Indexed(8)).bg(Color::Reset).underline_color(Color::Reset)
+ 28   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 28  14+6   Style::new().fg(Color::Indexed(8)).bg(Color::Reset).underline_color(Color::Reset)
+ 28  24+75  Style::new().fg(Color::Indexed(8)).bg(Color::Reset).underline_color(Color::Reset)
+ 29   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 30   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 31   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 32   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 32  14+6   Style::new().fg(Color::Indexed(1)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 32  24+78  Style::new().fg(Color::Indexed(1)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 33   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 33  14+7   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+ 33  24+63  Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+ 34   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 34  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 34  24+4   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 35   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 35  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 35  24+12  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 36   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 36  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 36  24+17  Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 37   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 37  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 37  24+35  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 38   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 38  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 38  24+4   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 39   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 39  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 39  24+47  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 40   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 40  14+8   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 40  24+4   Style::new().fg(Color::Indexed(4)).bg(Color::Reset).underline_color(Color::Reset)
+ 41   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 41  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 41  24+37  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 42   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 42  14+9   Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 42  24+22  Style::new().fg(Color::Indexed(2)).bg(Color::Reset).underline_color(Color::Reset)
+ 43   1+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()

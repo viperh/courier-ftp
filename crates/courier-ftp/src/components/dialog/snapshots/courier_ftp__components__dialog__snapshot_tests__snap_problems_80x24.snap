@@ -5,7 +5,7 @@ expression: "hs.render(w, h)"
  Quickconnect (not available yet)                                               
  1 Local                                                                        
 ┌ Me┌ 3 configuration problems ────────────────────────────────────────────┐───┐
-│(no│ keybindings.FileList."ctrl-foo": invalid key: unknown key name "foo" │   │
+│   │ keybindings.FileList."ctrl-foo": invalid key: unknown key name "foo" │   │
 │   │ keybindings.Queue."x": unknown action "Remove" (see docs/keybindings │   │
 └───│ styles: unknown style key `bogus`                                    │───┘
 ┏▶Lo│                                                                      │───┐

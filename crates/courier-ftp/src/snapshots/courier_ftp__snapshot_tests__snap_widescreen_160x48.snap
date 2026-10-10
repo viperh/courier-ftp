@@ -4,8 +4,8 @@ expression: "h.render(160, 48)"
 ---
  Quickconnect (not available yet)                                                                                                                               
  1 Local                                                                                                                                                        
-┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ───────────────────────────────────────┐┌ Message log ──────────────────────────────────────────────┐
-┃(not available yet)                             ┃│(not available yet)                            ││(not available yet)                                        │
+┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ───────────────────────────────────────┐┌ Message log · Tab 1 ──────────────────────────────────────┐
+┃(not available yet)                             ┃│(not available yet)                            ││                                                           │
 ┃                                                ┃│                                               ││                                                           │
 ┃                                                ┃│                                               ││                                                           │
 ┃                                                ┃│                                               ││                                                           │

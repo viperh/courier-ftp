@@ -4,8 +4,8 @@ expression: "h.render(80, 24)"
 ---
  Quickconnect (not available yet)                                               
  1 Local                                                                        
-┌ Message log ─────────────────────────────────────────────────────────────────┐
-│(not avai┌ Site settings ───────────────────────────────────────────┐         │
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│         ┌ Site settings ───────────────────────────────────────────┐         │
 │         │  Host             │ example.org                          │         │
 └─────────│  Password         │                                      │─────────┘
 ┏▶Local ━━│ ▶Port             │ 22                                   │─────────┐

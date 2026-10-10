@@ -113,11 +113,12 @@ impl std::fmt::Debug for MainScreen {
 }
 
 impl MainScreen {
-    /// The screen with placeholders and one tab titled "Local".
-    pub(crate) fn new(interface: &InterfaceSettings) -> Self {
+    /// The screen with the message log `log`, placeholders for the other regions and
+    /// one tab titled "Local".
+    pub(crate) fn new(interface: &InterfaceSettings, log: Box<dyn Component>) -> Self {
         let mut me = Self {
             quickconnect: Box::new(Placeholder::new(Region::Quickconnect)),
-            log: Box::new(Placeholder::new(Region::Log)),
+            log,
             queue: Box::new(Placeholder::new(Region::Queue)),
             tabs: vec![TabView::placeholder(TabId::FIRST, "Local")],
             active: 0,
