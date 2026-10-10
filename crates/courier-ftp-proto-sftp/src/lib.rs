@@ -15,6 +15,7 @@
 //! Layering: depends only on `courier-ftp-core`; never on a UI crate.
 
 pub mod agent;
+pub mod convert;
 pub mod keys;
 pub mod known_hosts;
 pub mod ssh;

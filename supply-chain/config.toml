@@ -994,6 +994,10 @@ criteria = "safe-to-deploy"
 version = "0.4.20"
 criteria = "safe-to-deploy"
 
+[[exemptions.gloo-timers]]
+version = "0.4.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.governor]]
 version = "0.10.4"
 criteria = "safe-to-deploy"
@@ -1822,6 +1826,10 @@ criteria = "safe-to-deploy"
 version = "0.62.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.russh-sftp]]
+version = "3.0.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.russh-util]]
 version = "0.52.0"
 criteria = "safe-to-deploy"
@@ -1932,6 +1940,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.serde-untagged]]
 version = "0.1.9"
+criteria = "safe-to-deploy"
+
+[[exemptions.serde_bytes]]
+version = "0.11.19"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_core]]
