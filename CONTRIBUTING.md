@@ -17,7 +17,7 @@
 | `test-os` | the same suite on Windows and macOS: `cargo test --workspace --locked --exclude courier-ftp-server` |
 | `bench-build` | `cargo bench --workspace --no-run --locked` and `python3 scripts/bench-gate.py self-test` |
 | `deny` | `cargo deny --all-features check advisories bans licenses sources` (install with `cargo install --locked cargo-deny`) |
-| `msrv` | `cargo +1.95 check --workspace --all-features --locked` (the version is `rust-version` in `Cargo.toml`) |
+| `msrv` | `cargo +1.96 check --workspace --all-features --locked` (the version is `rust-version` in `Cargo.toml`) |
 | `layering` | `python3 scripts/check-layering.py` |
 | `unsafe-check` | `python3 scripts/check-unsafe.py` |
 | `canary` | `scripts/canary-scan.sh --self-test`, then the suite with `COURIER_FTP_LOG_LEVEL=trace` and `scripts/canary-scan.sh` |

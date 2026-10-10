@@ -21,6 +21,8 @@
 //! `async-trait` macro boxes each returned future, which costs one allocation
 //! per call: negligible next to a network round trip.
 
+#[cfg(any(test, feature = "test-util"))]
+pub mod conformance;
 mod connect;
 #[cfg(any(test, feature = "test-util"))]
 mod mock;

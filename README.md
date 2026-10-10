@@ -61,7 +61,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full rules.
 
 ## Running
 
-Requires Rust 1.95 or newer.
+Requires Rust 1.96 or newer.
 
 ```sh
 cargo run -p courier-ftp

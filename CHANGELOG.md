@@ -25,3 +25,5 @@ the section matching the tag.
 - Filename filter engine with FileZilla's built-in filters (T47).
 - `Backend` trait, `SessionHandle` with keep-alive and reconnect-once, and an
   in-memory mock backend for tests (T03).
+- Local filesystem backend with Windows drive/UNC path mapping, a file name
+  sanitizer and a backend conformance suite (T06).

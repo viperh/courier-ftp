@@ -44,7 +44,7 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 
 Smaller calls made while building, recorded so they can be revisited:
 
-- **T00** MSRV is Rust **1.95** (vergen-gix 10 needs it; same as sverb). Man page and completions use `clap_mangen`/`clap_complete` instead of sverb's hand-written generator. The built-in config moved to `crates/courier-ftp/config/default.json` so `cargo package` works (D10).
+- **T00** MSRV is Rust **1.96** (vergen 10.0.3 needs it). Man page and completions use `clap_mangen`/`clap_complete` instead of sverb's hand-written generator. The built-in config moved to `crates/courier-ftp/config/default.json` so `cargo package` works (D10).
 - **T03** `Backend` uses `async-trait`: native `async fn` in traits is not dyn-compatible. `BackendFactory::create` also takes the `SessionId` the backend logs under.
 - **T05** Settings load leniently: a field with a wrong type or out-of-range value is replaced by its default and reported (`Settings::from_value`), so a bad config never stops startup.
 - **T47** A filter has one `scope` field (both / local only / remote only) instead of two booleans. A filter without conditions never matches.

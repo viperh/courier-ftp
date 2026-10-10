@@ -13,8 +13,8 @@ authors = ["qviperh <olteanromeodavid34@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/viperh/courier-ftp"
 # MSRV: the highest `rust-version` declared by the pinned dependency set
-# (vergen-gix 10). CI job `msrv` checks it; keep in sync with README.
-rust-version = "1.95"
+# (vergen 10.0.3). CI job `msrv` checks it; keep in sync with README.
+rust-version = "1.96"
 
 # Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
 [workspace.lints.rust]
@@ -145,7 +145,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "serde"] }
 
 # --- misc ---
 bytesize = "2.7.0"
+# Free disk space (T06).
+fs4 = "1.1.0"
 libc = "0.2.189"
+# Owner/group names of local files on Unix (T06).
+uzers = "0.12.2"
 # Watching files opened in an external editor (T63).
 notify = "8.2.0"
 # FileZilla sitemanager.xml import (T32).
