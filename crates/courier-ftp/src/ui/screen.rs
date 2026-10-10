@@ -17,6 +17,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::{
     Side,
+    dir_tree::{DirTree, TreeEffect, is_tree_action},
     file_list::{Effect, FileList},
     focus::Region,
     layout::{self, LayoutOptions, Regions, Visibility},
@@ -151,6 +152,8 @@ pub(crate) struct MainScreen {
     focus: Region,
     pub(crate) local: FileList,
     pub(crate) remote: FileList,
+    pub(crate) local_tree: DirTree,
+    pub(crate) remote_tree: DirTree,
     log: LogPane,
     quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
@@ -209,6 +212,9 @@ impl MainScreen {
         }
         let local = FileList::new(Side::Local, &config.settings, local_filters);
         let remote = FileList::new(Side::Remote, &config.settings, remote_filters);
+        let unicode = status.unicode;
+        let local_tree = DirTree::new(Side::Local, unicode, local.show_hidden());
+        let remote_tree = DirTree::new(Side::Remote, unicode, remote.show_hidden());
         Self {
             config,
             theme,
@@ -216,6 +222,8 @@ impl MainScreen {
             focus: Region::LocalList,
             local,
             remote,
+            local_tree,
+            remote_tree,
             log,
             quickconnect: Quickconnect::new(),
             modals: Vec::new(),
@@ -250,10 +258,36 @@ impl MainScreen {
         }
     }
 
+    /// The focused file list (not when its tree has focus).
     fn focused_list(&mut self) -> Option<&mut FileList> {
-        match self.focus.side()? {
-            Side::Local => Some(&mut self.local),
-            Side::Remote => Some(&mut self.remote),
+        match self.focus {
+            Region::LocalList => Some(&mut self.local),
+            Region::RemoteList => Some(&mut self.remote),
+            _ => None,
+        }
+    }
+
+    /// The side whose directory tree has focus.
+    fn focused_tree_side(&self) -> Option<Side> {
+        match self.focus {
+            Region::LocalTree => Some(Side::Local),
+            Region::RemoteTree => Some(Side::Remote),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn tree_mut(&mut self, side: Side) -> &mut DirTree {
+        match side {
+            Side::Local => &mut self.local_tree,
+            Side::Remote => &mut self.remote_tree,
+        }
+    }
+
+    /// What a tree asked for: show a directory in the side's file list.
+    fn apply_tree(&mut self, side: Side, effect: Option<TreeEffect>) {
+        if let Some(TreeEffect::Navigate(dir)) = effect {
+            let effect = self.pane_mut(side).go_to(dir);
+            self.apply(effect);
         }
     }
 
@@ -372,6 +406,12 @@ impl MainScreen {
                 QuickKey::NotHandled => {}
             }
         }
+        if let Some(side) = self.focused_tree_side()
+            && let Some(effect) = self.tree_mut(side).handle_key(key)
+        {
+            self.apply_tree(side, effect);
+            return KeyOutcome::Consumed;
+        }
         if let Some(list) = self.focused_list()
             && let Some(effect) = list.handle_key(key)
         {
@@ -423,9 +463,30 @@ impl MainScreen {
         }
         // Results for a particular side, whatever has focus.
         if let Action::ListingLoaded { side, result } = action {
+            let first = self.pane_mut(*side).dir.is_none();
             let error = self.pane_mut(*side).listing_loaded(result);
             self.outbox.extend(error);
+            if let Ok(listing) = result {
+                self.list_shown(*side, listing, first);
+            }
             return None;
+        }
+        if let Action::TreeListingLoaded { side, dir, result } = action {
+            self.tree_mut(*side).loaded(dir, result);
+            return None;
+        }
+        if let Some(side) = self.focused_tree_side() {
+            if is_tree_action(action) {
+                let effect = self.tree_mut(side).update(action);
+                self.apply_tree(side, effect);
+                return None;
+            }
+            if matches!(action, Action::ToggleHidden) {
+                let tx = self.action_tx.clone();
+                let effect = self.pane_mut(side).update(action, tx.as_ref());
+                self.apply(effect);
+                return None;
+            }
         }
         if let Action::ApplyPattern { side, .. } | Action::SetColumns { side, .. } = action {
             let tx = self.action_tx.clone();
@@ -477,6 +538,18 @@ impl MainScreen {
             Action::FocusRemote => self.set_focus(Region::RemoteList),
             Action::FocusLog => self.set_focus(Region::Log),
             Action::FocusQueue => self.set_focus(Region::Queue),
+            Action::FocusTree => {
+                let target = match self.focus {
+                    Region::LocalTree => Region::LocalList,
+                    Region::RemoteTree => Region::RemoteList,
+                    Region::RemoteList => Region::RemoteTree,
+                    _ => Region::LocalTree,
+                };
+                if matches!(target, Region::LocalTree | Region::RemoteTree) {
+                    self.opts.visible.tree = true;
+                }
+                self.set_focus(target);
+            }
             Action::FocusQuickconnect => {
                 self.set_focus(Region::Quickconnect);
                 self.quickconnect.focus_host();
@@ -522,6 +595,20 @@ impl MainScreen {
         }
     }
 
+    /// A listing arrived for a side's file list: fill in the tree and make
+    /// it follow the list.
+    fn list_shown(&mut self, side: Side, listing: &Listing, first: bool) {
+        let shown = self.pane_mut(side).dir.as_ref() == Some(&listing.dir);
+        let tree = self.tree_mut(side);
+        if first && side == Side::Local {
+            tree.set_home(&listing.dir);
+        }
+        tree.listing(listing);
+        if shown {
+            tree.sync_to(&listing.dir);
+        }
+    }
+
     /// Connect with what the quickconnect bar holds, or say what is wrong.
     /// Focus moves to the remote list so the prompts of the connection (host
     /// key, password) can open: they wait while a text field has focus.
@@ -547,6 +634,7 @@ impl MainScreen {
     pub(crate) fn remote_connecting(&mut self, server: String) {
         self.status.session = None;
         self.remote.connecting(server);
+        self.remote_tree.reset();
     }
 
     /// The remote pane's connection is up: show its first listing and its
@@ -557,6 +645,9 @@ impl MainScreen {
         let result: Result<Listing, String> = Ok(connected.listing.clone());
         let error = self.remote.listing_loaded(&result);
         self.outbox.extend(error);
+        self.remote_tree.reset();
+        self.remote_tree.set_active(true);
+        self.list_shown(Side::Remote, &connected.listing, true);
     }
 
     /// The remote pane is not connected (any more); `error` says why a
@@ -564,6 +655,7 @@ impl MainScreen {
     pub(crate) fn remote_disconnected(&mut self, error: Option<String>) {
         self.status.session = None;
         self.remote.disconnected(error);
+        self.remote_tree.reset();
     }
 
     pub(crate) fn pane_mut(&mut self, side: Side) -> &mut FileList {
@@ -675,19 +767,23 @@ impl MainScreen {
         if let Some(a) = r.log {
             self.log.draw(frame, a, f == Region::Log, theme);
         }
-        for (tree, region) in [
-            (r.local_tree, Region::LocalTree),
-            (r.remote_tree, Region::RemoteTree),
+        for (area, side, region) in [
+            (r.local_tree, Side::Local, Region::LocalTree),
+            (r.remote_tree, Side::Remote, Region::RemoteTree),
         ] {
-            if let Some(a) = tree {
-                let focused = f == region;
-                frame.render_widget(
-                    ratatui::widgets::Paragraph::new("(directory tree: T54)")
-                        .style(theme.dim)
-                        .block(panes::block(" Tree ", focused, theme)),
-                    a,
-                );
+            let Some(a) = area else {
+                continue;
+            };
+            let (list, tree) = match side {
+                Side::Local => (&self.local, &mut self.local_tree),
+                Side::Remote => (&self.remote, &mut self.remote_tree),
+            };
+            tree.set_show_hidden(list.show_hidden());
+            // Only trees on screen list anything (lazy loading).
+            for dir in tree.take_requests() {
+                self.outbox.push(Action::TreeListDir { side, dir });
             }
+            tree.draw(frame, a, f == region, self.tick, theme);
         }
         if let Some(a) = r.local_list {
             self.local

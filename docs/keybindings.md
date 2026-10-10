@@ -93,6 +93,7 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<minus>` | DeselectPattern |
 | `<e>` | Edit |
 | `<a>` | EditAddress |
+| `<T>` | FocusTree |
 | `<Ctrl-d>` | HalfPageDown |
 | `<Ctrl-u>` | HalfPageUp |
 | `<Alt-Left>` | HistoryBack |
