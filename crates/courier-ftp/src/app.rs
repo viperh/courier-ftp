@@ -275,6 +275,14 @@ impl App {
         tui.enter()?;
         let size = tui.size()?;
         self.init_components(size)?;
+        let hook = crate::test_hooks::from_env();
+        if let Some(crate::test_hooks::TestHook::ExitAfter(after)) = hook {
+            let tx = self.action_tx.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(after).await;
+                let _ = tx.send(Action::QuitConfirmed);
+            });
+        }
 
         loop {
             let deadline = self.key_deadline();
@@ -299,6 +307,10 @@ impl App {
             if self.render_requested {
                 self.render_requested = false;
                 self.render_if_needed(&mut tui.terminal)?;
+                if hook == Some(crate::test_hooks::TestHook::ExitAfterPanes) && self.draw_count > 0
+                {
+                    self.should_quit = true;
+                }
             }
             if self.should_suspend {
                 self.should_suspend = false;

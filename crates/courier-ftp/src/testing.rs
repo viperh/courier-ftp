@@ -363,3 +363,89 @@ pub(crate) fn buffer_to_string(buf: &Buffer) -> String {
     }
     out
 }
+
+/// The two sizes every view is snapshotted at (T76 AC9).
+pub(crate) const SIZES: [(u16, u16); 2] = [(80, 24), (160, 48)];
+
+/// Renders `draw` into a `w`×`h` `TestBackend` and returns the buffer as text (one line
+/// per row, trailing spaces kept) followed by a legend of the cells whose style differs
+/// from the default: `y x+len: <style>` per run of equally styled cells in a row.
+pub(crate) fn render(w: u16, h: u16, mut draw: impl FnMut(&mut ratatui::Frame)) -> String {
+    let mut terminal = match Terminal::new(TestBackend::new(w, h)) {
+        Ok(t) => t,
+        Err(e) => match e {},
+    };
+    if let Err(e) = terminal.draw(|f| draw(f)) {
+        match e {}
+    }
+    let buf = terminal.backend().buffer().clone();
+    let mut out = buffer_to_string(&buf);
+    out.push_str(&style_legend(&buf));
+    out
+}
+
+/// The style legend of [`render`].
+pub(crate) fn style_legend(buf: &Buffer) -> String {
+    let area = buf.area;
+    let blank = ratatui::buffer::Cell::EMPTY.style();
+    let mut out = String::from("--- styles ---\n");
+    for y in area.top()..area.bottom() {
+        let mut x = area.left();
+        while x < area.right() {
+            let style = buf[(x, y)].style();
+            let mut end = x + 1;
+            while end < area.right() && buf[(end, y)].style() == style {
+                end += 1;
+            }
+            if style != blank {
+                out.push_str(&format!("{y:>3} {x:>3}+{:<3} {style:?}\n", end - x));
+            }
+            x = end;
+        }
+    }
+    out
+}
+
+/// `insta::assert_snapshot!` of [`render`] at both [`SIZES`], named `<name>@80x24` and
+/// `<name>@160x48`.
+#[allow(unused_macros)]
+macro_rules! assert_view_snapshots {
+    ($name:expr, $draw:expr) => {
+        for (w, h) in $crate::testing::SIZES {
+            let text = $crate::testing::render(w, h, $draw);
+            insta::assert_snapshot!(format!("{}@{}x{}", $name, w, h), text);
+        }
+    };
+}
+#[allow(unused_imports)]
+pub(crate) use assert_view_snapshots;
+
+#[cfg(test)]
+mod snapshot_helper_tests {
+    use ratatui::{
+        style::{Color, Modifier, Style},
+        text::{Line, Span},
+        widgets::Paragraph,
+    };
+
+    #[test]
+    fn render_includes_style_legend() {
+        assert_view_snapshots!("render_includes_style_legend", |f: &mut ratatui::Frame| {
+            let line = Line::from(vec![
+                Span::raw("plain "),
+                Span::styled(
+                    "bold red",
+                    Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+            ]);
+            f.render_widget(Paragraph::new(line), f.area());
+        });
+        let text = super::render(20, 2, |f| {
+            f.render_widget(
+                Paragraph::new(Span::styled("x", Style::new().fg(Color::Blue))),
+                f.area(),
+            );
+        });
+        assert!(text.contains("--- styles ---\n  0   0+1"), "{text}");
+    }
+}

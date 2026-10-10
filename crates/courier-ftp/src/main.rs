@@ -28,6 +28,7 @@ mod runtime;
 #[cfg(test)]
 mod snapshot_tests;
 mod tabs;
+mod test_hooks;
 #[cfg(test)]
 mod testing;
 mod tui;
