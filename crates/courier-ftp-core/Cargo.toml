@@ -15,6 +15,10 @@ test-util = ["dep:bytes"]
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
 # (scripts/check-layering.py and deny.toml enforce it).
 [dependencies]
+# The vault (T30): crypto, the SQLite item store.
+courier-ftp-crypto = { workspace = true }
+courier-ftp-store = { workspace = true }
+
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true, optional = true }
@@ -25,6 +29,7 @@ filetime = { workspace = true }
 fs4 = { workspace = true }
 futures = { workspace = true }
 globset = { workspace = true }
+parking_lot = { workspace = true }
 percent-encoding = { workspace = true }
 regex = { workspace = true }
 schemars = { workspace = true }
@@ -42,14 +47,29 @@ tracing = { workspace = true }
 uhlc = { workspace = true }
 uuid = { workspace = true }
 zeroize = { workspace = true }
+# Backup container payload compression (T30).
+zstd = { workspace = true }
+# Master-password strength (T30).
+zxcvbn = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # `fallocate(KEEP_SIZE)` for the local backend's preallocation (T06).
 rustix = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
+# Process hardening: prctl, setrlimit, mlock (T30, T91).
+libc = { workspace = true }
 # Owner/group names in local listings (T06).
 uzers = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+# Process hardening: error mode, WER flags, VirtualLock (T30, T91).
+windows-sys = { workspace = true, features = [
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_ErrorReporting",
+    "Win32_System_Memory",
+    "Win32_System_SystemInformation",
+] }
 
 [dev-dependencies]
 bytes = { workspace = true }

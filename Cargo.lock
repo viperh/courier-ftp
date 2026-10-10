@@ -1187,6 +1187,8 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "ciborium",
+ "courier-ftp-crypto",
+ "courier-ftp-store",
  "criterion",
  "directories",
  "encoding_rs",
@@ -1195,6 +1197,8 @@ dependencies = [
  "futures",
  "globset",
  "insta",
+ "libc",
+ "parking_lot",
  "percent-encoding",
  "pretty_assertions",
  "proptest",
@@ -1217,7 +1221,10 @@ dependencies = [
  "uhlc",
  "uuid",
  "uzers",
+ "windows-sys 0.61.2",
  "zeroize",
+ "zstd",
+ "zxcvbn",
 ]
 
 [[package]]
@@ -2319,6 +2326,17 @@ checksum = "b95f7c0680e4142284cf8b22c14a476e87d61b004a3a0861872b32ef7ead40a2"
 dependencies = [
  "bit-set 0.5.3",
  "regex",
+]
+
+[[package]]
+name = "fancy-regex"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1e1dacd0d2082dfcf1351c4bdd566bbe89a2b263235a2b50058f1e130a47277"
+dependencies = [
+ "bit-set 0.8.0",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -7238,7 +7256,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bitflags 2.13.1",
- "fancy-regex",
+ "fancy-regex 0.11.0",
  "filedescriptor",
  "finl_unicode",
  "fixedbitset",
@@ -8817,4 +8835,20 @@ checksum = "aeec9eaf2dffbbd09201e23bd0ffcbaa33bb8e9266a10734fd7ed90a85eca078"
 dependencies = [
  "cc",
  "pkg-config",
+]
+
+[[package]]
+name = "zxcvbn"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9eaee90f4a795d1eb4ba6c51e1c1721d4784d550e8efa7b2600f29c867365e0"
+dependencies = [
+ "chrono",
+ "fancy-regex 0.18.0",
+ "itertools 0.14.0",
+ "lazy_static",
+ "regex",
+ "time",
+ "wasm-bindgen",
+ "web-sys",
 ]
