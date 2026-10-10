@@ -1,0 +1,82 @@
+---
+source: crates/courier-ftp/src/app/vault/snapshot_tests.rs
+expression: text
+---
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                             ┌ Forgot master password ───────────────────────────────────────────┐                                              
+                                             │Choose how to get back into your vault on this device:             │                                              
+                                             │                                                                   │                                              
+                                             │k  Unlock with the system keyring, then set a new master password  │                                              
+                                             │s  Use the 24-word recovery key of your sync account               │                                              
+                                             │b  Restore from a backup file (.cftp-backup)                       │                                              
+                                             │n  Start a new, empty vault (the current one is kept as a file)    │                                              
+                                             │                                                                   │                                              
+                                             │Esc back                                                           │                                              
+                                             └───────────────────────────────────────────────────────────────────┘                                              
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+ – not connected │ 🔐  vault locked │ Type: Auto │ ⇅ off                                                                                                         
+--- styles ---
+ 18  45+69  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21  46+3   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  46+3   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23  46+3   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24  46+3   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  45+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  46+8   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 26 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 27  45+69  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 47   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47   1+15  Style::new().fg(Color::Indexed(246)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47  16+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47  19+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 47  21+13  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 47  34+126 Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

@@ -1,0 +1,75 @@
+---
+source: crates/courier-ftp/src/app/vault/snapshot_tests.rs
+expression: text
+---
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                              + [locked] Unlock courier-ftp -------------------------------------+                                              
+                                              |Enter your master password to unlock courier-ftp.                 |                                              
+                                              |                                                                  |                                              
+                                              |Password: ********_                                               |                                              
+                                              |                                                                  |                                              
+                                              |                                                                  |                                              
+                                              |Enter unlock - Esc clear - Ctrl-r forgot password?                |                                              
+                                              |Ctrl-n continue without vault (quickconnect only, nothing saved)  |                                              
+                                              +------------------------------------------------------------------+                                              
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+ [not connected] | [vault locked] | Type: Auto | lim off                                                                                                        
+--- styles ---
+ 19  46+68  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20  46+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21  46+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  46+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  47+10  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 22  57+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23  46+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24  46+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25  46+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25  47+50  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 25 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  46+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  47+64  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 26 113+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 27  46+68  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 47   1+15  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 47  19+14  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).reversed()

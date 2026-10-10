@@ -1,0 +1,78 @@
+---
+source: crates/courier-ftp/src/app/vault/snapshot_tests.rs
+expression: text
+---
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                            ┌ Start a new vault ───────────────────────────────────────────────────┐                                            
+                                            │A new, empty vault replaces the current one. The current database is  │                                            
+                                            │kept as a file next to it (courier-ftp.db.bak-…); nothing is deleted. │                                            
+                                            │                                                                      │                                            
+                                            │Type NEW VAULT to confirm: NEW▏                                       │                                            
+                                            │                                                                      │                                            
+                                            │                                                                      │                                            
+                                            │Enter start over · Esc back                                           │                                            
+                                            └──────────────────────────────────────────────────────────────────────┘                                            
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+ – not connected │ 🔐  vault locked │ Type: Auto │ ⇅ off                                                                                                         
+--- styles ---
+ 19  44+72  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20  44+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20 115+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21  44+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21 115+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  44+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22 115+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23  44+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23  45+27  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 23  72+4   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23 115+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24  44+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24 115+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25  44+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25 115+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  44+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  45+27  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 26 115+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 27  44+72  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 47   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47   1+15  Style::new().fg(Color::Indexed(246)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47  16+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47  19+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 47  21+13  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 47  34+126 Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

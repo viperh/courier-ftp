@@ -2,6 +2,7 @@
 //! layout toggles and rendering (T50).
 
 pub(crate) mod status;
+pub(crate) mod vault;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
@@ -167,6 +168,26 @@ pub(crate) struct App {
     pub(crate) panes: crate::components::file_list::service::PaneService,
     /// What the status bar shows besides settings and keys (T57).
     pub(crate) status_sources: status::StatusSources,
+    /// Vault state: lock, vault screen, mode (T60). No key material.
+    pub(crate) vault: vault::VaultUi,
+    /// The vault service (T60); `None` with `--no-vault` and in most tests.
+    vault_service: Option<crate::services::vault::VaultService>,
+    /// Auto-lock, unlock countdown and quit-disarm timers (T60).
+    vault_timers: crate::timers::Timers<vault::VaultTimer>,
+    /// Resume-from-sleep detection (T30/T60).
+    suspend: courier_ftp_core::vault::SuspendDetector,
+    /// Sessions a lock asked to close (`vault.lock_disconnects`); T61 closes them.
+    #[cfg_attr(not(test), allow(dead_code, reason = "read by connection tabs (T61)"))]
+    pub(crate) disconnect_requests: Vec<SessionId>,
+    /// Every vault effect sent (tests).
+    #[cfg(test)]
+    pub(crate) vault_effects: Vec<vault::VaultEffect>,
+    /// Launch intents run (tests).
+    #[cfg(test)]
+    pub(crate) launched: Vec<vault::LaunchIntent>,
+    /// A simulated wall-clock jump (tests: resume from sleep).
+    #[cfg(test)]
+    pub(crate) wall_jump: Duration,
 }
 
 impl std::fmt::Debug for App {
@@ -206,6 +227,7 @@ impl App {
         let clipboard = Clipboard::from_env(&term_env).into_handle();
         let log = MessageLogPane::new(Arc::clone(&clipboard), &config.settings.logging);
         let pane_service = panes::pane_service(&settings, &events_tx);
+        let action_tx_timers = action_tx.clone();
         let mut app = Self {
             runner: Runner::new(action_tx.clone()),
             main: MainScreen::new(&interface, Box::new(log)),
@@ -242,6 +264,17 @@ impl App {
             first_frame_done: false,
             panes: pane_service,
             status_sources: status::StatusSources::default(),
+            vault: vault::VaultUi::default(),
+            vault_service: None,
+            vault_timers: crate::timers::Timers::new(action_tx_timers),
+            suspend: courier_ftp_core::vault::SuspendDetector::new(),
+            disconnect_requests: Vec::new(),
+            #[cfg(test)]
+            vault_effects: Vec::new(),
+            #[cfg(test)]
+            launched: Vec::new(),
+            #[cfg(test)]
+            wall_jump: Duration::ZERO,
         };
         app.prompts.set_env(PromptEnv::from_settings(&interface));
         app.install_panes();
@@ -463,6 +496,9 @@ impl App {
         self.dirty = true;
         let now = Instant::now();
         self.main.status_bar_mut().on_key(now);
+        if self.vault_on_input(&vault::InputEvent::Key(key)) {
+            return Ok(());
+        }
         if self.prompts.is_visible() {
             // The prompt dialog takes every key (T69).
             self.resolver.clear();
@@ -543,6 +579,9 @@ impl App {
     /// Bracketed paste: to the top modal, else to the focused component.
     pub(crate) fn handle_paste(&mut self, text: &str) -> color_eyre::Result<()> {
         self.dirty = true;
+        if self.vault_on_input(&vault::InputEvent::Paste(text)) {
+            return Ok(());
+        }
         if self.prompts.is_visible() {
             self.prompts.handle_paste(text);
             if let Some(n) = self.prompts.take_notice() {
@@ -659,10 +698,6 @@ impl App {
 
     /// The vault was locked or unlocked (T30/T60): locking hides the visible prompt
     /// (it opens again after unlocking) and forgets the session's secrets.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "called by the unlock view (T60)")
-    )]
     pub(crate) fn set_vault_locked(&mut self, locked: bool) {
         self.vault_locked = locked;
         self.prompts.set_suspended(locked);
@@ -827,6 +862,7 @@ impl App {
                     self.dirty = true;
                 }
                 self.pending_credentials.expire(Instant::now());
+                self.vault_on_tick();
                 self.run_prompt_tick();
                 for a in out {
                     self.dirty = true;
@@ -859,6 +895,18 @@ impl App {
                 self.dirty = true;
             }
             Action::StatusMessage(m) => self.status(m),
+            Action::Vault(ev) => self.on_vault(ev),
+            Action::VaultTimer(kind) => self.vault_on_timer(kind),
+            Action::VaultRequest(effect) => self.send_vault(effect),
+            Action::LockVault => {
+                if self.vault.active && self.vault.mode == vault::VaultMode::Normal {
+                    self.lock_vault();
+                } else if self.vault.active {
+                    self.notify(MessageLevel::Info, "The vault is locked");
+                } else {
+                    self.notify(MessageLevel::Info, "There is no vault (--no-vault)");
+                }
+            }
             Action::Pane(req) => self.handle_pane_request(req),
             Action::PaneInput(id, input) => self.route_pane_input(id, input),
             Action::StatusNotice(level, m) => self.notify(level, &m),
@@ -932,6 +980,7 @@ impl App {
                 }
             }
             Action::Suspend => {
+                self.vault_on_suspend();
                 if cfg!(windows) {
                     self.status("Suspend is not supported on Windows");
                 } else {
@@ -1042,6 +1091,11 @@ impl App {
 
     /// Draws the whole screen (main screen, then modals).
     pub(crate) fn draw(&mut self, frame: &mut Frame) {
+        if self.vault_hides_panes() {
+            // Locked: nothing decrypted (and no server data) is drawn (T60).
+            self.render_vault(frame);
+            return;
+        }
         let now = Instant::now();
         let elapsed_ms = now.duration_since(self.started).as_millis();
         let mode = self.mode();
@@ -1083,6 +1137,8 @@ impl App {
         ) {
             which_key::draw(frame, area, &prefix, &entries, &self.theme, &self.symbols);
         }
+        // Vault forms over the unlocked app (change password, …) (T60).
+        self.render_vault(frame);
         for e in errors {
             self.queue(e);
         }

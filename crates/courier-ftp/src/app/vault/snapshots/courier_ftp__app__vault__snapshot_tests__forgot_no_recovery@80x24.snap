@@ -1,0 +1,59 @@
+---
+source: crates/courier-ftp/src/app/vault/snapshot_tests.rs
+expression: text
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+    ┌ Forgot master password ──────────────────────────────────────────────┐    
+    │Keyring unlock is off and no sync account is set up on this device, so│    
+    │a forgotten master password cannot be recovered here. Your saved      │    
+    │sites, passwords and trusted keys can only be opened with the master  │    
+    │password.                                                             │    
+    │                                                                      │    
+    │n  Start a new, empty vault (the current one is kept as a file)       │    
+    │                                                                      │    
+    │Esc back                                                              │    
+    └──────────────────────────────────────────────────────────────────────┘    
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+ – not connected │ 🔐  vault locked │ Type: Auto │ ⇅ off                         
+--- styles ---
+  6   4+72  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7   5+70  Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+  7  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8   5+64  Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+  8  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9   5+68  Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+  9  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10   5+9   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+ 10  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12   5+3   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14   5+8   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 15   4+72  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23   1+15  Style::new().fg(Color::Indexed(246)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23  16+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23  19+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 23  21+13  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 23  34+46  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

@@ -1,0 +1,101 @@
+---
+source: crates/courier-ftp/src/app/vault/snapshot_tests.rs
+expression: text
+---
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                         ┌ Welcome to courier-ftp ────────────────────────────────────────────────────────────────────────────────────┐                         
+                         │courier-ftp keeps your sites, passwords, bookmarks, history and trusted keys encrypted on this machine. The │                         
+                         │master password is the only key; with sync it is also your account password.                                │                         
+                         │                                                                                                            │                         
+                         │Master password   •••••••••••▏                                                                              │                         
+                         │Confirm                                                                                                     │                         
+                         │                                                                                                            │                         
+                         │Strength          █░░░░ very weak — This is a very common password. Add another word or two. Uncommon words │                         
+                         │                                                                                                            │                         
+                         │[ ] Also unlock with the system keyring on this device                                                      │                         
+                         │                                                                                                            │                         
+                         │There is no way to recover this password. If you forget it, your saved sites and passwords are lost unless  │                         
+                         │you enable keyring unlock or sync with a recovery key.                                                      │                         
+                         │                                                                                                            │                         
+                         │                                                                                                            │                         
+                         │Tab next field · Space toggle · Enter create · Ctrl-n continue without vault                                │                         
+                         └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘                         
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+ – not connected │ 🔐  vault locked │ Type: Auto │ ⇅ off                                                                                                         
+--- styles ---
+ 15  25+110 Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 16  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 16 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 17  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 17 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 18  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 18 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19  26+30  Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20  26+18  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 20 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  26+18  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 22  44+1   Style::new().fg(Color::Indexed(1)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  45+4   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 22  49+10  Style::new().fg(Color::Indexed(1)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  59+75  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 22 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26  26+106 Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+ 26 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 27  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 27  26+54  Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset)
+ 27 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 28  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 28 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 29  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 29 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 30  25+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 30  26+76  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 30 134+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 31  25+110 Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 47   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47   1+15  Style::new().fg(Color::Indexed(246)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47  16+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 47  19+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 47  21+13  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 47  34+126 Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

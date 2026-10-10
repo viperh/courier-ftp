@@ -1,0 +1,54 @@
+---
+source: crates/courier-ftp/src/app/vault/snapshot_tests.rs
+expression: text
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+    ┌ Start a new vault ───────────────────────────────────────────────────┐    
+    │A new, empty vault replaces the current one. The current database is  │    
+    │kept as a file next to it (courier-ftp.db.bak-…); nothing is deleted. │    
+    │                                                                      │    
+    │Type NEW VAULT to confirm: NEW▏                                       │    
+    │                                                                      │    
+    │                                                                      │    
+    │Enter start over · Esc back                                           │    
+    └──────────────────────────────────────────────────────────────────────┘    
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+ – not connected │ 🔐  vault locked │ Type: Auto │ ⇅ off                         
+--- styles ---
+  7   4+72  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11   5+27  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 11  32+4   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14   4+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14   5+27  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14  75+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 15   4+72  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23   1+15  Style::new().fg(Color::Indexed(246)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23  16+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23  19+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 23  21+13  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 23  34+46  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

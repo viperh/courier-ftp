@@ -14,6 +14,15 @@ pub(crate) struct Cli {
     /// Frame rate, i.e. number of frames per second
     #[arg(short, long, value_name = "FLOAT", default_value_t = 60.0)]
     pub frame_rate: f64,
+
+    /// Do not open the vault: quickconnect only, nothing is saved (T60, T70)
+    #[arg(long)]
+    pub no_vault: bool,
+
+    /// Never use the system keyring to unlock the vault (also
+    /// COURIER_FTP_KEYRING=off) (T60, T70)
+    #[arg(long)]
+    pub no_keyring: bool,
 }
 
 const VERSION_MESSAGE: &str = concat!(

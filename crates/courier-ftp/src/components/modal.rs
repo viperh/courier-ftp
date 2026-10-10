@@ -46,6 +46,11 @@ pub(crate) trait Modal: Component {
         true
     }
 
+    /// Holds unsaved edits (a dirty form; T60 discards them on lock).
+    fn is_dirty(&self) -> bool {
+        false
+    }
+
     #[cfg_attr(not(test), allow(dead_code, reason = "used by tests and T53–T71"))]
     /// The kind of dialog shown (`confirm`), for tests and logs.
     fn dialog_kind(&self) -> Option<&'static str> {
@@ -114,6 +119,11 @@ impl ModalStack {
         debug!("dialog opened: {}", d.kind());
         self.stack.push(Box::new(DialogModal::new(d)));
         true
+    }
+
+    /// Any open modal holds unsaved edits.
+    pub(crate) fn any_dirty(&self) -> bool {
+        self.stack.iter().any(|m| m.is_dirty())
     }
 
     /// No modal is open.

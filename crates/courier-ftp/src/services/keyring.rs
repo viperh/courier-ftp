@@ -6,8 +6,6 @@
 //! `COURIER_FTP_KEYRING=off` (or `file:<dir>` in `test-hooks` builds) so they never
 //! touch the real keyring.
 
-#![allow(dead_code, reason = "the unlock screens (T60) build the vault engine")]
-
 use std::sync::Arc;
 
 use courier_ftp_core::vault::{KEYRING_SERVICE, KeyringError, KeyringStore, NoKeyring};
@@ -55,6 +53,21 @@ pub(crate) fn keyring_from_env() -> Arc<dyn KeyringStore> {
     keyring_from_value(std::env::var(KEYRING_ENV).ok().as_deref())
 }
 
+/// `COURIER_FTP_KEYRING` turns keyring use off (`off`, `0`, `none`, `disabled`,
+/// `false`).
+pub(crate) fn keyring_env_off() -> bool {
+    std::env::var(KEYRING_ENV)
+        .ok()
+        .is_some_and(|v| is_off(v.trim()))
+}
+
+fn is_off(value: &str) -> bool {
+    matches!(
+        value.to_ascii_lowercase().as_str(),
+        "off" | "0" | "none" | "disabled" | "false"
+    )
+}
+
 /// [`keyring_from_env`] for a given value (testable without touching the environment).
 pub(crate) fn keyring_from_value(value: Option<&str>) -> Arc<dyn KeyringStore> {
     let Some(value) = value.map(str::trim) else {
@@ -74,11 +87,7 @@ pub(crate) fn keyring_from_value(value: Option<&str>) -> Arc<dyn KeyringStore> {
             return Arc::new(NoKeyring);
         }
     }
-    let off = matches!(
-        value.to_ascii_lowercase().as_str(),
-        "off" | "0" | "none" | "disabled" | "false"
-    );
-    if off {
+    if is_off(value) {
         Arc::new(NoKeyring)
     } else {
         Arc::new(OsKeyring)

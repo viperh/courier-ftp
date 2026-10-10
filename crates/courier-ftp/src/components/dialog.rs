@@ -217,6 +217,8 @@ pub(crate) trait AnyDialog: Send {
     fn is_visible(&self, now: Instant) -> bool;
     /// See [`Dialog::take_notice`].
     fn take_notice(&mut self) -> Option<String>;
+    /// See [`Dialog::is_dirty`].
+    fn is_dirty(&self) -> bool;
 }
 
 type ThenFn<T> = Box<dyn FnOnce(Option<T>) -> Option<Action> + Send>;
@@ -345,6 +347,10 @@ impl<D: Dialog> AnyDialog for Host<D> {
 
     fn take_notice(&mut self) -> Option<String> {
         self.dialog.take_notice()
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.dialog.is_dirty()
     }
 }
 
@@ -669,5 +675,9 @@ impl Modal for DialogModal {
 
     fn dialog_kind(&self) -> Option<&'static str> {
         Some(self.inner.kind())
+    }
+
+    fn is_dirty(&self) -> bool {
+        !self.done && self.inner.is_dirty()
     }
 }

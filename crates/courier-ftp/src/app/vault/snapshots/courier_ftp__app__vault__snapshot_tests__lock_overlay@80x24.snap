@@ -1,0 +1,100 @@
+---
+source: crates/courier-ftp/src/app/vault/snapshot_tests.rs
+expression: text
+---
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                🔒  Vault locked                               │
+│                                  Ctrl-q quit                                 │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│       ┌ 🔒  Unlock courier-ftp ───────────────────────────────────────┐       │
+│       │The vault is locked. Connections and transfers keep running.  │       │
+│       │                                                              │       │
+│       │Password: •••▏                                                │       │
+│       │                                                              │       │
+│       │                                                              │       │
+│       │Enter unlock · Esc clear · Ctrl-r forgot password?            │       │
+│       └──────────────────────────────────────────────────────────────┘       │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ – not connected │ 🔐  vault locked │ Type: Auto │ ⇅ off                         
+--- styles ---
+  0   0+80  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  1   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  1  33+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  1  35+13  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  1  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2  35+11  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  3   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  3  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  4   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  4  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  5   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  5  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  6   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  6  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7   8+3   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7  12+60  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  8   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  8   8+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8  71+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  9   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  9   8+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9  71+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 10   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 10   8+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10   9+10  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 10  19+4   Style::new().fg(Color::Indexed(6)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10  71+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 11   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 11   8+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11  71+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 12   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 12   8+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12  71+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 13   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 13   8+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13   9+50  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 13  71+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14   8+64  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 15   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 15  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 16   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 16  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 17   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 17  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 18   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 18  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 19   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 19  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 20   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 20  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 21   0+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 21  79+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 22   0+80  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 23   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23   1+15  Style::new().fg(Color::Indexed(246)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23  16+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+ 23  19+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 23  21+13  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(6)).underline_color(Color::Reset)
+ 23  34+46  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

@@ -48,6 +48,15 @@ const MONOCHROME: &[(&str, Modifier)] = &[
     // Trust prompts (T69): warnings stay bold without colour.
     ("prompt.danger", Modifier::BOLD),
     ("field_help", Modifier::DIM),
+    // Vault screens (T60): errors and warnings bold, focus by the cursor and a bold
+    // label.
+    ("vault.title", Modifier::BOLD),
+    ("vault.border", Modifier::BOLD),
+    ("vault.dim", Modifier::DIM),
+    ("vault.accent", Modifier::BOLD),
+    ("vault.error", Modifier::BOLD),
+    ("vault.warn", Modifier::BOLD),
+    ("vault.overlay", Modifier::DIM),
     ("input", Modifier::UNDERLINED),
     ("input_placeholder", Modifier::DIM),
     ("button_focused", Modifier::REVERSED.union(Modifier::BOLD)),

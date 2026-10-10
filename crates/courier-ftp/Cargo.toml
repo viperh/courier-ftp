@@ -25,6 +25,8 @@ courier-ftp-core = { workspace = true }
 # Wired into the `BackendFactory` (T03).
 courier-ftp-proto-ftp = { workspace = true }
 courier-ftp-proto-sftp = { workspace = true }
+# The vault database the vault service opens (T60).
+courier-ftp-store = { workspace = true }
 courier-ftp-sync = { workspace = true, optional = true }
 
 base64 = { workspace = true }
@@ -65,8 +67,6 @@ anyhow = { workspace = true }
 vergen-gix = { workspace = true }
 
 [dev-dependencies]
-# Vault engines over a real store in the keyring tests (T30).
-courier-ftp-store = { workspace = true }
 # `MockServer` for the message log integration test (T55).
 courier-ftp-core = { workspace = true, features = ["test-util"] }
 criterion = { workspace = true }
