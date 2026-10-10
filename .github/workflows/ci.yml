@@ -5,8 +5,6 @@ name: CI # Continuous Integration
 #
 #   e2e fixture images   T14/T20/T22 (vsftpd, ProFTPD, Pure-FTPd, OpenSSH; the
 #                        e2e job below already runs the container tests)
-#   server-db            T84  (Postgres tests of courier-ftp-server)
-#   server-docker        T86  (deploy/docker-compose.yml, /healthz, non-root image)
 #   canary server dump   T84  (the Postgres dump scanned by the canary job)
 #   nix                  optional, only if a flake is added
 #
@@ -163,6 +161,80 @@ jobs:
       - name: Leftover containers
         if: failure()
         run: docker ps -a
+
+  # courier-ftp-server tests against a real Postgres (T84). Each DB test
+  # creates and drops its own database (the POSTGRES_USER role is a superuser
+  # here); without COURIER_SERVER_PG_TEST=1 + DATABASE_URL those tests skip,
+  # so this job is the one that exercises them.
+  server-db:
+    name: Server (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: courier
+          POSTGRES_PASSWORD: courier
+          POSTGRES_DB: courier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U courier"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      COURIER_SERVER_PG_TEST: "1"
+      DATABASE_URL: postgres://courier:courier@localhost:5432/courier
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run server tests
+        run: cargo test -p courier-ftp-server --locked
+
+  # Build the server image, bring up the compose stack, wait for /healthz and
+  # /readyz, check the setup token is logged and the container is not root (T86).
+  server-docker:
+    name: Server (docker compose)
+    runs-on: ubuntu-latest
+    env:
+      COURIER_SERVER_SECRET: c1c1c1c1000102030405060708090a0b0c0d0e0f101112131415161718191a1b  # CI-only test value (hex, 32 bytes)
+      COURIER_PUBLIC_URL: http://localhost:8080
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Validate compose file
+        run: docker compose -f deploy/docker-compose.yml config --quiet
+      - name: Build and start
+        run: docker compose -f deploy/docker-compose.yml up -d --build
+      - name: Wait for /healthz (180 s)
+        run: |
+          for i in $(seq 1 180); do
+            if curl -fsS http://localhost:8080/healthz; then exit 0; fi
+            sleep 1
+          done
+          docker compose -f deploy/docker-compose.yml logs
+          exit 1
+      - name: Ready, healthy and logged a setup token
+        run: |
+          curl -fsS http://localhost:8080/readyz
+          docker compose -f deploy/docker-compose.yml logs courier-ftp-server | grep -q setup_token
+          cid="$(docker compose -f deploy/docker-compose.yml ps -q courier-ftp-server)"
+          docker exec "$cid" /usr/local/bin/courier-ftp-server healthcheck
+      - name: Runs as non-root
+        run: |
+          user="$(docker inspect --format '{{.Config.User}}' courier-ftp-server:local)"
+          echo "image user: $user"
+          case "$user" in ""|root|0|0:0|root:root) exit 1;; esac
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
 
   deny:
     name: cargo-deny
