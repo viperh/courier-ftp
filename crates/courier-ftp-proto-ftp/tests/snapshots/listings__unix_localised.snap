@@ -1,0 +1,19 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Unix)
+file  "oesterreich.txt" size=1234 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=hans group=users
+file  "deutsch.txt" size=1234 mtime=2023-03-03T00:00:00.000Z/Day perms=-rw-r--r--(644) owner=hans group=users
+file  "datum-vorn.txt" size=1234 mtime=2022-12-31T00:00:00.000Z/Day perms=-rw-r--r--(644) owner=hans group=users
+file  "francais.txt" size=1234 mtime=2024-02-14T09:15:00.000Z/Minute perms=-rw-r--r--(644) owner=pierre group=users
+file  "jour-avant.txt" size=1234 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=pierre group=users
+file  "ete.txt" size=1234 mtime=2021-08-08T00:00:00.000Z/Day perms=-rw-r--r--(644) owner=pierre group=users
+file  "espanol.txt" size=1234 mtime=2024-01-15T10:00:00.000Z/Minute perms=-rw-r--r--(644) owner=juan group=users
+file  "nochevieja.txt" size=1234 mtime=2022-12-31T00:00:00.000Z/Day perms=-rw-r--r--(644) owner=juan group=users
+file  "italiano.txt" size=1234 mtime=2024-05-20T16:45:00.000Z/Minute perms=-rw-r--r--(644) owner=luigi group=users
+file  "nederlands.txt" size=1234 mtime=2024-03-11T11:11:00.000Z/Minute perms=-rw-r--r--(644) owner=jan group=users
+file  "portugues.txt" size=1234 mtime=2020-10-05T00:00:00.000Z/Day perms=-rw-r--r--(644) owner=joao group=users
+file  "nihongo.txt" size=1234 mtime=2024-01-05T09:15:00.000Z/Minute perms=-rw-r--r--(644) owner=taro group=users
+file  "kurisumasu.txt" size=1234 mtime=2023-12-24T00:00:00.000Z/Day perms=-rw-r--r--(644) owner=taro group=users
+file  "hangul.txt" size=1234 mtime=2024-03-01T08:00:00.000Z/Minute perms=-rw-r--r--(644) owner=minsu group=users

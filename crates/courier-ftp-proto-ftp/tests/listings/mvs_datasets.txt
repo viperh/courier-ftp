@@ -1,0 +1,9 @@
+Volume Unit    Referred Ext Used Recfm Lrecl BlkSz Dsorg Dsname
+WORK01 3390   2024/01/31  1   15  FB      80 27920  PO  SOURCE.COBOL
+WORK02 3390   2023/12/01  2  300  VB   32756 32760  PS  LOGS.DAILY
+WORK01 3390   2024/06/14  1    1  FB      80  3120  PS  JCL.BACKUP
+WORK03 3390   2024/05/02  3   45  U        0  6144  PO-E LOAD.LIBRARY
+WORK01 3390   **NONE**    1    2  FB      80  3120  PS  NEVER.USED
+Migrated                                                OLD.ARCHIVE.DATA
+Pseudo Directory                                        TEST
+ARCIVE Not Direct Access Device                         TAPE.BACKUP.G0001V00

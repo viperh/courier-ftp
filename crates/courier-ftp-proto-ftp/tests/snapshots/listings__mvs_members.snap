@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(MvsMember)
+file  "MEMBER1" size=- mtime=2024-01-31T09:37:00.000Z/Minute perms=- owner=USER01 group=-
+file  "PAYROLL" size=- mtime=2024-06-14T17:05:00.000Z/Minute perms=- owner=ALICE group=-
+file  "$TEMP" size=- mtime=2024-06-15T08:00:12.000Z/Second perms=- owner=BOB group=-
+file  "#HASH@" size=- mtime=2023-12-31T23:59:00.000Z/Minute perms=- owner=SYSPROG group=-
+file  "REPORT" size=- mtime=2024-01-02T00:00:00.000Z/Minute perms=- owner=CAROL group=-
+file  "NOSTATS" size=- mtime=- perms=- owner=- group=-

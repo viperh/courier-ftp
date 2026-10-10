@@ -14,10 +14,13 @@ rust-version.workspace = true
 courier-ftp-core = { workspace = true }
 
 thiserror = { workspace = true }
+time = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+insta = { workspace = true }
 pretty_assertions = { workspace = true }
+proptest = { workspace = true }
 
 [lints]
 workspace = true

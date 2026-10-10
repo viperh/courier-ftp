@@ -1,6 +1,6 @@
 //! Server [`Charset`].
 
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
 use encoding_rs::Encoding;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -46,6 +46,29 @@ impl Charset {
             None => Err(Error::InvalidInput(format!("unknown charset `{label}`"))),
         }
     }
+
+    /// Decode bytes from the server (file names, listing lines). Never fails.
+    ///
+    /// - [`Auto`](Charset::Auto): UTF-8 when the bytes are valid UTF-8,
+    ///   otherwise Windows-1252 (a superset of Latin-1, so every byte maps to a
+    ///   character). Decode line by line so one Latin-1 name doesn't garble the
+    ///   UTF-8 names around it.
+    /// - [`Utf8`](Charset::Utf8): UTF-8, invalid sequences become U+FFFD.
+    /// - [`Custom`](Charset::Custom): that encoding, malformed bytes become U+FFFD.
+    pub fn decode<'a>(&self, bytes: &'a [u8]) -> Cow<'a, str> {
+        match self {
+            Charset::Auto => match std::str::from_utf8(bytes) {
+                Ok(s) => Cow::Borrowed(s),
+                Err(_) => {
+                    encoding_rs::WINDOWS_1252
+                        .decode_without_bom_handling(bytes)
+                        .0
+                }
+            },
+            Charset::Utf8 => String::from_utf8_lossy(bytes),
+            Charset::Custom(enc) => enc.decode_without_bom_handling(bytes).0,
+        }
+    }
 }
 
 impl fmt::Display for Charset {
@@ -87,6 +110,18 @@ mod tests {
             Charset::Custom(encoding_rs::SHIFT_JIS)
         );
         assert!(Charset::from_label("klingon").is_err());
+    }
+
+    #[test]
+    fn decode_with_fallback() {
+        assert_eq!(Charset::Auto.decode("grüße".as_bytes()), "grüße");
+        // Latin-1 bytes are not UTF-8: Auto falls back to Windows-1252.
+        assert_eq!(Charset::Auto.decode(b"gr\xfc\xdfe"), "grüße");
+        assert_eq!(Charset::Utf8.decode(b"gr\xfc"), "gr\u{fffd}");
+        let sjis = Charset::from_label("shift_jis").unwrap();
+        assert_eq!(sjis.decode(b"\x83\x65\x83\x58\x83\x67"), "テスト");
+        let cp1251 = Charset::from_label("windows-1251").unwrap();
+        assert_eq!(cp1251.decode(b"\xf4\xe0\xe9\xeb"), "файл");
     }
 
     #[test]

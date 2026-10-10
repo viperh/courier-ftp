@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(As400)
+dir   "QDOC" size=77824 mtime=2000-02-23T15:09:55.000Z/Second perms=- owner=QSYS group=-
+dir   "QGPL.LIB" size=12288 mtime=2024-06-14T08:00:00.000Z/Second perms=- owner=QSYS group=-
+dir   "QWOBJ.FILE" size=36864 mtime=2006-09-18T14:21:38.000Z/Second perms=- owner=QPGMR group=-
+file  "UNITTEST.MBR" size=- mtime=- perms=- owner=QSYS group=-
+file  "report final.txt" size=4096 mtime=2024-01-31T12:00:00.000Z/Second perms=- owner=QSECOFR group=-
+dir   "dev" size=0 mtime=- perms=- owner=QSYS group=-
