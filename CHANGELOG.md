@@ -115,3 +115,6 @@ the section matching the tag.
 - Sync protocol types (T83, courier-ftp-proto): auth, device, vault,
   pull/push, org, invite, rotation and WebSocket messages with golden JSON
   tests, version negotiation and size limits.
+- FTP control connection (T10): multi-line replies, login (normal, anonymous,
+  ACCT, proxy-ready scripts), FEAT/SYST/UTF8 negotiation, keep-alive, raw
+  commands, inactivity timeouts and cancellation.
