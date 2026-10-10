@@ -85,7 +85,7 @@ async fn user_version(store: &Store) -> i64 {
         .unwrap()
 }
 
-// Fresh DB in a new data dir: every table, user_version 1, modes 0700 / 0600.
+// Fresh DB in a new data dir: every table, user_version = SCHEMA_VERSION, modes 0700 / 0600.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fresh_db_schema_and_permissions() {
     let home = tempfile::tempdir().unwrap();
@@ -101,8 +101,8 @@ async fn fresh_db_schema_and_permissions() {
         .collect();
     expected.sort();
     assert_eq!(tables, expected);
-    assert_eq!(user_version(&store).await, 1);
-    assert_eq!(SCHEMA_VERSION, 1);
+    assert_eq!(user_version(&store).await, SCHEMA_VERSION);
+    assert_eq!(SCHEMA_VERSION, 2);
 
     // Force WAL/SHM to exist, then check modes.
     with_vault(&store).await;
@@ -181,7 +181,7 @@ fn newer_schema_is_refused_and_untouched() {
     let err = Store::open_at(&path, Arc::new(ManualClock::new(0))).unwrap_err();
     match &err {
         StoreError::NewerSchema { found, supported } => {
-            assert_eq!((*found, *supported), (99, 1));
+            assert_eq!((*found, *supported), (99, SCHEMA_VERSION));
         }
         other => panic!("unexpected {other:?}"),
     }
@@ -208,7 +208,7 @@ async fn migrations_are_atomic() {
     assert!(matches!(err, StoreError::Sqlite(_)), "{err:?}");
 
     let (store, _) = open(dir.path());
-    assert_eq!(user_version(&store).await, 1);
+    assert_eq!(user_version(&store).await, SCHEMA_VERSION);
     assert!(!table_names(&store).await.contains(&"half_done".to_owned()));
 
     // A later migration applies on top (the upgrade path).
@@ -219,15 +219,13 @@ async fn migrations_are_atomic() {
         &["CREATE TABLE added_later (x);"],
     )
     .unwrap();
-    assert_eq!(user_version(&store).await, 2);
+    assert_eq!(user_version(&store).await, SCHEMA_VERSION + 1);
     drop(store);
     // ...after which this build refuses the file.
     assert!(matches!(
         Store::open_at(&path, Arc::new(ManualClock::new(0))),
-        Err(StoreError::NewerSchema {
-            found: 2,
-            supported: 1
-        })
+        Err(StoreError::NewerSchema { found, supported })
+            if found == SCHEMA_VERSION + 1 && supported == SCHEMA_VERSION
     ));
 }
 
@@ -969,7 +967,33 @@ async fn meta_device_local_blobs_and_approvals() {
     let row = dl.get(item).await.unwrap().unwrap();
     assert_eq!(row.last_connected_at, Some(14 * DAY));
     assert_eq!(row.local_dir_override.as_deref(), Some("/home/me/site"));
+    assert_eq!(row.key_path_override, None);
     assert!((row.score_at(28 * DAY) - 0.75).abs() < 1e-9);
+    dl.set_key_path_override(item, Some("/home/me/.ssh/id".into()))
+        .await
+        .unwrap();
+    let row = dl.get(item).await.unwrap().unwrap();
+    assert_eq!(row.key_path_override.as_deref(), Some("/home/me/.ssh/id"));
+    assert_eq!(row.local_dir_override.as_deref(), Some("/home/me/site"));
+    // A moved row keeps the key path; a deleted one is gone.
+    let moved = ItemId::new();
+    store
+        .write(move |w| w.move_device_local(item, moved))
+        .await
+        .unwrap();
+    let row = dl.get(moved).await.unwrap().unwrap();
+    assert_eq!(row.key_path_override.as_deref(), Some("/home/me/.ssh/id"));
+    store
+        .write(move |w| w.move_device_local(moved, item))
+        .await
+        .unwrap();
+    let gone = ItemId::new();
+    dl.set_key_path_override(gone, Some("/k".into()))
+        .await
+        .unwrap();
+    dl.delete(gone).await.unwrap();
+    assert!(dl.get(gone).await.unwrap().is_none());
+    assert!(dl.get(item).await.unwrap().is_some());
     // Device-local data is never queued for sync.
     assert_eq!(store.outbox().pending_count().await.unwrap(), 0);
 

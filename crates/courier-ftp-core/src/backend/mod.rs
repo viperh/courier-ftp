@@ -31,7 +31,7 @@ mod session;
 use std::time::Instant;
 
 use async_trait::async_trait;
-pub use connect::{BackendFactory, ConnectInfo, KeySource, ProxyChoice};
+pub use connect::{BackendFactory, ConnectInfo, KeySource, ProxyChoice, StoredSecret, VaultKey};
 #[cfg(any(test, feature = "test-util"))]
 pub use mock::{MockBackend, MockServer};
 pub use session::SessionHandle;
