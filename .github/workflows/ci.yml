@@ -255,9 +255,12 @@ jobs:
           else
             echo "no deploy/Dockerfile.server yet; server scenarios are skipped"
           fi
-      # The harness drives the real binary; build it up front.
+      # The harness drives the real binary (with the PTY test hooks); build it up front.
       - name: Build courier-ftp
-        run: cargo build -p courier-ftp --locked
+        run: cargo build -p courier-ftp --features test-hooks --locked
+      # Pulled (not built): ghcr.io, so no Docker Hub rate limit.
+      - name: Pull the toxiproxy image
+        run: docker pull ghcr.io/shopify/toxiproxy:2.9.0
       - name: Run e2e tests
         run: cargo test -p courier-ftp-e2e --locked --no-fail-fast -- --ignored --test-threads=4
       - name: Canary scan of the kept scenario homes

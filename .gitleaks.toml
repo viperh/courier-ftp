@@ -5,4 +5,4 @@ useDefault = true
 
 [allowlist]
 description = "test-only e2e fixture keys and certificates"
-paths = ['''^tests/fixtures/sshd/keys/''', '''^tests/fixtures/tls/''', '''^tests/fixtures/keys/''']
+paths = ['''^tests/fixtures/sshd/keys/''', '''^tests/fixtures/tls/''', '''^tests/fixtures/ftpd/tls/''', '''^tests/fixtures/keys/''']

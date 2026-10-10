@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""TCP proxy that allows at most one concurrent connection (sshd `maxconn1` profile).
+
+Usage: conn-limit-proxy <listen-host> <listen-port> <target-host> <target-port>
+
+While one connection is open, further connections are accepted and closed at once.
+Standard library only (asyncio).
+"""
+
+import asyncio
+import sys
+
+active = 0
+
+
+async def pipe(reader, writer):
+    try:
+        while data := await reader.read(65536):
+            writer.write(data)
+            await writer.drain()
+    except (ConnectionError, OSError):
+        pass
+    finally:
+        try:
+            writer.close()
+        except OSError:
+            pass
+
+
+async def handle(reader, writer, target):
+    global active
+    if active >= 1:
+        print("conn-limit-proxy: refusing a second connection", file=sys.stderr, flush=True)
+        writer.close()
+        return
+    active += 1
+    try:
+        up_reader, up_writer = await asyncio.open_connection(*target)
+    except OSError as err:
+        print(f"conn-limit-proxy: upstream: {err}", file=sys.stderr, flush=True)
+        writer.close()
+        active -= 1
+        return
+    try:
+        await asyncio.gather(pipe(reader, up_writer), pipe(up_reader, writer))
+    finally:
+        active -= 1
+
+
+async def main():
+    lhost, lport, thost, tport = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[4])
+    server = await asyncio.start_server(
+        lambda r, w: handle(r, w, (thost, tport)), lhost, lport
+    )
+    async with server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 5:
+        print(__doc__, file=sys.stderr)
+        sys.exit(64)
+    asyncio.run(main())

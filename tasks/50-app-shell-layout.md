@@ -723,3 +723,5 @@ focus regions are `ctrl-x 1..7`, tabs `alt-1..9`.)
   need the `courier-ftp-e2e` crate and `PtyApp` (T76), which do not exist yet. AC14's
   `test-os` (Windows/macOS) job could not be run locally; `fmt`, `clippy`, `docs` and
   the Linux tests pass.
+- **Done in T76:** `e2e_pty_starts_and_quits` and `e2e_pty_resize_to_compact_and_back`
+  are in `crates/courier-ftp-e2e/tests/pty_shell.rs`.

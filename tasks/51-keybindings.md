@@ -670,3 +670,5 @@ by the final table moved to: `Redraw` `g r`, `SwapPanes` `g x`, layouts `z 1/2/3
   (`PtyApp`). The manual terminal checklist of AC1 (xterm, tmux, Windows Terminal, macOS
   Terminal) and the `test-os` job of AC11 could not be run in this environment; `fmt`,
   `clippy`, `docs` and the Linux tests pass.
+- **Done in T76:** `e2e_pty_sequences_and_fkeys` is in
+  `crates/courier-ftp-e2e/tests/pty_shell.rs`.

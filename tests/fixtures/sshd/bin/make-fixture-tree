@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Create the courier-ftp e2e fixture tree (TEST-ONLY data).
+
+Usage: make-fixture-tree <dir>
+
+Writes the files of `courier_ftp_e2e::files::FIXTURE_TREE` under <dir> with the same
+deterministic content as `files::fixture_bytes`: block i (32 bytes) of a file is
+SHA-256(relative path (UTF-8) || i as u64 big-endian), truncated to the file size.
+Also creates the symlink `link-to-small -> small.bin`. Standard library only.
+Keep this file identical in tests/fixtures/sshd/bin and tests/fixtures/ftpd/bin
+(tests/fixtures.rs checks it).
+"""
+
+import hashlib
+import os
+import sys
+
+TREE = [
+    ("small.bin", 1024),
+    ("1MiB.bin", 1048576),
+    ("empty.txt", 0),
+    ("names/with space.txt", 100),
+    ("names/ leading-space.txt", 100),
+    ("names/trailing-space.txt ", 100),
+    ("names/Zürich – ü.txt", 100),
+    ("names/日本語.txt", 100),
+    ("names/-dash.txt", 100),
+    ("names/semi;colon.txt", 100),
+    ("sub/dir/deep.txt", 100),
+]
+SYMLINKS = [("link-to-small", "small.bin")]
+
+
+def fixture_bytes(rel: str, size: int) -> bytes:
+    out = bytearray()
+    i = 0
+    key = rel.encode("utf-8")
+    while len(out) < size:
+        out += hashlib.sha256(key + i.to_bytes(8, "big")).digest()
+        i += 1
+    return bytes(out[:size])
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print(__doc__, file=sys.stderr)
+        return 64
+    root = sys.argv[1]
+    for rel, size in TREE:
+        path = os.path.join(root, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(fixture_bytes(rel, size))
+    for link, target in SYMLINKS:
+        path = os.path.join(root, link)
+        if os.path.lexists(path):
+            os.remove(path)
+        os.symlink(target, path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
