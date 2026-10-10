@@ -3,5 +3,5 @@ source: crates/courier-ftp/src/ui/quickconnect.rs
 expression: t.backend()
 ---
 "┌ Quickconnect ────────────────────────────────────────────────────────────────────────────────────────────────────────┐"
-"│Host: sftp://example.com/srv                 User: alice                Pass: ••••••            Port: 2222   [Connect]│"
+"│Host: sftp://example.com/srv               User: alice               Pass: ••••••           Port: 2222   [Connect] [▾]│"
 "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"

@@ -97,8 +97,20 @@ inside the checkout while developing.
 
 ## Logging
 
-Logs go to `<data dir>/courier-ftp.log`. Passwords and other secrets are never
-logged, at any level.
+- **Application log** (for developers): `<data dir>/courier-ftp.<YYYY-MM-DD>.log`, one
+  file per day, the last 7 kept, readable by you only. Level from `COURIER_FTP_LOG_LEVEL`
+  (default `info`); `--debug` switches to `debug`, which may contain hostnames, user names
+  and paths. At `info` and above it never does.
+- **Session log** (the message log as a file, for diagnosing connections): turn on
+  `logging.log_to_file`; written to `logging.log_file` (default `<data dir>/session.log`),
+  rotated at `logging.log_file_max_mib`, `logging.log_file_keep` old files kept. It names
+  servers, users and paths; passwords show as `PASS ****`.
+- `--debug-level 0-4` sets the message log's detail for one run; level 3 and up add raw
+  directory listings and TLS/SSH negotiation details (`logging.show_raw_listing` adds the
+  listings alone). `<Ctrl-x><s>` shows the raw listing of the current directory; in the
+  message log `Y` copies and `S` saves the whole log.
+
+Passwords and other secrets are never logged, at any level, in either log.
 
 ## Checks
 

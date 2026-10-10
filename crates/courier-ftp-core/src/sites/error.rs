@@ -39,6 +39,9 @@ pub enum SiteError {
     /// The site uses an SSH key from the vault that doesn't exist (any more).
     #[error("the site's SSH key ({}) is not in the vault", .0.short())]
     KeyMissing(ItemId),
+    /// A bookmark is not valid (T33); the message says why.
+    #[error("invalid bookmark: {0}")]
+    InvalidBookmark(String),
     /// Moving an entry into a folder of another vault (team vaults, T89).
     #[error("moving between vaults is not supported")]
     CrossVault,

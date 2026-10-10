@@ -127,7 +127,7 @@ only as self-grants signed by this account's own key.
 - [x] Hardening applied at startup; Linux test proves non-dumpable + core limit 0.
 - [ ] `unsafe-check`, `deny`, `vet`, `canary` and fuzz CI jobs exist and pass.
 - [x] Canary scan finds nothing after a full trace-level test run (and its self-test proves it can find planted canaries).
-- [ ] No hostnames at `info`+ in client logs (test).
+- [x] No hostnames at `info`+ in client logs (test).
 - [ ] Approval prompts appear for synced local-acting fields and are re-asked on change.
 - [ ] Hostile filenames (`../x`, `a/b`, names with ESC sequences) can't escape the target dir or affect the terminal.
 - [ ] `docs/threat-model.md` complete with a test reference for every mitigation.
@@ -171,9 +171,9 @@ Deferred to later milestones:
   and plain-FTP warnings (T12, T57), `sitemanager.xml` fuzzing (T32), sync DTO fuzzing and
   server logging/dumps (T83–T86), teams trust rules (§10, T89).
 - §3 proto DTO redaction (T83/T84, `courier-ftp-proto` has no DTOs yet).
-- §4 logging rework (T71): daily rotation, `--debug` warning, crash report from the
-  `info`+ ring; the binary still logs every action at `info` (`app.rs`), which can carry
-  hosts and paths — this blocks the "no hostnames at `info`+" box.
+- §4 logging rework: daily rotation, `--debug` warning and the `info`+ audit are done
+  (T71; test `courier-ftp` `app::log_tests::info_and_above_never_name_hosts_users_or_paths`).
+  Still open: the crash report built from an `info`+ ring buffer.
 - §8 approval prompts (the `local_approvals` table exists; the UI comes later).
 - Hostile filenames: the download path join is T42 and a rendering test with escape
   sequences belongs to T53/T55 (ratatui already drops graphemes with control characters).

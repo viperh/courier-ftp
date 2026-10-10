@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use courier_ftp_core::events::LogKind;
+use courier_ftp_core::{compare::Highlight, events::LogKind};
 use ratatui::style::{Color, Modifier, Style};
 
 /// The styles the UI uses.
@@ -24,6 +24,12 @@ pub(crate) struct Theme {
     pub(crate) log_response: Style,
     pub(crate) log_error: Style,
     pub(crate) log_debug: Style,
+    /// Directory comparison (T66): the entry exists on this side only.
+    pub(crate) compare_lonely: Style,
+    /// Directory comparison: this side's file is newer.
+    pub(crate) compare_newer: Style,
+    /// Directory comparison: the sizes differ.
+    pub(crate) compare_different: Style,
 }
 
 impl Default for Theme {
@@ -43,6 +49,9 @@ impl Default for Theme {
             log_response: Style::new().fg(Color::Green),
             log_error: Style::new().fg(Color::Red),
             log_debug: Style::new().fg(Color::DarkGray),
+            compare_lonely: Style::new().fg(Color::Yellow),
+            compare_newer: Style::new().fg(Color::Green),
+            compare_different: Style::new().fg(Color::Red),
         }
     }
 }
@@ -87,6 +96,9 @@ impl Theme {
             "log_response" => &mut self.log_response,
             "log_error" => &mut self.log_error,
             "log_debug" => &mut self.log_debug,
+            "compare_lonely" => &mut self.compare_lonely,
+            "compare_newer" => &mut self.compare_newer,
+            "compare_different" => &mut self.compare_different,
             _ => return None,
         })
     }
@@ -113,6 +125,9 @@ impl Theme {
             "log_response",
             "log_error",
             "log_debug",
+            "compare_lonely",
+            "compare_newer",
+            "compare_different",
         ] {
             if let Some(slot) = self.slot(name) {
                 *slot = mono(*slot);
@@ -121,6 +136,22 @@ impl Theme {
         // Without colour, selection and the status bar need another cue.
         self.selection = self.selection.add_modifier(Modifier::REVERSED);
         self.status_bar = self.status_bar.add_modifier(Modifier::REVERSED);
+        // Comparison colours become text styles.
+        self.compare_lonely = self.compare_lonely.add_modifier(Modifier::ITALIC);
+        self.compare_newer = self.compare_newer.add_modifier(Modifier::BOLD);
+        self.compare_different = self
+            .compare_different
+            .add_modifier(Modifier::BOLD | Modifier::ITALIC);
+    }
+
+    /// The style of a directory comparison row (T66).
+    pub(crate) fn compare(&self, highlight: Highlight) -> Style {
+        match highlight {
+            Highlight::None => Style::new(),
+            Highlight::Lonely => self.compare_lonely,
+            Highlight::Newer => self.compare_newer,
+            Highlight::Different => self.compare_different,
+        }
     }
 
     /// The style of a message-log line.

@@ -136,3 +136,40 @@ the section matching the tag.
   backoff that resume at the reached offset, pause/cancel, 10 Hz progress with
   speed and ETA, and automatic back-off when a server refuses extra
   connections.
+- Directory comparison (T66, Ctrl-o) with FileZilla's colours (yellow only on
+  one side, green newer, red size differs), options for size or time,
+  threshold and hide identical, and select all yellow/green/red (m y / m g / m
+  r); synchronized browsing (Ctrl-y) that follows directory changes in both
+  panes and offers to create a missing directory.
+- Bookmarks and history (T33): global and per-site bookmarks with device-local
+  local directories, a quickconnect history kept in the vault with a dropdown
+  in the quickconnect bar, and a recent servers list.
+- Site import/export (T32): import FileZilla's sitemanager.xml (folders, all
+  logon types, bookmarks, passwords) and export as courier-ftp JSON
+  (optionally passphrase-encrypted with passwords) or FileZilla XML.
+- Logging (T71): the application log rotates daily (7 days kept, 0600), new
+  --debug and --debug-level flags, optional session log file
+  (logging.log_to_file, size-rotated, masked commands), Show raw listing
+  (<Ctrl-x><s>), and copy (Y) or save (S) of the message log; nothing at info
+  and above names hosts, users or paths.
+- FTP and FTPS connections (T11, T12, T14): passive/active data connections
+  with fallback, ASCII/binary transfers with resume and abort,
+  explicit/implicit TLS with certificate trust prompts, synced trusted
+  certificates and TLS session reuse; quickconnect now connects to FTP
+  servers.
+- Sync server accounts (T84): OPAQUE registration and login (unknown emails
+  get a dummy response), rotating single-use refresh tokens with reuse
+  detection, devices, TOTP, password change, recovery codes, account deletion,
+  setup-token bootstrap and per-email/per-IP rate limits.
+- Sync server vaults (T85): vault list, paginated pull with 410 gone below the
+  GC floor, push with optimistic concurrency and gap-free revisions, storage
+  quota, tombstone GC, and /v1/ws live notifications fanned out between
+  replicas via PostgreSQL LISTEN/NOTIFY.
+- Sync server operations (T86): TOML and environment configuration, admin CLI
+  (serve, migrate, admin user/invite/registration/gc, healthcheck), /healthz
+  /readyz /metrics, distroless Docker image and compose file, and
+  docs/self-hosting.md.
+- Recursive operations (T43): recursive transfers (one directory level
+  expanded at a time in the queue, filters applied, empty-directory and
+  symlink settings, loop-safe), recursive delete, and recursive chmod with
+  files-only/dirs-only and per-bit "leave unchanged".

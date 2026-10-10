@@ -1,15 +1,8 @@
-//! Self-hosted, end-to-end encrypted sync server for courier-ftp (T84–T86).
-//!
-//! The server only ever sees ciphertext: accounts, devices and vaults of
-//! encrypted items. It shares wire types with the client through
-//! `courier-ftp-proto` and never links client crates.
+//! `courier-ftp-server` entry point; see [`courier_ftp_server::cli`].
 
 use std::process::ExitCode;
 
-fn main() -> ExitCode {
-    eprintln!(
-        "courier-ftp-server {}: not implemented yet (T84)",
-        env!("CARGO_PKG_VERSION")
-    );
-    ExitCode::FAILURE
+#[tokio::main]
+async fn main() -> ExitCode {
+    courier_ftp_server::cli::main().await
 }

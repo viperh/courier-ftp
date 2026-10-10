@@ -42,6 +42,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     Result,
     model::{CertificateDetails, Entry, RemotePath, ServerAddress},
+    settings::FileTypeSettings,
 };
 
 /// A boxed reader returned by [`Backend::open_read`].
@@ -231,6 +232,17 @@ pub enum TransferType {
     Binary,
 }
 
+/// The transfer type for `file_name` (T11): `settings.default_type` when it
+/// is ASCII or binary, otherwise decided from the extension, dotfile and
+/// no-extension rules ([`FileTypeSettings::is_ascii`]).
+pub fn decide_transfer_type(file_name: &str, settings: &FileTypeSettings) -> TransferType {
+    if settings.is_ascii(file_name) {
+        TransferType::Ascii
+    } else {
+        TransferType::Binary
+    }
+}
+
 /// Per-transfer options.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct TransferOpts {
@@ -238,4 +250,27 @@ pub struct TransferOpts {
     pub transfer_type: TransferType,
     /// The expected size, so a writer can preallocate.
     pub preallocate_hint: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::TransferTypeChoice;
+
+    #[test]
+    fn transfer_type_follows_the_file_type_settings() {
+        let auto = FileTypeSettings::default();
+        assert_eq!(decide_transfer_type("a.txt", &auto), TransferType::Ascii);
+        assert_eq!(decide_transfer_type("a.zip", &auto), TransferType::Binary);
+        let binary = FileTypeSettings {
+            default_type: TransferTypeChoice::Binary,
+            ..FileTypeSettings::default()
+        };
+        assert_eq!(decide_transfer_type("a.txt", &binary), TransferType::Binary);
+        let ascii = FileTypeSettings {
+            default_type: TransferTypeChoice::Ascii,
+            ..FileTypeSettings::default()
+        };
+        assert_eq!(decide_transfer_type("a.zip", &ascii), TransferType::Ascii);
+    }
 }

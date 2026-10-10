@@ -33,6 +33,7 @@ pub(crate) fn init() -> color_eyre::Result<()> {
         }
         let msg = format!("{}", panic_hook.panic_report(panic_info));
         error!("Error: {}", strip_ansi_escapes::strip_str(msg));
+        crate::logging::flush();
 
         #[cfg(debug_assertions)]
         {
