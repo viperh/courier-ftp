@@ -4,6 +4,7 @@
 mod compare;
 pub(crate) mod dialog;
 mod dir_tree;
+mod file_exists;
 mod file_list;
 mod focus;
 mod layout;

@@ -51,6 +51,13 @@ password prompt (4) and file-exists (6, T42). Password, passphrase and
 keyboard-interactive (5) prompts use the T52 dialogs. The first acceptance box
 stays open until (4) and (6) have their snapshots.
 
+T42 update: the file-exists dialog (6) is built (`ui/file_exists.rs`, three
+snapshots: download, upload with Rename + "Always" + "current queue only",
+narrow ASCII). The password prompt has a snapshot (`ui/modal.rs`
+`password_prompt`; the "for user@host" text moved to the title so it isn't
+cut off). The box stays open only for the password prompt's "Remember for
+this session" / "Save in vault" options (4), which still don't exist.
+
 Queue decision (7): one prompt at a time, never on top of another dialog. A
 prompt opens by itself when no dialog is open, the user isn't typing (input
 or filter mode) and no key was pressed for 1 s; until then the status bar

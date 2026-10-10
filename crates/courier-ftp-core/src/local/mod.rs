@@ -8,6 +8,7 @@
 //! [`display_native`].
 
 mod paths;
+mod prealloc;
 mod sanitize;
 
 use std::{
@@ -339,7 +340,7 @@ impl Backend for LocalBackend {
         &mut self,
         path: &RemotePath,
         mode: WriteMode,
-        _opts: &TransferOpts,
+        opts: &TransferOpts,
     ) -> Result<WriteStream> {
         let native_path = native(path)?;
         let mut options = tokio::fs::OpenOptions::new();
@@ -358,6 +359,21 @@ impl Backend for LocalBackend {
             file.seek(SeekFrom::Start(n))
                 .await
                 .map_err(|e| io_error(e, path))?;
+        }
+        // `transfers.preallocate` (T42): reserve the final size up front.
+        if let (Some(size), WriteMode::Create | WriteMode::Truncate | WriteMode::ResumeAt(_)) =
+            (opts.preallocate_hint, mode)
+        {
+            let start = match mode {
+                WriteMode::ResumeAt(n) => n,
+                _ => 0,
+            };
+            return Ok(
+                match prealloc::Preallocated::reserve(file, start, size).await {
+                    Ok(reserved) => Box::new(reserved),
+                    Err(file) => Box::new(file),
+                },
+            );
         }
         Ok(Box::new(file))
     }

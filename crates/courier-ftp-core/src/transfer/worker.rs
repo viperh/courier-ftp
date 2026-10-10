@@ -16,11 +16,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     BUFFER_SIZE, CLEANUP_TIMEOUT,
+    exists::first_free_name,
     hooks::{
         DirExpander, ExistsContext, ExistsDecision, ExistsPolicy, LocalBackendFactory, RateLimiter,
         ServerResolver,
     },
     is_too_many_connections,
+    options::check_download_target,
     progress::ProgressTracker,
 };
 use crate::{
@@ -29,7 +31,7 @@ use crate::{
         Backend, BackendFactory, ReadStream, SessionHandle, TransferOpts, TransferType, WriteMode,
         WriteStream,
     },
-    events::{EventSender, SessionId, TransferId},
+    events::{EventSender, LogKind, SessionId, TransferId},
     local::local_to_remote,
     model::{Direction, Entry, EntryKind, RemotePath},
     queue::{NewItem, QueueItem, SharedQueue, lock_queue},
@@ -46,6 +48,11 @@ pub(super) struct Shared {
     pub limiter: Arc<dyn RateLimiter>,
     pub expander: Option<Arc<dyn DirExpander>>,
     pub local: Arc<dyn LocalBackendFactory>,
+    /// The message-log session of the engine.
+    pub log_session: SessionId,
+    /// Servers already told about in the log that they can't set
+    /// modification times (once per session, T42).
+    pub no_mtime_noted: std::sync::Mutex<std::collections::HashSet<crate::queue::ServerKey>>,
 }
 
 /// What a worker is given.
@@ -215,7 +222,37 @@ async fn execute(job: &Job, session: &SessionHandle) -> (Outcome, bool) {
     if let Err(e) = local.connect(job.cancel.clone()).await {
         return (Outcome::Failed(Failure::new(Side::Local, e)), true);
     }
-    let local_path = match local_to_remote(job.item.local.as_path()) {
+    let local_target = match job.item.direction {
+        Direction::Upload => job.item.local.clone(),
+        // Never write outside the chosen directory; replace characters the
+        // local filesystem can't store (T42).
+        Direction::Download => {
+            match check_download_target(&job.item.local, &job.settings.transfers) {
+                Ok((path, changed)) => {
+                    if changed {
+                        let name = |p: &crate::model::LocalPath| {
+                            p.as_path()
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default()
+                        };
+                        job.shared.events.log(
+                            job.shared.log_session,
+                            LogKind::Status,
+                            format!(
+                                "Saving {:?} as {:?} (invalid characters replaced)",
+                                name(&job.item.local),
+                                name(&path)
+                            ),
+                        );
+                    }
+                    path
+                }
+                Err(e) => return (Outcome::Failed(Failure::new(Side::Local, e)), true),
+            }
+        }
+    };
+    let local_path = match local_to_remote(local_target.as_path()) {
         Ok(p) => p,
         Err(e) => return (Outcome::Failed(Failure::new(Side::Local, e)), true),
     };
@@ -373,6 +410,7 @@ async fn transfer_file(
                 target: target.as_ref(),
                 target_caps: dst_caps,
                 can_resume,
+                settings: &settings.transfers,
             };
             let decided = tokio::select! {
                 biased;
@@ -392,10 +430,22 @@ async fn transfer_file(
         ExistsDecision::Overwrite | ExistsDecision::Resume { .. } => (0, WriteMode::Truncate),
         ExistsDecision::Skip => return (Outcome::Skipped, true),
         ExistsDecision::Rename { name } => {
-            let renamed = dst_path
-                .parent()
-                .ok_or_else(|| Error::InvalidInput(format!("{dst_path} has no parent")))
-                .and_then(|p| p.join(&name));
+            // The first free `name`, `name (1).ext`, …; `Create` never
+            // overwrites a file that appeared meanwhile.
+            let name = match direction {
+                Direction::Download => super::download_name(&name, &settings.transfers),
+                Direction::Upload => name,
+            };
+            let Some(dir) = dst_path.parent() else {
+                return fail(
+                    dst_side,
+                    Error::InvalidInput(format!("{dst_path} has no parent")),
+                );
+            };
+            let renamed = match first_free_name(dst, &dir, &name, timeout, cancel).await {
+                Ok(free) => dir.join(&free),
+                Err(e) => Err(e),
+            };
             match renamed {
                 Ok(p) => dst_path = p,
                 Err(e) => return fail(dst_side, e),
@@ -483,6 +533,19 @@ async fn transfer_file(
         && let Err(e) = timed(timeout, cancel, dst.set_mtime(&dst_path, modified.time)).await
     {
         tracing::debug!("could not preserve the modification time: {e}");
+    }
+    if settings.transfers.preserve_timestamps && !dst_caps.set_mtime && source.modified.is_some() {
+        let first = shared
+            .no_mtime_noted
+            .lock()
+            .is_ok_and(|mut noted| noted.insert(item.server.key()));
+        if first {
+            shared.events.log(
+                shared.log_session,
+                LogKind::Status,
+                "The server can't set modification times; uploaded files keep the upload time",
+            );
+        }
     }
     shared.events.progress(tracker.report());
     (
