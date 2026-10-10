@@ -64,7 +64,7 @@
 //!    A retried transfer resumes at its own offset without asking.
 //! 3. `open_read` + `open_write`, then copy in [`BUFFER_SIZE`] chunks. Each
 //!    chunk passes the **rate-limiter hook** [`RateLimiter::acquire`]
-//!    (default [`Unlimited`]; T44's token bucket), with the chunk size from
+//!    (default [`Unlimited`]; T44: [`SpeedLimiter`]), with the chunk size from
 //!    [`RateLimiter::chunk_size`]. Every read and write has the
 //!    `connection.timeout_secs` timeout and races the item's cancellation.
 //! 4. Shut the writer down, drop the streams, `finish_transfer` on both
@@ -107,7 +107,8 @@
 //!   listed, and are replaced by their children. Implemented by
 //!   [`recursive::RecursiveExpander`]; [`recursive`] also has the walker and
 //!   recursive delete/chmod.
-//! - **T44**: [`RateLimiter`] (`acquire`, `chunk_size`, `settings_changed`).
+//! - **T44**: [`RateLimiter`] (`acquire`, `chunk_size`, `settings_changed`),
+//!   implemented by [`SpeedLimiter`] (global token buckets, see [`ratelimit`]).
 //! - **T45**: `QueueFinished { stats }`.
 //! - **T41b**: the pool and the worker are the places to add warm-up and
 //!   segments; slots are counted per server in the engine.
@@ -116,6 +117,7 @@
 mod engine;
 mod hooks;
 mod progress;
+pub mod ratelimit;
 pub mod recursive;
 mod worker;
 
@@ -130,6 +132,7 @@ pub use hooks::{
     QuickResolver, RateLimiter, RealLocal, ServerResolver, Unlimited, quick_connect_info,
 };
 pub use progress::{ProgressTracker, REPORT_INTERVAL, SPEED_WINDOW};
+pub use ratelimit::{MIN_CHUNK, SpeedLimiter, burst_duration};
 
 use crate::Error;
 
