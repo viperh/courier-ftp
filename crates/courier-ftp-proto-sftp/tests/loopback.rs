@@ -769,6 +769,53 @@ async fn loopback_banner_sanitized() {
     assert!(long.ends_with('…'));
 }
 
+// ---------------------------------------------------------------- tracing capture
+
+#[derive(Clone, Default)]
+struct Buf(Arc<Mutex<Vec<u8>>>);
+
+std::thread_local! {
+    static THREAD_CAPTURE: std::cell::RefCell<Option<Buf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Writes into this thread's capture buffer, if any.
+struct ThreadCapture;
+
+impl std::io::Write for ThreadCapture {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        THREAD_CAPTURE.with(|c| {
+            if let Some(buf) = &*c.borrow() {
+                buf.0.lock().unwrap().extend_from_slice(data);
+            }
+        });
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Captures this thread's tracing output. A thread-local default subscriber is not
+/// enough: callsite interest is cached process-wide, and other tests hitting the same
+/// callsites with no subscriber can leave them disabled. One global TRACE subscriber
+/// (installed once) keeps every callsite enabled and routes output per thread.
+fn capture_tracing() -> Buf {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(|| ThreadCapture)
+            .finish();
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        tracing::callsite::rebuild_interest_cache();
+    });
+    let buf = Buf::default();
+    THREAD_CAPTURE.with(|c| *c.borrow_mut() = Some(buf.clone()));
+    buf
+}
+
 // ---------------------------------------------------------------- AC16
 
 #[tokio::test]
@@ -777,28 +824,7 @@ async fn loopback_no_secrets_in_logs() {
     const OTP: &str = "CANARY-OTP-t20-3c4d";
     const PP: &str = "CANARY-PP-t20-5d1c";
 
-    #[derive(Clone, Default)]
-    struct Buf(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for Buf {
-        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(data);
-            Ok(data.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let buf = Buf::default();
-    let writer = buf.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
-    // Callsite interest is cached process-wide; tests running in parallel can
-    // leave it stale, so recompute it now that this subscriber is the default.
-    tracing::callsite::rebuild_interest_cache();
+    let buf = capture_tracing();
 
     let server = TestServer::start(TestServerConfig {
         methods: vec!["password", "keyboard-interactive", "publickey"],

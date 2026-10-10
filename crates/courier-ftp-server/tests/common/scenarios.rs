@@ -1134,6 +1134,8 @@ pub async fn t17_rate_limits_email_and_ip(h: &Harness) {
         assert!(retry >= 1);
         assert_eq!(v["error"]["retry_after_s"].as_u64(), Some(retry));
     };
+    // GCRA refills from the first request on, so the allowance counts from here.
+    let started = std::time::Instant::now();
     for _ in 0..5 {
         let (s, _, v) = start("same@example.test".into()).await;
         assert_eq!(s, StatusCode::OK, "{v}");
@@ -1143,7 +1145,6 @@ pub async fn t17_rate_limits_email_and_ip(h: &Harness) {
     limited(s, &headers, &v);
     // The IP limit: 50 per minute in total (6 so far). GCRA refills one slot
     // every 1.2 s on the real clock, so a slow machine may get a few more in.
-    let started = std::time::Instant::now();
     let mut n = 6u64;
     let (s, headers, v) = loop {
         let (s, headers, v) = start(format!("user{n}@example.test")).await;
