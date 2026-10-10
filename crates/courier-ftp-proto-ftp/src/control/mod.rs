@@ -656,10 +656,41 @@ impl ControlConnection {
     }
 
     async fn read_reply_inner(&mut self, cancel: Option<&CancellationToken>) -> Result<Reply> {
+        match self.read_reply_soft(cancel, None).await? {
+            Some(reply) => Ok(reply),
+            None => Err(Error::Timeout),
+        }
+    }
+
+    /// Read the next reply, waiting at most `wait` for it without treating
+    /// a timeout as fatal: `Ok(None)` when nothing complete arrived in time
+    /// (the connection stays open). Used after `ABOR` (T11), where servers
+    /// differ in how many replies they send.
+    ///
+    /// # Errors
+    ///
+    /// As [`read_reply`](Self::read_reply), except that running out of
+    /// `wait` is not an error.
+    pub async fn read_reply_within(&mut self, wait: Duration) -> Result<Option<Reply>> {
+        self.read_reply_soft(None, Some(wait)).await
+    }
+
+    /// Forget replies still owed by the server (after an `ABOR` whose second
+    /// reply never came), so the next command doesn't wait for them.
+    pub fn discard_outstanding(&mut self) {
+        self.outstanding = 0;
+    }
+
+    async fn read_reply_soft(
+        &mut self,
+        cancel: Option<&CancellationToken>,
+        soft: Option<Duration>,
+    ) -> Result<Option<Reply>> {
         let local = cancel.cloned().unwrap_or_default();
+        let deadline = soft.map(|d| tokio::time::Instant::now() + d);
         loop {
             match self.parser.next_reply(self.effective_charset()) {
-                Ok(Some(reply)) => return self.got_reply(reply),
+                Ok(Some(reply)) => return self.got_reply(reply).map(Some),
                 Ok(None) => {}
                 Err(err) => {
                     let err = Error::from(err);
@@ -671,10 +702,16 @@ impl ControlConnection {
             let Some(stream) = self.stream.as_mut() else {
                 return Err(Self::not_connected());
             };
+            let wait = match deadline {
+                Some(d) => d
+                    .saturating_duration_since(tokio::time::Instant::now())
+                    .min(self.timeout),
+                None => self.timeout,
+            };
             let outcome = tokio::select! {
                 biased;
                 () = either_cancelled(&local, &self.ctx.cancel) => ReadOutcome::Cancelled,
-                r = tokio::time::timeout(self.timeout, stream.read(&mut buf)) => match r {
+                r = tokio::time::timeout(wait, stream.read(&mut buf)) => match r {
                     Err(_) => ReadOutcome::Timeout,
                     Ok(Err(err)) => ReadOutcome::Io(err),
                     Ok(Ok(0)) => ReadOutcome::Eof,
@@ -689,6 +726,7 @@ impl ControlConnection {
                 }
                 // The reply stays unread; the next `send` reads it first.
                 ReadOutcome::Cancelled => return Err(Error::Cancelled),
+                ReadOutcome::Timeout if deadline.is_some() => return Ok(None),
                 ReadOutcome::Timeout => Error::Timeout,
                 ReadOutcome::Eof => Error::Connection("the server closed the connection".into()),
                 ReadOutcome::Io(err) => Error::Connection(format!("could not receive: {err}")),

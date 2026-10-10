@@ -8,5 +8,9 @@
 //! This crate never depends on `ratatui`, `crossterm` or `clap`.
 
 pub mod control;
+pub mod data;
 pub mod listing;
 pub mod proxy;
+
+#[cfg(test)]
+pub(crate) mod test_server;
