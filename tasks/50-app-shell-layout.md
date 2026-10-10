@@ -587,19 +587,19 @@ kinds T55, …) are added to the same flat map by those tasks.
 
 ## Acceptance criteria
 
-- [ ] AC1 Classic, Explorer and Widescreen render as specified at 80×24 and 160×48 (Widescreen at 80×24 falls back to Classic), with trees on/off, log/queue hidden and `swap_panes` (insta snapshots).
-- [ ] AC2 Compact mode at 60×16 shows exactly one body region (the focused one); below 40×10 the "Terminal too small" message is shown and `ctrl-q` still quits.
-- [ ] AC3 `compute_layout` never returns overlapping or out-of-bounds rects for any size 1×1 … 300×100 and any option combination (property test).
-- [ ] AC4 `Tab` toggles between local and remote lists from every region; `Shift-Tab` visits every visible focusable region once per cycle in visual order; `ctrl-x 1`…`ctrl-x 7` focus the seven regions in the documented order; focus falls back to a list when its region is hidden.
-- [ ] AC5 With a modal open, no key reaches components below it; with a text input focused, printable keys go to the input and `F10` still reaches the global table.
-- [ ] AC6 While a mock task waits 5 s, the focused pane title spinner changes frame at least every 100 ms of virtual time and keys are still processed (focus switch observed during the wait).
-- [ ] AC7 With `NO_COLOR=1`, no cell of the rendered buffer has a foreground or background colour, and the focused region is still distinguishable (thick border + `▶`).
-- [ ] AC8 The help overlay lists exactly the effective bindings of the current chain, including a user override from a test config (no hard-coded text).
-- [ ] AC9 Layout toggles persist: after `ToggleLog` and 1 s of virtual time, the user config file contains `"show_log": false`, and a new `Config::new` reads it back.
-- [ ] AC10 Quit with a blocker shows the confirm modal; `Enter` keeps the app running (default Cancel); `Quit` pressed twice quits; quit without blockers exits immediately; no task survives `App::run` (runner `JoinSet` empty).
-- [ ] AC11 The idle app does not draw: 10 s of virtual time with no input → zero `draw` calls after the first frame.
-- [ ] AC12 `sanitize` property test: output contains no C0, C1, DEL or bidi characters for any input and is `Cow::Borrowed` for safe input; a status message containing `\x1b[2J` renders as `^[[2J`.
-- [ ] AC13 `Home` and `last_tick_key_events` are gone (`grep -rn "Home\|last_tick_key_events" crates/courier-ftp/src` is empty); `info!("Got action` is gone.
+- [x] AC1 Classic, Explorer and Widescreen render as specified at 80×24 and 160×48 (Widescreen at 80×24 falls back to Classic), with trees on/off, log/queue hidden and `swap_panes` (insta snapshots).
+- [x] AC2 Compact mode at 60×16 shows exactly one body region (the focused one); below 40×10 the "Terminal too small" message is shown and `ctrl-q` still quits.
+- [x] AC3 `compute_layout` never returns overlapping or out-of-bounds rects for any size 1×1 … 300×100 and any option combination (property test).
+- [x] AC4 `Tab` toggles between local and remote lists from every region; `Shift-Tab` visits every visible focusable region once per cycle in visual order; `ctrl-x 1`…`ctrl-x 7` focus the seven regions in the documented order; focus falls back to a list when its region is hidden.
+- [x] AC5 With a modal open, no key reaches components below it; with a text input focused, printable keys go to the input and `F10` still reaches the global table.
+- [x] AC6 While a mock task waits 5 s, the focused pane title spinner changes frame at least every 100 ms of virtual time and keys are still processed (focus switch observed during the wait).
+- [x] AC7 With `NO_COLOR=1`, no cell of the rendered buffer has a foreground or background colour, and the focused region is still distinguishable (thick border + `▶`).
+- [x] AC8 The help overlay lists exactly the effective bindings of the current chain, including a user override from a test config (no hard-coded text).
+- [x] AC9 Layout toggles persist: after `ToggleLog` and 1 s of virtual time, the user config file contains `"show_log": false`, and a new `Config::new` reads it back.
+- [x] AC10 Quit with a blocker shows the confirm modal; `Enter` keeps the app running (default Cancel); `Quit` pressed twice quits; quit without blockers exits immediately; no task survives `App::run` (runner `JoinSet` empty).
+- [x] AC11 The idle app does not draw: 10 s of virtual time with no input → zero `draw` calls after the first frame.
+- [x] AC12 `sanitize` property test: output contains no C0, C1, DEL or bidi characters for any input and is `Cow::Borrowed` for safe input; a status message containing `\x1b[2J` renders as `^[[2J`.
+- [x] AC13 `Home` and `last_tick_key_events` are gone (`grep -rn "Home\|last_tick_key_events" crates/courier-ftp/src` is empty); `info!("Got action` is gone.
 - [ ] AC14 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` (Windows/macOS) pass.
 
 ## Tests
@@ -675,3 +675,51 @@ All with `ratatui::backend::TestBackend` + `insta` (`crates/courier-ftp/src/snap
 
 (Resolved by the coordinator: this task owns `ui::text`, `ui::symbols` and `TabId`;
 focus regions are `ctrl-x 1..7`, tabs `alt-1..9`.)
+
+## Implementation notes
+
+- **Config shape.** `Config.keybindings` is now the user's raw map (mode → key string →
+  action name, `keymap::resolver::RawKeymap`) and `Config.styles` the user's flat style
+  map; both are read leniently (wrong JSON types become `Config::config_problems`, never
+  a load error). The built-in tables come from `config::default_keybindings()` /
+  `config::default_styles()` (parsed once from `config/config.json`). The template's
+  `parse_key_sequence`, `KeyBindings`, `Styles` and `parse_style` in `config.rs` are
+  gone; key strings are parsed by `KeyChord: FromStr` (sverb grammar subset:
+  `[ctrl-][alt-][shift-]<key>`, `backtab`, `f1`…`f24`), style strings by
+  `ui::theme::parse_style` (adds `dim`, `italic`, `crossed`, `#rrggbb`, and reports
+  unknown words). `KeymapProblem`/`ProblemKind` are defined minimally in
+  `keymap/resolver.rs`; T51 replaces them.
+- **Theme.** The `default` preset *is* the `styles` map of the built-in config; the
+  style keys are its keys (unknown user keys warn). `high_contrast` and `monochrome` are
+  derived in code. `NO_COLOR` forces monochrome and strips colours from user overrides.
+- **`Theme::site_accent(SiteColor)` is not implemented**: `SiteColor` does not exist yet
+  (T31). T31/T61 add it next to `Theme::style`.
+- **`DrawCx` has an extra `spinner: Option<&str>` field** (the frame to show in the
+  title); `App` computes it from `Runner::busy_since` (> 150 ms) and
+  `Component::is_busy`.
+- **Modals** implement `components::modal::Modal: Component` with `is_done()`; the stack
+  closes done modals after every key/action. The `Dialog` key table has `f10`/`ctrl-q` →
+  `Quit` and `esc` → `Cancel` so "Quit twice confirms" works through the keymap.
+- **Compact focus order** is `Quickconnect, LocalList, RemoteList, Log, Queue` (trees
+  skipped; hidden log/queue/quickconnect are reachable there, as specified).
+  `focus_order` keeps the spec signature, so in compact mode it lists those five.
+- **"Hide the queue, then the log when the sides get < 8 rows"** can never trigger at
+  the non-compact sizes (H ≥ 24 always leaves ≥ 12 rows). It is implemented in
+  `layout::body_split` and `layout_hides_queue_then_log_when_body_too_small` tests that
+  helper directly with H = 18.
+- **Settings saves** use `SettingsStore::set_transient` immediately and a debounced
+  runner task (1 s, restarted per change) that runs `check_settings_not_shadowed` +
+  `Settings::save_user` on `spawn_blocking`. A save still pending at quit is done
+  synchronously in `App::finish` before `Runner::shutdown`.
+- **Harness.** `testing::AppHarness` owns a current-thread runtime with paused time
+  (`#[cfg(test)]` only: the crate is a binary, so there is no `test-util` feature to
+  export it). `advance` delivers ticks (4 Hz) and frames (60 Hz); frames go through the
+  same `render_if_needed` as the real loop, which counts draws (AC11). `render(w, h)`
+  draws directly (not counted) and resizes the app first.
+- **AC13** is checked by `app_tests::template_leftovers_removed` (no `Home`
+  component/`home.rs`, `last_tick_key_events` or `info!("Got action`). The literal grep
+  in AC13 would also match `KeyCode::Home`, which is a real key.
+- **Not done here:** `e2e_pty_starts_and_quits` and `e2e_pty_resize_to_compact_and_back`
+  need the `courier-ftp-e2e` crate and `PtyApp` (T76), which do not exist yet. AC14's
+  `test-os` (Windows/macOS) job could not be run locally; `fmt`, `clippy`, `docs` and
+  the Linux tests pass.

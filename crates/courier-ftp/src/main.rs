@@ -8,18 +8,30 @@ use cli::Cli;
 
 use crate::{
     app::App,
+    config::Config,
     paths::{AppPaths, SystemEnv},
+    ui::symbols::TermEnv,
 };
 
 mod action;
 mod app;
+#[cfg(test)]
+mod app_tests;
 mod cli;
 mod components;
 mod config;
 mod errors;
+mod keymap;
 mod logging;
 mod paths;
+mod runtime;
+#[cfg(test)]
+mod snapshot_tests;
+mod tabs;
+#[cfg(test)]
+mod testing;
 mod tui;
+mod ui;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -41,7 +53,13 @@ async fn main() -> color_eyre::Result<()> {
 
     paths.ensure_dirs()?;
     crate::logging::init(&paths)?;
-    let mut app = App::new(args.tick_rate, args.frame_rate, &paths)?;
+    let config = Config::new(&paths)?;
+    let mut app = App::new(
+        config,
+        args.tick_rate,
+        args.frame_rate,
+        TermEnv::from_process(),
+    );
     app.run().await?;
     Ok(())
 }

@@ -96,6 +96,8 @@ uzers = { version = "0.12.2", default-features = false }
 hex = "0.4.3"
 libc = "0.2.189"
 strum = { version = "0.28.0", features = ["derive"] }
+# Display width of text in the TUI (T50; already a ratatui dependency).
+unicode-width = "0.2.2"
 # Log file rotation (T71).
 tracing-appender = "0.2.5"
 # Process hardening on Windows (T91).

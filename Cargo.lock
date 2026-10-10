@@ -880,9 +880,11 @@ dependencies = [
  "directories",
  "futures",
  "human-panic",
+ "insta",
  "json5 1.3.1",
  "libc",
  "pretty_assertions",
+ "proptest",
  "ratatui",
  "serde",
  "serde_json",
@@ -896,6 +898,7 @@ dependencies = [
  "tracing",
  "tracing-error",
  "tracing-subscriber",
+ "unicode-width",
  "vergen-gix",
 ]
 

@@ -1,0 +1,20 @@
+---
+source: crates/courier-ftp/src/snapshot_tests.rs
+expression: screen
+---
+ 1 Local                                                    
+┏▶Remote ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃(not available yet)                                       ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ NORMAL │ compact: Tab = other side, Shift-Tab = log/queue

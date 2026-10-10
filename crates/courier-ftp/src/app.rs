@@ -1,99 +1,313 @@
-use courier_ftp_core::settings::SettingsStore;
-use crossterm::event::KeyEvent;
-use ratatui::prelude::Rect;
+//! The application: event loop, key routing, focus, modals, the core event bridge,
+//! layout toggles and rendering (T50).
+
+use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
+
+use courier_ftp_core::{
+    events::{self, CoreEvent, EventReceiver, EventSender, PromptKind, PromptRequest},
+    settings::{InterfaceSettings, Layout, Settings, SettingsStore},
+};
+use ratatui::{Frame, Terminal, backend::Backend, layout::Size};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tracing::{debug, info};
+use strum::EnumIter;
+use tokio::{
+    sync::mpsc,
+    time::{Instant, sleep_until},
+};
+use tracing::{debug, trace, warn};
 
 use crate::{
     action::Action,
-    components::{Component, home::Home},
-    config::Config,
-    paths::AppPaths,
+    components::{
+        DrawCx, KeyOutcome,
+        help::HelpOverlay,
+        main_screen::{
+            MainScreen, STATUS_MESSAGE_TTL, StatusInfo,
+            layout::{Region, ScreenLayout},
+        },
+        modal::ModalStack,
+        quit_confirm::QuitConfirm,
+    },
+    config::{Config, check_settings_not_shadowed},
+    keymap::{
+        chord::KeyChord,
+        resolver::{KeyResolver, Resolution, display_keys},
+    },
+    runtime::{Runner, TaskId, TaskOwner},
     tui::{Event, Tui},
+    ui::{
+        symbols::{Symbols, TermEnv},
+        theme::Theme,
+    },
 };
 
+/// Key tables. Keybindings in `config/config.json` (this crate) are keyed by these
+/// names, so adding a variant means adding a section there too.
+#[derive(
+    Debug,
+    Default,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    EnumIter,
+)]
+pub(crate) enum Mode {
+    /// Global table; consulted last in every non-modal chain.
+    #[default]
+    Normal,
+    /// A file list pane has focus (T53).
+    FileList,
+    /// A directory tree has focus (T54).
+    Tree,
+    /// Message log (T55).
+    Log,
+    /// Queue pane (T56).
+    Queue,
+    /// Site Manager tree (T59); full-screen modal.
+    SiteManager,
+    /// Typing a pane quick filter (T53).
+    Filter,
+    /// A single-line text field outside dialogs (quickconnect T58, `:` line T62, log
+    /// search T55).
+    Input,
+    /// A modal is open (T52); the only table consulted then.
+    Dialog,
+}
+
+impl Mode {
+    /// Tables consulted for a key, highest priority first: `Dialog` → `[Dialog]`;
+    /// `SiteManager` → `[SiteManager]`; `Normal` → `[Normal]`; any other mode m →
+    /// `[m, Normal]`.
+    pub(crate) fn chain(self) -> &'static [Mode] {
+        match self {
+            Mode::Normal => &[Mode::Normal],
+            Mode::Dialog => &[Mode::Dialog],
+            Mode::SiteManager => &[Mode::SiteManager],
+            Mode::FileList => &[Mode::FileList, Mode::Normal],
+            Mode::Tree => &[Mode::Tree, Mode::Normal],
+            Mode::Log => &[Mode::Log, Mode::Normal],
+            Mode::Queue => &[Mode::Queue, Mode::Normal],
+            Mode::Filter => &[Mode::Filter, Mode::Normal],
+            Mode::Input => &[Mode::Input, Mode::Normal],
+        }
+    }
+
+    /// Label in the status bar.
+    fn label(self) -> &'static str {
+        match self {
+            Mode::Input | Mode::Filter => "INPUT",
+            Mode::Dialog | Mode::SiteManager => "DIALOG",
+            _ => "NORMAL",
+        }
+    }
+}
+
+/// Prompts from the core waiting for a dialog (T69 answers them).
+#[derive(Debug, Default)]
+pub(crate) struct PromptQueue {
+    queue: VecDeque<PromptRequest>,
+}
+
+impl PromptQueue {
+    /// Queues a request (FIFO).
+    pub(crate) fn push(&mut self, req: PromptRequest) {
+        self.queue.push_back(req);
+    }
+
+    /// Takes the oldest request.
+    pub(crate) fn pop(&mut self) -> Option<PromptRequest> {
+        self.queue.pop_front()
+    }
+}
+
+fn prompt_kind_name(kind: &PromptKind) -> &'static str {
+    match kind {
+        PromptKind::TrustHostKey(_) => "TrustHostKey",
+        PromptKind::TrustCertificate(_) => "TrustCertificate",
+        PromptKind::Password(_) => "Password",
+        PromptKind::KeyPassphrase(_) => "KeyPassphrase",
+        PromptKind::KeyboardInteractive(_) => "KeyboardInteractive",
+        PromptKind::FileExists(_) => "FileExists",
+        PromptKind::Message(_) => "Message",
+        _ => "unknown",
+    }
+}
+
+/// Delay between the last layout change and saving the settings.
+const SAVE_DEBOUNCE: Duration = Duration::from_secs(1);
+/// A region shows its spinner after being busy this long.
+const SPINNER_DELAY: Duration = Duration::from_millis(150);
+/// Actions dispatched per loop iteration before input is read again.
+const DRAIN_LIMIT: usize = 256;
+
+/// The application.
 pub(crate) struct App {
-    config: Config,
-    /// The live settings (T05); components subscribe to it, the settings screen (T68)
-    /// updates it.
-    #[expect(
-        dead_code,
-        reason = "subscribed to by the panes (T50) and the settings screen (T68)"
-    )]
+    config: Arc<Config>,
     settings: SettingsStore,
     tick_rate: f64,
     frame_rate: f64,
-    components: Vec<Box<dyn Component>>,
-    should_quit: bool,
-    should_suspend: bool,
-    mode: Mode,
-    last_tick_key_events: Vec<KeyEvent>,
+    resolver: KeyResolver,
+    pub(crate) runner: Runner,
+    events: EventReceiver,
+    /// The sending half of the core bus, handed to backends and the engine (T03, T41).
+    events_tx: EventSender,
+    prompts: PromptQueue,
+    pub(crate) main: MainScreen,
+    pub(crate) modals: ModalStack,
+    term_env: TermEnv,
+    theme: Theme,
+    symbols: Symbols,
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
+    should_quit: bool,
+    should_suspend: bool,
+    needs_clear: bool,
+    dirty: bool,
+    render_requested: bool,
+    started: Instant,
+    last_frame: Option<u128>,
+    save_task: Option<TaskId>,
+    pub(crate) draw_count: u64,
+    problems: Vec<String>,
+    first_frame_done: bool,
 }
 
-/// Input modes. Keybindings and styles in `config/config.json` (this crate) are keyed by
-/// these names, so adding a variant here means adding a section there too.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) enum Mode {
-    #[default]
-    Normal,
+impl std::fmt::Debug for App {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("App")
+            .field("main", &self.main)
+            .field("modals", &self.modals)
+            .finish_non_exhaustive()
+    }
 }
 
 impl App {
-    pub(crate) fn new(
-        tick_rate: f64,
-        frame_rate: f64,
-        paths: &AppPaths,
-    ) -> color_eyre::Result<Self> {
+    /// The app for `config`, in the terminal environment `term_env`.
+    pub(crate) fn new(config: Config, tick_rate: f64, frame_rate: f64, term_env: TermEnv) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
-        let config = Config::new(paths)?;
+        let config = Arc::new(config);
         let settings =
             SettingsStore::new(config.settings.clone(), config.config.config_dir.clone());
-        Ok(Self {
-            tick_rate,
-            frame_rate,
-            components: vec![Box::new(Home::new())],
-            should_quit: false,
-            should_suspend: false,
+        let (events_tx, events) = events::channel(config.settings.logging.level);
+        let (resolver, keymap_problems) = KeyResolver::from_config(&config);
+        let mut problems: Vec<String> = config.config_problems.clone();
+        problems.extend(keymap_problems.iter().map(ToString::to_string));
+        problems.extend(
+            config
+                .settings_warnings
+                .iter()
+                .map(|w| format!("settings.{}: replaced by the default", w.path)),
+        );
+        let interface = config.settings.interface.clone();
+        let (theme, theme_warnings) =
+            Theme::load(interface.theme, &config.styles, term_env.no_color);
+        problems.extend(theme_warnings);
+        for p in &problems {
+            warn!("configuration problem: {p}");
+        }
+        let symbols = Symbols::resolve(interface.unicode_symbols, &term_env);
+        Self {
+            runner: Runner::new(action_tx.clone()),
+            main: MainScreen::new(&interface),
             config,
             settings,
-            mode: Mode::Normal,
-            last_tick_key_events: Vec::new(),
+            tick_rate,
+            frame_rate,
+            resolver,
+            events,
+            events_tx,
+            prompts: PromptQueue::default(),
+            modals: ModalStack::default(),
+            term_env,
+            theme,
+            symbols,
             action_tx,
             action_rx,
-        })
+            should_quit: false,
+            should_suspend: false,
+            needs_clear: false,
+            dirty: true,
+            render_requested: false,
+            started: Instant::now(),
+            last_frame: None,
+            save_task: None,
+            draw_count: 0,
+            problems,
+            first_frame_done: false,
+        }
     }
 
+    /// The core bus sender (backends, transfer engine).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "handed to backends (T03, T06, T41)")
+    )]
+    pub(crate) fn events_sender(&self) -> &EventSender {
+        &self.events_tx
+    }
+
+    /// Registers handlers and initialises every component.
+    pub(crate) fn init_components(&mut self, size: Size) -> color_eyre::Result<()> {
+        self.main.set_size(size);
+        let tx = self.action_tx.clone();
+        let config = Arc::clone(&self.config);
+        for c in self.main.components_mut() {
+            c.register_action_handler(tx.clone())?;
+            c.register_config_handler(Arc::clone(&config))?;
+            c.init(size)?;
+        }
+        Ok(())
+    }
+
+    /// Runs until the user quits. No task outlives this.
     pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
         let mut tui = Tui::new()?
-            // .mouse(true) // uncomment this line to enable mouse support
             .tick_rate(self.tick_rate)
-            .frame_rate(self.frame_rate);
+            .frame_rate(self.frame_rate)
+            .paste(true);
         tui.enter()?;
+        let size = tui.size()?;
+        self.init_components(size)?;
 
-        for component in self.components.iter_mut() {
-            component.register_action_handler(self.action_tx.clone())?;
-        }
-        for component in self.components.iter_mut() {
-            component.register_config_handler(self.config.clone())?;
-        }
-        for component in self.components.iter_mut() {
-            component.init(tui.size()?)?;
-        }
-
-        let action_tx = self.action_tx.clone();
         loop {
-            self.handle_events(&mut tui).await?;
-            self.handle_actions(&mut tui)?;
+            let deadline = self.resolver.deadline();
+            tokio::select! {
+                biased;
+                ev = tui.next_event() => match ev {
+                    Some(ev) => self.handle_terminal_event(ev)?,
+                    None => self.should_quit = true,
+                },
+                Some(ev) = self.events.recv() => self.handle_core_event(ev)?,
+                () = sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
+                    self.resolver.on_timeout(Instant::now());
+                }
+                Some(action) = self.action_rx.recv() => self.dispatch(action)?,
+            }
+            self.drain_actions(DRAIN_LIMIT)?;
+            if self.needs_clear {
+                self.needs_clear = false;
+                tui.terminal.clear()?;
+                self.dirty = true;
+            }
+            if self.render_requested {
+                self.render_requested = false;
+                self.render_if_needed(&mut tui.terminal)?;
+            }
             if self.should_suspend {
+                self.should_suspend = false;
                 tui.suspend()?;
-                action_tx.send(Action::Resume)?;
-                action_tx.send(Action::ClearScreen)?;
-                // tui.mouse(true);
+                self.queue(Action::Resume);
+                self.queue(Action::ClearScreen);
                 tui.enter()?;
-            } else if self.should_quit {
+            }
+            if self.should_quit {
+                self.finish().await;
                 tui.stop()?;
                 break;
             }
@@ -102,97 +316,505 @@ impl App {
         Ok(())
     }
 
-    async fn handle_events(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
-        let Some(event) = tui.next_event().await else {
-            return Ok(());
-        };
-        let action_tx = self.action_tx.clone();
-        match event {
-            Event::Quit => action_tx.send(Action::Quit)?,
-            Event::Tick => action_tx.send(Action::Tick)?,
-            Event::Render => action_tx.send(Action::Render)?,
-            Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
-            Event::Key(key) => self.handle_key_event(key)?,
-            _ => {}
-        }
-        for component in self.components.iter_mut() {
-            if let Some(action) = component.handle_events(Some(event.clone()))? {
-                action_tx.send(action)?;
+    /// Saves pending settings and stops every task.
+    pub(crate) async fn finish(&mut self) {
+        if self.save_task.take().is_some() {
+            let res = Self::save_now(
+                self.settings.current(),
+                self.settings.config_dir().to_path_buf(),
+            )
+            .await;
+            if let Err(e) = res {
+                debug!(reason = %e, "settings save failed");
+                warn!("could not save settings on exit");
             }
+        }
+        self.runner.shutdown().await;
+    }
+
+    /// The user asked to quit and nothing blocks it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by the harness"))]
+    pub(crate) fn should_quit(&self) -> bool {
+        self.should_quit
+    }
+
+    fn queue(&self, action: Action) {
+        // The receiver lives in `self`, so this cannot fail.
+        let _ = self.action_tx.send(action);
+    }
+
+    /// Dispatches up to `limit` queued actions; returns how many.
+    pub(crate) fn drain_actions(&mut self, limit: usize) -> color_eyre::Result<usize> {
+        let mut n = 0;
+        while n < limit {
+            let Ok(action) = self.action_rx.try_recv() else {
+                break;
+            };
+            self.dispatch(action)?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    /// Handles the pending core events without waiting; returns how many.
+    #[cfg_attr(not(test), expect(dead_code, reason = "used by the harness"))]
+    pub(crate) fn drain_core_events(&mut self) -> color_eyre::Result<usize> {
+        let mut n = 0;
+        while let Some(ev) = self.events.try_recv() {
+            self.handle_core_event(ev)?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    /// A terminal event.
+    pub(crate) fn handle_terminal_event(&mut self, ev: Event) -> color_eyre::Result<()> {
+        match ev {
+            Event::Key(k) => self.handle_key(KeyChord::from_key_event(k))?,
+            Event::Paste(text) => self.handle_paste(&text)?,
+            Event::Resize(w, h) => self.dispatch(Action::Resize(w, h))?,
+            Event::Tick => self.dispatch(Action::Tick)?,
+            Event::Render => self.dispatch(Action::Render)?,
+            Event::Quit => self.dispatch(Action::Quit)?,
+            Event::Init
+            | Event::Error
+            | Event::Closed
+            | Event::FocusGained
+            | Event::FocusLost
+            | Event::Mouse(_) => {}
         }
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
-        let action_tx = self.action_tx.clone();
-        let Some(keymap) = self.config.keybindings.0.get(&self.mode) else {
-            return Ok(());
-        };
-        match keymap.get(&vec![key]) {
-            Some(action) => {
-                info!("Got action: {action:?}");
-                action_tx.send(action.clone())?;
-            }
-            _ => {
-                // If the key was not handled as a single key action,
-                // then consider it for multi-key combinations.
-                self.last_tick_key_events.push(key);
+    /// The key table in effect.
+    pub(crate) fn mode(&mut self) -> Mode {
+        if let Some(top) = self.modals.top() {
+            return top.key_mode();
+        }
+        self.main
+            .focused_mut()
+            .map_or(Mode::Normal, |c| c.key_mode())
+    }
 
-                // Check for multi-key combinations
-                if let Some(action) = keymap.get(&self.last_tick_key_events) {
-                    info!("Got action: {action:?}");
-                    action_tx.send(action.clone())?;
+    /// Routes one key (first match wins): the top modal, the focused component's raw
+    /// key handler, then the keymap.
+    pub(crate) fn handle_key(&mut self, key: KeyChord) -> color_eyre::Result<()> {
+        self.dirty = true;
+        let now = Instant::now();
+        if let Some(top) = self.modals.top_mut() {
+            match top.handle_key(key)? {
+                KeyOutcome::Consumed(a) => {
+                    if let Some(a) = a {
+                        self.queue(a);
+                    }
+                }
+                KeyOutcome::Ignored => {
+                    let mode = top.key_mode();
+                    if let Resolution::Action(a) = self.resolver.resolve(key, mode, now) {
+                        trace!(action = %a, "key action (modal)");
+                        let top = self.modals.top_mut();
+                        if let Some(out) = top.map(|t| t.update(&a)).transpose()?.flatten() {
+                            self.queue(out);
+                        }
+                    }
                 }
             }
+            self.modals.close_done();
+            return Ok(());
+        }
+        let Some(focused) = self.main.focused_mut() else {
+            return Ok(());
+        };
+        let mode = focused.key_mode();
+        match focused.handle_key(key)? {
+            KeyOutcome::Consumed(a) => {
+                if let Some(a) = a {
+                    self.queue(a);
+                }
+            }
+            KeyOutcome::Ignored => match self.resolver.resolve(key, mode, now) {
+                Resolution::Action(a) => self.dispatch(a)?,
+                Resolution::Pending | Resolution::Unbound => {}
+            },
         }
         Ok(())
     }
 
-    fn handle_actions(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
-        while let Ok(action) = self.action_rx.try_recv() {
-            if action != Action::Tick && action != Action::Render {
-                debug!("{action:?}");
-            }
-            match action {
-                Action::Tick => {
-                    self.last_tick_key_events.drain(..);
-                }
-                Action::Quit => self.should_quit = true,
-                Action::Suspend => self.should_suspend = true,
-                Action::Resume => self.should_suspend = false,
-                Action::ClearScreen => tui.terminal.clear()?,
-                Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
-                Action::Render => self.render(tui)?,
-                Action::Error(ref err) => {
-                    tracing::error!(?err)
-                }
-                _ => {}
-            }
-            for component in self.components.iter_mut() {
-                if let Some(action) = component.update(action.clone())? {
-                    self.action_tx.send(action)?
+    /// Bracketed paste: to the top modal, else to the focused component.
+    pub(crate) fn handle_paste(&mut self, text: &str) -> color_eyre::Result<()> {
+        self.dirty = true;
+        let outcome = if let Some(top) = self.modals.top_mut() {
+            let o = top.handle_paste(text)?;
+            self.modals.close_done();
+            o
+        } else if let Some(c) = self.main.focused_mut() {
+            c.handle_paste(text)?
+        } else {
+            KeyOutcome::Ignored
+        };
+        if let KeyOutcome::Consumed(Some(a)) = outcome {
+            self.queue(a);
+        }
+        Ok(())
+    }
+
+    /// A core event: prompts go to the prompt queue, everything else to the components.
+    pub(crate) fn handle_core_event(&mut self, ev: CoreEvent) -> color_eyre::Result<()> {
+        self.dirty = true;
+        if let CoreEvent::Prompt(req) = ev {
+            self.prompts.push(req);
+            self.answer_unsupported_prompts();
+            return Ok(());
+        }
+        for a in self.main.on_core_event(&ev)? {
+            self.queue(a);
+        }
+        Ok(())
+    }
+
+    /// No prompt has a dialog before T69: each is dropped, which the core treats as
+    /// cancel (T04).
+    fn answer_unsupported_prompts(&mut self) {
+        while let Some(req) = self.prompts.pop() {
+            let kind_name = prompt_kind_name(&req.kind);
+            warn!("prompt kind {kind_name} not supported yet");
+            drop(req);
+        }
+    }
+
+    fn status(&mut self, text: impl Into<String>) {
+        self.main.set_status(text.into(), false, Instant::now());
+        self.dirty = true;
+    }
+
+    /// A key hint for `action` in the Normal table (`Ctrl-l`), or `fallback`.
+    fn key_hint(&self, action: &str, fallback: &str) -> String {
+        let keys = self
+            .resolver
+            .bindings(&[Mode::Normal])
+            .into_iter()
+            .find(|(_, _, a)| a.to_string() == action)
+            .map_or_else(|| fallback.to_owned(), |(_, k, _)| display_keys(&k));
+        pretty_keys(&keys)
+    }
+
+    /// Focuses `region`, or explains why it is hidden. Hidden log, queue and
+    /// quickconnect can be focused in compact mode (focusing shows them there).
+    fn focus_or_explain(&mut self, region: Region) {
+        let layout = self.main.layout();
+        if matches!(layout, ScreenLayout::TooSmall { .. }) || self.main.is_focusable(region) {
+            self.main.set_focus(region);
+            self.dirty = true;
+            return;
+        }
+        let interface = self.settings.current().interface.clone();
+        if region.is_tree() {
+            if layout.is_compact() && interface.show_tree {
+                // Trees are not drawn in compact mode: show that side's list.
+                let list = if region.is_local() {
+                    Region::LocalList
+                } else {
+                    Region::RemoteList
                 };
+                self.main.set_focus(list);
+                self.dirty = true;
+            } else {
+                let key = self.key_hint("ToggleTree", "ctrl-e");
+                self.status(format!("Directory trees are hidden ({key} shows them)"));
             }
+            return;
+        }
+        let (action, fallback) = match region {
+            Region::Log => ("ToggleLog", "ctrl-l"),
+            Region::Queue => ("ToggleQueuePane", "ctrl-x j"),
+            Region::Quickconnect => ("ToggleQuickconnect", "ctrl-x q"),
+            _ => return,
+        };
+        let key = self.key_hint(action, fallback);
+        self.status(format!("{} is hidden ({key} shows it)", region.name()));
+    }
+
+    fn change_interface(&mut self, edit: impl FnOnce(&mut InterfaceSettings)) {
+        self.settings.set_transient(|s| edit(&mut s.interface));
+        let current = self.settings.current();
+        self.main.set_options(&current.interface);
+        self.symbols = Symbols::resolve(current.interface.unicode_symbols, &self.term_env);
+        self.dirty = true;
+        self.schedule_save();
+    }
+
+    async fn save_now(settings: Arc<Settings>, dir: PathBuf) -> Result<(), String> {
+        tokio::task::spawn_blocking(move || {
+            check_settings_not_shadowed(&dir).map_err(|e| e.to_string())?;
+            settings.save_user(&dir).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    /// Saves the settings 1 s after the last change (each change restarts the wait).
+    fn schedule_save(&mut self) {
+        if let Some(id) = self.save_task.take() {
+            self.runner.cancel(id);
+        }
+        let settings = Arc::clone(&self.settings.current());
+        let dir = self.settings.config_dir().to_path_buf();
+        let id = self.runner.spawn(TaskOwner::App, move |token| async move {
+            tokio::select! {
+                // Superseded by a newer change (or shutdown, which saves itself).
+                () = token.cancelled() => Action::SettingsSaved(Ok(())),
+                () = tokio::time::sleep(SAVE_DEBOUNCE) => {
+                    Action::SettingsSaved(Self::save_now(settings, dir).await)
+                }
+            }
+        });
+        self.save_task = Some(id);
+    }
+
+    fn other_side(&self) -> Region {
+        let f = self.main.focus();
+        if f.is_local() {
+            Region::RemoteList
+        } else if f.is_remote() {
+            Region::LocalList
+        } else {
+            self.main.last_list()
+        }
+    }
+
+    /// Handles one action.
+    pub(crate) fn dispatch(&mut self, action: Action) -> color_eyre::Result<()> {
+        if action.is_bindable() {
+            trace!(action = %action, "dispatch");
+        }
+        match action {
+            Action::Tick => {
+                if self.main.expire_status(Instant::now()) {
+                    self.dirty = true;
+                }
+                let mut out = Vec::new();
+                for c in self.main.components_mut() {
+                    out.extend(c.update(&Action::Tick)?);
+                }
+                for a in out {
+                    self.dirty = true;
+                    self.queue(a);
+                }
+            }
+            Action::Render => self.render_requested = true,
+            Action::Resize(w, h) => {
+                self.main.set_size(Size::new(w, h));
+                self.dirty = true;
+            }
+            Action::Resume => self.dirty = true,
+            Action::ClearScreen | Action::Redraw => {
+                self.needs_clear = true;
+                self.dirty = true;
+            }
+            Action::Error(e) => {
+                debug!(error = %e, "component error");
+                warn!("component error (details at debug level)");
+                self.main.set_status(e, true, Instant::now());
+                self.dirty = true;
+            }
+            Action::StatusMessage(m) => self.status(m),
+            Action::FocusRegion(r) => self.focus_or_explain(r),
+            Action::TaskFinished(id) => {
+                self.runner.finished(id);
+                if self.save_task == Some(id) {
+                    self.save_task = None;
+                }
+                self.dirty = true;
+            }
+            Action::SettingsSaved(res) => {
+                if let Err(reason) = res {
+                    debug!(%reason, "settings save failed");
+                    warn!("could not save settings");
+                    self.main.set_status(
+                        format!("Could not save settings: {reason}"),
+                        true,
+                        Instant::now(),
+                    );
+                    self.dirty = true;
+                }
+            }
+            Action::QuitConfirmed => self.should_quit = true,
+            Action::Help => {
+                let mode = self.mode();
+                let rows = self.resolver.bindings(mode.chain());
+                self.modals.push(Box::new(HelpOverlay::new(rows)));
+                self.dirty = true;
+            }
+            Action::Quit => {
+                let blockers = self.main.quit_blockers();
+                if blockers.is_empty() {
+                    self.should_quit = true;
+                } else {
+                    self.modals.push(Box::new(QuitConfirm::new(blockers)));
+                    self.dirty = true;
+                }
+            }
+            Action::Suspend => {
+                if cfg!(windows) {
+                    self.status("Suspend is not supported on Windows");
+                } else {
+                    self.should_suspend = true;
+                }
+            }
+            Action::Cancel => {
+                let owner = TaskOwner::Region(self.main.focus());
+                if let Some(c) = self.main.focused_mut()
+                    && let Some(a) = c.update(&Action::Cancel)?
+                {
+                    self.queue(a);
+                }
+                if self.runner.is_busy(owner) {
+                    self.runner.cancel_owner(owner);
+                    self.status("Cancelling…");
+                } else {
+                    let quit = quit_hint(&self.key_hint_all("Quit"));
+                    self.status(format!("Nothing to cancel — press {quit} to quit"));
+                }
+            }
+            Action::FocusOtherSide => {
+                let target = self.other_side();
+                self.focus_or_explain(target);
+            }
+            Action::FocusNextRegion => {
+                self.main.focus_next();
+                self.dirty = true;
+            }
+            Action::FocusLog | Action::FocusRegion6 => self.focus_or_explain(Region::Log),
+            Action::FocusQueue | Action::FocusRegion7 => self.focus_or_explain(Region::Queue),
+            Action::FocusFiles => {
+                let list = self.main.last_list();
+                self.focus_or_explain(list);
+            }
+            Action::FocusRegion1 => self.focus_or_explain(Region::Quickconnect),
+            Action::FocusRegion2 => self.focus_or_explain(Region::LocalTree),
+            Action::FocusRegion3 => self.focus_or_explain(Region::LocalList),
+            Action::FocusRegion4 => self.focus_or_explain(Region::RemoteTree),
+            Action::FocusRegion5 => self.focus_or_explain(Region::RemoteList),
+            Action::ToggleLog => self.change_interface(|i| i.show_log = !i.show_log),
+            Action::ToggleQueuePane => self.change_interface(|i| i.show_queue = !i.show_queue),
+            Action::ToggleTree => self.change_interface(|i| i.show_tree = !i.show_tree),
+            Action::ToggleQuickconnect => {
+                self.change_interface(|i| i.show_quickconnect = !i.show_quickconnect);
+            }
+            Action::SwapPanes => self.change_interface(|i| i.swap_panes = !i.swap_panes),
+            Action::LayoutClassic => self.change_interface(|i| i.layout = Layout::Classic),
+            Action::LayoutExplorer => self.change_interface(|i| i.layout = Layout::Explorer),
+            Action::LayoutWidescreen => self.change_interface(|i| i.layout = Layout::Widescreen),
         }
         Ok(())
     }
 
-    fn handle_resize(&mut self, tui: &mut Tui, w: u16, h: u16) -> color_eyre::Result<()> {
-        tui.resize(Rect::new(0, 0, w, h))?;
-        self.render(tui)?;
-        Ok(())
+    /// Every key bound to `action` in the Normal table, as hints.
+    fn key_hint_all(&self, action: &str) -> Vec<String> {
+        self.resolver
+            .bindings(&[Mode::Normal])
+            .into_iter()
+            .filter(|(_, _, a)| a.to_string() == action)
+            .map(|(_, k, _)| pretty_keys(&display_keys(&k)))
+            .collect()
     }
 
-    fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
-        tui.draw(|frame| {
-            for component in self.components.iter_mut() {
-                if let Err(err) = component.draw(frame, frame.area()) {
-                    let _ = self
-                        .action_tx
-                        .send(Action::Error(format!("Failed to draw: {err:?}")));
-                }
-            }
-        })?;
-        Ok(())
+    /// Draws the whole screen (main screen, then modals).
+    pub(crate) fn draw(&mut self, frame: &mut Frame) {
+        let now = Instant::now();
+        let elapsed_ms = now.duration_since(self.started).as_millis();
+        let mode = self.mode();
+        let info = StatusInfo { mode: mode.label() };
+        let busy_components = self.main.busy_regions();
+        let runner = &self.runner;
+        let symbols = &self.symbols;
+        let spinner = |r: Region| {
+            let task_busy = runner
+                .busy_since(TaskOwner::Region(r))
+                .is_some_and(|since| now.duration_since(since) > SPINNER_DELAY);
+            (task_busy || busy_components.contains(&r)).then(|| symbols.spinner_frame(elapsed_ms))
+        };
+        let errors = self
+            .main
+            .draw(frame, &self.theme, &self.symbols, now, &info, &spinner);
+        let cx = DrawCx {
+            theme: &self.theme,
+            symbols: &self.symbols,
+            focused: true,
+            now,
+            spinner: None,
+        };
+        let area = frame.area();
+        let mut errors = errors;
+        if let Err(e) = self.modals.draw(frame, area, &cx) {
+            errors.push(Action::Error(format!("Failed to draw: {e}")));
+        }
+        for e in errors {
+            self.queue(e);
+        }
     }
+
+    /// Draws a frame if something changed, or if a spinner or status message is
+    /// animating and its frame changed. Returns whether it drew.
+    pub(crate) fn render_if_needed<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+    ) -> color_eyre::Result<bool> {
+        let now = Instant::now();
+        let frame_no = now.duration_since(self.started).as_millis() / 100;
+        let animating = self.runner.any_visible_busy()
+            || !self.main.busy_regions().is_empty()
+            || self
+                .main
+                .status()
+                .is_some_and(|m| now.duration_since(m.at) < STATUS_MESSAGE_TTL);
+        if !(self.dirty || (animating && self.last_frame != Some(frame_no))) {
+            return Ok(false);
+        }
+        self.dirty = false;
+        self.last_frame = Some(frame_no);
+        terminal
+            .draw(|f| self.draw(f))
+            .map_err(|e| color_eyre::eyre::eyre!("terminal draw failed: {e}"))?;
+        self.draw_count += 1;
+        if !self.first_frame_done {
+            self.first_frame_done = true;
+            if !self.problems.is_empty() {
+                let n = self.problems.len();
+                let s = if n == 1 { "" } else { "s" };
+                self.status(format!("{n} configuration problem{s} — see the log"));
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// "F10 or Ctrl-q" from the Quit bindings.
+fn quit_hint(all: &[String]) -> String {
+    if all.is_empty() {
+        return "F10".to_owned();
+    }
+    let mut v = all.to_vec();
+    // Function keys first, as in the docs.
+    v.sort_by_key(|k| !k.starts_with('F'));
+    v.join(" or ")
+}
+
+/// `ctrl-x j` → `Ctrl-x j`, `f10` → `F10`.
+fn pretty_keys(keys: &str) -> String {
+    keys.split(' ')
+        .map(|chord| {
+            let c = chord
+                .replace("ctrl-", "Ctrl-")
+                .replace("alt-", "Alt-")
+                .replace("shift-", "Shift-");
+            match c.strip_prefix('f') {
+                Some(n) if !n.is_empty() && n.chars().all(|d| d.is_ascii_digit()) => {
+                    format!("F{n}")
+                }
+                _ => c,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

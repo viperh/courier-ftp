@@ -1,0 +1,9 @@
+---
+source: crates/courier-ftp/src/snapshot_tests.rs
+expression: "h.render(30, 8)"
+---
+                              
+                              
+                              
+Terminal too small: 30×8 (need
+            40×10)

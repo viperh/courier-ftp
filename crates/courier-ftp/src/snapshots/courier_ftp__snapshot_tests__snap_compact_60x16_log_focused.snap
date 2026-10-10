@@ -1,0 +1,20 @@
+---
+source: crates/courier-ftp/src/snapshot_tests.rs
+expression: "h.render(60, 16)"
+---
+ 1 Local                                                    
+┏▶Message log ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃(not available yet)                                       ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┃                                                          ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ NORMAL │ compact: Tab = other side, Shift-Tab = log/queue
