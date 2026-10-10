@@ -131,3 +131,8 @@ the section matching the tag.
 - FTP proxies (T15): USER@HOST, SITE, OPEN and custom login scripts (%h %u %p
   %a %s %w), with every password masked in the log; can't be combined with a
   generic HTTP/SOCKS proxy.
+- Transfer engine (T41): parallel transfers within global, per-direction and
+  per-site connection limits, pooled transfer connections, retries with
+  backoff that resume at the reached offset, pause/cancel, 10 Hz progress with
+  speed and ETA, and automatic back-off when a server refuses extra
+  connections.

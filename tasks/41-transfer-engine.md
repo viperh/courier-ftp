@@ -31,14 +31,21 @@ respecting connection limits, reporting progress and retrying failures.
 
 ## Acceptance criteria
 
-- [ ] With `MockBackend` (T03) supporting artificial latency, limits are never exceeded (assert in tests).
-- [ ] Priority ordering respected.
-- [ ] Transient failure retried and resumes at offset; permanent failure not retried.
-- [ ] Cancel stops within 1 s and leaves the session reusable.
-- [ ] "Too many connections" lowers the limit and doesn't burn attempts.
-- [ ] No task leaks after `Stop` (track with a JoinSet and assert empty).
+- [x] With `MockBackend` (T03) supporting artificial latency, limits are never exceeded (assert in tests).
+- [x] Priority ordering respected.
+- [x] Transient failure retried and resumes at offset; permanent failure not retried.
+- [x] Cancel stops within 1 s and leaves the session reusable.
+- [x] "Too many connections" lowers the limit and doesn't burn attempts.
+- [x] No task leaks after `Stop` (track with a JoinSet and assert empty).
 
 ## Tests
 
 - Deterministic tests with `tokio::time::pause` and the mock backend.
 - Integration (T76): 50 files up/down against each server type, verify checksums.
+
+**Status:** done in `courier_ftp_core::transfer` (tests in `transfer/tests.rs`,
+plus `transfer_engine_moves_files_over_sftp` in proto-sftp against the
+in-process SFTP server). The 50-file Docker integration run per server type
+is left to T76; FTP is covered once T14's backend lands (the engine only
+uses the `Backend` trait; FTP's `ABOR` on cancel happens in its
+`finish_transfer` after the stream is dropped early, per T11).
