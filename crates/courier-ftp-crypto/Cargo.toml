@@ -44,7 +44,9 @@ insecure-test-ksf = []
 
 [dev-dependencies]
 # The integration tests use `Argon2Cost::TEST`.
-courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
+# Path-only so `cargo package` strips it (a versioned self-dependency
+# would be looked up on crates.io).
+courier-ftp-crypto = { path = ".", features = ["insecure-test-ksf"] }
 chacha20 = { workspace = true }
 criterion = { workspace = true }
 hex = { workspace = true }
