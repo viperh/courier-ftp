@@ -1,0 +1,51 @@
+---
+source: crates/courier-ftp/src/components/message_log/snapshot_tests.rs
+expression: text
+---
++ Message log - All ------------------------------------+                       
+|            <implicit>                                 |                       
+|T Status:   Connected to web01.example.com             |                       
+|T Status:   Starting upload of                         |                       
+|            /home/alice/site/index.html                |                       
+|T Status:   File transfer successful, transferred 4,198|                       
+|            bytes in 1 second                          |                       
+|T Error:    Disk full: /home/alice/Downloads (needed   |                       
+|            1.21 GiB, 812 MiB free); queue paused      |                       
+|- Status:   Warning: the vault is locked; saved        |                       
+|            passwords are not available                |                       
+|1 Command:  NOOP                                       |                       
+|1 Response: 200 NOOP ok.                               |                       
+|1 Command:  CWD /var/www/html                          |                       
+|1 Response: 250 Directory successfully changed.        |                       
+|1 Command:  PASV                                       |                       
+|1 Response: 227 Entering Passive Mode                  |                       
+|            (203,0,113,5,195,81).                      |                       
+|1 Command:  MLSD                                       |                       
+|1 Response: 150 Here comes the directory listing.      |                       
+|1 Response: 226 Directory send OK.                     |                       
+|1 Status:   Directory listing of "/var/www/html"       |                       
+|            successful                                 |                       
++-------------------------------------------------------+                       
+--- styles ---
+  1  13+10  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  3   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  5   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7   3+6   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7  13+40  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8  13+37  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  9   3+7   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9  13+35  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10  13+27  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 12   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 13   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 15   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 16   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 18   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 19   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 20   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 21   1+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()

@@ -54,6 +54,16 @@ const MONOCHROME: &[(&str, Modifier)] = &[
     ("list_cursor", Modifier::REVERSED),
     ("list_marked", Modifier::BOLD),
     ("list_header", Modifier::BOLD.union(Modifier::UNDERLINED)),
+    // Message log (T55).
+    ("log.warning", Modifier::BOLD),
+    ("log.error", Modifier::BOLD),
+    ("log.trace", Modifier::DIM),
+    ("log.listing", Modifier::DIM),
+    ("log.time", Modifier::DIM),
+    ("log.cursor", Modifier::BOLD.union(Modifier::UNDERLINED)),
+    ("log.visual", Modifier::REVERSED),
+    ("log.search_match", Modifier::REVERSED),
+    ("log.border_focused", Modifier::BOLD),
 ];
 
 fn strip_colours(s: Style) -> Style {

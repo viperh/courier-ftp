@@ -5,7 +5,7 @@ expression: screen
  Quickconnect (not available yet)                                               
  1 Local  ┌ Many fields ────────────────────────────────────────────┐           
 ┌ Message │  Field number 8  │ value 8                              ▲──────────┐
-│(not avai│  Field number 9  │ value 9                              │          │
+│         │  Field number 9  │ value 9                              │          │
 │         │  Field number 10 │ value 10                             │          │
 └─────────│  Field number 11 │ value 11                             │──────────┘
 ┏▶Local ━━│  Field number 12 │ value 12                             │──────────┐

@@ -5,7 +5,7 @@ expression: "hs.render(w, h)"
  Quickconnect (not available yet)                                               
  1 Local                                                                        
 ┌ Me┌ Raw directory listing ───────────────────────────────────────────────┐───┐
-│(no│ drwxr-xr-x  2 www www 4096 May  2 10:02 dir2                         │   │
+│   │ drwxr-xr-x  2 www www 4096 May  2 10:02 dir2                         │   │
 │   │ drwxr-xr-x  2 www www 4096 May  2 10:03 dir3                         │   │
 └───│ drwxr-xr-x  2 www www 4096 May  2 10:04 dir4                         │───┘
 ┏▶Lo│ drwxr-xr-x  2 www www 4096 May  2 10:05 dir5                         │───┐

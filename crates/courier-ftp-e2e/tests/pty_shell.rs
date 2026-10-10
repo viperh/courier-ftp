@@ -96,8 +96,7 @@ fn e2e_pty_sequences_and_fkeys() {
 
     // `ctrl-x l` (ClearLog, T55) and `ctrl-x j` (toggle the queue pane).
     slow_sequence(&mut app, "ctrl-x", "l");
-    app.wait_for_text("Clear the message log of the current scope is not available yet")
-        .unwrap();
+    app.wait_for_text("Log cleared").unwrap();
     assert!(app.screen().contains("Queue"));
     slow_sequence(&mut app, "ctrl-x", "j");
     app.wait_for_screen("the queue pane to hide", |s| !s.contains("Queue"))

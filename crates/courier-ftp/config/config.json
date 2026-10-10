@@ -343,7 +343,20 @@
     "compare_only_one": "yellow",
     "compare_newer": "green",
     "compare_size_differs": "red",
-    "compare_placeholder": ""
+    "compare_placeholder": "",
+    "log.status": "",
+    "log.warning": "yellow",
+    "log.command": "blue",
+    "log.response": "green",
+    "log.error": "bold red",
+    "log.trace": "gray",
+    "log.listing": "cyan",
+    "log.time": "dim",
+    "log.cursor": "bold underline",
+    "log.visual": "inverse",
+    "log.search_match": "inverse",
+    "log.border": "",
+    "log.border_focused": "bold yellow"
   },
   "settings": {
     "interface": {
