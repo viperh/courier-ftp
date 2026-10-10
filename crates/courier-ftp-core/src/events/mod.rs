@@ -189,6 +189,40 @@ pub enum CoreEvent {
     },
     /// The core is waiting for an answer.
     Prompt(PromptRequest),
+    /// Progress of a recursive listing, delete or chmod (T43), for the
+    /// status bar. Coalesced by the sender (about 10 per second), plus a
+    /// final one with `finished` set.
+    RecursiveProgress(RecursiveProgress),
+}
+
+/// Which recursive operation a [`RecursiveProgress`] is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RecursiveOperation {
+    /// Walking a tree (counting, comparing, searching).
+    Listing,
+    /// Recursive delete.
+    Delete,
+    /// Recursive chmod.
+    Chmod,
+}
+
+/// Progress of a recursive operation (T43).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecursiveProgress {
+    /// The session doing the work.
+    pub session: SessionId,
+    /// What is being done.
+    pub operation: RecursiveOperation,
+    /// The directory being listed or processed.
+    pub current: RemotePath,
+    /// Directories found so far.
+    pub dirs: u64,
+    /// Files (and symlinks) found so far.
+    pub files: u64,
+    /// Entries deleted or changed so far (0 for a plain listing).
+    pub done: u64,
+    /// The operation ended (completed, cancelled or failed).
+    pub finished: bool,
 }
 
 /// Which log lines are kept. Shared by every clone of an [`EventSender`] and
