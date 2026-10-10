@@ -65,15 +65,28 @@ async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
 
 impl Rig {
     /// Run actions, core events and vault results until nothing happens for
-    /// a moment.
+    /// a moment and no vault operation is still running. Opening the store
+    /// and Argon2 can take seconds on a slow CI runner, so an idle gap alone
+    /// is not enough.
     async fn settle(&mut self) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         let app = &mut self.app;
         loop {
             tokio::select! {
                 Some(action) = app.action_rx.recv() => app.dispatch(action).unwrap(),
                 Some(event) = app.events_rx.recv() => app.screen.handle_core(event),
                 Some(msg) = app.vault_rx.recv() => app.vault_message(msg),
-                () = tokio::time::sleep(Duration::from_millis(150)) => break,
+                () = tokio::time::sleep(Duration::from_millis(150)) => {
+                    let busy = app.screen.vault_view().is_some_and(VaultView::is_busy)
+                        || app.vault.as_ref().is_some_and(|v| v.phase == Phase::Opening);
+                    assert!(
+                        tokio::time::Instant::now() < deadline,
+                        "vault operation still running after 30 s"
+                    );
+                    if !busy {
+                        break;
+                    }
+                }
             }
         }
     }
