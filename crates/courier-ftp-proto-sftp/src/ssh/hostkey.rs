@@ -3,8 +3,9 @@
 //! [`connect`](super::connect) asks a [`HostKeyVerifier`] about the key the
 //! server presents during the key exchange (russh's `check_server_key`); the
 //! connection proceeds only when the verifier accepts it. The real verifier
-//! (trusted keys in the vault, the trust prompt) is T21. This module only
-//! defines the seam and [`AcceptAnyHostKey`], which is for tests.
+//! (trusted keys, `known_hosts`, the trust prompt) is
+//! [`TrustStoreVerifier`](super::trust::TrustStoreVerifier) (T21). This
+//! module only defines the seam and [`AcceptAnyHostKey`], which is for tests.
 
 use std::fmt;
 
@@ -48,8 +49,8 @@ pub trait HostKeyVerifier: Send + Sync + fmt::Debug {
 }
 
 /// **Tests only.** Accepts every host key, which disables protection against
-/// man-in-the-middle attacks. Never use it for real connections; T21 provides
-/// the verifier the application uses.
+/// man-in-the-middle attacks. Never use it for real connections; the
+/// application uses [`TrustStoreVerifier`](super::trust::TrustStoreVerifier).
 #[derive(Debug, Clone, Copy)]
 pub struct AcceptAnyHostKey {
     _private: (),

@@ -46,6 +46,7 @@ pub mod agent;
 pub mod hostkey;
 pub mod keys;
 pub mod text;
+pub mod trust;
 
 #[cfg(test)]
 mod test_server;
@@ -78,6 +79,7 @@ pub use self::{
     handler::ClientHandler,
     hostkey::{AcceptAnyHostKey, HostKeyContext, HostKeyVerifier},
     keys::{KeyError, KeyFile, KeyFormat},
+    trust::TrustStoreVerifier,
 };
 
 /// Password prompts per connection for "ask for password" and "interactive".
