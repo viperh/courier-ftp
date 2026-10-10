@@ -74,3 +74,7 @@ the section matching the tag.
   ask-for-password, keyboard-interactive/2FA, OpenSSH/PEM/PKCS#8/PuTTY PPK
   v2/v3 key files with passphrase prompts, SSH agent and Pageant, through the
   generic proxy, with a pluggable host key verifier.
+- SFTP host key verification (T21): unknown keys ask (Trust once / Always
+  trust / Cancel), changed keys raise a warning with old and new fingerprints,
+  trusted keys are remembered, and OpenSSH known_hosts (including hashed
+  entries and @revoked) is honoured read-only.
