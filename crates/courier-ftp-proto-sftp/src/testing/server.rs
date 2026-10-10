@@ -332,12 +332,31 @@ impl Engine {
         }
     }
 
+    /// The one-shot wrong-type reply for `packet`.
+    fn bogus(&self, packet: &Packet) -> bool {
+        let Some((op, _)) = op_of(packet) else {
+            return false;
+        };
+        let mut k = lock(&self.shared.knobs);
+        if k.bogus_reply_next == Some(op) {
+            k.bogus_reply_next = None;
+            return true;
+        }
+        false
+    }
+
     fn handle(&mut self, packet: Packet) -> Vec<Packet> {
         self.record(&packet);
         let id = packet.get_request_id();
         if let Some(code) = self.injected(&packet) {
             // Opens still answer with the status only (no handle leaks).
             return vec![status(id, code, &format!("injected {code}"))];
+        }
+        if self.bogus(&packet) {
+            return vec![Packet::Attrs(Attrs {
+                id,
+                attrs: FileAttributes::default(),
+            })];
         }
         vec![self.answer(packet, id)]
     }

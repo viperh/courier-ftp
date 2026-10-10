@@ -67,6 +67,9 @@ pub struct SftpTestKnobs {
     pub advertise_limits: Option<ServerLimits>,
     /// The next request of this operation fails with this status (one shot).
     pub fail_next: Option<(SftpOp, StatusCode)>,
+    /// The next request of this operation is answered with a reply of the wrong type
+    /// (one shot).
+    pub bogus_reply_next: Option<SftpOp>,
     /// Record every READ/WRITE (offset, length).
     pub record_requests: bool,
     /// Names added to every real directory listing (hostile names).
@@ -89,6 +92,7 @@ impl Default for SftpTestKnobs {
             advertise_posix_rename: true,
             advertise_limits: None,
             fail_next: None,
+            bogus_reply_next: None,
             record_requests: false,
             inject_names: Vec::new(),
             synthetic_dirs: HashMap::new(),
@@ -254,6 +258,40 @@ pub fn duplex_session(stats: &ServerStats, root: &Path, timeout_secs: u64) -> Ra
     )
 }
 
+/// A backend attached (no SSH) to a duplex SFTP server over `root`: `connect` is not
+/// used; the session starts like after the subsystem request.
+pub async fn duplex_backend(
+    knobs: SftpTestKnobs,
+    root: &Path,
+    settings: Settings,
+) -> (
+    SftpBackend,
+    ServerStats,
+    courier_ftp_core::events::EventReceiver,
+) {
+    let timeout = u64::from(settings.connection.timeout_secs.max(1));
+    let stats = ServerStats::new(knobs);
+    let raw = duplex_session(&stats, root, timeout);
+    let (ctx, rx) = mock::test_context_with(settings);
+    let address = ServerAddress::new(
+        Protocol::Sftp,
+        FtpEncryption::ExplicitIfAvailable,
+        "duplex.invalid",
+        None,
+        Some(USER.to_owned()),
+    )
+    .unwrap();
+    let info = ConnectInfo::quick(address, LogonType::Normal { password: None });
+    let mut b = SftpBackend::new(
+        Arc::new(info),
+        ctx,
+        Arc::new(InsecureAcceptAnyHostKey),
+        None,
+    );
+    b.attach(raw).await.unwrap();
+    (b, stats, rx)
+}
+
 /// The russh test server with the SFTP server behind `sftp`, over a temp directory.
 #[derive(Debug)]
 pub struct SftpTestServer {
@@ -323,6 +361,14 @@ impl SftpTestServer {
             .as_ref()
             .map(TestServer::requests)
             .unwrap_or_default()
+    }
+
+    /// Drop every open connection abruptly (TCP closed, no SSH disconnect); the server
+    /// keeps accepting new ones.
+    pub fn drop_connections(&self) {
+        if let Some(ssh) = lock(&self.ssh).as_ref() {
+            ssh.abort_connections();
+        }
     }
 
     /// Kill the server: stop accepting and drop every connection (TCP closed, no

@@ -348,7 +348,9 @@ impl AsyncRead for SftpReader {
                         // the pipeline and continue right after the data.
                         this.pending = FuturesOrdered::new();
                         this.inflight = 0;
-                        if got >= u64::from(MIN_CHUNK) && got < u64::from(this.chunk) {
+                        // A short read at the known end of the file is not a server cap.
+                        let at_eof = this.size.is_some_and(|size| off + got >= size);
+                        if !at_eof && got >= u64::from(MIN_CHUNK) && got < u64::from(this.chunk) {
                             this.chunk = u32::try_from(got).unwrap_or(this.chunk);
                         }
                         this.next = off + got;

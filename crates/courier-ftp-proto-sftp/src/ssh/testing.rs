@@ -344,6 +344,9 @@ pub struct TestServer {
     seen: Arc<Mutex<Seen>>,
     task: JoinHandle<()>,
     connections: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
+    /// Clones of the accepted sockets: russh runs each session on its own task, so
+    /// aborting ours would not close the connection; shutting the socket down does.
+    sockets: Arc<Mutex<Vec<std::net::TcpStream>>>,
     handles: Arc<Mutex<Vec<server::Handle>>>,
     host_keys: Vec<PublicKey>,
 }
@@ -352,9 +355,7 @@ impl Drop for TestServer {
     /// Stops accepting and closes every connection.
     fn drop(&mut self) {
         self.task.abort();
-        for c in lock(&self.connections).drain(..) {
-            c.abort();
-        }
+        self.abort_connections();
     }
 }
 
@@ -397,6 +398,8 @@ impl TestServer {
         let seen2 = Arc::clone(&seen);
         let connections: Arc<Mutex<Vec<tokio::task::AbortHandle>>> = Arc::default();
         let conns = Arc::clone(&connections);
+        let sockets: Arc<Mutex<Vec<std::net::TcpStream>>> = Arc::default();
+        let socks = Arc::clone(&sockets);
         let handles: Arc<Mutex<Vec<server::Handle>>> = Arc::default();
         let handles2 = Arc::clone(&handles);
         let task = tokio::spawn(async move {
@@ -410,6 +413,17 @@ impl TestServer {
                     held.push(stream);
                     continue;
                 }
+                let stream = match stream
+                    .into_std()
+                    .and_then(|s| Ok((s.try_clone()?, s)))
+                    .and_then(|(killer, s)| Ok((killer, tokio::net::TcpStream::from_std(s)?)))
+                {
+                    Ok((killer, stream)) => {
+                        lock(&socks).push(killer);
+                        stream
+                    }
+                    Err(_) => continue,
+                };
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 let handler = Handler {
                     config: Arc::clone(&config),
@@ -449,6 +463,7 @@ impl TestServer {
             seen,
             task,
             connections,
+            sockets,
             handles,
             host_keys,
         }
@@ -466,6 +481,17 @@ impl TestServer {
                 )
                 .await;
         }
+    }
+
+    /// Abort every connection (TCP closed, no SSH disconnect); keep accepting.
+    pub fn abort_connections(&self) {
+        for s in lock(&self.sockets).drain(..) {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+        }
+        for c in lock(&self.connections).drain(..) {
+            c.abort();
+        }
+        lock(&self.handles).clear();
     }
 
     /// The listening address.
