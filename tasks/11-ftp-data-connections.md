@@ -462,3 +462,65 @@ Not applicable (no UI, no corpus).
   with the peer address (safe default, same as curl). FileZilla connects to such addresses
   unless they are unroutable. Do we need a setting (e.g. `ftp.trust_pasv_address`, off by
   default) for server farms that really hand out another host?
+
+## Implementation notes
+
+- **Layout:** `crates/courier-ftp-proto-ftp/src/{data,passive,active,ascii,transfer}.rs`.
+  `data` holds the types (`DataMode`, `DataConfig`, `DataState`, `RawData`, `DataIo`,
+  `DataTlsHook`, `TransferCommand`, `DataStream`); `transfer` holds `FtpData` (the
+  sequence, fallback, `REST`, finish, abort/resync, listings). Tests: `passive/tests.rs`
+  (parsers, unroutable table, address rules, property tests incl. the fuzz body),
+  `ascii/tests.rs`, inline `active` tests, and `transfer/tests.rs` (every `FakeServer`
+  integration test of the list plus extras: PORT→EPRT fallback, EPSV over IPv6, invalid
+  227, 550 keeps the control ready, empty listing/`226` without `1xx`, cancel during a
+  listing, server never connects in active mode, port range exhausted). E2e:
+  `crates/courier-ftp-e2e/tests/ftp_data.rs`. Fuzz: `fuzz/fuzz_targets/ftp_pasv.rs`
+  (+ `[[bin]]`, an EPRT seed in `seed-corpus.sh`).
+- **Real time, not paused time,** in the `FakeServer` data tests: with loopback TCP the
+  paused clock auto-advances while socket I/O is in flight and fires the 20 s timeouts.
+  Tests that need short timeouts set `DataConfig.timeout` to 300 ms; AC8's "next `PWD`
+  within 1 s" is measured with `Instant` (each variant takes a few ms).
+- **New dependency:** `tokio-rustls` (workspace, already in `Cargo.lock`) for the
+  `DataIo::Tls` variant of the spec; no new crates, `supply-chain/` unchanged.
+- **API additions beyond the spec:** `passive::AddrParseError` (the parsers' error type —
+  `std::net::AddrParseError` cannot be constructed), `TransferCommand::{offset,
+  is_upload, is_file}`, `DataStream::is_complete`, `data::DEFAULT_SOCKET_BUFFER`,
+  `transfer::{MAX_LISTING_BYTES, FALLBACK_STATUS, ACTIVE_THROUGH_PROXY,
+  EXTERNAL_IP_FAILED}`, `AsciiDecode/AsciiEncode::{new, get_ref, get_mut}`.
+  `FakeServer::tcp_on(bind, script)` (IPv6 loopback), `testing::pattern_bytes`, and the
+  steps `ReplyText(String)`, `PasvListen`, `PasvListenAs(Ipv4Addr)`, `EpsvListen`,
+  `ExpectPortThenConnect`, `DataConnectFrom(IpAddr)`, `SendData`, `SendPattern`,
+  `RecvData`, `CloseData`, `ExpectAbor`. `ExpectPortThenConnect` connects to the
+  announced port on the control peer's IP (the client's real address), so tests of the
+  advertised IP (`Fixed`/`FromUrl`) check the `PORT` line in the transcript.
+- **Deviations / choices the spec left open:**
+  - PASV address rule: anything that is not the peer's address is replaced by the peer
+    address, except an unroutable address with `ignore_unroutable_pasv_ip` off. So an
+    unroutable PASV address is replaced even when the peer itself is private (e.g. the
+    Docker fixture at 172.17.x announcing 10.255.255.1); the table only covered a
+    routable peer.
+  - A refused `PASV` (5xx, remembered in `pasv_failed`) and a non-229 `EPSV` reply are
+    passive failures eligible for the active fallback, like connect failures and `425`.
+  - `finish(None)` and `finish` of a download not read to EOF run the abort sequence and
+    return `Err(Cancelled)` (a partial transfer is never reported as success); `abort()`
+    returns `Ok` once resynchronised. `finish` shuts an upload down itself (TLS
+    `close_notify` + FIN) when the caller did not.
+  - Cancellation while waiting for the `1xx` reply, or while reading a listing, runs the
+    abort sequence (control stays usable) instead of T10's "cancel mid-reply → Broken".
+  - ABOR reply reading stops at the first reply that is not `1xx`/`4xx` (`225`, `226`,
+    `5xx`): later stray replies are skipped by the `NOOP` resync, so a responsive
+    server costs no 2 s grace.
+  - Ranged reads: after `range_len` bytes `finish` waits up to 200 ms for the data EOF;
+    EOF → normal `226` path, otherwise abort (the transfer's reply counts as success).
+  - The external IP lookup failure is not cached (the next transfer tries again); a
+    success is cached in `DataState::external_ip_cache`. A `Fixed` address of the wrong
+    family logs a Status warning and uses the local IP.
+  - `bytes_transferred` counts bytes delivered to/accepted from the caller (after ASCII
+    conversion).
+  - 4xx/5xx replies are returned as `Error::Protocol { code, text }`; T14's table maps
+    them further (e.g. 550 → `NotFound`).
+  - `active_rejects_foreign_peer` is `#[cfg(target_os = "linux")]` (it connects from
+    127.0.0.2, which only Linux routes on loopback).
+- Docker is not available here: the four e2e tests compile and skip (`require_docker!`);
+  CI's e2e job runs them. Nightly `cargo fuzz` was not run (the property test runs the
+  same body on random input).
