@@ -10,6 +10,35 @@ use tracing::{trace, warn};
 
 use crate::{action::Action, components::main_screen::layout::Region, tabs::TabId};
 
+/// Blocking jobs still running (tests only: `AppHarness` waits for them to finish).
+#[cfg(test)]
+pub(crate) static BLOCKING_IN_FLIGHT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// [`tokio::task::spawn_blocking`] for UI-started work. In tests the job is counted in
+/// [`BLOCKING_IN_FLIGHT`] so the harness can wait for it; paused time does not.
+pub(crate) fn spawn_blocking<R: Send + 'static>(
+    f: impl FnOnce() -> R + Send + 'static,
+) -> tokio::task::JoinHandle<R> {
+    #[cfg(test)]
+    {
+        use std::sync::atomic::Ordering;
+        struct Done;
+        impl Drop for Done {
+            fn drop(&mut self) {
+                BLOCKING_IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        BLOCKING_IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+        tokio::task::spawn_blocking(move || {
+            let _done = Done;
+            f()
+        })
+    }
+    #[cfg(not(test))]
+    tokio::task::spawn_blocking(f)
+}
+
 /// A task started by the [`Runner`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TaskId(u64);

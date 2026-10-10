@@ -163,7 +163,7 @@ impl App {
                 self.runner.spawn(
                     TaskOwner::Region(region_of(pane)),
                     move |_token| async move {
-                        match tokio::task::spawn_blocking(move || job.run()).await {
+                        match crate::runtime::spawn_blocking(move || job.run()).await {
                             Ok(built) => Action::PaneInput(
                                 pane,
                                 PaneInput::SortDone {

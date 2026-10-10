@@ -623,7 +623,7 @@ impl App {
     }
 
     async fn save_now(settings: Arc<Settings>, dir: PathBuf) -> Result<(), String> {
-        tokio::task::spawn_blocking(move || {
+        crate::runtime::spawn_blocking(move || {
             check_settings_not_shadowed(&dir).map_err(|e| e.to_string())?;
             settings.save_user(&dir).map_err(|e| e.to_string())
         })

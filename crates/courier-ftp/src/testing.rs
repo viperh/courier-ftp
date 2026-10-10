@@ -67,7 +67,7 @@ fn paused_runtime() -> Runtime {
 
 /// Yields enough for spawned tasks to run, then dispatches everything pending.
 async fn settle_app(app: &mut App) {
-    for _ in 0..1000 {
+    for _ in 0..5000 {
         for _ in 0..16 {
             tokio::task::yield_now().await;
         }
@@ -76,7 +76,12 @@ async fn settle_app(app: &mut App) {
             (Err(e), _) | (_, Err(e)) => panic!("dispatch failed: {e:?}"),
         };
         if n == 0 {
-            return;
+            // A blocking job (view build, settings save) still running will send an
+            // action when done: wait for it in real time (paused time does not).
+            if crate::runtime::BLOCKING_IN_FLIGHT.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
 }
