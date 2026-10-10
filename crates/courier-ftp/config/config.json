@@ -1,11 +1,53 @@
 {
   "keybindings": {
     "Normal": {
-      "<Ctrl-q>": "Quit",
-      "<Ctrl-h>": "Help"
+      "f1": "Help",
+      "?": "Help",
+      "f10": "Quit",
+      "ctrl-q": "Quit",
+      "ctrl-z": "Suspend",
+      "tab": "FocusOtherSide",
+      "backtab": "FocusNextRegion",
+      "ctrl-l": "ToggleLog",
+      "ctrl-e": "ToggleTree",
+      "ctrl-c": "Cancel"
+    },
+    "FileList": {},
+    "Tree": {},
+    "Log": {},
+    "Queue": {},
+    "SiteManager": {},
+    "Filter": {},
+    "Input": {},
+    "Dialog": {
+      "f10": "Quit",
+      "ctrl-q": "Quit",
+      "esc": "Cancel"
     }
   },
   "styles": {
-    "Normal": {}
+    "border": "",
+    "border_focused": "bold yellow",
+    "title": "",
+    "title_focused": "bold",
+    "status_bar": "on rgb012",
+    "status_mode": "bold",
+    "status_message": "bold",
+    "status_error": "bold red",
+    "placeholder": "dim",
+    "help_key": "bold cyan",
+    "help_group": "bold underline",
+    "dialog_border": "bold",
+    "text.escape": "inverse",
+    "compare_only_one": "yellow",
+    "compare_newer": "green",
+    "compare_size_differs": "red",
+    "compare_placeholder": ""
+  },
+  "settings": {
+    "interface": {
+      "layout": "classic",
+      "show_log": true
+    }
   }
 }
