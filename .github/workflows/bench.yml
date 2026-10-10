@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # vergen-gix needs history and tags
       - name: Install Rust toolchain
@@ -45,7 +45,7 @@ jobs:
           echo "count=$n" >>"$GITHUB_OUTPUT"
       - name: Restore the main baseline
         if: steps.has.outputs.count != '0'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: target/criterion
           key: criterion-main-${{ github.run_id }}
@@ -77,7 +77,7 @@ jobs:
           done
       - name: Save the main baseline
         if: steps.has.outputs.count != '0' && github.ref == 'refs/heads/master'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: target/criterion
           key: criterion-main-${{ github.run_id }}
