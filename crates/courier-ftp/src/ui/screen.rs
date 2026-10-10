@@ -36,6 +36,8 @@ pub(crate) struct MainScreen {
     tick: u64,
     /// The regions of the last frame, for focus checks.
     last: Regions,
+    /// Keys typed so far of an unfinished sequence (shown like vim's showcmd).
+    pending_keys: String,
 }
 
 impl MainScreen {
@@ -63,17 +65,22 @@ impl MainScreen {
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
+            pending_keys: String::new(),
         }
     }
 
     /// The current input mode, which selects the keymap.
     pub(crate) fn mode(&self) -> Mode {
         if !self.modals.is_empty() {
-            Mode::Dialog
-        } else if self.focus == Region::Quickconnect {
-            Mode::Input
-        } else {
-            Mode::Normal
+            return Mode::Dialog;
+        }
+        match self.focus {
+            Region::Quickconnect => Mode::Input,
+            Region::LocalList | Region::RemoteList | Region::LocalTree | Region::RemoteTree => {
+                Mode::FileList
+            }
+            Region::Log => Mode::Log,
+            Region::Queue => Mode::Queue,
         }
     }
 
@@ -85,6 +92,11 @@ impl MainScreen {
     #[cfg(test)]
     pub(crate) fn has_modal(&self) -> bool {
         !self.modals.is_empty()
+    }
+
+    /// Show the pending keys of an unfinished sequence in the status bar.
+    pub(crate) fn set_pending_keys(&mut self, keys: String) {
+        self.pending_keys = keys;
     }
 
     /// Route a key: the top modal first, then the focused region. Keys nobody
@@ -177,23 +189,7 @@ impl MainScreen {
 
     fn open_help(&mut self) {
         let mode = self.mode();
-        let bindings = self
-            .config
-            .keybindings
-            .0
-            .get(&mode)
-            .map(|map| {
-                map.iter()
-                    .map(|(keys, action)| {
-                        let keys: Vec<String> = keys
-                            .iter()
-                            .map(crate::config::key_event_to_string)
-                            .collect();
-                        (keys.join(" "), action.to_string())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let bindings = self.config.keybindings.describe(mode);
         self.modals
             .push(Box::new(HelpOverlay::new(&format!("{mode:?}"), bindings)));
     }
@@ -246,7 +242,7 @@ impl MainScreen {
             panes::draw_queue(frame, a, f == Region::Queue, theme);
         }
         if let Some(a) = r.status {
-            panes::draw_status(frame, a, theme);
+            panes::draw_status(frame, a, &self.pending_keys, theme);
         }
         if let Some(a) = r.hint {
             panes::draw_hint(frame, a, theme);

@@ -34,7 +34,7 @@ fully rebindable through the existing config system.
 | `Ctrl-o` | Toggle directory comparison |
 | `Ctrl-f` | Search (T65) |
 | `Ctrl-b` | Bookmarks menu (T64) |
-| `Ctrl-d` | Disconnect current tab |
+| `Ctrl-x d` | Disconnect current tab (`Ctrl-d` is half-page down in file lists) |
 | `Ctrl-p` | Process queue (start/stop) |
 | `Ctrl-l` | Toggle message log |
 | `Ctrl-j` | Toggle queue pane |
@@ -88,10 +88,10 @@ fully rebindable through the existing config system.
 ## Acceptance criteria
 
 - [ ] Every action reachable by keyboard in xterm, tmux, Windows Terminal (manual checklist).
-- [ ] Sequences work with up to 1 s between keys.
-- [ ] Bad key strings in user config produce a readable error, not a panic.
-- [ ] Conflicts are reported.
-- [ ] `Ctrl-d` conflict resolved and documented.
+- [x] Sequences work with up to 1 s between keys.
+- [x] Bad key strings in user config produce a readable error, not a panic.
+- [x] Conflicts are reported.
+- [x] `Ctrl-d` conflict resolved and documented.
 
 ## Tests
 

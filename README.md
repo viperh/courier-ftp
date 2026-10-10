@@ -71,7 +71,8 @@ cargo run -p courier-ftp --no-default-features   # local-only build, without syn
 
 `F1` lists the keys. `Tab` switches between the local and remote pane, `Ctrl-l`,
 `Ctrl-j` and `Ctrl-e` toggle the log, queue and directory trees, `Ctrl-q` or
-`F10` quits and `Ctrl-z` suspends. The full keymap arrives with T51.
+`F10` quits and `Ctrl-z` suspends. All keys are in
+[`docs/keybindings.md`](docs/keybindings.md).
 
 ## Configuration
 

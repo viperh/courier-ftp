@@ -423,6 +423,8 @@ pub struct InterfaceSettings {
     pub check_updates: bool,
     /// UI language, or `auto` for the system locale (T75).
     pub language: String,
+    /// Milliseconds allowed between the keys of a sequence like `gg` (T51).
+    pub key_sequence_timeout_ms: u64,
 }
 
 impl Default for InterfaceSettings {
@@ -445,6 +447,7 @@ impl Default for InterfaceSettings {
             show_splash: false,
             check_updates: true,
             language: "auto".to_owned(),
+            key_sequence_timeout_ms: 1000,
         }
     }
 }

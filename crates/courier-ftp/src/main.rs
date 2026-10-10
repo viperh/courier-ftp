@@ -14,6 +14,7 @@ mod app;
 mod cli;
 mod config;
 mod errors;
+mod keymap;
 mod logging;
 mod tui;
 mod ui;

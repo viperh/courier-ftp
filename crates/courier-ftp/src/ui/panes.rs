@@ -188,7 +188,7 @@ pub(crate) fn draw_queue(frame: &mut Frame, area: Rect, focused: bool, theme: &T
     );
 }
 
-pub(crate) fn draw_status(frame: &mut Frame, area: Rect, theme: &Theme) {
+pub(crate) fn draw_status(frame: &mut Frame, area: Rect, pending_keys: &str, theme: &Theme) {
     let hints = [("F1", "help"), ("Tab", "switch pane"), ("Ctrl-q", "quit")];
     let mut spans = vec![Span::raw(" Queue: empty   ")];
     for (key, what) in hints {
@@ -199,6 +199,15 @@ pub(crate) fn draw_status(frame: &mut Frame, area: Rect, theme: &Theme) {
         Paragraph::new(Line::from(spans)).style(theme.status_bar),
         area,
     );
+    if !pending_keys.is_empty() {
+        let width = u16::try_from(pending_keys.chars().count() + 2).unwrap_or(area.width);
+        let x = area.right().saturating_sub(width);
+        frame.render_widget(
+            Paragraph::new(format!(" {pending_keys} "))
+                .style(theme.status_bar.patch(theme.key_hint)),
+            Rect::new(x, area.y, width.min(area.width), 1),
+        );
+    }
 }
 
 pub(crate) fn draw_hint(frame: &mut Frame, area: Rect, theme: &Theme) {

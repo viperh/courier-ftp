@@ -5,6 +5,8 @@ use courier_ftp_core::{
     local::LocalBackend,
     model::RemotePath,
 };
+use std::time::{Duration, Instant};
+
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
@@ -14,7 +16,8 @@ use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    config::{Config, KeyBindings},
+    config::Config,
+    keymap::{Feed, KeyBindings, Sequencer},
     tui::{Event, Tui},
     ui::{KeyOutcome, MainScreen, Side, Theme},
 };
@@ -33,7 +36,7 @@ pub(crate) struct App {
     screen: MainScreen,
     should_quit: bool,
     should_suspend: bool,
-    last_tick_key_events: Vec<KeyEvent>,
+    sequencer: Sequencer,
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
     events_tx: EventSender,
@@ -48,15 +51,28 @@ pub(crate) struct App {
 /// these names, so adding a variant here means adding a section there too.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Mode {
-    /// Browsing: file lists, log and queue have focus.
+    /// Global bindings, active whenever no text field or dialog has the keys.
     #[default]
     Normal,
+    /// A file list has focus (falls back to `Normal`).
+    FileList,
+    /// The queue has focus (falls back to `Normal`).
+    Queue,
+    /// The message log has focus (falls back to `Normal`).
+    Log,
     /// Typing a pane's quick filter (T53).
     Filter,
     /// A text field (quickconnect) has focus.
     Input,
     /// A dialog is open.
     Dialog,
+}
+
+impl Mode {
+    /// Whether keys not bound in this mode are looked up in `Normal`.
+    pub(crate) fn falls_back_to_normal(self) -> bool {
+        matches!(self, Mode::FileList | Mode::Queue | Mode::Log)
+    }
 }
 
 impl App {
@@ -70,6 +86,9 @@ impl App {
             Theme::no_color_requested(),
         );
         let local_session = SessionId::next();
+        let sequencer = Sequencer::new(Duration::from_millis(
+            config.settings.interface.key_sequence_timeout_ms,
+        ));
         let cache = ListingCache::new(&config.settings.cache, Some(events_tx.clone()));
         for warning in &config.settings_warnings {
             events_tx.log(local_session, LogKind::Error, format!("config: {warning}"));
@@ -81,7 +100,7 @@ impl App {
             screen: MainScreen::new(config, theme),
             should_quit: false,
             should_suspend: false,
-            last_tick_key_events: Vec::new(),
+            sequencer,
             action_tx,
             action_rx,
             events_tx,
@@ -145,26 +164,26 @@ impl App {
     }
 
     /// Keys go to the screen first (modal, then focused region); what it
-    /// doesn't take is looked up in the keymap of the current mode.
+    /// doesn't take goes through the sequence matcher and the keymap of the
+    /// current mode.
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
         if self.screen.handle_key(key) == KeyOutcome::Consumed {
-            self.last_tick_key_events.clear();
-            return Ok(());
+            self.sequencer.reset();
+        } else {
+            let mode = self.screen.mode();
+            match self
+                .sequencer
+                .feed(&self.keybindings, mode, key, Instant::now())
+            {
+                Feed::Action(action) => {
+                    info!("Got action: {action:?}");
+                    self.action_tx.send(action)?;
+                }
+                Feed::Pending | Feed::Unbound => {}
+            }
         }
-        let Some(keymap) = self.keybindings.0.get(&self.screen.mode()) else {
-            return Ok(());
-        };
-        if let Some(action) = keymap.get(&vec![key]) {
-            info!("Got action: {action:?}");
-            self.action_tx.send(action.clone())?;
-            return Ok(());
-        }
-        // Not a single-key binding: try it as part of a sequence.
-        self.last_tick_key_events.push(key);
-        if let Some(action) = keymap.get(&self.last_tick_key_events) {
-            info!("Got action: {action:?}");
-            self.action_tx.send(action.clone())?;
-        }
+        self.screen
+            .set_pending_keys(self.sequencer.pending_display());
         Ok(())
     }
 
@@ -173,7 +192,11 @@ impl App {
             debug!("{action}");
         }
         match &action {
-            Action::Tick => self.last_tick_key_events.clear(),
+            Action::Tick => {
+                self.sequencer.expire(Instant::now());
+                self.screen
+                    .set_pending_keys(self.sequencer.pending_display());
+            }
             // No transfers exist yet, so nothing needs confirming (T41 adds the
             // "transfers are running, quit anyway?" dialog).
             Action::Quit => self.should_quit = true,

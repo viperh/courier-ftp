@@ -33,3 +33,7 @@ the section matching the tag.
   directory in the background.
 - Directory listing cache shared across tabs, patched by our own changes, with
   LRU eviction (T46).
+- Full default keymap mixing Midnight Commander F-keys with vim motions (T51):
+  context modes, sequences with a 1 s timeout shown in the status bar, bad
+  bindings and conflicts reported instead of aborting, `docs/keybindings.md`
+  generated from the keymap.

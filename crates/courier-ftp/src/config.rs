@@ -1,14 +1,13 @@
 use std::{collections::HashMap, env, path::PathBuf, sync::LazyLock};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use directories::ProjectDirs;
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, de::Deserializer};
-use tracing::{error, warn};
+use tracing::{debug, warn};
 
 use courier_ftp_core::settings::Settings;
 
-use crate::{action::Action, app::Mode};
+use crate::{app::Mode, keymap::KeyBindings};
 
 /// The default config, baked into the binary at compile time. User config
 /// files found in [`get_config_dir`] are layered on top of it.
@@ -100,7 +99,7 @@ impl Config {
             }
         }
         if !found_config {
-            error!("No configuration file found. Application may not behave as expected");
+            debug!("no user config file in {}; using the defaults", config_dir.display());
         }
 
         let mut cfg: Self = builder.build()?.try_deserialize()?;
@@ -112,13 +111,16 @@ impl Config {
         cfg.settings = settings;
         cfg.settings_warnings = report.warnings;
 
-        for (mode, default_bindings) in default_config.keybindings.0.iter() {
-            let user_bindings = cfg.keybindings.0.entry(*mode).or_default();
-            for (key, cmd) in default_bindings.iter() {
-                user_bindings
-                    .entry(key.clone())
-                    .or_insert_with(|| cmd.clone());
-            }
+        cfg.keybindings.merge_defaults(&default_config.keybindings);
+        for warning in default_config
+            .keybindings
+            .1
+            .iter()
+            .chain(&cfg.keybindings.1)
+            .chain(&cfg.keybindings.conflicts())
+        {
+            warn!("config: {warning}");
+            cfg.settings_warnings.push(warning.clone());
         }
         for (mode, default_styles) in default_config.styles.0.iter() {
             let user_styles = cfg.styles.0.entry(*mode).or_default();
@@ -170,200 +172,6 @@ pub(crate) fn get_config_dir() -> PathBuf {
 
 fn project_directory() -> Option<ProjectDirs> {
     ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, env!("CARGO_PKG_NAME"))
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct KeyBindings(pub HashMap<Mode, HashMap<Vec<KeyEvent>, Action>>);
-
-impl<'de> Deserialize<'de> for KeyBindings {
-    fn deserialize<D>(deserializer: D) -> color_eyre::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let parsed_map = HashMap::<Mode, HashMap<String, Action>>::deserialize(deserializer)?;
-
-        let mut keybindings = HashMap::with_capacity(parsed_map.len());
-        for (mode, inner_map) in parsed_map {
-            let mut converted = HashMap::with_capacity(inner_map.len());
-            for (key_str, cmd) in inner_map {
-                let keys = parse_key_sequence(&key_str).map_err(serde::de::Error::custom)?;
-                converted.insert(keys, cmd);
-            }
-            keybindings.insert(mode, converted);
-        }
-
-        Ok(KeyBindings(keybindings))
-    }
-}
-
-fn parse_key_event(raw: &str) -> color_eyre::Result<KeyEvent, String> {
-    let raw_lower = raw.to_ascii_lowercase();
-    let (remaining, modifiers) = extract_modifiers(&raw_lower);
-    parse_key_code_with_modifiers(remaining, modifiers)
-}
-
-fn extract_modifiers(raw: &str) -> (&str, KeyModifiers) {
-    let mut modifiers = KeyModifiers::empty();
-    let mut current = raw;
-
-    loop {
-        match current {
-            rest if rest.starts_with("ctrl-") => {
-                modifiers.insert(KeyModifiers::CONTROL);
-                current = &rest[5..];
-            }
-            rest if rest.starts_with("alt-") => {
-                modifiers.insert(KeyModifiers::ALT);
-                current = &rest[4..];
-            }
-            rest if rest.starts_with("shift-") => {
-                modifiers.insert(KeyModifiers::SHIFT);
-                current = &rest[6..];
-            }
-            _ => break, // break out of the loop if no known prefix is detected
-        };
-    }
-
-    (current, modifiers)
-}
-
-fn parse_key_code_with_modifiers(
-    raw: &str,
-    mut modifiers: KeyModifiers,
-) -> color_eyre::Result<KeyEvent, String> {
-    let c = match raw {
-        "esc" => KeyCode::Esc,
-        "enter" => KeyCode::Enter,
-        "left" => KeyCode::Left,
-        "right" => KeyCode::Right,
-        "up" => KeyCode::Up,
-        "down" => KeyCode::Down,
-        "home" => KeyCode::Home,
-        "end" => KeyCode::End,
-        "pageup" => KeyCode::PageUp,
-        "pagedown" => KeyCode::PageDown,
-        "backtab" => {
-            modifiers.insert(KeyModifiers::SHIFT);
-            KeyCode::BackTab
-        }
-        "backspace" => KeyCode::Backspace,
-        "delete" => KeyCode::Delete,
-        "insert" => KeyCode::Insert,
-        "f1" => KeyCode::F(1),
-        "f2" => KeyCode::F(2),
-        "f3" => KeyCode::F(3),
-        "f4" => KeyCode::F(4),
-        "f5" => KeyCode::F(5),
-        "f6" => KeyCode::F(6),
-        "f7" => KeyCode::F(7),
-        "f8" => KeyCode::F(8),
-        "f9" => KeyCode::F(9),
-        "f10" => KeyCode::F(10),
-        "f11" => KeyCode::F(11),
-        "f12" => KeyCode::F(12),
-        "space" => KeyCode::Char(' '),
-        "hyphen" => KeyCode::Char('-'),
-        "minus" => KeyCode::Char('-'),
-        "tab" => KeyCode::Tab,
-        c if c.chars().count() == 1 => {
-            let mut c = c.chars().next().unwrap_or_default();
-            if modifiers.contains(KeyModifiers::SHIFT) {
-                c = c.to_ascii_uppercase();
-            }
-            KeyCode::Char(c)
-        }
-        _ => return Err(format!("Unable to parse {raw}")),
-    };
-    Ok(KeyEvent::new(c, modifiers))
-}
-
-pub(crate) fn key_event_to_string(key_event: &KeyEvent) -> String {
-    let char;
-    let key_code = match key_event.code {
-        KeyCode::Backspace => "backspace",
-        KeyCode::Enter => "enter",
-        KeyCode::Left => "left",
-        KeyCode::Right => "right",
-        KeyCode::Up => "up",
-        KeyCode::Down => "down",
-        KeyCode::Home => "home",
-        KeyCode::End => "end",
-        KeyCode::PageUp => "pageup",
-        KeyCode::PageDown => "pagedown",
-        KeyCode::Tab => "tab",
-        KeyCode::BackTab => "backtab",
-        KeyCode::Delete => "delete",
-        KeyCode::Insert => "insert",
-        KeyCode::F(c) => {
-            char = format!("f({c})");
-            &char
-        }
-        KeyCode::Char(' ') => "space",
-        KeyCode::Char(c) => {
-            char = c.to_string();
-            &char
-        }
-        KeyCode::Esc => "esc",
-        KeyCode::Null => "",
-        KeyCode::CapsLock => "",
-        KeyCode::Menu => "",
-        KeyCode::ScrollLock => "",
-        KeyCode::Media(_) => "",
-        KeyCode::NumLock => "",
-        KeyCode::PrintScreen => "",
-        KeyCode::Pause => "",
-        KeyCode::KeypadBegin => "",
-        KeyCode::Modifier(_) => "",
-    };
-
-    let mut modifiers = Vec::with_capacity(3);
-
-    if key_event.modifiers.intersects(KeyModifiers::CONTROL) {
-        modifiers.push("ctrl");
-    }
-
-    if key_event.modifiers.intersects(KeyModifiers::SHIFT) {
-        modifiers.push("shift");
-    }
-
-    if key_event.modifiers.intersects(KeyModifiers::ALT) {
-        modifiers.push("alt");
-    }
-
-    let mut key = modifiers.join("-");
-
-    if !key.is_empty() {
-        key.push('-');
-    }
-    key.push_str(key_code);
-
-    key
-}
-
-pub(crate) fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String> {
-    if raw.chars().filter(|c| *c == '>').count() != raw.chars().filter(|c| *c == '<').count() {
-        return Err(format!("Unable to parse `{raw}`"));
-    }
-    let raw = if !raw.contains("><") {
-        let raw = raw.strip_prefix('<').unwrap_or(raw);
-        raw.strip_prefix('>').unwrap_or(raw)
-    } else {
-        raw
-    };
-    let sequences = raw
-        .split("><")
-        .map(|seq| {
-            if let Some(s) = seq.strip_prefix('<') {
-                s
-            } else if let Some(s) = seq.strip_suffix('>') {
-                s
-            } else {
-                seq
-            }
-        })
-        .collect::<Vec<_>>();
-
-    sequences.into_iter().map(parse_key_event).collect()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -574,99 +382,18 @@ mod tests {
     }
 
     #[test]
-    fn test_config() -> color_eyre::Result<()> {
-        let c = Config::new()?;
-        assert_eq!(
-            c.keybindings
-                .0
-                .get(&Mode::Normal)
-                .unwrap()
-                .get(&parse_key_sequence("<Ctrl-q>").unwrap_or_default())
-                .unwrap(),
-            &Action::Quit
+    fn builtin_keymap_is_clean() {
+        let c = Config::builtin();
+        assert!(c.keybindings.1.is_empty(), "{:?}", c.keybindings.1);
+        assert!(
+            c.keybindings.conflicts().is_empty(),
+            "{:?}",
+            c.keybindings.conflicts()
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_simple_keys() {
+        let quit = crate::keymap::parse_key_sequence("<Ctrl-q>").unwrap();
         assert_eq!(
-            parse_key_event("a").unwrap(),
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty())
-        );
-
-        assert_eq!(
-            parse_key_event("enter").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty())
-        );
-
-        assert_eq!(
-            parse_key_event("esc").unwrap(),
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::empty())
-        );
-    }
-
-    #[test]
-    fn test_with_modifiers() {
-        assert_eq!(
-            parse_key_event("ctrl-a").unwrap(),
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)
-        );
-
-        assert_eq!(
-            parse_key_event("alt-enter").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT)
-        );
-
-        assert_eq!(
-            parse_key_event("shift-esc").unwrap(),
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::SHIFT)
-        );
-    }
-
-    #[test]
-    fn test_multiple_modifiers() {
-        assert_eq!(
-            parse_key_event("ctrl-alt-a").unwrap(),
-            KeyEvent::new(
-                KeyCode::Char('a'),
-                KeyModifiers::CONTROL | KeyModifiers::ALT
-            )
-        );
-
-        assert_eq!(
-            parse_key_event("ctrl-shift-enter").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL | KeyModifiers::SHIFT)
-        );
-    }
-
-    #[test]
-    fn test_reverse_multiple_modifiers() {
-        assert_eq!(
-            key_event_to_string(&KeyEvent::new(
-                KeyCode::Char('a'),
-                KeyModifiers::CONTROL | KeyModifiers::ALT
-            )),
-            "ctrl-alt-a".to_string()
-        );
-    }
-
-    #[test]
-    fn test_invalid_keys() {
-        assert!(parse_key_event("invalid-key").is_err());
-        assert!(parse_key_event("ctrl-invalid-key").is_err());
-    }
-
-    #[test]
-    fn test_case_insensitivity() {
-        assert_eq!(
-            parse_key_event("CTRL-a").unwrap(),
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)
-        );
-
-        assert_eq!(
-            parse_key_event("AlT-eNtEr").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT)
+            c.keybindings.lookup(Mode::Normal, &quit),
+            Some(&crate::action::Action::Quit)
         );
     }
 }

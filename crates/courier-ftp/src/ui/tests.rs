@@ -116,7 +116,11 @@ fn focus_leaves_hidden_regions() {
 #[test]
 fn modes_follow_focus_and_dialogs() {
     let mut s = screen(Layout::Classic);
-    assert_eq!(s.mode(), Mode::Normal);
+    assert_eq!(s.mode(), Mode::FileList);
+    s.update(&Action::FocusLog);
+    assert_eq!(s.mode(), Mode::Log);
+    s.update(&Action::FocusQueue);
+    assert_eq!(s.mode(), Mode::Queue);
     s.update(&Action::FocusQuickconnect);
     assert_eq!(s.mode(), Mode::Input);
     s.update(&Action::Help);
@@ -143,10 +147,13 @@ fn a_modal_takes_every_key_until_closed() {
 fn help_lists_bindings_from_the_config() {
     let mut s = screen(Layout::Classic);
     s.update(&Action::Help);
-    let t = text(&render(&mut s, 120, 40));
-    assert!(t.contains("Keys: Normal mode"), "{t}");
-    assert!(t.contains("ctrl-q") && t.contains("Quit"), "{t}");
-    assert!(t.contains("FocusNext"), "{t}");
+    let t = text(&render(&mut s, 120, 100));
+    assert!(t.contains("Keys: FileList mode"), "{t}");
+    // Global bindings show alongside the file list's own.
+    assert!(t.contains("<Ctrl-q>") && t.contains("Quit"), "{t}");
+    assert!(t.contains("<g><g>") && t.contains("Top"), "{t}");
+    // The file list's `<j>` shadows nothing global, and Help itself is listed.
+    assert!(t.contains("<F1>") && t.contains("Help"), "{t}");
 }
 
 #[tokio::test]
