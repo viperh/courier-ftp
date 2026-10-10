@@ -102,11 +102,14 @@ impl TestHome {
     }
 
     /// Environment for child processes: `COURIER_FTP_HOME`, `COURIER_FTP_KEYRING=off`,
-    /// `COURIER_FTP_LOG_LEVEL=debug`, `TERM=xterm-256color`, `LANG=C.UTF-8`.
+    /// `COURIER_FTP_TEST_ARGON2=test` (the `test-hooks` binary creates and re-wraps
+    /// vaults with `Argon2Cost::TEST`, T60), `COURIER_FTP_LOG_LEVEL=debug`,
+    /// `TERM=xterm-256color`, `LANG=C.UTF-8`.
     pub fn env(&self) -> Vec<(String, String)> {
         vec![
             ("COURIER_FTP_HOME".into(), self.dir.display().to_string()),
             ("COURIER_FTP_KEYRING".into(), "off".into()),
+            ("COURIER_FTP_TEST_ARGON2".into(), "test".into()),
             ("COURIER_FTP_LOG_LEVEL".into(), "debug".into()),
             ("TERM".into(), "xterm-256color".into()),
             ("LANG".into(), "C.UTF-8".into()),

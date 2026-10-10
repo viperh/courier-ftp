@@ -31,7 +31,7 @@ fn rt() -> tokio::runtime::Runtime {
 #[test]
 fn pty_app_starts_and_quits() {
     let home = TestHome::new().unwrap();
-    let mut app = PtyApp::launch(&home, PtyOptions::default()).unwrap();
+    let mut app = PtyApp::launch(&home, PtyOptions::no_vault()).unwrap();
     app.wait_for_text("Local").unwrap();
     assert!(app.alternate_screen());
     let status = app.quit().unwrap();
@@ -42,7 +42,7 @@ fn pty_app_starts_and_quits() {
 #[test]
 fn pty_app_resize_redraws() {
     let home = TestHome::new().unwrap();
-    let mut app = PtyApp::launch(&home, PtyOptions::default()).unwrap();
+    let mut app = PtyApp::launch(&home, PtyOptions::no_vault()).unwrap();
     app.wait_for_text("Local").unwrap();
     app.resize(100, 30).unwrap();
     app.wait_for_screen("a 100-column frame", |s| {
@@ -62,7 +62,7 @@ fn pty_test_hook_exit_after_panes() {
         &home,
         PtyOptions {
             env: vec![("COURIER_FTP_TEST_HOOK".into(), "exit-after-panes".into())],
-            ..PtyOptions::default()
+            ..PtyOptions::no_vault()
         },
     )
     .unwrap();
@@ -77,7 +77,7 @@ fn pty_test_hook_exit_after_ms() {
         &home,
         PtyOptions {
             env: vec![("COURIER_FTP_TEST_HOOK".into(), "exit:300".into())],
-            ..PtyOptions::default()
+            ..PtyOptions::no_vault()
         },
     )
     .unwrap();
@@ -314,7 +314,7 @@ fn diag_dumps_on_failure() {
     let (result, dumps) = diag::capture(|| {
         let rt = rt();
         let home = TestHome::new().unwrap();
-        let mut app = PtyApp::launch(&home, PtyOptions::default()).unwrap();
+        let mut app = PtyApp::launch(&home, PtyOptions::no_vault()).unwrap();
         app.wait_for_text("Local").unwrap();
         let headless = rt.block_on(async {
             Headless::connect_with(

@@ -25,7 +25,7 @@ fn browse_local_dir_and_sort() {
             .unwrap();
     }
     std::fs::create_dir(home.path().join("subdir")).unwrap();
-    let mut app = PtyApp::launch(&home, PtyOptions::default()).unwrap();
+    let mut app = PtyApp::launch(&home, PtyOptions::no_vault()).unwrap();
     let s = app.wait_for_text("zeta.txt").unwrap();
     assert!(!s.contains(".secret"), "hidden files are hidden by default");
     assert!(

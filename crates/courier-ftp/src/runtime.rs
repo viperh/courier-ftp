@@ -39,6 +39,28 @@ pub(crate) fn spawn_blocking<R: Send + 'static>(
     tokio::task::spawn_blocking(f)
 }
 
+/// Marks background work (a vault effect, T60) as in flight for as long as it lives:
+/// in tests it counts in `BLOCKING_IN_FLIGHT`, so the harness waits for its result
+/// (the engine's own blocking jobs do not count); a no-op in the app.
+#[derive(Debug)]
+pub(crate) struct InFlight(());
+
+impl InFlight {
+    /// Starts counting.
+    pub(crate) fn new() -> Self {
+        #[cfg(test)]
+        BLOCKING_IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(())
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        BLOCKING_IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// A task started by the [`Runner`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TaskId(u64);

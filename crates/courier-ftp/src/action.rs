@@ -110,6 +110,9 @@ pub(crate) const INTERNAL: &[&str] = &[
     "PaneSettings",
     "SaveCredential",
     "CertificateChain",
+    "Vault",
+    "VaultTimer",
+    "VaultRequest",
 ];
 
 macro_rules! actions {
@@ -214,6 +217,17 @@ actions! {
         /// Show the certificate chain of the focused tab's session (T57 → T69).
         #[serde(skip)]
         CertificateChain,
+        /// A result or request from the vault service (T60). No secrets; `Debug` of
+        /// passwords is redacted.
+        #[serde(skip)]
+        Vault(crate::app::vault::VaultEvent),
+        /// A vault timer fired (auto-lock, countdown; T60).
+        #[serde(skip)]
+        VaultTimer(crate::app::vault::VaultTimer),
+        /// A vault effect from a dialog (keyring toggle, T60/T68); `Debug` is redacted.
+        #[serde(skip)]
+        #[cfg_attr(not(test), allow(dead_code, reason = "Settings → Security (T68)"))]
+        VaultRequest(crate::app::vault::VaultEffect),
     }
     bindable {
         // ---- Normal: general ----

@@ -147,6 +147,24 @@ impl AppHarness {
         h
     }
 
+    /// `App::with_vault` on the app under test (T60).
+    pub(crate) fn with_vault(&mut self, opts: crate::app::vault::VaultStartOptions) -> &mut Self {
+        self.app.start_vault(opts);
+        self
+    }
+
+    /// Starts a vault service over `config` and waits for its `Status` (T60).
+    pub(crate) fn attach_vault(
+        &mut self,
+        config: crate::services::vault::VaultConfig,
+    ) -> &mut Self {
+        self.with_app(|app| {
+            let service = crate::services::vault::VaultService::spawn(config, app.action_sender());
+            app.attach_vault_service(service);
+        });
+        self.settle()
+    }
+
     /// The temporary directories of [`Self::temp`].
     pub(crate) fn paths(&self) -> Option<AppPaths> {
         self.home.as_ref().map(|t| AppPaths {
