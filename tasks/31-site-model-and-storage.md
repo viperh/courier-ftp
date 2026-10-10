@@ -35,7 +35,7 @@ setting FileZilla exposes per site, stored in the vault.
 - [x] All fields exist and serialise; schema version bump path documented.
 - [x] Tree operations covered by tests including move into own descendant (rejected).
 - [x] Saving a site with a password and reopening the app (after unlock) connects without asking for the password. *(Verified at the storage level: save, lock, restart, unlock, `SiteManager::connect` gives a Normal logon with the password, `crates/courier-ftp-store/tests/sites.rs`. The Site Manager screen that drives it is T59.)*
-- [ ] A site edited on one device appears on another after sync (with T88). *(Deferred to T88: there is no sync client yet. Sites are ordinary field-merged items, and `SiteManager::reload` rebuilds the tree after a sync pull.)*
+- [x] A site edited on one device appears on another after sync (with T88). *(`crates/courier-ftp-sync/tests/engine.rs`: a site edited on device B shows in device A's `SiteManager` after a sync and `reload`.)*
 - [x] Lookup by path works with nested folders and unicode names.
 
 ## Tests

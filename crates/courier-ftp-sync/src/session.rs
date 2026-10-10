@@ -24,8 +24,11 @@ use crate::account::{
     AccountConfig, AccountError, LocalAccount, LogoutReport, NEEDS_SERVER, load_account,
     load_account_keys, logout_local, opaque_login, require_strong, seal_local_keys, write_account,
 };
+use crate::engine::{EngineConfig, SyncEngine, SyncHandle};
 use crate::error::SyncError;
+use crate::status::SyncEvent;
 use crate::tokens::TokenManager;
+use tokio::sync::mpsc;
 
 /// What [`SyncSession::revoke_device`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +129,33 @@ impl SyncSession {
     #[must_use]
     pub fn server_url(&self) -> &str {
         self.inner.tokens.api().base_url()
+    }
+
+    /// A sync engine for this session (not running yet: [`SyncEngine::spawn`],
+    /// or [`SyncEngine::sync_once`] for a single cycle).
+    #[must_use]
+    pub fn engine(
+        &self,
+        config: EngineConfig,
+        events: Option<mpsc::UnboundedSender<SyncEvent>>,
+    ) -> SyncEngine {
+        SyncEngine::new(
+            self.inner.vault.clone(),
+            Arc::clone(&self.inner.tokens),
+            config,
+            events,
+        )
+    }
+
+    /// Starts the background sync engine (after unlock). Stop it on lock or
+    /// logout with [`SyncHandle::shutdown`] (or by dropping the handle).
+    #[must_use]
+    pub fn start_engine(
+        &self,
+        config: EngineConfig,
+        events: Option<mpsc::UnboundedSender<SyncEvent>>,
+    ) -> SyncHandle {
+        self.engine(config, events).spawn()
     }
 
     /// `meta.account`.

@@ -15,20 +15,31 @@
 //!   ([`account::recover_locked_device`]); each gives a [`SyncSession`].
 //! * [`SyncSession`]: the signed-in device after unlock
 //!   ([`SyncSession::open`]): devices, password change, TOTP, logout,
-//!   account deletion.
+//!   account deletion, and the sync engine
+//!   ([`SyncSession::start_engine`] → [`SyncHandle`]: status, events, sync
+//!   now, item errors; stop it on lock or logout).
+//! * [`info::local_info`]: the local sync state without network or keys.
 //!
 //! The LMK never leaves the vault engine
 //! (`courier_ftp_store::vault::VaultEngine`): tokens and account keys are
 //! sealed through its sync API.
 
 pub mod account;
+pub mod engine;
 pub mod error;
 pub mod http;
+pub mod info;
+mod pull;
+mod push;
 mod session;
+pub mod status;
 pub mod tokens;
+pub mod ws;
 
 pub use account::{AccountConfig, AccountError};
+pub use engine::{EngineConfig, MAX_CONFLICT_ROUNDS, SyncEngine, SyncHandle, SyncPolicy};
 pub use error::SyncError;
 pub use http::ApiClient;
 pub use session::{Revoked, SyncSession, TotpSetup};
+pub use status::{SyncEvent, SyncStatus, ToastLevel};
 pub use tokens::TokenManager;

@@ -425,6 +425,11 @@
       "persist": true,
       "refresh_remote_after": true
     },
+    "sync": {
+      "history": false,
+      "poll_fallback_secs": 300,
+      "push_debounce_ms": 2000
+    },
     "transfers": {
       "burst_tolerance": "normal",
       "download_limit_kib": 0,

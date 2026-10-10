@@ -10,6 +10,7 @@
 //! - [`lock`]: the lock state and the auto-lock timer (idle + suspend);
 //! - [`password`]: master-password strength (zxcvbn ≥ 3);
 //! - [`keyring`]: the OS keyring seam ([`KeyringStore`], [`MemKeyring`]);
+//! - [`local_acting`]: synced site values that act on this machine (T91 §8);
 //! - [`items`]: [`ItemVault`] for the site model, bookmarks, history, trust;
 //! - [`device_blobs`]: [`DeviceBlobVault`] for device-local blobs (the queue, T40);
 //! - [`host_keys`]: the vault-backed [`HostKeyStore`](crate::trust::HostKeyStore);
@@ -35,6 +36,7 @@ pub mod device_blobs;
 pub mod host_keys;
 pub mod items;
 pub mod keyring;
+pub mod local_acting;
 pub mod lock;
 pub mod password;
 pub mod unlock;

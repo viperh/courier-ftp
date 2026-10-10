@@ -48,6 +48,8 @@ courier-ftp-server = { path = "../courier-ftp-server" }
 courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
 courier-ftp-core = { workspace = true, features = ["test-util"] }
 axum = { workspace = true }
+# The server's manual clock (tombstone GC in the resync test).
+chrono = { workspace = true }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }

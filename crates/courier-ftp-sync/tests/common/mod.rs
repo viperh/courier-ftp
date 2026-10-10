@@ -9,6 +9,8 @@
     clippy::missing_panics_doc
 )]
 
+pub mod proxy;
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;

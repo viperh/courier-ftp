@@ -15,6 +15,10 @@
 //! - **Recovery** of a device whose password is forgotten:
 //!   [`VaultEngine::recover_with_vault_keys`] re-keys the device with the vault
 //!   keys the recovered account opened from its grants.
+//! - **Applying pulled items** (T88): [`VaultEngine::apply_incoming`] decrypts,
+//!   merges into dirty local copies, re-seals and stores a page in one
+//!   transaction and updates the decrypted index; [`VaultEngine::outgoing`]
+//!   builds the push batch.
 
 use courier_ftp_core::model::item::{DeviceId, HlcClock, VaultId};
 use courier_ftp_core::vault::{UnlockMethod, VaultError, check_strength, keyring_account};

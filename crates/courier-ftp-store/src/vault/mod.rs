@@ -23,8 +23,10 @@ mod os_keyring;
 // transactional commits with a state reload, recovery re-keying, and applying
 // pulled items under the state lock.
 pub mod sync;
+mod sync_apply;
 
 pub use self::sync::{PasswordWrap, RecoveredKey};
+pub use self::sync_apply::{ApplyMode, ApplyReport, Incoming, Outgoing, OutgoingBatch, label_of};
 
 use std::collections::BTreeMap;
 use std::fmt;
