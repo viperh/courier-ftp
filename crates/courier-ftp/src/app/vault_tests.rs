@@ -24,7 +24,8 @@ const STRONG: &str = "correct horse battery staple violin";
 const OTHER: &str = "purple elephant marmalade trombone";
 
 struct Rig {
-    app: App,
+    /// Boxed: `App` is large, and the test futures hold a `Rig`.
+    app: Box<App>,
     host_keys: Arc<HostKeyStoreSlot>,
 }
 
@@ -57,7 +58,10 @@ async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
         Arc::clone(&host_keys),
         CredentialCache::new(),
     );
-    let mut rig = Rig { app, host_keys };
+    let mut rig = Rig {
+        app: Box::new(app),
+        host_keys,
+    };
     rig.app.start_vault();
     rig.settle().await;
     rig
@@ -466,7 +470,7 @@ async fn busy_database_offers_retry() {
         CredentialCache::new(),
     );
     let mut rig = Rig {
-        app,
+        app: Box::new(app),
         host_keys: Arc::new(HostKeyStoreSlot::new(
             Arc::new(MemoryHostKeyStore::locked()),
         )),

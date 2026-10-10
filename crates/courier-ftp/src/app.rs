@@ -4,7 +4,7 @@ use courier_ftp_core::{
     events::{self, EventReceiver, EventSender, LogKind, SessionId},
     local::LocalBackend,
     model::{RemotePath, ServerAddress},
-    settings::Settings,
+    settings::{LoggingSettings, Settings},
     sites::History,
 };
 use std::{
@@ -66,6 +66,8 @@ pub(crate) struct App {
     vault_rx: mpsc::UnboundedReceiver<VaultMsg>,
     /// The quickconnect history (T33); `None` while the vault is locked.
     history: Option<History>,
+    /// Session log file and raw listings (T71).
+    diag: crate::diagnostics::Diagnostics,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -176,7 +178,6 @@ impl App {
     ) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let (events_tx, events_rx) = events::channel(config.settings.logging.level);
-        events_tx.set_raw_listing(config.settings.logging.show_raw_listing);
         let theme = Theme::new(
             config.styles.0.get(&Mode::Normal),
             Theme::no_color_requested(),
@@ -192,7 +193,8 @@ impl App {
         let mut screen = MainScreen::new(config.clone(), theme);
         screen.set_action_tx(action_tx.clone());
         let (vault_tx, vault_rx) = mpsc::unbounded_channel();
-        Self {
+        let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+        let mut app = Self {
             keybindings: config.keybindings.clone(),
             tick_rate,
             frame_rate,
@@ -214,7 +216,35 @@ impl App {
             vault_tx,
             vault_rx,
             history: None,
+            diag: crate::diagnostics::Diagnostics::new(offset),
+        };
+        app.apply_logging(&config.settings.logging);
+        app
+    }
+
+    /// Apply the `logging.*` settings (at start, and when the settings
+    /// screen changes them, T68): debug level, raw listings, session log.
+    pub(crate) fn apply_logging(&mut self, logging: &LoggingSettings) {
+        self.events_tx.set_log_level(logging.level);
+        self.events_tx.set_raw_listing(logging.show_raw_listing);
+        if let Some(problem) = self.diag.apply(logging, &crate::config::get_data_dir()) {
+            self.events_tx
+                .log(self.local_session, LogKind::Error, problem);
         }
+        self.settings.logging = logging.clone();
+    }
+
+    /// `--debug-level`: this run's debug level (0–4), not saved.
+    pub(crate) fn set_debug_level(&mut self, level: u8) {
+        let mut logging = self.settings.logging.clone();
+        logging.level = level.min(4);
+        self.apply_logging(&logging);
+    }
+
+    /// A status line in the message log (startup warnings).
+    pub(crate) fn log_status(&self, text: &str) {
+        self.events_tx
+            .log(self.local_session, LogKind::Status, text);
     }
 
     pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
@@ -257,6 +287,9 @@ impl App {
             }
         }
         tui.exit()?;
+        if let Some(log) = self.diag.session_log() {
+            log.flush_timeout(Duration::from_secs(1));
+        }
         Ok(())
     }
 
@@ -425,8 +458,41 @@ impl App {
                     tracing::warn!("clipboard: {e}");
                 }
             }
+            Action::ListingLoaded {
+                side,
+                result: Ok(listing),
+            } => self.diag.listing_shown(*side, listing),
+            Action::ShowRawListing => match self.diag.raw_listing_viewer(self.screen.active_side())
+            {
+                Ok(viewer) => self.screen.push_modal(Box::new(viewer)),
+                Err(why) => self.screen.flash(why),
+            },
+            Action::SaveLogText(text) => {
+                let suggested = crate::diagnostics::default_save_path(
+                    &crate::config::get_data_dir(),
+                    time::OffsetDateTime::now_utc(),
+                );
+                let modal = crate::diagnostics::save_log_dialog(
+                    text.clone(),
+                    &suggested,
+                    self.action_tx.clone(),
+                );
+                self.screen.push_modal(modal);
+            }
+            Action::LogSaved { path, result } => {
+                let (kind, text) = match result {
+                    Ok(()) => (LogKind::Status, format!("Log saved to {}", path.display())),
+                    Err(e) => (
+                        LogKind::Error,
+                        format!("Could not save the log to {}: {e}", path.display()),
+                    ),
+                };
+                self.events_tx.log(self.local_session, kind, text.clone());
+                self.screen.flash(&text);
+            }
             Action::Error(err) => {
-                tracing::error!(?err);
+                // Errors name paths and hosts: debug only (T91 §4).
+                tracing::debug!(error = %err, "action failed");
                 self.events_tx
                     .log(self.local_session, LogKind::Error, err.clone());
             }
@@ -567,6 +633,9 @@ impl App {
     /// Something from the core's event bus. A patched cached listing (T46)
     /// also refreshes the directory tree of its side.
     pub(crate) fn core_event(&mut self, event: events::CoreEvent) {
+        if let events::CoreEvent::Log(msg) = &event {
+            self.diag.record(msg);
+        }
         if let events::CoreEvent::ListingUpdated { session, dir } = &event {
             let side = if self.current_session() == Some(*session) {
                 Side::Remote
@@ -678,6 +747,7 @@ impl App {
                     remote.info.server_type.unwrap_or_default(),
                     courier_ftp_core::model::item::ServerType::default(),
                 );
+                self.diag.listing_shown(Side::Remote, &connected.listing);
                 let record = remote.record.take();
                 self.screen.remote_connected(connected);
                 self.screen.connected_view(sync, compare, case_sensitive);
@@ -704,6 +774,7 @@ impl App {
             return;
         };
         remote.cancel.cancel();
+        self.diag.forget(Side::Remote);
         self.cache.clear_server(Some(&remote.info.address));
         self.events_tx.log(
             remote.session,
@@ -874,7 +945,9 @@ impl App {
             }
             VaultMsg::Opened(Err(e)) => {
                 vault.phase = Phase::Unavailable;
-                tracing::warn!(error = %e, "vault unavailable");
+                // The error may name the database path: details at debug (T91 §4).
+                tracing::warn!("vault unavailable");
+                tracing::debug!(error = %e, "vault unavailable");
                 if let Some(view) = self.screen.vault_view_mut() {
                     view.show_unavailable(e.to_string());
                 }
@@ -1042,6 +1115,8 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+#[cfg(test)]
+mod log_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

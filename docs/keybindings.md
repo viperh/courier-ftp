@@ -53,6 +53,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-f>` | Search |
 | `<Ctrl-x><i>` | ServerInfo |
 | `<F9>` | Settings |
+| `<Ctrl-x><s>` | ShowRawListing |
 | `<Ctrl-s>` | SiteManager |
 | `<Ctrl-z>` | Suspend |
 | `<Alt-1>` | Tab1 |
@@ -169,6 +170,7 @@ When the message log has focus.
 | `<End>` | Bottom |
 | `<G>` | Bottom |
 | `<c>` | ClearLog |
+| `<Y>` | CopyLog |
 | `<y>` | CopySelection |
 | `<Down>` | CursorDown |
 | `<j>` | CursorDown |
@@ -179,6 +181,7 @@ When the message log has focus.
 | `<PageDown>` | PageDown |
 | `<PageUp>` | PageUp |
 | `</>` | QuickFilter |
+| `<S>` | SaveLog |
 | `<Left>` | ScrollLeft |
 | `<h>` | ScrollLeft |
 | `<Right>` | ScrollRight |

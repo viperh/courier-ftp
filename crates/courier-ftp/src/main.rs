@@ -15,6 +15,7 @@ mod backends;
 mod cli;
 mod clipboard;
 mod config;
+mod diagnostics;
 mod errors;
 mod keymap;
 mod logging;
@@ -35,7 +36,11 @@ async fn main() -> color_eyre::Result<()> {
     crate::errors::init()?;
     // No core dumps, no same-user ptrace (Linux), before any secret exists (T91).
     let hardening = courier_ftp_core::hardening::harden_process();
-    crate::logging::init()?;
+    crate::logging::init(crate::logging::LogOptions { debug: args.debug })?;
+    if args.debug {
+        // Seen after quitting (the TUI covers it), and in the message log.
+        eprintln!("courier-ftp: {}", crate::logging::DEBUG_WARNING);
+    }
     tracing::debug!(
         core_dumps_disabled = hardening.core_dumps_disabled,
         non_dumpable = hardening.non_dumpable,
@@ -43,7 +48,18 @@ async fn main() -> color_eyre::Result<()> {
         "process hardening"
     );
 
-    let mut app = App::new(args.tick_rate, args.frame_rate)?;
-    app.run().await?;
-    Ok(())
+    let result = async {
+        let mut app = App::new(args.tick_rate, args.frame_rate)?;
+        if let Some(level) = args.debug_level {
+            app.set_debug_level(level);
+        }
+        if args.debug {
+            app.log_status(&format!("Warning: {}", crate::logging::DEBUG_WARNING));
+        }
+        app.run().await
+    }
+    .await;
+    // The log is written by a background thread: write it out before exiting.
+    crate::logging::flush();
+    result
 }
