@@ -157,3 +157,15 @@ the section matching the tag.
   explicit/implicit TLS with certificate trust prompts, synced trusted
   certificates and TLS session reuse; quickconnect now connects to FTP
   servers.
+- Sync server accounts (T84): OPAQUE registration and login (unknown emails
+  get a dummy response), rotating single-use refresh tokens with reuse
+  detection, devices, TOTP, password change, recovery codes, account deletion,
+  setup-token bootstrap and per-email/per-IP rate limits.
+- Sync server vaults (T85): vault list, paginated pull with 410 gone below the
+  GC floor, push with optimistic concurrency and gap-free revisions, storage
+  quota, tombstone GC, and /v1/ws live notifications fanned out between
+  replicas via PostgreSQL LISTEN/NOTIFY.
+- Sync server operations (T86): TOML and environment configuration, admin CLI
+  (serve, migrate, admin user/invite/registration/gc, healthcheck), /healthz
+  /readyz /metrics, distroless Docker image and compose file, and
+  docs/self-hosting.md.
