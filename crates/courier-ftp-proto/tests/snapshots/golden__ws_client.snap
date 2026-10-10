@@ -1,0 +1,16 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+[
+  {
+    "type": "auth",
+    "token": "access"
+  },
+  {
+    "type": "ping"
+  },
+  {
+    "type": "pong"
+  }
+]

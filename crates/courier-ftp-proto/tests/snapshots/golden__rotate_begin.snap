@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "action": "begin",
+  "new_key_version": 3
+}

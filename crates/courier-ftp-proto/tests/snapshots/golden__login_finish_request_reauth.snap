@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "login_state_id": "01900000-0000-7000-8000-000000000003",
+  "credential_finalization": "AwMDAwM",
+  "device": {
+    "id": "01900000-0000-7000-8000-000000000004"
+  },
+  "purpose": "reauth"
+}

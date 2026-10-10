@@ -1331,10 +1331,15 @@ dependencies = [
 name = "courier-ftp-proto"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
  "courier-ftp-crypto",
+ "insta",
  "pretty_assertions",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
+ "time",
+ "uuid",
 ]
 
 [[package]]

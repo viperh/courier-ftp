@@ -1,0 +1,7 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "role": "admin"
+}

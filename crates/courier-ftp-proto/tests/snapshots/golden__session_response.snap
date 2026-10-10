@@ -1,0 +1,21 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "user_id": "01900000-0000-7000-8000-000000000001",
+  "device_id": "01900000-0000-7000-8000-000000000004",
+  "tokens": {
+    "access_token": "access",
+    "refresh_token": "refresh",
+    "access_expires_in_s": 900,
+    "refresh_expires_in_s": 2592000
+  },
+  "account_keys": {
+    "x25519_pub": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
+    "ed25519_pub": "u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s",
+    "private_bundle_enc": "zMzMzMzMzMzMzMzM",
+    "version": 2
+  },
+  "is_instance_admin": true
+}
