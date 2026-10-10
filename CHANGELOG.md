@@ -63,3 +63,6 @@ the section matching the tag.
   fingerprints) and TLS certificates (summary, chain details,
   changed-certificate warning), plus a prompt queue with a status badge and
   <Ctrl-x><p> to open the next prompt.
+- FTP directory listing parsers (T13): MLSD/MLST, Unix ls -l (shared with
+  SFTP), DOS/IIS, EPLF, VMS, MVS/z/OS, IBM i and NetWare, with year inference,
+  server time-zone offset and per-line charset fallback; listing fuzz target.
