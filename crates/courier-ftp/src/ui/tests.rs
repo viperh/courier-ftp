@@ -592,7 +592,13 @@ fn comparison_rows_are_aligned() {
     let all = text(&t);
     assert!(all.contains("⇄ sync") && all.contains("≠ compare"), "{all}");
     assert!(!s.has_modal(), "same filters, no warning: {all}");
-    insta::assert_snapshot!("compare_120x30", t.backend());
+    // Windows shows the local path natively (`home\me\site`, one character
+    // shorter, the frame fills the gap); map it to the Unix form.
+    insta::with_settings!({filters => vec![
+        (r"Local: home\\me\\site ─", "Local: /home/me/site"),
+    ]}, {
+        insta::assert_snapshot!("compare_120x30", t.backend());
+    });
 }
 
 #[test]

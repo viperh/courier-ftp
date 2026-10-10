@@ -189,7 +189,7 @@ criterion = "0.8.2"
 # Deterministic RNG and hex for the crypto known-answer tests (T80).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
 hex = "0.4.3"
-insta = "1.49.0"
+insta = { version = "1.49.0", features = ["filters"] }
 pretty_assertions = "1.4.1"
 proptest = "1.11.0"
 # ring, not the default aws-lc-rs (one crypto provider, D9).

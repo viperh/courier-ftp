@@ -1,5 +1,5 @@
 //! One active transfer: connect (or reuse a pooled session), stat, ask the
-//! [`ExistsPolicy`](super::ExistsPolicy), open the streams, copy, finish.
+//! [`ExistsPolicy`], open the streams, copy, finish.
 //!
 //! The worker never changes the item's queue state except its progress; it
 //! returns a [`WorkerResult`] and the engine applies it, so a cancelled
