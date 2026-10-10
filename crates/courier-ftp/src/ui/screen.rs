@@ -20,6 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::{
     Side,
+    bookmarks::BookmarksMenu,
     compare::{self, CompareState, NavStage, SyncBase, SyncNav, other},
     dir_tree::{DirTree, TreeEffect, is_tree_action},
     file_list::{Effect, FileList},
@@ -201,6 +202,21 @@ pub(crate) struct MainScreen {
     compare_opts: CompareOpts,
     /// The "filters differ" warning was shown for this comparison.
     compare_warned: bool,
+    /// The bookmarks menu (T64), when open. Dialogs open over it.
+    bookmarks: Option<BookmarksMenu>,
+    /// A bookmark being applied waits for its listings before turning
+    /// synchronized browsing / comparison on.
+    bookmark_modes: Option<PendingModes>,
+}
+
+/// Synchronized browsing / comparison to turn on once the panes show a
+/// bookmark's directories.
+#[derive(Debug)]
+struct PendingModes {
+    local: bool,
+    remote: bool,
+    sync: bool,
+    compare: bool,
 }
 
 impl MainScreen {
@@ -280,6 +296,8 @@ impl MainScreen {
             compare: None,
             compare_opts,
             compare_warned: false,
+            bookmarks: None,
+            bookmark_modes: None,
         }
     }
 
@@ -436,6 +454,49 @@ impl MainScreen {
         self.sites = None;
     }
 
+    /// Open the bookmarks menu (replacing one already open).
+    pub(crate) fn open_bookmarks(&mut self, menu: BookmarksMenu) {
+        self.bookmarks = Some(menu);
+        self.pump_bookmarks();
+    }
+
+    /// The bookmarks menu, when open.
+    pub(crate) fn bookmarks_mut(&mut self) -> Option<&mut BookmarksMenu> {
+        self.bookmarks.as_mut()
+    }
+
+    /// The bookmarks menu, when open.
+    #[cfg(test)]
+    pub(crate) fn bookmarks(&self) -> Option<&BookmarksMenu> {
+        self.bookmarks.as_ref()
+    }
+
+    /// Close the bookmarks menu (vault locked).
+    pub(crate) fn close_bookmarks(&mut self) {
+        self.bookmarks = None;
+    }
+
+    /// Pass the bookmarks menu's requests on and drop it once it closed.
+    fn pump_bookmarks(&mut self) {
+        let Some(menu) = self.bookmarks.as_mut() else {
+            return;
+        };
+        for op in menu.take_requests() {
+            self.outbox
+                .push(Action::BookmarkOp(crate::action::Shared::new(op)));
+        }
+        if menu.take_unlock_request() {
+            self.outbox.push(Action::UnlockVault);
+        }
+        let apply = menu.take_apply();
+        if menu.is_closed() {
+            self.bookmarks = None;
+        }
+        if let Some(target) = apply {
+            self.apply_bookmark(target);
+        }
+    }
+
     /// Pass the Site Manager's requests on and drop it once it closed.
     fn pump_sites(&mut self) {
         let Some(view) = self.sites.as_mut() else {
@@ -455,7 +516,11 @@ impl MainScreen {
 
     /// The current input mode, which selects the keymap.
     pub(crate) fn mode(&self) -> Mode {
-        if !self.modals.is_empty() || self.vault_shown || self.sites.is_some() {
+        if !self.modals.is_empty()
+            || self.vault_shown
+            || self.sites.is_some()
+            || self.bookmarks.is_some()
+        {
             return Mode::Dialog;
         }
         if self.log.is_searching() {
@@ -532,6 +597,11 @@ impl MainScreen {
             self.pump_sites();
             return KeyOutcome::Consumed;
         }
+        if let Some(menu) = self.bookmarks.as_mut() {
+            menu.handle_key(key);
+            self.pump_bookmarks();
+            return KeyOutcome::Consumed;
+        }
         if self.focus == Region::Queue && self.queue.handle_key(key) {
             return KeyOutcome::Consumed;
         }
@@ -579,6 +649,8 @@ impl MainScreen {
             top.handle_paste(text);
         } else if let Some(view) = self.sites.as_mut() {
             view.handle_paste(text);
+        } else if let Some(menu) = self.bookmarks.as_mut() {
+            menu.handle_paste(text);
         } else if self.focus == Region::Quickconnect {
             self.quickconnect.handle_paste(text);
         } else if let Some(list) = self.focused_list() {
@@ -644,6 +716,14 @@ impl MainScreen {
             self.outbox.extend(error);
             if let Ok(listing) = result {
                 self.list_shown(*side, listing, first);
+            }
+            self.bookmark_listing(*side, result.is_ok());
+            return None;
+        }
+        if let Action::BookmarksReply(reply) = action {
+            if let Some(menu) = self.bookmarks.as_mut() {
+                menu.apply_reply(&reply.0);
+                self.pump_bookmarks();
             }
             return None;
         }
@@ -852,6 +932,7 @@ impl MainScreen {
     pub(crate) fn remote_connecting(&mut self, server: String) {
         self.end_sync();
         self.end_compare();
+        self.bookmark_modes = None;
         self.status.session = None;
         self.remote.connecting(server);
         self.remote_tree.reset();
@@ -875,6 +956,7 @@ impl MainScreen {
     pub(crate) fn remote_disconnected(&mut self, error: Option<String>) {
         self.end_sync();
         self.end_compare();
+        self.bookmark_modes = None;
         self.status.session = None;
         self.remote.disconnected(error);
         self.remote_tree.reset();
@@ -925,6 +1007,113 @@ impl MainScreen {
             self.start_sync();
         }
         self.after_change();
+    }
+
+    // --- T64: applying a bookmark ---
+
+    /// Apply a bookmark: show its directories (the remote one only when
+    /// connected), then turn synchronized browsing / comparison on as it
+    /// says once both listings arrived. Both are turned off first so the
+    /// panes move independently.
+    pub(crate) fn apply_bookmark(&mut self, target: courier_ftp_core::sites::BookmarkTarget) {
+        self.end_sync();
+        self.end_compare();
+        self.bookmark_modes = None;
+        let mut waiting = PendingModes {
+            local: false,
+            remote: false,
+            sync: target.sync_browsing,
+            compare: target.comparison,
+        };
+        let mut problems = Vec::new();
+        if let Some(local) = &target.local_dir {
+            match courier_ftp_core::local::local_to_remote(local.as_path()) {
+                Ok(dir) => {
+                    if let Some(Effect::Action(a)) = self.local.go_to(dir) {
+                        self.outbox.push(a);
+                        waiting.local = true;
+                    }
+                }
+                Err(e) => problems.push(format!("{}: {e}", local.to_display())),
+            }
+        }
+        if let Some(remote) = &target.remote_dir {
+            if self.remote.dir.is_some() {
+                if let Some(Effect::Action(a)) = self.remote.go_to(remote.clone()) {
+                    self.outbox.push(a);
+                    waiting.remote = true;
+                }
+            } else {
+                problems.push("Not connected: the remote directory was not opened".to_owned());
+            }
+        }
+        self.set_focus(Region::list(if target.local_dir.is_none() {
+            Side::Remote
+        } else {
+            self.opts.compact_side
+        }));
+        if let Some(problem) = problems.first() {
+            // Synchronizing needs both directories: leave it off.
+            self.status.flash(problem.clone(), Instant::now());
+            return;
+        }
+        if !(waiting.sync || waiting.compare) {
+            return;
+        }
+        if waiting.local || waiting.remote {
+            self.bookmark_modes = Some(waiting);
+        } else {
+            self.bookmark_modes_on(&waiting);
+        }
+    }
+
+    /// A listing for `side` arrived while a bookmark waits for it.
+    fn bookmark_listing(&mut self, side: Side, ok: bool) {
+        let Some(mut modes) = self.bookmark_modes.take() else {
+            return;
+        };
+        let waited = match side {
+            Side::Local => std::mem::take(&mut modes.local),
+            Side::Remote => std::mem::take(&mut modes.remote),
+        };
+        if !waited {
+            self.bookmark_modes = Some(modes);
+            return;
+        }
+        if !ok {
+            // The error is in the log; don't synchronize the wrong place.
+            self.status.flash(
+                "The bookmark's directory could not be opened",
+                Instant::now(),
+            );
+            return;
+        }
+        if modes.local || modes.remote {
+            self.bookmark_modes = Some(modes);
+        } else {
+            self.bookmark_modes_on(&modes);
+        }
+    }
+
+    fn bookmark_modes_on(&mut self, modes: &PendingModes) {
+        if modes.compare {
+            self.start_compare();
+        } else if modes.sync && self.start_sync() {
+            self.status
+                .flash("Synchronized browsing on", Instant::now());
+        }
+    }
+
+    /// Whether synchronized browsing is on.
+    #[cfg(test)]
+    pub(crate) fn sync_on(&self) -> bool {
+        self.sync.is_some()
+    }
+
+    /// Whether directory comparison is on.
+    #[cfg(test)]
+    pub(crate) fn compare_on(&self) -> bool {
+        self.compare.is_some()
     }
 
     /// Turn synchronized browsing on from the directories shown now.
@@ -1384,6 +1573,9 @@ impl MainScreen {
                 bottom.saturating_sub(area.y),
             );
             view.draw(frame, above, theme);
+        }
+        if let Some(menu) = self.bookmarks.as_mut() {
+            menu.draw(frame, area, theme);
         }
         for modal in &mut self.modals {
             modal.draw(frame, area, theme);
