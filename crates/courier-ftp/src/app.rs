@@ -357,7 +357,9 @@ impl App {
             if self.render_requested {
                 self.render_requested = false;
                 self.render_if_needed(&mut tui.terminal)?;
-                if hook == Some(crate::test_hooks::TestHook::ExitAfterPanes) && self.draw_count > 0
+                if hook == Some(crate::test_hooks::TestHook::ExitAfterPanes)
+                    && self.draw_count > 0
+                    && !self.vault_hides_panes()
                 {
                     self.should_quit = true;
                 }

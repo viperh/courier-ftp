@@ -8,11 +8,26 @@
 //!
 //! The crash hooks (`panic-ui`, `panic-thread`, `panic-blocking`) are added by T91.
 //! Without the feature the variable is ignored.
+//!
+//! `COURIER_FTP_TEST_ARGON2=test` (T60): the vault is created and re-wrapped with
+//! `Argon2Cost::TEST`, so a debug binary's first run takes milliseconds.
 
 use std::time::Duration;
 
 /// The environment variable.
 pub(crate) const HOOK_ENV: &str = "COURIER_FTP_TEST_HOOK";
+
+/// The Argon2 override variable.
+pub(crate) const ARGON2_ENV: &str = "COURIER_FTP_TEST_ARGON2";
+
+/// `Argon2Cost::TEST` when `COURIER_FTP_TEST_ARGON2=test` (test-hooks builds only).
+pub(crate) fn argon2_cost_override() -> Option<courier_ftp_core::vault::Argon2Cost> {
+    if !cfg!(feature = "test-hooks") {
+        return None;
+    }
+    (std::env::var(ARGON2_ENV).ok().as_deref() == Some("test"))
+        .then_some(courier_ftp_core::vault::Argon2Cost::TEST)
+}
 
 /// A parsed hook.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

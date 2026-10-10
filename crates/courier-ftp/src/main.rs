@@ -76,7 +76,10 @@ async fn async_main() -> color_eyre::Result<()> {
         "process hardening"
     );
     let config = Config::new(&paths)?;
-    let vault_opts = courier_ftp_core::vault::VaultOptions::from_settings(&config.settings);
+    let mut vault_opts = courier_ftp_core::vault::VaultOptions::from_settings(&config.settings);
+    if let Some(cost) = test_hooks::argon2_cost_override() {
+        vault_opts.cost = cost;
+    }
     let start = app::vault::VaultStartOptions {
         no_vault: args.no_vault,
         no_keyring: args.no_keyring || services::keyring::keyring_env_off(),

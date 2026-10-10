@@ -8,7 +8,7 @@ use std::time::Duration;
 use courier_ftp_e2e::{PtyApp, PtyOptions, Screen, TestHome};
 
 fn launch(home: &TestHome) -> PtyApp {
-    let mut app = PtyApp::launch(home, PtyOptions::default()).unwrap();
+    let mut app = PtyApp::launch(home, PtyOptions::no_vault()).unwrap();
     app.wait_for_text("Local").unwrap();
     app.wait_for_text("F1 help").unwrap();
     app
@@ -42,8 +42,16 @@ fn e2e_pty_starts_and_quits() {
 /// T50: 60×16 is compact (the status bar says so), 120×40 is the full layout again.
 #[test]
 fn e2e_pty_resize_to_compact_and_back() {
-    let home = TestHome::new().unwrap();
-    let mut app = launch(&home);
+    // An unlocked vault: no vault segment competes with the compact hint at 60 columns
+    // (`--no-vault` shows `no vault`, T60).
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let home = rt.block_on(TestHome::with_vault()).unwrap();
+    let mut app = PtyApp::launch(&home, PtyOptions::default()).unwrap();
+    app.unlock().unwrap();
+    app.wait_for_text("F1 help").unwrap();
     app.resize(60, 16).unwrap();
     app.wait_for_screen("the compact layout", |s| {
         status_row(s).contains("compact") && !s.contains("Message log")

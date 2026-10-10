@@ -34,6 +34,17 @@ pub struct PtyOptions {
     pub timeout: Option<Duration>,
 }
 
+impl PtyOptions {
+    /// The defaults plus `--no-vault`: the app starts without the vault (no first-run
+    /// or unlock screen), for tests that are not about the vault (T60).
+    pub fn no_vault() -> Self {
+        Self {
+            args: vec!["--no-vault".into()],
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for PtyOptions {
     fn default() -> Self {
         Self {
