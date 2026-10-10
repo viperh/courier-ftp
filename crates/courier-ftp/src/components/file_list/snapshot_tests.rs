@@ -21,7 +21,7 @@ use tokio::time::Instant;
 
 use super::{
     render::{self, RenderCx, RowFormat},
-    state::{FileListState, PaneCommand, PaneDir, PaneInput, PaneRequest, RequestId},
+    state::{FileListState, PaneCommand, PaneDir, PaneInput, PaneRequest},
     tests::{
         Ctx, answer, dir, file, listing, load, local_id, rdir, remote_id, remote_pane,
         snapshot_dates,
@@ -884,14 +884,21 @@ fn app_builds_large_views_on_the_blocking_pool() {
 
     let mut h = AppHarness::new(Config::default());
     let pane = local_id();
-    let d = PaneDir::Local(LocalPath::new(std::path::absolute("big").unwrap()));
+    let tmp = tempfile::tempdir().unwrap();
+    let d = PaneDir::Local(LocalPath::new(tmp.path()));
     h.action(Action::PaneInput(pane, PaneInput::Navigate(d.clone())));
+    // Let the real (empty) listing land first, so it cannot replace the fake one later.
+    for _ in 0..500 {
+        if h.settle().render(80, 24).contains("Empty directory.") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
     h.action(Action::PaneInput(
         pane,
-        PaneInput::ListingLoaded {
-            request: RequestId(1),
+        PaneInput::ListingUpdated {
             dir: d,
-            result: Ok(listing("/", many(20_000))),
+            listing: listing("/", many(20_000)),
         },
     ));
     for _ in 0..200 {
