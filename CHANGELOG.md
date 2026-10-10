@@ -31,3 +31,5 @@ the section matching the tag.
   mode for small terminals, focus handling, a modal stack with a help overlay
   generated from the keymap, `NO_COLOR` support; the local pane lists the home
   directory in the background.
+- Directory listing cache shared across tabs, patched by our own changes, with
+  LRU eviction (T46).

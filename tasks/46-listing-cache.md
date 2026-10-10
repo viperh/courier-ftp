@@ -20,10 +20,10 @@ accurate after our own changes.
 
 ## Acceptance criteria
 
-- [ ] Cache hit avoids a backend call (mock counts calls).
-- [ ] Each mutating operation patches the cache correctly.
-- [ ] LRU eviction respects the cap.
-- [ ] Disabled cache always lists.
+- [x] Cache hit avoids a backend call (mock counts calls).
+- [x] Each mutating operation patches the cache correctly.
+- [x] LRU eviction respects the cap.
+- [x] Disabled cache always lists.
 
 ## Tests
 

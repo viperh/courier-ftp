@@ -27,7 +27,7 @@ search, filters, comparison and recursive operations share one code path.
 
 - [x] `LocalBackend` passes the same generic backend test suite as `MockBackend` (write that suite here as a reusable `backend_conformance_tests!` macro or generic async fn — later reused by FTP/SFTP integration tests in T76).
 - [x] Symlinks, hidden files, unreadable dirs (permission denied → entry still listed or clear error) handled.
-- [ ] Windows drive root works (CI windows job).
+- [x] Windows drive root works (CI windows job).
 - [x] `sanitize_local_name` covers all Windows reserved names case-insensitively.
 
 ## Tests

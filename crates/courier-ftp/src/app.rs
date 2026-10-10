@@ -1,5 +1,6 @@
 use courier_ftp_core::{
     backend::Backend,
+    cache::ListingCache,
     events::{self, EventReceiver, EventSender, LogKind, SessionId},
     local::LocalBackend,
     model::RemotePath,
@@ -39,6 +40,8 @@ pub(crate) struct App {
     events_rx: EventReceiver,
     /// The session id of the local pane, for log lines.
     local_session: SessionId,
+    /// Directory listings, shared by every pane (T46).
+    cache: ListingCache,
 }
 
 /// Input modes. Keybindings and styles in `config/default.json` are keyed by
@@ -67,6 +70,7 @@ impl App {
             Theme::no_color_requested(),
         );
         let local_session = SessionId::next();
+        let cache = ListingCache::new(&config.settings.cache, Some(events_tx.clone()));
         for warning in &config.settings_warnings {
             events_tx.log(local_session, LogKind::Error, format!("config: {warning}"));
         }
@@ -83,6 +87,7 @@ impl App {
             events_tx,
             events_rx,
             local_session,
+            cache,
         })
     }
 
@@ -96,7 +101,7 @@ impl App {
             LogKind::Status,
             format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
         );
-        self.list(Side::Local, None);
+        self.list(Side::Local, None, false);
 
         loop {
             tokio::select! {
@@ -182,7 +187,7 @@ impl App {
             Action::Render => self.render(tui)?,
             Action::Refresh => {
                 let dir = self.screen.local.dir.clone();
-                self.list(Side::Local, dir);
+                self.list(Side::Local, dir, true);
             }
             Action::Error(err) => {
                 tracing::error!(?err);
@@ -197,14 +202,16 @@ impl App {
         Ok(())
     }
 
-    /// List `dir` (the home directory when `None`) in the background; the
-    /// pane shows a spinner until [`Action::ListingLoaded`] arrives.
-    fn list(&mut self, side: Side, dir: Option<RemotePath>) {
+    /// List `dir` (the home directory when `None`) in the background, through
+    /// the listing cache unless `force`; the pane shows a spinner until
+    /// [`Action::ListingLoaded`] arrives.
+    fn list(&mut self, side: Side, dir: Option<RemotePath>, force: bool) {
         if side == Side::Remote {
             return; // remote sessions arrive with T14/T22 and T58/T61
         }
         self.screen.pane_mut(side).busy = true;
         let tx = self.action_tx.clone();
+        let cache = self.cache.clone();
         tokio::spawn(async move {
             let mut backend = LocalBackend::new();
             let cancel = CancellationToken::new();
@@ -214,7 +221,7 @@ impl App {
                     Some(dir) => dir,
                     None => backend.home_dir().await?,
                 };
-                backend.list(&dir, cancel).await
+                cache.list_with(&mut backend, &dir, force, cancel).await
             }
             .await
             .map_err(|e| e.to_string());
