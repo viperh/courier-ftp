@@ -1,0 +1,6 @@
+256 SHA256:uYxmMoF3aflKiV/iuu80yjcxVbhqOX/6YopX8ub8Jko fixture-ed25519 (ED25519)
+256 MD5:b9:0f:7f:9f:8f:49:f8:0d:99:3b:3e:b7:67:20:1b:d0 fixture-ed25519 (ED25519)
+256 SHA256:OBcyw3a+d90YEcqlHXgrbGhA7GLUD83aAB36ViXckE8 fixture-ecdsa (ECDSA)
+256 MD5:f3:68:60:52:29:0b:79:0e:93:da:70:aa:03:18:10:18 fixture-ecdsa (ECDSA)
+2048 SHA256:/PHoOZALLScZCyZBl8Ko4edboFJprvobFDhBTC8l/fA fixture-rsa (RSA)
+2048 MD5:17:5a:b6:22:60:1a:80:6d:7f:d2:7a:98:54:58:70:36 fixture-rsa (RSA)

@@ -111,6 +111,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "known_hosts_parse"
+path = "fuzz_targets/known_hosts_parse.rs"
+test = false
+doc = false
+bench = false
+
 # [[bin]]
 # name = "url_parse"
 # path = "fuzz_targets/url_parse.rs"

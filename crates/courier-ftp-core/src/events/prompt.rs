@@ -126,7 +126,7 @@ pub struct HostKeyPrompt {
 }
 
 /// A previously known host key.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OldKey {
     /// `"SHA256:<base64, no padding>"`.
     pub fingerprint_sha256: String,
@@ -135,7 +135,7 @@ pub struct OldKey {
 }
 
 /// Where a known host key is stored.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OldKeySource {
     /// A `known-host` vault item (id = its item id, T81; T21's `KnownHostId` wraps it).
     Vault {

@@ -24,6 +24,7 @@ courier-ftp-core = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
@@ -48,6 +49,8 @@ rsa = { workspace = true }
 sec1 = { workspace = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
+# Constant-time compare of hashed known_hosts entries (T21).
+subtle = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
