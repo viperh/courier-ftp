@@ -614,7 +614,9 @@ mod tests {
             std::fs::write(&path, &doc).unwrap();
             return;
         }
-        let current = std::fs::read_to_string(&path).unwrap_or_default();
+        let current = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
         assert!(
             current == doc,
             "{} is stale; rerun with COURIER_FTP_BLESS=1",
