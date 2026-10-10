@@ -9,13 +9,13 @@ use crate::{action::Action, config::Config};
 
 /// The default screen. Use it as the shape to copy when adding components.
 #[derive(Default)]
-pub struct Home {
+pub(crate) struct Home {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
 }
 
 impl Home {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 }

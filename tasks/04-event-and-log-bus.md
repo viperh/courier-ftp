@@ -40,10 +40,10 @@ and prompts (trust a certificate? overwrite a file?) without the core knowing ab
 
 ## Acceptance criteria
 
-- [ ] Types exist, documented, `Send + 'static`.
-- [ ] Password masking helper `mask_command(&str) -> Cow<str>` covers `PASS`, `ACCT`, and proxy `USER`/`PASS` variants used by T15.
-- [ ] Progress coalescing proven: 10 000 progress updates without a consumer keep memory bounded.
-- [ ] Prompt round-trip works; dropped sender → `Error::Cancelled`.
+- [x] Types exist, documented, `Send + 'static`.
+- [x] Password masking helper `mask_command(&str) -> Cow<str>` covers `PASS`, `ACCT`, and proxy `USER`/`PASS` variants used by T15.
+- [x] Progress coalescing proven: 10 000 progress updates without a consumer keep memory bounded.
+- [x] Prompt round-trip works; dropped sender → `Error::Cancelled`.
 
 ## Tests
 

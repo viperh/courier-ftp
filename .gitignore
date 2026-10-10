@@ -1,2 +1,4 @@
 /target
 /.data
+# Local development config (see .envrc); defaults are in crates/courier-ftp/config/.
+/.config/

@@ -49,10 +49,10 @@ permissions, protocols, server addresses, errors.
 
 ## Acceptance criteria
 
-- [ ] All types above exist with rustdoc on every public item.
-- [ ] `RemotePath` normalisation and `join`/`parent` behave as specified.
-- [ ] URL parsing round-trips (`parse(display(x)) == x`) for all four protocols.
-- [ ] Passwords never appear in `Debug` output.
+- [x] All types above exist with rustdoc on every public item.
+- [x] `RemotePath` normalisation and `join`/`parent` behave as specified.
+- [x] URL parsing round-trips (`parse(display(x)) == x`) for all four protocols.
+- [x] Passwords never appear in `Debug` output.
 
 ## Tests
 

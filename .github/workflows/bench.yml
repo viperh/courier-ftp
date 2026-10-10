@@ -1,0 +1,80 @@
+name: Benchmarks
+
+# T00 §4: performance targets. Not run on every PR (shared runners are noisy):
+# nightly and on demand.
+#
+# * Hard gates, CI-adjusted (2x): scripts/bench-gates.toml (filled in as the
+#   benchmarks land: listing parsers T13, file list render T53, merge T81,
+#   transfer scheduling T41/T41b).
+# * Regressions: every bench is compared with the last main baseline (cached); a
+#   median more than 15% slower fails the run (scripts/bench-gate.py compare).
+# * Startup gate (launch to unlocked file panes with 1 000 sites, keyring unlock,
+#   < 200 ms) is added with the vault unlock UI (T60).
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # vergen-gix needs history and tags
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Any benchmarks yet?
+        id: has
+        run: |
+          n="$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq '[.packages[].targets[] | select(.kind | index("bench"))] | length')"
+          echo "$n bench target(s)"
+          echo "count=$n" >>"$GITHUB_OUTPUT"
+      - name: Restore the main baseline
+        if: steps.has.outputs.count != '0'
+        uses: actions/cache/restore@v4
+        with:
+          path: target/criterion
+          key: criterion-main-${{ github.run_id }}
+          restore-keys: criterion-main-
+      - name: Run benchmarks
+        if: steps.has.outputs.count != '0'
+        run: cargo bench --workspace --locked --bench '*' -- --save-baseline ci --noplot
+      - name: Gates (CI thresholds)
+        if: steps.has.outputs.count != '0'
+        run: python3 scripts/bench-gate.py gate --baseline ci
+      - name: Regressions against main (> 15%)
+        if: steps.has.outputs.count != '0'
+        run: |
+          if ls target/criterion/*/*/main/estimates.json >/dev/null 2>&1; then
+            python3 scripts/bench-gate.py compare --old main --new ci --threshold 15
+          else
+            echo "No main baseline yet; this run becomes it."
+          fi
+      # The new results become the baseline for the next run (master only).
+      - name: Promote the baseline
+        if: steps.has.outputs.count != '0' && github.ref == 'refs/heads/master'
+        run: |
+          for d in target/criterion/*/*/ci; do
+            rm -rf "$(dirname "$d")/main"
+            cp -r "$d" "$(dirname "$d")/main"
+          done
+      - name: Save the main baseline
+        if: steps.has.outputs.count != '0' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion
+          key: criterion-main-${{ github.run_id }}

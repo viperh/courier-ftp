@@ -1,0 +1,26 @@
+[package]
+name = "courier-ftp-sync"
+description = "Sync client for courier-ftp: account, devices, pull/push and live updates"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Optional for the client: the binary links it only with feature `sync`
+# (default on). No UI crates.
+[dependencies]
+courier-ftp-core = { workspace = true }
+courier-ftp-crypto = { workspace = true }
+courier-ftp-proto = { workspace = true }
+courier-ftp-store = { workspace = true }
+
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "courier-ftp"
-description = "A terminal user interface built with ratatui"
+description = "A terminal FTP, FTPS and SFTP client"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -12,11 +12,22 @@ build = "build.rs"
 # `errors.rs` reads CARGO_PKG_REPOSITORY at compile time for the panic message,
 # so `repository` above must stay set.
 
+[features]
+default = ["sync"]
+# Device sync through a courier-ftp server (D12). Without it the client is
+# local-only; everything else works the same.
+sync = ["dep:courier-ftp-sync"]
+
 [dependencies]
 courier-ftp-core = { workspace = true }
+courier-ftp-proto-ftp = { workspace = true }
+courier-ftp-proto-sftp = { workspace = true }
+courier-ftp-sync = { workspace = true, optional = true }
 
 better-panic = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
 color-eyre = { workspace = true }
 config = { workspace = true }
 crossterm = { workspace = true }
@@ -27,6 +38,7 @@ json5 = { workspace = true }
 libc = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 strip-ansi-escapes = { workspace = true }
 strum = { workspace = true }
 tokio = { workspace = true }
@@ -45,3 +57,7 @@ vergen-gix = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

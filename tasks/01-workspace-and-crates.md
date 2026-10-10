@@ -57,13 +57,13 @@ crates/courier-ftp-core/   placeholder Core { ticks } + Error::InvalidState
 
 ## Acceptance criteria
 
-- [ ] `crates/courier-ftp-proto-ftp` and `crates/courier-ftp-proto-sftp` exist and build.
-- [ ] Neither new crate nor core pulls in `ratatui`/`crossterm`/`clap` (`cargo tree -p <crate> -i ratatui` returns nothing).
-- [ ] Placeholder `Core`/ticks code is gone; `app.rs` no longer calls `core.tick()`.
+- [x] `crates/courier-ftp-proto-ftp` and `crates/courier-ftp-proto-sftp` exist and build.
+- [x] Neither new crate nor core pulls in `ratatui`/`crossterm`/`clap` (`cargo tree -p <crate> -i ratatui` returns nothing).
+- [x] Placeholder `Core`/ticks code is gone; `app.rs` no longer calls `core.tick()`.
 - [ ] The initial T00 CI jobs exist and pass on `master` and on PRs.
-- [ ] `COURIER_FTP_HOME` redirects config and data.
-- [ ] README layout section reflects the new crates.
-- [ ] All four CI gates pass locally.
+- [x] `COURIER_FTP_HOME` redirects config and data.
+- [x] README layout section reflects the new crates.
+- [x] All four CI gates pass locally.
 
 ## Tests
 

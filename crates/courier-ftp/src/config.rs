@@ -1,18 +1,18 @@
-#![allow(dead_code)] // Remove this once you start using the code
-
 use std::{collections::HashMap, env, path::PathBuf, sync::LazyLock};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use directories::ProjectDirs;
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, de::Deserializer};
-use tracing::error;
+use tracing::{error, warn};
+
+use courier_ftp_core::settings::Settings;
 
 use crate::{action::Action, app::Mode};
 
 /// The default config, baked into the binary at compile time. User config
 /// files found in [`get_config_dir`] are layered on top of it.
-const CONFIG: &str = include_str!("../../../.config/config.json");
+const CONFIG: &str = include_str!("../config/default.json");
 
 /// Reverse-domain qualifier and organisation used to locate the per-user
 /// config and data directories. Change these when you rename the project.
@@ -20,46 +20,67 @@ const APP_QUALIFIER: &str = "com";
 const APP_ORGANIZATION: &str = "viperh";
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct AppConfig {
+#[expect(
+    dead_code,
+    reason = "read by the settings screen (T68) to save the user config"
+)]
+pub(crate) struct AppConfig {
     #[serde(default)]
-    pub data_dir: PathBuf,
+    pub(crate) data_dir: PathBuf,
     #[serde(default)]
-    pub config_dir: PathBuf,
+    pub(crate) config_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     #[serde(default, flatten)]
-    pub config: AppConfig,
+    #[expect(dead_code, reason = "read by the settings screen (T68)")]
+    pub(crate) config: AppConfig,
     #[serde(default)]
-    pub keybindings: KeyBindings,
+    pub(crate) keybindings: KeyBindings,
     #[serde(default)]
-    pub styles: Styles,
+    pub(crate) styles: Styles,
+    /// The `settings` key as found in the config files; turned into
+    /// [`Config::settings`] by [`Settings::from_value`], which never fails.
+    #[serde(default, rename = "settings")]
+    settings_raw: serde_json::Value,
+    /// Typed application settings (T05).
+    #[serde(skip)]
+    pub(crate) settings: Settings,
+    /// Problems found while loading `settings`; each was replaced by its default.
+    #[serde(skip)]
+    pub(crate) settings_warnings: Vec<String>,
 }
 
-/// Upper-cased crate name, used as the prefix for the `*_DATA`, `*_CONFIG`
-/// and `*_LOG_LEVEL` environment variables (see `.envrc`).
-pub static PROJECT_NAME: LazyLock<String> =
+/// Upper-cased crate name, used as the prefix for the `*_HOME`, `*_DATA`,
+/// `*_CONFIG` and `*_LOG_LEVEL` environment variables (see `.envrc`).
+pub(crate) static PROJECT_NAME: LazyLock<String> =
     LazyLock::new(|| env!("CARGO_CRATE_NAME").to_uppercase().to_string());
-pub static DATA_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    env::var(format!("{}_DATA", PROJECT_NAME.clone()))
-        .ok()
+/// `COURIER_FTP_HOME`: one directory for everything courier-ftp writes, used by
+/// tests and CI. Config goes to `<home>/config`, data to `<home>/data`.
+/// `COURIER_FTP_CONFIG` and `COURIER_FTP_DATA` win over it.
+pub(crate) static HOME_FOLDER: LazyLock<Option<PathBuf>> =
+    LazyLock::new(|| non_empty_var(&format!("{}_HOME", PROJECT_NAME.clone())));
+pub(crate) static DATA_FOLDER: LazyLock<Option<PathBuf>> =
+    LazyLock::new(|| non_empty_var(&format!("{}_DATA", PROJECT_NAME.clone())));
+pub(crate) static CONFIG_FOLDER: LazyLock<Option<PathBuf>> =
+    LazyLock::new(|| non_empty_var(&format!("{}_CONFIG", PROJECT_NAME.clone())));
+
+fn non_empty_var(name: &str) -> Option<PathBuf> {
+    env::var_os(name)
+        .filter(|v| !v.is_empty())
         .map(PathBuf::from)
-});
-pub static CONFIG_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    env::var(format!("{}_CONFIG", PROJECT_NAME.clone()))
-        .ok()
-        .map(PathBuf::from)
-});
+}
 
 impl Config {
-    pub fn new() -> color_eyre::Result<Self, config::ConfigError> {
-        let default_config: Config = json5::from_str(CONFIG).unwrap();
+    pub(crate) fn new() -> color_eyre::Result<Self, config::ConfigError> {
+        let default_config: Config = json5::from_str(CONFIG)
+            .map_err(|e| config::ConfigError::Message(format!("built-in config: {e}")))?;
         let data_dir = get_data_dir();
         let config_dir = get_config_dir();
         let mut builder = config::Config::builder()
-            .set_default("data_dir", data_dir.to_str().unwrap())?
-            .set_default("config_dir", config_dir.to_str().unwrap())?;
+            .set_default("data_dir", data_dir.to_string_lossy().into_owned())?
+            .set_default("config_dir", config_dir.to_string_lossy().into_owned())?;
 
         let config_files = [
             ("config.json5", config::FileFormat::Json5),
@@ -84,6 +105,13 @@ impl Config {
 
         let mut cfg: Self = builder.build()?.try_deserialize()?;
 
+        let (settings, report) = Settings::from_value(&cfg.settings_raw);
+        for warning in &report.warnings {
+            warn!("config: {warning}");
+        }
+        cfg.settings = settings;
+        cfg.settings_warnings = report.warnings;
+
         for (mode, default_bindings) in default_config.keybindings.0.iter() {
             let user_bindings = cfg.keybindings.0.entry(*mode).or_default();
             for (key, cmd) in default_bindings.iter() {
@@ -103,9 +131,11 @@ impl Config {
     }
 }
 
-pub fn get_data_dir() -> PathBuf {
+pub(crate) fn get_data_dir() -> PathBuf {
     if let Some(s) = DATA_FOLDER.clone() {
         s
+    } else if let Some(home) = HOME_FOLDER.clone() {
+        home.join("data")
     } else if let Some(proj_dirs) = project_directory() {
         proj_dirs.data_local_dir().to_path_buf()
     } else {
@@ -113,9 +143,11 @@ pub fn get_data_dir() -> PathBuf {
     }
 }
 
-pub fn get_config_dir() -> PathBuf {
+pub(crate) fn get_config_dir() -> PathBuf {
     if let Some(s) = CONFIG_FOLDER.clone() {
         s
+    } else if let Some(home) = HOME_FOLDER.clone() {
+        home.join("config")
     } else if let Some(proj_dirs) = project_directory() {
         proj_dirs.config_local_dir().to_path_buf()
     } else {
@@ -128,7 +160,7 @@ fn project_directory() -> Option<ProjectDirs> {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct KeyBindings(pub HashMap<Mode, HashMap<Vec<KeyEvent>, Action>>);
+pub(crate) struct KeyBindings(pub HashMap<Mode, HashMap<Vec<KeyEvent>, Action>>);
 
 impl<'de> Deserialize<'de> for KeyBindings {
     fn deserialize<D>(deserializer: D) -> color_eyre::Result<Self, D::Error>
@@ -137,16 +169,15 @@ impl<'de> Deserialize<'de> for KeyBindings {
     {
         let parsed_map = HashMap::<Mode, HashMap<String, Action>>::deserialize(deserializer)?;
 
-        let keybindings = parsed_map
-            .into_iter()
-            .map(|(mode, inner_map)| {
-                let converted_inner_map = inner_map
-                    .into_iter()
-                    .map(|(key_str, cmd)| (parse_key_sequence(&key_str).unwrap(), cmd))
-                    .collect();
-                (mode, converted_inner_map)
-            })
-            .collect();
+        let mut keybindings = HashMap::with_capacity(parsed_map.len());
+        for (mode, inner_map) in parsed_map {
+            let mut converted = HashMap::with_capacity(inner_map.len());
+            for (key_str, cmd) in inner_map {
+                let keys = parse_key_sequence(&key_str).map_err(serde::de::Error::custom)?;
+                converted.insert(keys, cmd);
+            }
+            keybindings.insert(mode, converted);
+        }
 
         Ok(KeyBindings(keybindings))
     }
@@ -221,8 +252,8 @@ fn parse_key_code_with_modifiers(
         "hyphen" => KeyCode::Char('-'),
         "minus" => KeyCode::Char('-'),
         "tab" => KeyCode::Tab,
-        c if c.len() == 1 => {
-            let mut c = c.chars().next().unwrap();
+        c if c.chars().count() == 1 => {
+            let mut c = c.chars().next().unwrap_or_default();
             if modifiers.contains(KeyModifiers::SHIFT) {
                 c = c.to_ascii_uppercase();
             }
@@ -233,7 +264,14 @@ fn parse_key_code_with_modifiers(
     Ok(KeyEvent::new(c, modifiers))
 }
 
-pub fn key_event_to_string(key_event: &KeyEvent) -> String {
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "used by the help overlay (T50) and keymap docs (T51)"
+    )
+)]
+pub(crate) fn key_event_to_string(key_event: &KeyEvent) -> String {
     let char;
     let key_code = match key_event.code {
         KeyCode::Backspace => "backspace",
@@ -296,7 +334,7 @@ pub fn key_event_to_string(key_event: &KeyEvent) -> String {
     key
 }
 
-pub fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String> {
+pub(crate) fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String> {
     if raw.chars().filter(|c| *c == '>').count() != raw.chars().filter(|c| *c == '<').count() {
         return Err(format!("Unable to parse `{raw}`"));
     }
@@ -323,7 +361,7 @@ pub fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Styles(pub HashMap<Mode, HashMap<String, Style>>);
+pub(crate) struct Styles(pub HashMap<Mode, HashMap<String, Style>>);
 
 impl<'de> Deserialize<'de> for Styles {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -347,7 +385,7 @@ impl<'de> Deserialize<'de> for Styles {
     }
 }
 
-pub fn parse_style(line: &str) -> Style {
+pub(crate) fn parse_style(line: &str) -> Style {
     let (foreground, background) =
         line.split_at(line.to_lowercase().find("on ").unwrap_or(line.len()));
     let foreground = process_color_string(foreground);
@@ -504,6 +542,31 @@ mod tests {
         assert_eq!(color, None);
     }
 
+    /// `config/default.json` shows every setting with its default (T05). Run
+    /// with `COURIER_FTP_BLESS=1` to rewrite the file after changing a default.
+    #[test]
+    fn default_json_lists_every_setting() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/default.json");
+        let mut doc: serde_json::Value = serde_json::from_str(CONFIG).unwrap();
+        let expected = serde_json::to_value(Settings::default()).unwrap();
+        if env::var_os("COURIER_FTP_BLESS").is_some() {
+            doc["settings"] = expected;
+            let mut text = serde_json::to_string_pretty(&doc).unwrap();
+            text.push('\n');
+            std::fs::write(&path, text).unwrap();
+            return;
+        }
+        assert_eq!(
+            doc["settings"],
+            expected,
+            "{} is stale; rerun with COURIER_FTP_BLESS=1",
+            path.display()
+        );
+        let (parsed, report) = Settings::from_value(&doc["settings"]);
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert_eq!(parsed, Settings::default());
+    }
+
     #[test]
     fn test_config() -> color_eyre::Result<()> {
         let c = Config::new()?;
@@ -512,7 +575,7 @@ mod tests {
                 .0
                 .get(&Mode::Normal)
                 .unwrap()
-                .get(&parse_key_sequence("<q>").unwrap_or_default())
+                .get(&parse_key_sequence("<Ctrl-q>").unwrap_or_default())
                 .unwrap(),
             &Action::Quit
         );

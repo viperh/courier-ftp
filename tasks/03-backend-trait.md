@@ -59,10 +59,10 @@ UI, transfer engine, search and comparison code never care which protocol is in 
 
 ## Acceptance criteria
 
-- [ ] Trait, `Capabilities`, `Listing`, `WriteMode`, `TransferOpts`, `BackendFactory`, `SessionHandle` exist and are documented.
-- [ ] A `MockBackend` (in-memory tree, behind `#[cfg(any(test, feature = "test-util"))]`) implements the trait; used by later tasks' tests.
-- [ ] `SessionHandle` reconnect-once logic tested with the mock (simulate dropped connection).
-- [ ] Keep-alive task stops when the handle is dropped (no leaked tasks).
+- [x] Trait, `Capabilities`, `Listing`, `WriteMode`, `TransferOpts`, `BackendFactory`, `SessionHandle` exist and are documented.
+- [x] A `MockBackend` (in-memory tree, behind `#[cfg(any(test, feature = "test-util"))]`) implements the trait; used by later tasks' tests.
+- [x] `SessionHandle` reconnect-once logic tested with the mock (simulate dropped connection).
+- [x] Keep-alive task stops when the handle is dropped (no leaked tasks).
 
 ## Tests
 

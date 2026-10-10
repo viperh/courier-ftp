@@ -1,0 +1,23 @@
+[package]
+name = "courier-ftp-store"
+description = "Encrypted SQLite item store for courier-ftp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
+[dependencies]
+courier-ftp-core = { workspace = true }
+courier-ftp-crypto = { workspace = true }
+
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[lints]
+workspace = true

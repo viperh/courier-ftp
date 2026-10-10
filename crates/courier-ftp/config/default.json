@@ -1,0 +1,255 @@
+{
+  "keybindings": {
+    "Normal": {
+      "<Ctrl-h>": "Help",
+      "<Ctrl-q>": "Quit"
+    }
+  },
+  "settings": {
+    "cache": {
+      "listing_cache": true,
+      "listing_cache_ttl_secs": 0
+    },
+    "connection": {
+      "keepalive": true,
+      "keepalive_interval_secs": 30,
+      "prefer_ipv6": false,
+      "retries": 2,
+      "retry_delay_secs": 5,
+      "timeout_secs": 20
+    },
+    "editing": {
+      "associations": [],
+      "editor": "auto",
+      "watch_and_prompt_upload": true
+    },
+    "file_types": {
+      "ascii_extensions": [
+        "am",
+        "asp",
+        "bat",
+        "c",
+        "cfm",
+        "cgi",
+        "conf",
+        "cpp",
+        "css",
+        "dhtml",
+        "diz",
+        "h",
+        "hpp",
+        "htm",
+        "html",
+        "in",
+        "inc",
+        "java",
+        "js",
+        "jsp",
+        "lua",
+        "m4",
+        "mak",
+        "md5",
+        "nfo",
+        "nsh",
+        "nsi",
+        "pas",
+        "patch",
+        "php",
+        "phtml",
+        "pl",
+        "po",
+        "povray",
+        "py",
+        "qmail",
+        "rb",
+        "rss",
+        "sfv",
+        "sh",
+        "shtml",
+        "sql",
+        "svg",
+        "tcl",
+        "tpl",
+        "txt",
+        "vbs",
+        "xhtml",
+        "xml"
+      ],
+      "default_type": "auto",
+      "dotfiles_ascii": true,
+      "no_extension_ascii": true
+    },
+    "filters": {
+      "active_set": "Default",
+      "filters": [
+        {
+          "applies_to": "dirs",
+          "case_sensitive": true,
+          "conditions": [
+            {
+              "on": "name",
+              "op": "equals",
+              "value": "CVS"
+            },
+            {
+              "on": "name",
+              "op": "equals",
+              "value": ".svn"
+            }
+          ],
+          "match_mode": "any",
+          "name": "CVS and SVN directories",
+          "scope": "both"
+        },
+        {
+          "applies_to": "dirs",
+          "case_sensitive": true,
+          "conditions": [
+            {
+              "on": "name",
+              "op": "equals",
+              "value": ".git"
+            }
+          ],
+          "match_mode": "any",
+          "name": "Git",
+          "scope": "both"
+        },
+        {
+          "applies_to": "files",
+          "case_sensitive": false,
+          "conditions": [
+            {
+              "on": "name",
+              "op": "ends_with",
+              "value": "~"
+            },
+            {
+              "on": "name",
+              "op": "ends_with",
+              "value": ".bak"
+            },
+            {
+              "on": "name",
+              "op": "matches",
+              "value": "^#.*#$"
+            }
+          ],
+          "match_mode": "any",
+          "name": "Temporary and backup files",
+          "scope": "both"
+        },
+        {
+          "applies_to": "files",
+          "case_sensitive": true,
+          "conditions": [
+            {
+              "on": "name",
+              "op": "begins_with",
+              "value": "."
+            }
+          ],
+          "match_mode": "any",
+          "name": "Configuration files",
+          "scope": "both"
+        },
+        {
+          "applies_to": "files",
+          "case_sensitive": false,
+          "conditions": [
+            {
+              "on": "name",
+              "op": "equals",
+              "value": "Thumbs.db"
+            },
+            {
+              "on": "name",
+              "op": "equals",
+              "value": ".DS_Store"
+            }
+          ],
+          "match_mode": "any",
+          "name": "Thumbs.db and .DS_Store",
+          "scope": "both"
+        }
+      ],
+      "sets": [
+        {
+          "enabled_local": [],
+          "enabled_remote": [],
+          "name": "Default"
+        }
+      ]
+    },
+    "ftp": {
+      "active_external_ip": "auto",
+      "active_port_range": null,
+      "fallback_to_active": true,
+      "passive_ignore_unroutable_ip": true,
+      "send_keepalive_command": "NOOP",
+      "transfer_mode": "passive",
+      "use_mlsd": true
+    },
+    "interface": {
+      "check_updates": true,
+      "confirm_delete": true,
+      "date_format": "%Y-%m-%d",
+      "dirs_first": true,
+      "force_show_hidden_remote": false,
+      "language": "auto",
+      "layout": "classic",
+      "show_hidden_local": false,
+      "show_log": true,
+      "show_queue": true,
+      "show_splash": false,
+      "show_tree": false,
+      "size_format": "iec",
+      "sort_case_sensitive": false,
+      "swap_panes": false,
+      "thousands_separator": true,
+      "time_format": "%H:%M"
+    },
+    "logging": {
+      "level": 2,
+      "log_file": null,
+      "log_file_keep": 3,
+      "log_file_max_mib": 10,
+      "log_to_file": false,
+      "show_raw_listing": false
+    },
+    "proxy": {
+      "ftp_proxy": {
+        "type": "none"
+      },
+      "generic": {
+        "type": "none"
+      }
+    },
+    "queue": {
+      "notify": "bell",
+      "on_complete": "none",
+      "persist": true,
+      "refresh_remote_after": true
+    },
+    "transfers": {
+      "burst_tolerance": "normal",
+      "download_limit_kib": 0,
+      "empty_dirs": "create",
+      "follow_symlinks": false,
+      "invalid_char_replacement": "_",
+      "max_concurrent": 4,
+      "max_downloads": 0,
+      "max_uploads": 0,
+      "on_exists_download": "ask",
+      "on_exists_upload": "ask",
+      "preallocate": false,
+      "preserve_timestamps": false,
+      "replace_invalid_chars": true,
+      "speed_limit_enabled": false,
+      "upload_limit_kib": 0
+    }
+  },
+  "styles": {
+    "Normal": {}
+  }
+}

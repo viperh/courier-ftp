@@ -28,17 +28,17 @@ Settings dialog, loaded through the existing layered config system.
    - `transfers.segmented`: `enabled`, `min_file_size_mib`, `max_segments`, `min_segment_size_mib`; `sftp`: `max_outstanding_requests`, `request_size` — T41b.
    - `interface`: `show_quickconnect`, `restore_tabs`, `unicode_symbols`, `confirm_transfer`, `columns`, `natural_sort` — T50/T53/T57/T58/T61/T62.
    - `logging.show_timestamps` — T55; `queue.notify` — T45; `editing.max_size_mib` — T63; `interface.check_prereleases` — T74; `filters` — T47.
-2. Wire into `courier-ftp/src/config.rs`: `Config` gets a `pub settings: Settings` field (`#[serde(default)]`). Defaults also written into `.config/config.json` so users can see them (keep keybindings/styles there too).
+2. Wire into `courier-ftp/src/config.rs`: `Config` gets a `pub settings: Settings` field (`#[serde(default)]`). Defaults also written into `crates/courier-ftp/config/default.json` so users can see them (keep keybindings/styles there too).
 3. **Validation** after load: port ranges valid, limits non-negative, replacement char not itself invalid on the local OS. Invalid values → log warning + fall back to default for that field (do not crash).
 4. **Writing settings back**: `Settings::save_user(&self, config_dir)` writes only *non-default* values into `config.json` in the user config dir (used by T68). Preserve unknown keys (load JSON as `serde_json::Value`, merge, write).
 5. Remove `#![allow(dead_code)]` from `config.rs` once used.
 
 ## Acceptance criteria
 
-- [ ] Every setting above exists with rustdoc explaining FileZilla equivalent and default.
-- [ ] Empty user config ⇒ all defaults; partial user config ⇒ only those fields overridden.
-- [ ] Invalid value warns and falls back without aborting startup.
-- [ ] `save_user` round-trips and keeps keybindings/styles/unknown keys intact.
+- [x] Every setting above exists with rustdoc explaining FileZilla equivalent and default.
+- [x] Empty user config ⇒ all defaults; partial user config ⇒ only those fields overridden.
+- [x] Invalid value warns and falls back without aborting startup.
+- [x] `save_user` round-trips and keeps keybindings/styles/unknown keys intact.
 
 ## Tests
 

@@ -1,10 +1,11 @@
-//! Entry point.
+//! courier-ftp: a terminal FTP, FTPS and SFTP client.
 //!
 //! The binary owns everything terminal-related; domain logic lives in the
-//! `courier-ftp-core` crate so it stays testable without a TTY.
+//! `courier-ftp-core` crate and the protocols in `courier-ftp-proto-ftp` and
+//! `courier-ftp-proto-sftp`, so they stay testable without a TTY.
 
 use clap::Parser;
-use cli::Cli;
+use cli::{Cli, Command};
 
 use crate::app::App;
 
@@ -19,10 +20,17 @@ mod tui;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
+    let args = Cli::parse();
+    // Non-interactive subcommands run before the panic hook and the log file are
+    // set up: they must not touch the terminal or the data directory.
+    if let Some(Command::Generate { what }) = &args.command {
+        cli::generate(what, &mut std::io::stdout().lock())?;
+        return Ok(());
+    }
+
     crate::errors::init()?;
     crate::logging::init()?;
 
-    let args = Cli::parse();
     let mut app = App::new(args.tick_rate, args.frame_rate)?;
     app.run().await?;
     Ok(())

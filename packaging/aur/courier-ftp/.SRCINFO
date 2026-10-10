@@ -1,0 +1,19 @@
+pkgbase = courier-ftp
+	pkgdesc = Terminal FTP, FTPS and SFTP client with an encrypted site vault and optional self-hosted sync
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/viperh/courier-ftp
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cargo
+	depends = gcc-libs
+	depends = glibc
+	optdepends = wl-clipboard: clipboard on Wayland without OSC 52
+	optdepends = xclip: clipboard on X11 without OSC 52
+	conflicts = courier-ftp-bin
+	options = !lto
+	source = courier-ftp-0.1.0.tar.gz::https://github.com/viperh/courier-ftp/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = 0000000000000000000000000000000000000000000000000000000000000000
+
+pkgname = courier-ftp

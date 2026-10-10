@@ -1,0 +1,20 @@
+[package]
+name = "courier-ftp-crypto"
+description = "Cryptographic primitives for the courier-ftp vault and sync (pure, no I/O)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Pure crypto: no I/O, no async runtime, no storage, no UI
+# (scripts/check-layering.py).
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[lints]
+workspace = true

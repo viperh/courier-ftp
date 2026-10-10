@@ -33,12 +33,21 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 | D7 | Mouse | **Keyboard only** for v1. Mouse capture stays off. |
 | D8 | Dropped features | Kerberos/GSS auth, OS drag and drop, sound / sleep / shutdown on queue completion. No tasks exist for these. |
 | D9 | TLS | `rustls` (with `rustls-platform-verifier` for OS trust roots). No OpenSSL. *(Default chosen by Claude — say so if you want it changed.)* |
-| D10 | App settings | Non-secret settings stay in the existing layered config (`.config/config.json` defaults + user `config.*`). |
+| D10 | App settings | Non-secret settings stay in the existing layered config (`crates/courier-ftp/config/default.json` defaults, baked into the binary, + user `config.*`; moved out of `.config/` in T00 so `cargo package` works). |
 | D11 | Speed | Transfers run in parallel (4 by default) and large files are split into ranges over several connections, with SFTP request pipelining (T41b). |
 | D12 | Sync | Device sync through **courier-ftp's own self-hosted server** (`courier-ftp-server`: axum + PostgreSQL), end-to-end encrypted, OPAQUE login with the master password, based on sverb's design. Sync is optional; everything works offline without an account. |
 | D13 | sverb code | sverb's vault, crypto, store, protocol and sync code is **copied and adapted** into courier-ftp crates (no dependency on sverb). |
 | D14 | Teams | **Team/shared vaults are included** (orgs, invites, grants, safety numbers, key rotation). |
 | D15 | CI and tests | **Same workflows and test approach as sverb** (T00, T76): full CI job set, nightly fuzz and benchmarks, reproducible releases, Docker e2e crate with server profiles, snapshot tests at 80×24 and 160×48. Plus a Windows/macOS test job (our addition). |
+
+### Choices made during implementation
+
+Smaller calls made while building, recorded so they can be revisited:
+
+- **T00** MSRV is Rust **1.95** (vergen-gix 10 needs it; same as sverb). Man page and completions use `clap_mangen`/`clap_complete` instead of sverb's hand-written generator. The built-in config moved to `crates/courier-ftp/config/default.json` so `cargo package` works (D10).
+- **T03** `Backend` uses `async-trait`: native `async fn` in traits is not dyn-compatible. `BackendFactory::create` also takes the `SessionId` the backend logs under.
+- **T05** Settings load leniently: a field with a wrong type or out-of-range value is replaced by its default and reported (`Settings::from_value`), so a bad config never stops startup.
+- **T47** A filter has one `scope` field (both / local only / remote only) instead of two booleans. A filter without conditions never matches.
 
 ## Phases and tasks
 

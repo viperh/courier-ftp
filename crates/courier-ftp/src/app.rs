@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use courier_ftp_core::Core;
-
 use crate::{
     action::Action,
     components::{Component, home::Home},
@@ -13,9 +11,8 @@ use crate::{
     tui::{Event, Tui},
 };
 
-pub struct App {
-    /// UI-agnostic domain state, owned by the `courier-ftp-core` crate.
-    core: Core,
+/// The application: owns the components and runs the event loop.
+pub(crate) struct App {
     config: Config,
     tick_rate: f64,
     frame_rate: f64,
@@ -28,19 +25,18 @@ pub struct App {
     action_rx: mpsc::UnboundedReceiver<Action>,
 }
 
-/// Input modes. Keybindings and styles in `.config/config.json` are keyed by
+/// Input modes. Keybindings and styles in `crates/courier-ftp/config/default.json` are keyed by
 /// these names, so adding a variant here means adding a section there too.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Mode {
+pub(crate) enum Mode {
     #[default]
     Normal,
 }
 
 impl App {
-    pub fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
+    pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Ok(Self {
-            core: Core::new()?,
             tick_rate,
             frame_rate,
             components: vec![Box::new(Home::new())],
@@ -54,7 +50,7 @@ impl App {
         })
     }
 
-    pub async fn run(&mut self) -> color_eyre::Result<()> {
+    pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
         let mut tui = Tui::new()?
             // .mouse(true) // uncomment this line to enable mouse support
             .tick_rate(self.tick_rate)
@@ -143,7 +139,6 @@ impl App {
             }
             match action {
                 Action::Tick => {
-                    self.core.tick();
                     self.last_tick_key_events.drain(..);
                 }
                 Action::Quit => self.should_quit = true,

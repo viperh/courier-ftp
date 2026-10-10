@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# The cargo-fuzz crate is its own workspace (nightly, libfuzzer-sys); T91.
+exclude = ["fuzz"]
 
 # Values shared by every crate in the workspace. Each crate opts in with
 # `version.workspace = true` etc. in its own Cargo.toml.
@@ -10,13 +12,41 @@ edition = "2024"
 authors = ["qviperh <olteanromeodavid34@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/viperh/courier-ftp"
-rust-version = "1.85"
+# MSRV: the highest `rust-version` declared by the pinned dependency set
+# (vergen-gix 10). CI job `msrv` checks it; keep in sync with README.
+rust-version = "1.95"
+
+# Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
+[workspace.lints.rust]
+# `deny`, not `forbid`: `forbid` cannot be lifted by an inner `allow`, and the
+# process-hardening module (`crates/courier-ftp-core/src/hardening/`, T91) needs one.
+# `scripts/check-unsafe.py` (CI) fails if `allow(unsafe_code)` appears anywhere else.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "warn"
+# No unwrap()/expect() on anything that can fail at runtime (tasks/README.md).
+# Tests are exempt (clippy.toml).
+unwrap_used = "warn"
+expect_used = "warn"
+await_holding_lock = "deny"
+large_futures = "warn"
 
 # Central dependency versions. Crates reference these with
 # `some-dep = { workspace = true }` so versions stay in lockstep.
 [workspace.dependencies]
 # --- internal ---
-courier-ftp-core = { path = "crates/courier-ftp-core" }
+courier-ftp-core = { path = "crates/courier-ftp-core", version = "0.1.0" }
+courier-ftp-crypto = { path = "crates/courier-ftp-crypto", version = "0.1.0" }
+courier-ftp-proto = { path = "crates/courier-ftp-proto", version = "0.1.0" }
+courier-ftp-proto-ftp = { path = "crates/courier-ftp-proto-ftp", version = "0.1.0" }
+courier-ftp-proto-sftp = { path = "crates/courier-ftp-proto-sftp", version = "0.1.0" }
+courier-ftp-store = { path = "crates/courier-ftp-store", version = "0.1.0" }
+courier-ftp-sync = { path = "crates/courier-ftp-sync", version = "0.1.0" }
 
 # --- tui / terminal ---
 crossterm = { version = "0.29.0", features = ["serde", "event-stream"] }
@@ -24,9 +54,58 @@ ratatui = { version = "0.30.2", features = ["serde", "macros"] }
 signal-hook = "0.4.4"
 
 # --- async runtime ---
+# Only if native `async fn` in traits is not enough for `dyn Backend` (T03).
+async-trait = "0.1.92"
+bytes = "1.12.1"
 futures = "0.3.32"
+pin-project-lite = "0.2.17"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
+
+# --- tls (D9: rustls only) ---
+rustls = { version = "0.23.43", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = "1.15.1"
+rustls-platform-verifier = "0.7.1"
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["logging", "ring", "tls12"] }
+x509-parser = "0.18.1"
+
+# --- ssh (D2) ---
+russh = "0.64.1"
+russh-sftp = "3.0.1"
+# russh 0.64 requires exactly this pre-release.
+ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "encryption"] }
+
+# --- crypto / vault / sync (T80-T82, T87; versions from sverb, D13) ---
+argon2 = "0.6.0"
+bip39 = { version = "3.0.0", default-features = false, features = ["zeroize"] }
+chacha20poly1305 = "0.11.0"
+ed25519-dalek = { version = "3.0.0", features = ["zeroize"] }
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+hkdf = "0.13.0"
+hpke = "0.14.1"
+opaque-ke = { version = "4.0.1", features = ["argon2"] }
+rand_core = "0.10.1"
+secrecy = { version = "0.10.3", features = ["serde"] }
+sha2 = "0.11.0"
+subtle = "2.6.1"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
+zxcvbn = { version = "3.1.0", default-features = false }
+keyring = "4.2.0"
+uhlc = "0.9.0"
+ciborium = "0.2.2"
+zstd = "0.14.0"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite_migration = "2.6.0"
+reqwest = { version = "0.12.28", default-features = false, features = [
+    "json",
+    "rustls-tls-webpki-roots-no-provider",
+] }
+tokio-tungstenite = { version = "0.29.0", default-features = false, features = [
+    "connect",
+    "handshake",
+    "rustls-tls-webpki-roots",
+] }
 
 # --- cli / config ---
 clap = { version = "4.6.1", features = [
@@ -37,10 +116,20 @@ clap = { version = "4.6.1", features = [
     "string",
     "unstable-styles",
 ] }
+clap_complete = "4.6.11"
+clap_mangen = "0.3.3"
 config = "0.15.25"
 directories = "6.0.0"
 json5 = "1.3.1"
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.151"
+
+# --- text / time ---
+# Non-UTF-8 server charsets (T02, T10).
+encoding_rs = "0.8.35"
+globset = "0.4.20"
+regex = "1.13.1"
+time = { version = "0.3.55", features = ["formatting", "local-offset", "macros", "parsing", "serde"] }
 
 # --- errors / diagnostics ---
 better-panic = "0.3.0"
@@ -55,15 +144,60 @@ tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "serde"] }
 
 # --- misc ---
-libc = "0.2.186"
+bytesize = "2.7.0"
+libc = "0.2.189"
+# Watching files opened in an external editor (T63).
+notify = "8.2.0"
+# FileZilla sitemanager.xml import (T32).
+quick-xml = "0.42.0"
 strum = { version = "0.28.0", features = ["derive"] }
+uuid = { version = "1.27.0", features = ["v4", "v7", "serde"] }
 
 # --- build scripts ---
 anyhow = "1.0.103"
 vergen-gix = { version = "10.0.1", features = ["build", "cargo"] }
 
 # --- dev ---
+criterion = "0.8.2"
+insta = "1.49.0"
 pretty_assertions = "1.4.1"
+proptest = "1.11.0"
+rcgen = "0.14.10"
+tempfile = "3.27.0"
+tokio-test = "0.4.6"
+
+# --- server only (T84-T86; versions from sverb) ---
+# rustls everywhere with `ring` as the provider (static musl build). None of these
+# may reach the client build (scripts/check-layering.py).
+axum = { version = "0.8.9", features = ["macros"] }
+axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
+governor = "0.10.4"
+lettre = { version = "0.11.23", default-features = false, features = [
+    "builder",
+    "hostname",
+    "ring",
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls",
+    "webpki-roots",
+] }
+metrics = "0.24.6"
+# Not the `sqlx` facade: its optional sqlx-sqlite pins libsqlite3-sys < 0.38,
+# which conflicts (`links = "sqlite3"`) with rusqlite 0.40 even when unused.
+sqlx-core = { version = "0.8.6", default-features = false, features = [
+    "_rt-tokio",
+    "_tls-rustls-ring-webpki",
+    "json",
+    "migrate",
+    "uuid",
+] }
+sqlx-postgres = { version = "0.8.6", default-features = false, features = [
+    "json",
+    "migrate",
+    "uuid",
+] }
+totp-rs = { version = "5.7.0", default-features = false }
+tower-http = { version = "0.6.11", features = ["compression-gzip", "cors", "limit"] }
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]

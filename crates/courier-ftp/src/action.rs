@@ -7,7 +7,7 @@ use strum::Display;
 /// Add your own variants here; components return them from `update` /
 /// `handle_key_event` and `App::handle_actions` dispatches them.
 #[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
-pub enum Action {
+pub(crate) enum Action {
     Tick,
     Render,
     Resize(u16, u16),
