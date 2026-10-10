@@ -12,6 +12,8 @@ public keys are in that image's `authorized_keys`); this script only re-encodes 
   id_rsa_pkcs8_enc.pem (PKCS#8 PBES2);
 - PuTTY: id_rsa_v2_enc.ppk (v2, AES-256-CBC) and id_ecdsa_v3_enc.ppk (v3, Argon2id);
 - fingerprints.txt: `<file> SHA256:<fingerprint>` for every fixture;
+- canary_ed25519_pkcs8_enc.pem: the id_ed25519 key as encrypted PKCS#8 with the
+  passphrase `CANARY-PP-t20-5d1c` (the loopback canary test, AC16);
 - unsupported keys (generated, not authorized anywhere): unsupported_dsa.pem,
   unsupported_dsa_openssh, unsupported_rsa1024.pem.
 
@@ -188,6 +190,8 @@ def main():
     write("id_rsa_pkcs8_enc.pem", pem(rsa_key, pkcs8, PASS))
     write("id_rsa_v2_enc.ppk", rsa_ppk(rsa_key, 2, COMMENT, PASS))
     write("id_ecdsa_v3_enc.ppk", ecdsa_ppk(ecdsa, 3, COMMENT, PASS))
+
+    write("canary_ed25519_pkcs8_enc.pem", pem(ed, pkcs8, b"CANARY-PP-t20-5d1c"))
 
     # Negative fixtures. They change on every run (fresh keys); nothing trusts them.
     dsa_key = dsa.generate_private_key(key_size=1024)

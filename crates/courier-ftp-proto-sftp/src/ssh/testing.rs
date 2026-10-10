@@ -75,6 +75,8 @@ pub struct TestServerConfig {
     pub disconnect_after_none: Option<(Duration, u32, String)>,
     /// Server algorithm preferences (also `server-sig-algs`).
     pub preferred: Option<Preferred>,
+    /// Each `password` request is answered after this delay.
+    pub auth_delay: Duration,
 }
 
 impl Default for TestServerConfig {
@@ -90,6 +92,7 @@ impl Default for TestServerConfig {
             silent: false,
             disconnect_after_none: None,
             preferred: None,
+            auth_delay: Duration::ZERO,
         }
     }
 }
@@ -215,6 +218,9 @@ impl server::Handler for Handler {
 
     async fn auth_password(&mut self, _user: &str, password: &str) -> Result<Auth, Self::Error> {
         self.note("password".into());
+        if !self.config.auth_delay.is_zero() {
+            tokio::time::sleep(self.config.auth_delay).await;
+        }
         if self.allowed("password") && self.config.password.as_deref() == Some(password) {
             Ok(self.passed("password"))
         } else {
@@ -312,12 +318,18 @@ pub struct TestServer {
     addr: SocketAddr,
     seen: Arc<Mutex<Seen>>,
     task: JoinHandle<()>,
+    connections: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
+    handles: Arc<Mutex<Vec<server::Handle>>>,
     host_key: PublicKey,
 }
 
 impl Drop for TestServer {
+    /// Stops accepting and closes every connection.
     fn drop(&mut self) {
         self.task.abort();
+        for c in lock(&self.connections).drain(..) {
+            c.abort();
+        }
     }
 }
 
@@ -346,6 +358,10 @@ impl TestServer {
         });
         let config = Arc::new(config);
         let seen2 = Arc::clone(&seen);
+        let connections: Arc<Mutex<Vec<tokio::task::AbortHandle>>> = Arc::default();
+        let conns = Arc::clone(&connections);
+        let handles: Arc<Mutex<Vec<server::Handle>>> = Arc::default();
+        let handles2 = Arc::clone(&handles);
         let task = tokio::spawn(async move {
             let mut held = Vec::new();
             loop {
@@ -368,11 +384,13 @@ impl TestServer {
                 };
                 let server_config = Arc::clone(&server_config);
                 let disconnect = config.disconnect_after_none.clone();
-                tokio::spawn(async move {
+                let handles = Arc::clone(&handles2);
+                let conn = tokio::spawn(async move {
                     let Ok(running) = server::run_stream(server_config, stream, handler).await
                     else {
                         return;
                     };
+                    lock(&handles).push(running.handle());
                     if let Some((delay, code, text)) = disconnect {
                         let handle = running.handle();
                         let reason = russh::Disconnect::try_from(code)
@@ -386,13 +404,30 @@ impl TestServer {
                     }
                     let _ = running.await;
                 });
+                lock(&conns).push(conn.abort_handle());
             }
         });
         Self {
             addr,
             seen,
             task,
+            connections,
+            handles,
             host_key,
+        }
+    }
+
+    /// Disconnect every connection (`ByApplication`, "server shutting down").
+    pub async fn shutdown(&self) {
+        let handles: Vec<server::Handle> = lock(&self.handles).drain(..).collect();
+        for h in handles {
+            let _ = h
+                .disconnect(
+                    russh::Disconnect::ByApplication,
+                    "server shutting down".into(),
+                    "en".into(),
+                )
+                .await;
         }
     }
 

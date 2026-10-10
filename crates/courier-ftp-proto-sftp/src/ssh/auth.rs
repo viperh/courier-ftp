@@ -1180,8 +1180,22 @@ impl AuthIo for PromptIo<'_> {
             .events
             .prompt_tracked(self.log.session, kind, Some(self.cancel));
         let answer = tokio::select! {
-            r = asked => r,
-            _ = closed.wait_for(|c| *c) => return Err(SshError::ClosedWhilePrompting),
+            r = asked => Some(r),
+            r = closed.wait_for(|c| *c) => {
+                drop(r);
+                None
+            }
+        };
+        let Some(answer) = answer else {
+            // A "too many connections" disconnect keeps its meaning (T41).
+            return Err(match self.shared.end_cause(END_CAUSE_WAIT).await {
+                Some(cause @ EndCause::Remote { code, .. })
+                    if code == super::errors::DISCONNECT_TOO_MANY_CONNECTIONS =>
+                {
+                    cause.to_error(0)
+                }
+                _ => SshError::ClosedWhilePrompting,
+            });
         };
         let (id, response) = match answer {
             Ok(a) => a,
