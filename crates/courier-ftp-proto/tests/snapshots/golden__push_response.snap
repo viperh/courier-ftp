@@ -1,0 +1,42 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "results": [
+    {
+      "id": "01900000-0000-7000-8000-000000000020",
+      "status": "ok",
+      "revision": 43
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000000021",
+      "status": "conflict",
+      "current": {
+        "id": "01900000-0000-7000-8000-00000000003a",
+        "revision": 42,
+        "key_version": 1,
+        "envelope": "-_8q",
+        "deleted": false
+      }
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000000022",
+      "status": "conflict"
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000000023",
+      "status": "too_large",
+      "message": "envelope exceeds 1 MiB"
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000000024",
+      "status": "too_large",
+      "message": "quota exceeded"
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000000025",
+      "status": "forbidden"
+    }
+  ]
+}

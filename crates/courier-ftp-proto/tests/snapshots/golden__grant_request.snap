@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "permission": "write",
+  "key_version": 2,
+  "wrapped_vault_key": "MzMzMzMzMzM",
+  "signature": "RERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERA"
+}
