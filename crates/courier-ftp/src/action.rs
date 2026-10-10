@@ -4,7 +4,13 @@
 use serde::{Deserialize, Serialize};
 use strum::{Display, VariantNames};
 
-use crate::{components::main_screen::layout::Region, runtime::TaskId};
+use crate::{
+    components::{
+        file_list::{PaneId, PaneInput, PaneRequest},
+        main_screen::layout::Region,
+    },
+    runtime::TaskId,
+};
 
 /// Help-overlay and documentation group of a bindable action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, strum::EnumIter)]
@@ -99,6 +105,11 @@ pub(crate) const INTERNAL: &[&str] = &[
     "SettingsSaved",
     "QuitConfirmed",
     "Wake",
+    "Pane",
+    "PaneInput",
+    "PaneSettings",
+    "SaveCredential",
+    "CertificateChain",
 ];
 
 macro_rules! actions {
@@ -167,6 +178,7 @@ actions! {
         StatusMessage(String),
         /// A transient status-bar message with a level (T57: 3/5/8 s).
         #[serde(skip)]
+        #[cfg_attr(not(test), allow(dead_code, reason = "sent by components (T53–T71)"))]
         StatusNotice(crate::components::status_bar::MessageLevel, String),
         /// Focus a region.
         #[serde(skip)]
@@ -187,6 +199,21 @@ actions! {
         /// An async widget result is ready (path completion, T52): poll the dialogs.
         #[serde(skip)]
         Wake,
+        /// A file list pane asks the app to do something (T53).
+        #[serde(skip)]
+        Pane(PaneRequest),
+        /// An input for one file list pane (results, events; T53).
+        #[serde(skip)]
+        PaneInput(PaneId, PaneInput),
+        /// New settings for one file list pane (T53).
+        #[serde(skip)]
+        PaneSettings(PaneId, std::sync::Arc<courier_ftp_core::settings::Settings>),
+        /// Save a typed secret in the vault once the server accepted it (T69 → T31).
+        #[serde(skip)]
+        SaveCredential(crate::components::prompts::SaveRequest),
+        /// Show the certificate chain of the focused tab's session (T57 → T69).
+        #[serde(skip)]
+        CertificateChain,
     }
     bindable {
         // ---- Normal: general ----

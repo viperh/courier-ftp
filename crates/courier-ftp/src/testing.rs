@@ -67,7 +67,7 @@ fn paused_runtime() -> Runtime {
 
 /// Yields enough for spawned tasks to run, then dispatches everything pending.
 async fn settle_app(app: &mut App) {
-    for _ in 0..1000 {
+    for _ in 0..5000 {
         for _ in 0..16 {
             tokio::task::yield_now().await;
         }
@@ -76,7 +76,12 @@ async fn settle_app(app: &mut App) {
             (Err(e), _) | (_, Err(e)) => panic!("dispatch failed: {e:?}"),
         };
         if n == 0 {
-            return;
+            // A blocking job (view build, settings save) still running will send an
+            // action when done: wait for it in real time (paused time does not).
+            if crate::runtime::BLOCKING_IN_FLIGHT.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
 }
@@ -297,6 +302,19 @@ impl AppHarness {
     }
 
     /// Drain pending actions, core events and finished tasks.
+    /// Wait (in real time, at most 5 s) until a pending settings save has been
+    /// written: the write runs on a blocking thread that `advance` does not wait for.
+    pub(crate) fn wait_saved(&mut self) -> &mut Self {
+        for _ in 0..500 {
+            self.settle();
+            if !self.app.save_pending() {
+                return self;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the settings save did not finish within 5 s");
+    }
+
     pub(crate) fn settle(&mut self) -> &mut Self {
         let Self { app, rt, .. } = self;
         rt.block_on(settle_app(app));

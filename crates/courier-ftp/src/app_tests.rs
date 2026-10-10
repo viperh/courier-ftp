@@ -343,7 +343,8 @@ fn suspend_on_windows_shows_message() {
 }
 
 #[test]
-fn prompt_without_dialog_is_dropped_and_logged() {
+fn message_prompt_is_answered_from_its_dialog() {
+    // T69 replaced "dropped and logged": the prompt opens a dialog and Enter answers.
     let mut h = harness();
     let tx = h.app().events_sender().clone();
     let task = h.runtime().spawn(async move {
@@ -358,11 +359,17 @@ fn prompt_without_dialog_is_dropped_and_logged() {
         .await
     });
     h.settle();
+    h.advance(std::time::Duration::from_millis(800));
+    assert!(h.app().prompts.is_visible());
+    h.keys("enter");
     let res = match h.runtime().block_on(task) {
         Ok(r) => r,
         Err(e) => panic!("join: {e}"),
     };
-    assert!(res.is_err(), "the core sees a cancel");
+    assert!(
+        matches!(res, Ok(courier_ftp_core::events::PromptResponse::Ack)),
+        "the core gets Ack"
+    );
 }
 
 #[test]

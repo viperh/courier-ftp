@@ -20,11 +20,13 @@ use crate::{
 };
 
 pub(crate) mod dialog;
+pub(crate) mod file_list;
 pub(crate) mod help;
 pub(crate) mod main_screen;
 pub(crate) mod message_log;
 pub(crate) mod modal;
 pub(crate) mod placeholder;
+pub(crate) mod prompts;
 pub(crate) mod server_info;
 pub(crate) mod status_bar;
 pub(crate) mod which_key;

@@ -9,13 +9,13 @@ expression: "hs.render(w, h)"
 │         │  Host             │ example.org                          │         │
 └─────────│  Password         │                                      │─────────┘
 ┏▶Local ━━│  Port             │ 22                                   │─────────┐
-┃(not avai│  Passive mode     │ [x]                                  │         │
+┃         │  Passive mode     │ [x]                                  │         │
 ┃         │  Execute          │ [-]                                  │         │
 ┃         │ ▶Protocol         │ SFTP                               ▾ │         │
 ┃         │  Transfer mode    │ ┌────────────────────────────┐y      │         │
 ┃         │  Remote directory │ │FTP                         │       │         │
-┃         │  Comments         │ │FTPS (explicit)             │       │         │
-┃         │                     │SFTP                        │       │         │
+┃         │  Comments         │ │FTPS (explicit)             │       │ver      │
+┃         │                     │SFTP                        │       │Quickcon…│
 ┃         │  Columns          │ └────────────────────────────┘       │         │
 ┃         │                     [x] Size                             │         │
 ┃         │                     [ ] Owner                            │         │

@@ -429,20 +429,20 @@ reported by T31 as an error dialog; the connection is unaffected.
 
 ## Acceptance criteria
 
-- [ ] AC1 Snapshot tests exist at 80×24 and 160×48 for: unknown host key (vault unlocked, locked, other key type note), changed host key (empty field, matching text), password (first, retry, with/without save), passphrase, keyboard-interactive (1 and 2 prompts, long instructions), unknown certificate (summary, details page 1 and 2, expired), changed certificate, file exists (download, upload, resume disabled, rename invalid), badge in the status bar.
-- [ ] AC2 Changed host key / certificate: with an empty or wrong host name, `Enter` on every focusable element and `Esc` answer `Reject`; `Trust once`/`Replace` are unreachable by Tab until the host name matches; `Enter` in the field never answers.
-- [ ] AC3 Keys pressed within 500 ms after a prompt opens have no effect (paused-time test).
-- [ ] AC4 Three prompts pushed at once (one foreground, two background) are shown one at a time, foreground first, then FIFO; answering one shows the next on the following tick.
-- [ ] AC5 A background prompt arriving while `mode == Input` only shows the badge; it opens after `ctrl-x p`, or automatically after 2 s without keys in `Normal` mode.
-- [ ] AC6 Closing the reply sender removes the prompt (and closes the visible dialog) within one tick and shows the withdrawn message.
-- [ ] AC7 Typed passwords never appear in any rendered buffer or `Debug` output (snapshot buffers searched for the typed canary string).
-- [ ] AC8 "Remember for this session" answers the next non-retry prompt with the same `cache_key` without opening a dialog; retry prompts always open; vault lock clears the cache.
-- [ ] AC9 "Save in the vault" emits `Action::SaveCredential` only after `CredentialAccepted`; a failed connect emits nothing and drops the pending secret (drop counter = typed secrets).
-- [ ] AC10 Keyboard-interactive: echo flags respected (masked vs plain in snapshots); `Enter` advances fields and submits on the last one; answers arrive in prompt order.
-- [ ] AC11 File exists: every radio × checkbox combination maps to the documented `ExistsAction`/`apply_to`/`new_name`; Resume can't be selected when `can_resume` is false; invalid rename names block OK with an inline message.
-- [ ] AC12 Vault lock while a prompt is visible hides it; after unlock it is shown again with its original content; "Always trust"/"Save in the vault" follow `can_save`.
-- [ ] AC13 At 60×20 dialogs scroll instead of clipping buttons; below T52's minimum the "terminal too small" message shows and no answer is sent.
-- [ ] AC14 T00 gates pass (`fmt`, `clippy -D warnings`, `docs`, tests).
+- [x] AC1 Snapshot tests exist at 80×24 and 160×48 for: unknown host key (vault unlocked, locked, other key type note), changed host key (empty field, matching text), password (first, retry, with/without save), passphrase, keyboard-interactive (1 and 2 prompts, long instructions), unknown certificate (summary, details page 1 and 2, expired), changed certificate, file exists (download, upload, resume disabled, rename invalid), badge in the status bar.
+- [x] AC2 Changed host key / certificate: with an empty or wrong host name, `Enter` on every focusable element and `Esc` answer `Reject`; `Trust once`/`Replace` are unreachable by Tab until the host name matches; `Enter` in the field never answers.
+- [x] AC3 Keys pressed within 500 ms after a prompt opens have no effect (paused-time test).
+- [x] AC4 Three prompts pushed at once (one foreground, two background) are shown one at a time, foreground first, then FIFO; answering one shows the next on the following tick.
+- [x] AC5 A background prompt arriving while `mode == Input` only shows the badge; it opens after `ctrl-x p`, or automatically after 2 s without keys in `Normal` mode.
+- [x] AC6 Closing the reply sender removes the prompt (and closes the visible dialog) within one tick and shows the withdrawn message.
+- [x] AC7 Typed passwords never appear in any rendered buffer or `Debug` output (snapshot buffers searched for the typed canary string).
+- [x] AC8 "Remember for this session" answers the next non-retry prompt with the same `cache_key` without opening a dialog; retry prompts always open; vault lock clears the cache.
+- [x] AC9 "Save in the vault" emits `Action::SaveCredential` only after `CredentialAccepted`; a failed connect emits nothing and drops the pending secret (drop counter = typed secrets).
+- [x] AC10 Keyboard-interactive: echo flags respected (masked vs plain in snapshots); `Enter` advances fields and submits on the last one; answers arrive in prompt order.
+- [x] AC11 File exists: every radio × checkbox combination maps to the documented `ExistsAction`/`apply_to`/`new_name`; Resume can't be selected when `can_resume` is false; invalid rename names block OK with an inline message.
+- [x] AC12 Vault lock while a prompt is visible hides it; after unlock it is shown again with its original content; "Always trust"/"Save in the vault" follow `can_save`.
+- [x] AC13 At 60×20 dialogs scroll instead of clipping buttons; below T52's minimum the "terminal too small" message shows and no answer is sent.
+- [x] AC14 T00 gates pass (`fmt`, `clippy -D warnings`, `docs`, tests).
 
 ## Tests
 
@@ -513,3 +513,78 @@ In `courier-ftp-e2e` (T76 `PtyApp`, `#[ignore]`, `COURIER_E2E=1`), once T58 exis
    pre-check "Always trust" when the vault is unlocked. Keep, or default to trust-once?
 
 (Resolved by the coordinator: payloads and answers are T04's final types listed above.)
+
+## Implementation notes
+
+- **Files.** `components/prompts.rs` (the `PromptDialog` trait, `Step`, `PromptEnv`,
+  `build_dialog`, `answer_from_cache`) and `components/prompts/`: `queue.rs`
+  (`PromptQueue`, `PromptOrigin`, `UiFocusState`, `PromptTick`, `PromptAnswered`),
+  `secrets.rs` (`SecretCache`, `PendingCredentials`, `Pending`, `SaveRequest`,
+  `CredentialField`), `layout.rs` (rows, scrolling, frame, key classification shared by
+  the dialogs), one file per dialog (`host_key.rs`, `certificate.rs`, `secret.rs`,
+  `kbd.rs` — named for the spec's test path `prompts::kbd::tests` —, `file_exists.rs`,
+  `message.rs`). All payload types exist in T04, so every dialog (certificates and
+  file exists included) is built now.
+- **Where the dialog lives.** The queue owns the visible prompt dialog (not the
+  `ModalStack`): it is drawn after every modal, takes every key while visible
+  (`App::mode()` is `Dialog` then) and opens only while no other modal is open. Prompt
+  dialogs build their content as rows at the dialog width (`layout::Body`); the shared
+  renderer scrolls them (keeping the focused row visible, `▲`/`▼` markers) and draws
+  text fields with T52's `TextInput`/`SecretInput`. Below 30×8 (or when the body does
+  not fit at all) T52's "Terminal too small" text shows and keys are ignored, so
+  nothing can be answered unseen.
+- **Opening is done by the tick** (`App::run_prompt_tick`, every `Tick` and after every
+  key), not when the event arrives, so prompts arriving together open foreground first
+  (AC4). `PromptQueue::tick` returns `Vec<PromptTick>` (several things can change in one
+  tick); `Withdrawn` is reported for the visible prompt only (status message), a
+  withdrawn queued prompt gives `BadgeChanged`. `PromptTick::Unchanged` is not needed.
+- **Background idle rule.** "`mode == Normal`" is read as "not a text or dialog mode":
+  background prompts open in `Normal`, `FileList`, `Tree`, `Log` and `Queue`, never in
+  `Input`, `Filter`, `Dialog` or `SiteManager` (with the literal rule they would never
+  open while a file list has the focus). Keys answered inside a prompt dialog do not
+  reset the 2 s idle timer (`note_key` is called only for keys routed elsewhere), so the
+  next prompt can open on the following tick (AC4).
+- **Origin.** Until T61 there is one tab: a prompt is `Foreground` when its session was
+  opened with `SessionPurpose::Browse` (or the app has not seen it open), `Background`
+  for `Transfer`/`Search`/`Other` sessions (`App` tracks `SessionOpened`/`SessionClosed`).
+  T61 must narrow this to the active tab's browsing session.
+- **`SaveRequest`** has no `SiteRef` (T31 does not exist): it carries `session`, the
+  prompt's `key: SecretCacheKey`, `field` and `value: Arc<SecretString>` (`Arc` because
+  `Action` is `Clone`). `Action::SaveCredential` currently shows "Saving credentials in
+  the vault is not available yet"; T31 replaces that arm in `App::dispatch`.
+  `PendingCredentials` drops a secret on `Disconnected`/`SessionClosed` of its session,
+  after 5 minutes (checked every tick), or when the answer could not be delivered.
+- **Vault lock.** `App::set_vault_locked(bool)` (for T60) suspends the queue, clears the
+  `SecretCache` and re-queues the visible prompt at the front (rebuilt from its payload
+  when reopened). There is no lock event yet, so nothing calls it outside tests.
+- **`PromptQueue::push`/`open_next`** take `now` as specified but do not need it;
+  formats and the certificate clock come from `PromptQueue::set_env(PromptEnv)` (set from
+  the interface settings at start and on every interface change; tests fix "now").
+- **Changed key/certificate.** The typed-host-name part is `host_key::ChangedConfirm`,
+  shared by both dialogs. Focus order: field → (`Details…`) → `Cancel` → `Trust once` →
+  `Replace…`; `Alt-c` also cancels; `Left`/`Right` move between enabled buttons. The
+  certificate variant's button reads `Replace trusted certificate`.
+- **Certificate details.** `certificate::DetailsView` is shared by the prompt and the new
+  `CertificateChainDialog` (a T52 `Dialog`), which T57's `[ Details ]` now opens through
+  the internal `Action::CertificateChain` (T57's test was updated). Problem texts and the
+  `✔`/`✘` (`ok`/`x`) marks follow the mock-ups; the role in the details title is
+  `server`, `intermediate` or `root` (last certificate that is a CA or self-signed).
+  `render_host_key_details` / `render_certificate_details` return unwrapped lines; the
+  dialogs wrap at their width.
+- **Messages and unknown kinds.** `PromptKind::Message` gets a small `OK` dialog (`Ack`
+  on Enter/Esc); a future `PromptKind` variant shows "This question is not supported…"
+  and answers `Cancel`.
+- **Style keys** `prompt.danger` (bold red; bold in monochrome) and `prompt.ok` (green)
+  were added to `config/config.json` and the theme.
+- **Tests.** Unit tests as named (`prompts::queue::tests::*`, `prompts::secrets::tests::*`,
+  …). The UI-flow tests are in `components/prompts/app_tests.rs` (the binary crate has
+  no library a `tests/prompts_flow.rs` could import); snapshots are in
+  `components/prompts/snapshots/` (crate convention) with the style legend appended, and
+  include `kbd_one_prompt`. The secret-cache flow uses a fake core (no T20 server).
+  `tests::Prompter` produces real `PromptRequest`s through `EventSender::prompt_with_cancel`
+  on helper threads. `uuid` is a new dev-dependency (vault item ids in fixtures; already
+  in the lock file).
+- **Not done here:** the PTY tests `pty_unknown_host_key_trust_then_silent` and
+  `pty_changed_host_key_enter_rejects` need T58's quickconnect (no way to connect from
+  the TUI yet).
+

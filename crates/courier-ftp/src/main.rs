@@ -38,6 +38,7 @@ fn main() -> color_eyre::Result<()> {
     // `time` reads the local UTC offset only while the process is single-threaded,
     // so before the runtime starts (message log timestamps, T55).
     crate::components::message_log::init_local_offset();
+    crate::components::file_list::format::capture_local_offset();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?

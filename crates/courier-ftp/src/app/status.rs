@@ -11,6 +11,7 @@ use super::App;
 use crate::{
     action::Action,
     components::{
+        prompts::CertificateChainDialog,
         server_info::{ServerInfoChoice, ServerInfoDialog, ServerInfoView},
         status_bar::{
             KeyHint, MessageLevel, QueueSummary, SecurityIndicator, SpeedLimitIndicator,
@@ -152,13 +153,27 @@ impl App {
         );
         let dialog = ServerInfoDialog::new(view, self.symbols.unicode);
         self.modals.push_then(dialog, |choice| {
-            (choice == Some(ServerInfoChoice::Details)).then(|| {
-                Action::StatusNotice(
-                    MessageLevel::Info,
-                    "Certificate details are not available yet".to_owned(),
-                )
-            })
+            (choice == Some(ServerInfoChoice::Details)).then_some(Action::CertificateChain)
         });
         self.dirty = true;
+    }
+
+    /// `[ Details ]` of the server information dialog: the session's certificate
+    /// chain (T69's details view).
+    pub(crate) fn open_certificate_chain(&mut self) {
+        let chain = self
+            .status_sources
+            .session
+            .as_ref()
+            .and_then(|s| s.info.tls.as_ref())
+            .map(|t| t.chain.clone());
+        match chain {
+            Some(chain) => {
+                let dialog = CertificateChainDialog::new(chain, time::OffsetDateTime::now_utc());
+                self.modals.push_then(dialog, |_| None);
+                self.dirty = true;
+            }
+            None => self.notify(MessageLevel::Info, "No certificate to show"),
+        }
     }
 }

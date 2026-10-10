@@ -9,13 +9,13 @@ expression: "hs.render(w, h)"
 │   │ keybindings.Queue."x": unknown action "Remove" (see docs/keybindings │   │
 └───│ styles: unknown style key `bogus`                                    │───┘
 ┏▶Lo│                                                                      │───┐
-┃(no│                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
+┃   │                                                                      │on…│
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │

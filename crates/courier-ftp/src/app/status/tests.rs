@@ -74,7 +74,7 @@ fn cycle_transfer_type_order_and_persist() {
     );
     assert!(last_row(&h.render(80, 24)).contains("Type: Binary"));
     // The debounced save writes the user config.
-    h.advance(Duration::from_secs(2));
+    h.advance(Duration::from_secs(2)).wait_saved();
     let paths = h.paths().unwrap();
     let saved = Config::new(&paths).unwrap();
     assert_eq!(
@@ -102,7 +102,7 @@ fn toggle_speed_limit_refused_without_limits() {
         .set_transient(|s| s.transfers.upload_limit_kib = 64);
     h.action(Action::ToggleSpeedLimit);
     assert!(h.app().settings.current().transfers.speed_limit_enabled);
-    h.advance(Duration::from_secs(2));
+    h.advance(Duration::from_secs(2)).wait_saved();
     let saved = Config::new(&h.paths().unwrap()).unwrap();
     assert!(saved.settings.transfers.speed_limit_enabled);
     assert_eq!(saved.settings.transfers.upload_limit_kib, 64);
@@ -182,11 +182,11 @@ fn server_info_dialog_for_sessions() {
     h.action(Action::ServerInfo);
     let screen = h.render(80, 24);
     assert!(screen.contains("[ Details ]"), "{screen}");
-    // `Details` (T69 renders the chain) reports that it is not there yet.
+    // `Details` opens T69's certificate chain view.
     h.keys("backtab enter");
+    assert_eq!(h.app().modals.kinds(), [Some("certificate_chain")]);
+    let screen = h.render(80, 24);
+    assert!(screen.contains("Certificate 1 of"), "{screen}");
+    h.keys("esc");
     assert!(h.app().modals.is_empty());
-    assert_eq!(
-        status_text(&h).map(|s| s.0),
-        Some("Certificate details are not available yet".to_owned())
-    );
 }
