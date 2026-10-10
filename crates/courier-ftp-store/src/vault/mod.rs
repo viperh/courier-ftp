@@ -19,6 +19,12 @@
 //!   a read-modify-write inside one, so several processes count every failure.
 
 mod os_keyring;
+// The sync client's access to the engine (T87/T88): LMK-scoped helpers,
+// transactional commits with a state reload, recovery re-keying, and applying
+// pulled items under the state lock.
+pub mod sync;
+
+pub use self::sync::{PasswordWrap, RecoveredKey};
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -230,6 +236,7 @@ struct Meta {
     failures: Option<Vec<u8>>,
     next_allowed: Option<Vec<u8>>,
     db_id: Option<Vec<u8>>,
+    account: bool,
 }
 
 impl Meta {
@@ -297,6 +304,7 @@ impl VaultEngine {
                     failures: r.get_meta(keys::UNLOCK_FAILURES)?,
                     next_allowed: r.get_meta(keys::UNLOCK_NEXT_ALLOWED_AT)?,
                     db_id: r.get_meta(keys::DB_ID)?,
+                    account: r.get_meta(keys::ACCOUNT)?.is_some(),
                 })
             })
             .await
@@ -322,6 +330,7 @@ impl VaultEngine {
             backoff,
             retry_after: backoff.check(self.inner.store.now()).err(),
             unlock_method: method,
+            sync_account: m.account,
         })
     }
 
@@ -766,6 +775,26 @@ impl VaultEngine {
         method: UnlockMethod,
     ) -> Result<UnlockReport, VaultError> {
         let lmk = self.track(lmk);
+        let (unlocked, report) = self.load_unlocked(lmk, method, Hlc::ZERO).await?;
+        *self.inner.state.write().await = Some(unlocked);
+        tracing::info!(
+            items = report.items,
+            undecryptable = report.undecryptable,
+            read_only = report.read_only,
+            "vault unlocked"
+        );
+        Ok(report)
+    }
+
+    /// Builds the unlocked state from the store with `lmk`: unwraps every
+    /// vault key, decrypts and migrates every item, loads the device id and
+    /// the HLC (never behind `min_hlc`). Does not touch `self.inner.state`.
+    async fn load_unlocked(
+        &self,
+        lmk: TrackedKey,
+        method: UnlockMethod,
+        min_hlc: Hlc,
+    ) -> Result<(Unlocked, UnlockReport), VaultError> {
         let (rows, items, device, hlc) = self
             .inner
             .store
@@ -806,7 +835,8 @@ impl VaultEngine {
             .ok_or_else(|| VaultError::Corrupt("the personal vault key is missing".into()))?;
         let device =
             device.ok_or_else(|| VaultError::Corrupt("meta.device_id is missing".into()))?;
-        let clock = HlcClock::new(SystemClock).with_last(hlc.unwrap_or(Hlc::ZERO));
+        let last = hlc.unwrap_or(Hlc::ZERO).max(min_hlc);
+        let clock = HlcClock::new(SystemClock).with_last(last);
         let mut unlocked = Unlocked {
             lmk,
             vaults,
@@ -850,14 +880,7 @@ impl VaultEngine {
                 }
             }
         }
-        *self.inner.state.write().await = Some(unlocked);
-        tracing::info!(
-            items = report.items,
-            undecryptable = report.undecryptable,
-            read_only = report.read_only,
-            "vault unlocked"
-        );
-        Ok(report)
+        Ok((unlocked, report))
     }
 
     /// Locks: drops (and zeroizes) every key and every decrypted item. Only

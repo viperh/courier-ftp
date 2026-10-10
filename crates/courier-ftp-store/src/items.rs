@@ -228,6 +228,17 @@ impl WriteTx<'_> {
     /// [`StoreError::InvalidEnvelope`], [`StoreError::NotFound`] (unknown vault),
     /// or a SQLite error.
     pub fn apply_remote(&self, vault: VaultId, page: &[RemoteItem], new_cursor: i64) -> Result<()> {
+        self.apply_remote_items(vault, page)?;
+        self.set_sync_cursor(vault, new_cursor)
+    }
+
+    /// [`WriteTx::apply_remote`] without touching the cursor: a push conflict
+    /// merged with the server's current copy (T88), where the cursor must not
+    /// move past revisions not pulled yet.
+    ///
+    /// # Errors
+    /// [`StoreError::InvalidEnvelope`], or a SQLite error (e.g. unknown vault).
+    pub fn apply_remote_items(&self, vault: VaultId, page: &[RemoteItem]) -> Result<()> {
         for item in page {
             check_envelope(&item.envelope, item.key_version)?;
             self.conn.execute(
@@ -260,7 +271,7 @@ impl WriteTx<'_> {
                 self.dequeue(item.id)?;
             }
         }
-        self.set_sync_cursor(vault, new_cursor)
+        Ok(())
     }
 
     /// Records a successful push of `id` at server `revision`.

@@ -928,7 +928,7 @@ impl App {
                 let facts = VaultFacts {
                     keyring_enabled: status.keyring_enabled,
                     keyring_available,
-                    sync_account: false,
+                    sync_account: status.sync_account,
                 };
                 let keyring_first = status.state == VaultState::Locked && status.keyring_enabled;
                 match status.state {

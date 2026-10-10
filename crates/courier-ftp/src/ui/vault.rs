@@ -73,8 +73,9 @@ pub(crate) struct VaultFacts {
     pub(crate) keyring_enabled: bool,
     /// The OS keyring works (offer the first-run checkbox).
     pub(crate) keyring_available: bool,
-    /// A sync account exists (recovery code + words, T90). Always `false`
-    /// until sync accounts exist.
+    /// This device is signed in to a sync account (`VaultStatus::sync_account`,
+    /// T87): a forgotten password can be reset with the recovery code and the
+    /// 24 words (the screens are T90).
     pub(crate) sync_account: bool,
 }
 
@@ -314,7 +315,7 @@ impl VaultView {
         if self.facts.keyring_enabled {
             options.push(ForgotOption::KeyringReset);
         }
-        if !self.facts.keyring_enabled && !self.facts.sync_account {
+        if !self.facts.keyring_enabled {
             options.push(ForgotOption::RestoreBackup);
             options.push(ForgotOption::NewVault);
         }
@@ -779,7 +780,14 @@ impl VaultView {
                          vault, then you choose a new master password.",
                         Style::new(),
                     );
-                } else if !self.facts.sync_account {
+                } else if self.facts.sync_account {
+                    body.text(
+                        "This device is signed in to a sync account. Resetting the master \
+                         password with the account's recovery code and 24-word recovery key \
+                         is not available on this screen yet.",
+                        Style::new(),
+                    );
+                } else {
                     body.text(
                         "There is no way to recover a forgotten master password on this device: \
                          keyring unlock is off and there is no sync account with a recovery key.",

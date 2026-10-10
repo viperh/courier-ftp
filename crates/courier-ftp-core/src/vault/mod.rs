@@ -101,6 +101,11 @@ pub struct VaultStatus {
     pub retry_after: Option<Duration>,
     /// How the current session was unlocked (`None` while locked).
     pub unlock_method: Option<UnlockMethod>,
+    /// This device is (or was, before a sign-out elsewhere) signed in to a
+    /// sync account (`meta.account`, T87): a forgotten password can be reset
+    /// with the account's recovery code and 24-word recovery key. Readable
+    /// while locked.
+    pub sync_account: bool,
 }
 
 /// Kinds whose password fields `vault.store_passwords = false` keeps out of
