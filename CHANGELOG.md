@@ -66,3 +66,7 @@ the section matching the tag.
 - FTP directory listing parsers (T13): MLSD/MLST, Unix ls -l (shared with
   SFTP), DOS/IIS, EPLF, VMS, MVS/z/OS, IBM i and NetWare, with year inference,
   server time-zone offset and per-line charset fallback; listing fuzz target.
+- Crypto crate (T80, courier-ftp-crypto): XChaCha20-Poly1305 item envelopes,
+  Argon2id KDF with CBOR parameters, key wrapping, OPAQUE, account and
+  recovery keys (BIP39), HPKE vault-key grants, Ed25519 signing and safety
+  numbers, adapted from sverb.
