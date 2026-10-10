@@ -1,0 +1,6 @@
+total 8
+drwxr-xr-x   2 proftpd  proftpd      4096 Jan 31 12:00 incoming
+-rw-r--r--   1 proftpd  proftpd       512 Jan 31 12:00 readme
+-rw-r--r--    1 1001       1001               9 Feb 29 10:00 leap-day.txt
+drwxr-xr-x    5 1001       1001            4096 Jun 15 12:00 www
+-rw-r--r--    1 domain user  Domain Users      77 Jun  1 09:30 spaces-in-group.txt

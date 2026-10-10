@@ -1,0 +1,61 @@
+# Hard gates for the performance targets, read by `scripts/bench-gate.py gate`.
+# `bench` is criterion's `group/function` directory. The spec value is for the
+# reference machine (`--local`); CI runners get 2x (twice the time, half the
+# throughput). Regressions in every bench are caught by `bench-gate.py compare`
+# (> 15 %). Startup is gated by `crates/courier-ftp/tests/startup.rs` (T76).
+#
+# Each task adds its gate when its bench exists. Format (times in ms, may be
+# fractional; throughput in MB/s):
+#
+#   [[gate]]
+#   bench = "queue/next_runnable_100k"     # T40
+#   max_ms = 0.02
+#   ci_max_ms = 0.04
+#
+#   [[gate]]
+#   bench = "transfer_engine/mock_single_stream_1gib"   # T41b
+#   min_mb_s = 1000
+#   ci_min_mb_s = 500
+#
+# Planned (tasks/00-ci-cd-workflows.md §4): listing_parse/{unix,mlsd}_10k_lines (T13),
+# file_list/{sort_100k,render_100k_160x48} (T53), index_build_10k/decrypt_and_index
+# (T30), transfer_schedule/plan_10k_files, transfer_engine/mock_{single_stream,
+# segmented_4x}_1gib, segment_plan/claim_reserve_100k (T41b), ascii_convert/crlf_8MiB
+# (T11), queue/{add_100k,move_1k_to_top_of_100k,rows_window_100k,next_runnable_100k}
+# (T40), transfer_engine/mock_10k_small_files (T41), rate_limit/acquire_unlimited_1m
+# (T44).
+
+[[gate]]
+bench = "listing_parse/listing_unix_100k"   # T13 AC10
+max_ms = 150
+ci_max_ms = 300
+
+[[gate]]
+bench = "filters/filters_10k_10_regex"      # T47 AC8
+max_ms = 10
+ci_max_ms = 20
+
+[[gate]]
+bench = "cache/cache_patch_100k"            # T46 AC10
+max_ms = 5
+ci_max_ms = 10
+
+[[gate]]
+bench = "message_log/log_push"              # T55 AC9: >= 200 000 lines/s
+max_ms = 0.005
+ci_max_ms = 0.01
+
+[[gate]]
+bench = "message_log/log_render_full_ring"  # T55 AC9
+max_ms = 1
+ci_max_ms = 2
+
+[[gate]]
+bench = "file_list/file_list_view_build_100k"  # T53 AC7
+max_ms = 80
+ci_max_ms = 160
+
+[[gate]]
+bench = "vault/vault_unlock_10k"            # T30 AC15
+max_ms = 500
+ci_max_ms = 1000

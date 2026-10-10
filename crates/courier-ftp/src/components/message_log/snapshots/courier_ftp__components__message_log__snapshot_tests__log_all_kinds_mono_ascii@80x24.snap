@@ -1,0 +1,47 @@
+---
+source: crates/courier-ftp/src/components/message_log/snapshot_tests.rs
+expression: text
+---
++ Message log - Tab 1 ---------------------------------------------------------+
+|12:00:01 Status:   Resolving address of example.com                           |
+|12:00:02 Status:   Warning: server clock is 3 minutes ahead                   |
+|12:00:03 Command:  LIST -a                                                    |
+|12:00:04 Response: 150 Opening data connection                                |
+|12:00:05 Error:    Connection timed out after 20 seconds                      |
+|12:00:06 Trace:    send_packet(len=52)                                        |
+|12:00:07 Listing:  drwxr-xr-x    2 www      www          4096 May  2 10:02    |
+|                   html                                                       |
+|12:00:08 Response: 220 ^[[31mred^[[0m banner <U+202E>gpj.exe                  |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+--- styles ---
+  1   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2  10+7   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2  20+40  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  3   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  4   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  5   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  5  10+6   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  5  20+37  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  6   1+15  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  6  20+19  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7   1+17  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7  20+55  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  8  20+4   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  9   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  9  24+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).reversed()
+  9  33+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).reversed()
+  9  46+8   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).reversed()

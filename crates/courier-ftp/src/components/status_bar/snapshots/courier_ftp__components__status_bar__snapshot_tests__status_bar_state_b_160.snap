@@ -1,0 +1,30 @@
+---
+source: crates/courier-ftp/src/components/status_bar/snapshot_tests.rs
+expression: "bar(&state_b(&h), w, &sym, &t)"
+---
+ 🔓  plain FTP │ Type: Binary │ ⇅ off │ Queue: empty                                           Ctrl-x │ F1 help  F5 copy  F6 move  F7 mkdir  F8 delete  F10 quit 
+--- styles ---
+  0   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   1+1   Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(3)).underline_color(Color::Reset)
+  0   3+10  Style::new().fg(Color::Indexed(0)).bg(Color::Indexed(3)).underline_color(Color::Reset)
+  0  13+81  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  94+6   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 100+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 103+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 105+5   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 110+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 112+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 114+5   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 119+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 121+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 123+5   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 128+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 130+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 132+6   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 138+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 140+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 142+7   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 149+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 151+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 154+5   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 159+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

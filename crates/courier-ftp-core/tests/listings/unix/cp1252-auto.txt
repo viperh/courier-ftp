@@ -1,0 +1,2 @@
+-rw-r--r--    1 alice    staff        100 Jan 31 12:00 café €.txt
+-rw-r--r--    1 alice    staff        100 Jan 31 12:00 utf8-Ã¼.txt

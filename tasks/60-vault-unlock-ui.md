@@ -1,70 +1,899 @@
 # T60 — Vault unlock, keyring and recovery UI
 
-**Phase:** F TUI · **Depends on:** T30, T50, T52 · **Crate:** `courier-ftp` · **Decisions:** D3 · **FEATURES.md:** §2 (master password)
+**Phase:** F TUI · **Milestone:** M2 · **Depends on:** T30, T50, T52, T57 · **Crate(s):** `courier-ftp` (`app/vault.rs`, `services/vault.rs`, `views/{unlock,first_run,forgot,lock_overlay}.rs`) · **Decisions:** D3, D4, D13 · **FEATURES.md:** §2 (password storage options, master password)
 **Related (integrates with, not blocking):** T73, T87, T90
-**Reference:** sverb `crates/sverb-tui/src/app/vault.rs` (startup flow), SPEC §5.3, §11.2.
+**Reference:** sverb `crates/sverb-tui/src/app/vault.rs` (reducer, startup flow, lock, auto-lock), `crates/sverb-tui/src/views/{unlock,first_run,lock_overlay}.rs`, `crates/sverb-tui/src/app/vault/tests.rs`, `crates/sverb-core/src/vault/{lock,password}.rs`, SPEC §5.3 (unlock and auto-lock), §11.2 (account keys, recovery, one password two derivations).
 
 ## Goal
 
-The master password screen at TUI start, optional per-device keyring unlock,
-first-run setup, recovery, and every other vault-related screen — matching sverb.
+Every vault screen of courier-ftp, built the way sverb builds them (D3, D13): the
+first-run screen that creates the vault, the master-password prompt at start, the
+optional silent keyring unlock with fallback to the prompt, brute-force backoff with a
+countdown, "Forgot password?" recovery paths, the lock overlay after auto-lock or
+manual lock, the change-password form, and the "password changed on another device"
+prompt. Typed secrets are zeroized, never rendered and never logged.
 
-## Scope
+## Context
 
-1. **Startup** (D3): the app starts `Locked`.
-   - If keyring unlock is enabled on this device, try it first (no prompt). On failure
-     show the password screen with a one-line reason ("Keyring unavailable").
-   - Otherwise show the full-screen unlock view before any pane:
-     ```
-                 courier-ftp
+**Before this task:** T30 delivers `VaultEngine` (`status()`, `initialize`, `unlock`,
+`unlock_with_keyring`, `lock`, `change_password`, `set_keyring_unlock`, backoff
+persisted in `meta`, zxcvbn check with `MIN_SCORE = 3`, keyring under service
+`courier-ftp`, account `lmk-kek:<db_id>`), `VaultStatus { Uninitialised, Locked,
+Unlocked }`, the secret types (`SecretString`, `Key32`) and the auto-lock rules
+(`vault.auto_lock_minutes`, lock on suspend, `vault.lock_disconnects`),
+`VaultError::UnlockInProgress` (a second unlock while one runs),
+`move_database_aside(path) -> io::Result<PathBuf>` and the `NO_RECOVERY_WARNING` text.
+T50 delivers the main screen, modal stack, input routing, `Tick`, `ui::symbols::Symbols`
+and `ui::text::sanitize`. T52 delivers dialogs, the masked `TextInput` and `confirm`.
+T57 (M1) delivers the status bar's `VaultIndicator` and `Action::StatusMessage`.
 
-          Master password: ••••••••••
-          [ Unlock ]   [ Continue without vault ]   [ Forgot password? ]
+**Later tasks need from it:** T58/T59/T64 (offer unlock when the vault is locked),
+T61/T62 (tabs and dialogs are hidden behind the lock overlay), T68 (Settings →
+Security uses `ChangePasswordForm` and the keyring toggle flow), T70 (launch intent
+deferred until unlock; `--no-vault`, `--no-keyring`), T73 (restore from backup on the
+first-run and forgot screens), T87/T90 (sync recovery, password changed elsewhere,
+sync login from first run), T76 (PtyApp first-run and unlock flows).
 
-          3 failed attempts · next try in 4 s
-     ```
-   - Enter unlocks; a spinner shows while Argon2 runs in the background.
-   - Wrong password: inline error, field cleared, attempt counter and backoff countdown
-     (T30); Unlock disabled during backoff.
-   - **Continue without vault**: quickconnect only, nothing saved; status bar `🔐 locked`;
-     Site Manager, bookmarks and history offer to unlock.
-   - Command-line launch intents (T70: `--site`, URL) wait until unlock, then run.
-2. **Forgot password?** shows the options that exist on this device:
-   - Keyring enabled → "Unlock with the system keyring and set a new password" → new
-     password + confirm (strength rules) → LMK re-wrapped.
-   - Sync account → recovery flow (T90: recovery code + 24 words + new password).
-   - Neither → explains there is no way to recover; offers restore from a
-     `.cftp-backup` (T73) or starting a new empty vault (old DB moved aside, never deleted silently).
-3. **First run** (no vault yet):
-   - Explains: sites, passwords, history and trusted keys are stored encrypted; the master
-     password is the only key, and with sync it is also the account password.
-   - Password + confirm with live zxcvbn meter and feedback; score ≥ 3 required.
-   - Checkbox **Unlock with system keyring on this device** (off by default; hidden when no
-     keyring), with the note that the keyring is also the only local recovery path.
-   - Clear warning: "Without the keyring option or a sync account (which gives you a
-     recovery key), a forgotten password means your saved sites are lost."
-   - Alternatives: restore from `.cftp-backup` (T73) or log in to a sync server (T90).
-4. **Lock overlay**: after auto-lock or manual lock the same unlock view is drawn over
-   the app (panes hidden, input blocked). Running transfers continue; progress stays in
-   the status bar.
-5. **Settings → Security** (part of T68): change master password (online flow when sync
-   is on, T87), keyring unlock on/off for this device (asks for the password to enable),
-   auto-lock minutes, lock on suspend, lock disconnects sessions, lock now, store
-   passwords on/off, Argon2 cost (presets, shows measured unlock time).
-6. **"Password changed on another device"** dialog (sync): shown when the server rejects
-   this device's login; asks for the new password and re-wraps the LMK (T87).
-7. **Database busy** (another courier-ftp writing): error with retry.
-8. Passwords and recovery words never rendered, logged or kept after use (buffers zeroized on drop).
+## Technical specification
+
+### Types and APIs
+
+Names, fields and semantics follow sverb `app/vault.rs` and `views/unlock.rs`
+(same type names). courier-ftp additions are marked **(courier)**.
+
+```rust
+// crates/courier-ftp/src/app/vault.rs
+
+/// What the UI knows about the vault (sverb `LockState`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LockState { #[default] Locked, Unlocking, Unlocked }
+impl LockState { pub fn is_locked(self) -> bool; pub fn can_start_unlock(self) -> bool; }
+
+/// The idle timeout for `vault.auto_lock_minutes`; `None` when 0.
+pub fn auto_lock_timeout(minutes: u32) -> Option<Duration>;
+
+/// A password on its way to the vault service. `Debug` prints
+/// `VaultPassword([REDACTED])`; the buffer is zeroized when the last clone drops.
+#[derive(Clone, PartialEq, Eq)]
+pub struct VaultPassword(Arc<Zeroizing<String>>);
+impl VaultPassword { pub fn new(text: Zeroizing<String>) -> Self; pub fn expose(&self) -> &str; }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnlockRequest { Password(VaultPassword), Keyring }
+
+/// Effects sent to the vault service.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VaultEffect {
+    Initialize { password: VaultPassword, keyring: bool },
+    Unlock(UnlockRequest),
+    Lock,
+    /// `current: None` only right after a keyring unlock in the recovery flow.
+    ChangePassword { current: Option<VaultPassword>, new: VaultPassword },
+    /// (courier) Settings → Security; enabling requires the password.
+    SetKeyringUnlock { enable: bool, password: Option<VaultPassword> },
+    /// (courier) Move the database aside and start over (Forgot → new vault).
+    StartNewVault,
+    /// (courier) T87: log in again with the password set on another device.
+    Relogin { password: VaultPassword },
+}
+
+/// The locked database's state, sent once at startup.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct VaultStatusInfo {
+    pub initialized: bool,
+    pub keyring_enabled: bool,
+    pub keyring_available: bool,     // probed (write + delete a test entry) only before first run
+    pub failures: u32,
+    pub retry_after: Option<Duration>,
+    pub sync_account: bool,          // (courier) a sync account exists → recovery key path (T87)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum UnlockFailure {
+    WrongPassword { failures: u32, retry_after: Option<Duration> },
+    Backoff { retry_after: Duration },
+    Keyring(String),
+    /// (courier) SQLite busy after `busy_timeout` (another courier-ftp writing).
+    Busy,
+    /// T30 `VaultError::UnlockInProgress`: another unlock (e.g. the keyring attempt at
+    /// startup) is still running; the form stays busy and the request is not retried.
+    InProgress,
+    Other(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VaultEvent {
+    Status(VaultStatusInfo),
+    Unlocked { via_keyring: bool, note: Option<String> },
+    UnlockFailed(UnlockFailure),
+    PasswordChanged,
+    PasswordChangeFailed(String),
+    LockRequested,
+    KeyringChanged { enabled: bool },          // (courier)
+    NewVaultStarted { old_path_display: String }, // (courier)
+    PasswordChangedElsewhere,                  // (courier) from T87
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum VaultScreen {
+    #[default] None,
+    Starting,
+    FirstRun(FirstRunForm),
+    Unlock(UnlockForm),
+    ChangePassword(ChangePasswordForm),
+    Forgot(ForgotScreen),                      // (courier)
+    NewVaultConfirm(NewVaultConfirm),          // (courier) type "NEW VAULT"
+    PasswordElsewhere(PasswordElsewhereForm),  // (courier)
+}
+
+/// How the app runs relative to the vault. (courier)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VaultMode {
+    #[default] Normal,
+    /// "Continue without vault": quickconnect only, nothing saved, vault stays locked.
+    WithoutVault,
+    /// `--no-vault`: the database is not opened at all.
+    Disabled,
+}
+
+/// Vault state in `App`. No key material.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultUi {
+    pub active: bool,                 // a vault service exists
+    pub lock: LockState,
+    pub screen: VaultScreen,
+    pub mode: VaultMode,
+    pub keyring_enabled: bool,
+    deferred_launch: Option<LaunchIntent>,   // T70
+    discarded_forms: bool,
+    recovering: bool,
+    auto_lock_armed: bool,
+    quit_armed_until: Option<Instant>,       // (courier) second Ctrl-q while transfers run
+}
+
+/// sverb's constant, adapted.
+pub const DISCARDED_FORMS: &str = "Unsaved changes were discarded when the vault locked";
+/// Shown on first run and in Settings → Security: T30's constant, not redefined here.
+pub use courier_ftp_core::vault::NO_RECOVERY_WARNING;
+
+impl App {
+    pub fn with_vault(self, opts: VaultStartOptions) -> Self;   // starts Locked + Starting
+    pub fn lock_state(&self) -> LockState;
+    pub fn vault_available(&self) -> bool;                       // Unlocked
+    pub fn open_change_password(&mut self);                      // T68
+    pub fn request_unlock(&mut self);                            // T58/T59/T64 "unlock" offers
+    pub(crate) fn vault_on_input(&mut self, input: &InputEvent) -> bool; // before routing
+    pub(crate) fn lock_vault(&mut self);
+    pub(crate) fn on_vault(&mut self, ev: VaultEvent);
+    pub(crate) fn vault_on_timer(&mut self, kind: VaultTimer);
+    pub(crate) fn vault_defer_launch(&mut self, intent: LaunchIntent) -> Option<LaunchIntent>;
+    pub(crate) fn vault_hides_panes(&self) -> bool;
+    pub(crate) fn render_vault(&self, frame: &mut Frame<'_>);
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VaultStartOptions { pub no_vault: bool, pub no_keyring: bool }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VaultTimer { AutoLockCheck, UnlockCountdown, QuitDisarm }
+
+// crates/courier-ftp/src/views/unlock.rs (forms: plain data, pure key handling, infallible render)
+pub struct MaskedField { text: Zeroizing<String> }      // Debug: "MaskedField(N chars)"
+pub enum FormAction { None, Changed, Submit, Cancel, Forgot,
+                      ContinueWithoutVault, Restore, SyncLogin, Choose(char) } // last four (courier)
+pub struct UnlockForm { pub password: MaskedField, pub error: Option<String>, pub busy: Option<String>,
+                        pub countdown: Option<u64>, pub keyring_enabled: bool,
+                        pub sessions_open: bool, pub startup: bool /* (courier) shows Ctrl-n */ }
+pub struct NewPassword { pub password: MaskedField, pub confirm: MaskedField, pub strength: PasswordStrength }
+pub struct FirstRunForm { pub new: NewPassword, pub focus: FirstRunFocus, pub keyring_available: bool,
+                          pub use_keyring: bool, pub error: Option<String>, pub busy: bool,
+                          pub restore_available: bool, pub sync_available: bool /* (courier) */ }
+pub struct ChangePasswordForm { pub current: Option<MaskedField>, pub new: NewPassword,
+                                pub focus: usize, pub error: Option<String>, pub busy: bool }
+pub struct ForgotScreen { pub keyring: bool, pub sync: bool, pub restore: bool }        // (courier)
+pub struct NewVaultConfirm { pub typed: String, pub error: Option<String> }            // (courier)
+pub struct PasswordElsewhereForm { pub password: MaskedField, pub error: Option<String>, pub busy: bool } // (courier)
+```
+
+**Vault service** (`services/vault.rs`): a tokio task that owns the `VaultEngine`
+(T30), receives `VaultEffect`s on an `mpsc` channel (capacity 16) and answers with
+`VaultEvent`s that T50 turns into `Action::Vault(VaultEvent)`. Argon2 and SQLite run
+in `spawn_blocking` inside the engine; the UI never awaits them. The service sends
+`Status` once at startup. Lock is processed before any other queued effect
+(zeroize first).
+
+### Behaviour
+
+#### Startup (sverb `with_vault` + `on_vault_status`)
+
+1. `--no-vault` (T70): `active = false`, `mode = Disabled`; status bar `no vault`; the
+   database is not opened.
+2. Otherwise the app starts `lock = Locked`, `screen = Starting`; nothing but the
+   vault screen and the status bar is drawn (no panes, tabs, log, quickconnect).
+3. `Status { initialized: false }` → `FirstRun`.
+4. `initialized` and `keyring_enabled` and not `--no-keyring` and
+   `COURIER_FTP_KEYRING` ≠ `off`: `Unlock` form with busy `Unlocking with the keyring…`,
+   `lock = Unlocking`, effect `Unlock(Keyring)`.
+5. Otherwise `Unlock` form; if `retry_after` is set the countdown starts.
+6. `Unlocked` → `screen = None`, arm auto-lock, show the note (Warning message), show
+   `DISCARDED_FORMS` (Info) if a lock discarded forms, then run the deferred launch
+   intent. A `recovering` unlock opens `ChangePasswordForm::recovery()` instead.
+7. `UnlockFailed(Keyring(msg))` → prompt ready, Info message
+   `Keyring unlock failed (<msg>); enter your master password`.
+
+#### While locked (sverb `vault_on_input`)
+
+- Every key and paste goes to the vault screen; mouse is off (D7). Nothing reaches
+  panes, dialogs or the keymap, except the **Quit** binding (T51 `Quit`: `ctrl-q`/`f10`):
+  no active transfers → quit at once (a confirmation could not be answered behind the
+  lock); active transfers → the form shows `Transfers are running. Press Ctrl-q again
+  within 3 s to quit.` and a second press within 3 s quits.
+- Paste goes into the focused masked field; control characters and newlines are dropped.
+
+#### Unlock form keys
+
+| Key | Effect |
+|---|---|
+| printable | append to password (ignored while busy or counting down) |
+| `Backspace` | delete last char |
+| `Enter` | submit if non-empty → busy `Unlocking…`, `Unlock(Password)`, field taken (zeroized) |
+| `Esc` | clear field and error |
+| `Ctrl-r` | open `Forgot` screen (sverb goes straight to keyring unlock; courier shows the available options first) |
+| `Ctrl-n` | startup only: continue without vault |
+
+On `WrongPassword { failures, retry_after }`: field cleared, error
+`Wrong password (N failed attempt[s])`, countdown if `retry_after`. On `Backoff`:
+countdown only. Countdown: whole seconds rounded up, decremented by a 1 s
+`UnlockCountdown` timer; input ignored while it runs; the line reads
+`Too many failed attempts. Try again in Ns.`. T30's schedule applies (failures 1–4 no
+delay; then 1, 2, 4, 8, 16 s, capped at 30 s; persisted, shared across processes).
+On `Busy`: error `The database is busy (another courier-ftp may be writing). Enter the
+password again to retry.`
+
+#### Continue without vault (courier)
+
+`mode = WithoutVault`, `screen = None`, `lock` stays `Locked`, auto-lock not armed.
+Quickconnect works; history, bookmarks, Site Manager, trust stores (`HostKeyStore`/
+`CertTrustStore` stay in-memory, "always trust" disabled with a note, T69) and queue
+persistence are unavailable. Status bar `🔐 vault locked`. Components that need the
+vault call `request_unlock()`, which shows the `Unlock` form as an overlay with
+`startup = false`; `Esc` on an empty field returns to `WithoutVault`. A `--site` launch
+intent fails with `Unlock the vault to open saved sites`; a URL intent runs.
+
+#### Forgot password (courier extension of sverb's `Forgot`)
+
+Options shown only when they exist on this device; keys pick them:
+
+| Key | Option | Shown when | Flow |
+|---|---|---|---|
+| `k` | Unlock with the system keyring, then set a new master password | `keyring_enabled` | sverb: `recovering = true`, `Unlock(Keyring)`; on success `ChangePasswordForm::recovery()` (no current password); on failure back to `Unlock` with the keyring error |
+| `s` | Use the 24-word recovery key of your sync account | `sync_account` and feature `sync` | opens T90's recovery screen (code + 24 words + new password, T87 §7) |
+| `b` | Restore from a backup file (`.cftp-backup`) | T73 available | T73 import in "restore into a new vault" mode (current DB moved aside first) |
+| `n` | Start a new, empty vault | always | `NewVaultConfirm`: user types `NEW VAULT`; effect `StartNewVault` → service drops the engine and calls T30 `move_database_aside(path)` (renames `courier-ftp.db`, `-wal`, `-shm` to `courier-ftp.db.bak-YYYYMMDD-HHMMSS`, never deletes), then `Status { initialized: false }` → `FirstRun`; Info message names the returned file |
+| `Esc` | back to `Unlock` | | |
+
+When neither keyring nor sync account exists the screen first explains that the
+password cannot be recovered on this device.
+
+#### First run (sverb `FirstRunForm`, courier text)
+
+Fields: Master password, Confirm (masked), live zxcvbn meter (`Strength` + 5 cells +
+label + feedback; meter style error for score 0–1, warning 2, ok 3–4), checkbox
+`Also unlock with the system keyring on this device` (only when
+`keyring_available`, default off), `NO_RECOVERY_WARNING`, busy line
+`Creating your vault…`. Keys: `Tab`/`↓` next, `Shift-Tab`/`↑` previous, `Enter` on
+Password → Confirm, `Enter` elsewhere → validate (non-empty, equal, score ≥ 3; else
+inline error with zxcvbn feedback `Too weak (fair): Add another word or two.`) →
+`Initialize { password, keyring }`. `Space` toggles the checkbox. (courier) `Ctrl-n`
+continue without vault (no vault created; first run again next start),
+`Ctrl-b` restore from backup (T73, hidden until it exists), `Ctrl-g` log in to a sync
+server (T90 wizard, hidden until it exists / without feature `sync`). Keyring
+enrolment failure after creation is a note on `Unlocked`, not an error.
+
+#### Lock (sverb `lock_vault`)
+
+Triggers: `LockVault` action (`ctrl-x ctrl-l`, T30/T51), the auto-lock timer, resume
+from system sleep when `vault.lock_on_suspend` (detected on `Tick`: wall-clock advance
+minus monotonic advance > 30 s), `Suspend` (`Ctrl-z`) when `vault.lock_on_suspend`
+(lock before suspending), and `VaultEvent::LockRequested`. Steps, in order:
+1. `lock = Locked`; cancel auto-lock timer; effect `Lock` (zeroize first).
+2. Drop pending key sequences (T51).
+3. If any open dialog holds a dirty form (Site Manager editor, bookmark editor,
+   settings), set `discarded_forms`. Close every dialog and the modal stack.
+4. Drop decrypted UI data (site tree, bookmarks, history lists).
+5. `vault.lock_disconnects`: disconnect every tab's sessions; else keep them.
+6. `screen = Unlock { sessions_open: connections or transfers exist, startup: false }`.
+
+The lock overlay covers every region except the status bar: centred
+`🔒 Vault locked` / `Ctrl-q quit` (ASCII `[locked]`), and the unlock box on top.
+The status bar renders in locked mode: Security (no host), Vault, Transfer type,
+Speed, Queue segments only. Transfers continue; transfers that need a secret wait
+(T30 §5).
+
+#### Auto-lock (sverb `arm_auto_lock`)
+
+While unlocked, every key or paste re-arms a one-shot `AutoLockCheck` timer of
+`auto_lock_timeout(vault.auto_lock_minutes)`; 0 disables it (and cancels an armed
+timer). When it fires and the setting is still non-zero, `lock_vault`. Timers are
+`tokio::time::sleep` tasks owned by `crate::timers::Timers` that send
+`Action::VaultTimer(kind)`; scheduling a kind cancels its previous timer.
+
+#### Change password (sverb `ChangePasswordForm`)
+
+Rows: Current password (absent in the recovery variant), New password, Confirm, meter.
+`Tab`/`↓`, `Shift-Tab`/`↑`, `Enter` advances then validates (current non-empty,
+`NewPassword::validate`), `Esc` cancels (not in the recovery variant: the user must
+set a password; `Esc` there shows `Set a new password to finish recovery`). With a sync
+account the service runs T87's online flow; offline → `PasswordChangeFailed("The sync
+server must be reachable to change the password")`. Success → Success message
+`Master password changed`.
+
+#### Keyring toggle (Settings → Security, T68 hosts the page)
+
+Enable: asks the master password in a masked prompt, effect
+`SetKeyringUnlock { enable: true, password }`, shows the keyring note (it is the only
+local recovery path). Disable: `confirm("Turn off keyring unlock? …")`, effect with
+`enable: false` (T30 deletes the keyring entry and the wrap). Hidden when no keyring.
+
+#### Password changed on another device (courier, T87 §10)
+
+`VaultEvent::PasswordChangedElsewhere` while unlocked opens `PasswordElsewhere`
+(modal, not blocking the app). `Enter` → `Relogin { password }`; success → Success
+message `Signed in again; sync resumed`; failure → inline error; `Esc` → closed, status
+bar sync segment shows `⟳ login needed` (T90) and the same form opens from there.
+
+#### Mock-ups
+
+Unlock at startup, 80×24 (box 68×9 centred; last row is the status bar):
+```
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+      ┌ 🔒 Unlock courier-ftp ───────────────────────────────────────────┐      
+      │Enter your master password to unlock courier-ftp.                 │      
+      │                                                                  │      
+      │Password: ••••••••▏                                               │      
+      │                                                                  │      
+      │                                                                  │      
+      │Enter unlock · Esc clear · Ctrl-r forgot password?                │      
+      │Ctrl-n continue without vault (quickconnect only, nothing saved)  │      
+      └──────────────────────────────────────────────────────────────────┘      
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+ – not connected │ 🔐 vault locked                                              
+```
+Unlock at startup, 160×48:
+```
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                              ┌ 🔒 Unlock courier-ftp ───────────────────────────────────────────┐                                              
+                                              │Enter your master password to unlock courier-ftp.                 │                                              
+                                              │                                                                  │                                              
+                                              │Password: ••••••••▏                                               │                                              
+                                              │                                                                  │                                              
+                                              │                                                                  │                                              
+                                              │Enter unlock · Esc clear · Ctrl-r forgot password?                │                                              
+                                              │Ctrl-n continue without vault (quickconnect only, nothing saved)  │                                              
+                                              └──────────────────────────────────────────────────────────────────┘                                              
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+ – not connected │ 🔐 vault locked                                                                                                                              
+```
+Unlock form states (box only): wrong password, backoff countdown, keyring/Argon2 busy:
+```
+┌ 🔒 Unlock courier-ftp ───────────────────────────────────────────┐
+│Enter your master password to unlock courier-ftp.                 │
+│                                                                  │
+│Password: ▏                                                       │
+│                                                                  │
+│Wrong password (2 failed attempts)                                │
+│Enter unlock · Esc clear · Ctrl-r forgot password?                │
+│Ctrl-n continue without vault (quickconnect only, nothing saved)  │
+└──────────────────────────────────────────────────────────────────┘
+```
+```
+┌ 🔒 Unlock courier-ftp ───────────────────────────────────────────┐
+│Enter your master password to unlock courier-ftp.                 │
+│                                                                  │
+│Password:                                                         │
+│                                                                  │
+│Too many failed attempts. Try again in 4s.                        │
+│Enter unlock · Esc clear · Ctrl-r forgot password?                │
+│Ctrl-n continue without vault (quickconnect only, nothing saved)  │
+└──────────────────────────────────────────────────────────────────┘
+```
+```
+┌ 🔒 Unlock courier-ftp ───────────────────────────────────────────┐
+│Enter your master password to unlock courier-ftp.                 │
+│                                                                  │
+│Password:                                                         │
+│                                                                  │
+│⠋ Unlocking…                                                      │
+│Enter unlock · Esc clear · Ctrl-r forgot password?                │
+│Ctrl-n continue without vault (quickconnect only, nothing saved)  │
+└──────────────────────────────────────────────────────────────────┘
+```
+First run, 80×24 (keyring available, weak password typed):
+```
+                                                                                
+                                                                                
+┌ Welcome to courier-ftp ──────────────────────────────────────────────────────┐
+│courier-ftp keeps your sites, passwords, bookmarks, history and trusted keys  │
+│encrypted on this machine. The master password is the only key; with sync it  │
+│is also your account password.                                                │
+│                                                                              │
+│Master password   ••••••••••••••••••▏                                         │
+│Confirm                                                                       │
+│                                                                              │
+│Strength          ███░░ fair — Add another word or two.                       │
+│                                                                              │
+│[ ] Also unlock with the system keyring on this device                        │
+│                                                                              │
+│There is no way to recover this password. If you forget it, your saved sites  │
+│and passwords are lost unless you enable keyring unlock or set up a sync      │
+│account (which gives you a recovery key).                                     │
+│                                                                              │
+│                                                                              │
+│Tab next field · Space toggle · Enter create · Ctrl-n continue without vault  │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                                                                
+                                                                                
+ – not connected │ 🔐 vault locked                                              
+```
+First run, 160×48 (keyring checked, T73 and T90 available):
+```
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                          ┌ Welcome to courier-ftp ─────────────────────────────────────────────────────────────────────────────────┐                           
+                          │courier-ftp keeps your sites, passwords, bookmarks, history and trusted keys encrypted on this machine.  │                           
+                          │The master password is the only key; with sync it is also your account password.                         │                           
+                          │                                                                                                         │                           
+                          │Master password   ••••••••••••••••••••••▏                                                                │                           
+                          │Confirm           ••••••••••••••••••••••                                                                 │                           
+                          │                                                                                                         │                           
+                          │Strength          █████ very strong                                                                      │                           
+                          │                                                                                                         │                           
+                          │[x] Also unlock with the system keyring on this device (it is also the only local recovery path)         │                           
+                          │                                                                                                         │                           
+                          │There is no way to recover this password. If you forget it, your saved sites and passwords are lost      │                           
+                          │unless you enable keyring unlock or set up a sync account (which gives you a recovery key).              │                           
+                          │                                                                                                         │                           
+                          │                                                                                                         │                           
+                          │Tab next field · Space toggle · Enter create · Ctrl-n continue without vault                             │                           
+                          │Ctrl-b restore from backup · Ctrl-g log in to a sync server                                              │                           
+                          └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘                           
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+ – not connected │ 🔐 vault locked                                                                                                                              
+```
+Forgot password, all options available / no recovery available (boxes):
+```
+┌ Forgot master password ───────────────────────────────────────────┐
+│Choose how to get back into your vault on this device:             │
+│                                                                   │
+│k  Unlock with the system keyring, then set a new master password  │
+│s  Use the 24-word recovery key of your sync account               │
+│b  Restore from a backup file (.cftp-backup)                       │
+│n  Start a new, empty vault (the current one is kept as a file)    │
+│                                                                   │
+│Esc back                                                           │
+└───────────────────────────────────────────────────────────────────┘
+```
+```
+┌ Forgot master password ──────────────────────────────────────────────┐
+│Keyring unlock is off and no sync account is set up on this device, so│
+│a forgotten master password cannot be recovered here. Your saved      │
+│sites, passwords and trusted keys can only be opened with the master  │
+│password.                                                             │
+│                                                                      │
+│b  Restore from a backup file (.cftp-backup)                          │
+│n  Start a new, empty vault (the current one is kept as a file)       │
+│                                                                      │
+│Esc back                                                              │
+└──────────────────────────────────────────────────────────────────────┘
+```
+Lock overlay, 80×24 (a transfer is running):
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                               🔒 Vault locked                                │
+│                                 Ctrl-q quit                                  │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│       ┌ 🔒 Unlock courier-ftp ───────────────────────────────────────┐       │
+│       │The vault is locked. Connections and transfers keep running.  │       │
+│       │                                                              │       │
+│       │Password: ▏                                                   │       │
+│       │                                                              │       │
+│       │                                                              │       │
+│       │Enter unlock · Esc clear · Ctrl-r forgot password?            │       │
+│       └──────────────────────────────────────────────────────────────┘       │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ 🔒 TLS 1.3 │ 🔐 vault locked │ Q: 3, 1.21 GiB                                  
+```
+Lock overlay, 160×48:
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                       🔒 Vault locked                                                                        │
+│                                                                         Ctrl-q quit                                                                          │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                               ┌ 🔒 Unlock courier-ftp ───────────────────────────────────────┐                                               │
+│                                               │The vault is locked. Connections and transfers keep running.  │                                               │
+│                                               │                                                              │                                               │
+│                                               │Password: •••▏                                                │                                               │
+│                                               │                                                              │                                               │
+│                                               │                                                              │                                               │
+│                                               │Enter unlock · Esc clear · Ctrl-r forgot password?            │                                               │
+│                                               └──────────────────────────────────────────────────────────────┘                                               │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ 🔒 TLS 1.3 │ 🔐 vault locked │ Type: Auto │ ⇅ off │ Queue: 3 files, 1.21 GiB, ↓8.40 MiB/s, ~00:02:27                                                           
+```
+Change password: recovery variant and normal variant with a validation error:
+```
+┌ Change master password ──────────────────────────────────┐
+│Unlocked with the keyring. Choose a new master password.  │
+│                                                          │
+│New password      ••••••••••••••••▏                       │
+│Confirm                                                   │
+│                                                          │
+│Strength          ████░ strong                            │
+│                                                          │
+│                                                          │
+│Tab next field · Enter save · Esc cancel                  │
+└──────────────────────────────────────────────────────────┘
+```
+```
+┌ Change master password ──────────────────┐
+│Current password  ••••••••                │
+│New password      ••••••••••••••••        │
+│Confirm           •••••••••••••••▏        │
+│                                          │
+│Strength          ████░ strong            │
+│                                          │
+│The passwords do not match                │
+│Tab next field · Enter save · Esc cancel  │
+└──────────────────────────────────────────┘
+```
+Password changed on another device:
+```
+┌ Password changed on another device ────────────────────────────────────┐
+│Your master password was changed on another device. Sync is paused on   │
+│this device until you enter the new password. Local unlock keeps using  │
+│the old one until then.                                                 │
+│                                                                        │
+│New password: ▏                                                         │
+│                                                                        │
+│Enter continue · Esc later (sync stays paused)                          │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+Box sizing (sverb `render_box`): width = longest line + 4, capped at the form's max
+(unlock 72, first run 84 at ≤ 80 columns and 110 above, others 72–76) and the screen
+width; height = wrapped lines + 2; centred above the status bar; drawn over `Clear`.
+Below 40×12 the vault screen shows `Terminal too small` and still accepts the
+password and `Enter` (no panic at any size). ASCII mode replaces `🔒` with `[locked]`,
+`•` with `*`, `▏` with `_`, meter cells with `#`/`-`, the spinner with `|`.
+
+#### Rendering rules
+
+- Masked fields show one `•` per character, capped at 32; never the text, never its
+  length beyond 32.
+- The spinner is a static glyph (sverb), so a running Argon2 causes no redraws.
+- Colours via style keys `vault.title`, `vault.text`, `vault.dim`, `vault.accent`
+  (focused field), `vault.error`, `vault.warn`, `vault.ok`, `vault.info`,
+  `vault.overlay`. `NO_COLOR`: errors bold, warnings bold, focus by `▏`/`_` cursor
+  and bold label; meter label text carries the strength.
+
+### Data formats and configuration
+
+| Key | Type | Default | Range / notes |
+|---|---|---|---|
+| `vault.auto_lock_minutes` | u32 | 15 | 0 = off, max 1440 |
+| `vault.lock_on_suspend` | bool | `true` | sleep/resume and `Ctrl-z` |
+| `vault.lock_disconnects` | bool | `false` | close sessions on lock |
+| `vault.store_passwords` | bool | `true` | T30/T31; shown in Settings → Security |
+| `vault.argon2_cost` | `light` \| `standard` \| `strong` | `standard` | T05 `Argon2Preset`; T30 `Argon2Cost::from_preset`; applied on the next password unlock or change; T68 shows measured unlock time |
+| env `COURIER_FTP_KEYRING` | `off` | unset | disables keyring use (CI canary job, T00) |
+| CLI `--no-vault`, `--no-keyring` | flags | — | T70 |
+
+Keyring entry: service `courier-ftp`, account `lmk-kek:<db_id>` (T30). Moved-aside
+database name (T30 `move_database_aside`): `courier-ftp.db.bak-YYYYMMDD-HHMMSS` (+ `-wal`,
+`-shm` with the same suffix).
+
+### Errors
+
+| Error | Shown as |
+|---|---|
+| `Error::Vault(WrongPassword)` from T30 | `UnlockFailed(WrongPassword)` inline |
+| backoff active | `UnlockFailed(Backoff)` countdown |
+| keyring errors (`keyring::Error`) | `UnlockFailed(Keyring(msg))` → prompt + Info message |
+| SQLite busy | `UnlockFailed(Busy)` inline |
+| `VaultError::UnlockInProgress` | `UnlockFailed(InProgress)`: form stays `Unlocking…`, the first attempt's result decides |
+| weak password on create/change | inline `Too weak (<label>): <feedback>` |
+| tampered `meta.kdf` / corrupt DB | `UnlockFailed(Other("The vault database is damaged: <reason>"))` + Forgot screen offers restore / new vault |
+| `StartNewVault`: `move_database_aside` failure | Error dialog `Could not move the database aside: <io error>`; nothing deleted |
+| sync change-password offline | `PasswordChangeFailed` inline |
+
+### Security and logging
+
+- Typed secrets live only in `MaskedField` (`Zeroizing<String>`) and `VaultPassword`
+  (`Arc<Zeroizing<String>>`); `Debug` is redacted for both; `take()` moves the buffer out
+  at submit so the form holds nothing afterwards; `clear()` zeroizes.
+- No secret is ever in an `Action` that derives `Serialize`; `Action::Vault*` variants
+  are `#[serde(skip)]` and their `Debug` is redacted.
+- While locked or while a vault screen is open no pane, tab title, log line, dialog or
+  quickconnect text is drawn (they contain decrypted or server data).
+- Nothing about passwords, keyring results or failure counts is logged at `info`+;
+  `debug` may log `vault unlock via=keyring|password ok|failed failures=<n>` (no text).
+- Canary test (T91 §5): a canary password typed through the UI never appears in the
+  application log, snapshots, or any file under the test home.
+- The no-recovery warning is shown on first run and in Settings → Security (D3).
+
+## Implementation steps
+
+1. Port sverb's forms (`MaskedField`, `UnlockForm`, `NewPassword`, `FirstRunForm`, `ChangePasswordForm`, `render_box`, meter) with courier text; unit tests.
+2. `VaultUi`, `LockState`, `VaultEffect`/`VaultEvent`, reducer functions (`vault_on_input`, `on_vault`, `on_vault_status`, `on_unlock_failed`), timers.
+3. Vault service task around `VaultEngine`; wire into T50's loop; startup gating of panes; launch-intent deferral.
+4. Lock: action, auto-lock, suspend detection, overlay, status bar locked mode, form discard.
+5. Continue without vault; `request_unlock()`; `--no-vault`/`--no-keyring` handling.
+6. Forgot screen with keyring recovery and new-vault flow; hooks for T73/T90 options.
+7. Keyring toggle and change-password entry points for T68; password-changed-elsewhere form for T87.
+8. Snapshot and UI-flow tests (port sverb `app/vault/tests.rs`), canary test.
 
 ## Acceptance criteria
 
-- [ ] Without keyring: every start shows the unlock view.
-- [ ] With keyring enabled: start unlocks silently; keyring failure falls back to the prompt.
-- [ ] Forgot-password paths: keyring reset, sync recovery, and the no-recovery explanation.
-- [ ] Backoff countdown displayed and enforced.
-- [ ] First-run creates the vault only with a strong enough password.
-- [ ] Snapshot tests for unlock, first run, forgot password, backoff and lock overlay.
+- [x] AC1 Without keyring unlock, every start shows the unlock view and no pane is drawn before unlock.
+- [x] AC2 With keyring unlock enabled (mock keyring), start unlocks without a prompt; a keyring error falls back to the prompt with the reason.
+- [x] AC3 Wrong password clears the field and shows the attempt count; from the 5th failure the countdown shows and input is ignored until it ends (paused-time test).
+- [x] AC4 First run creates the vault only with matching passwords of zxcvbn score ≥ 3; weaker passwords show the zxcvbn feedback; the keyring checkbox appears only when a keyring is available.
+- [x] AC5 Forgot password: keyring path leads to the recovery change-password form and sets a new password; sync path opens T90's recovery (once T90 exists); with neither, the explanation and only `b`/`n` are shown; `n` keeps the old database file.
+- [x] AC6 Auto-lock locks after `vault.auto_lock_minutes` of no input; input resets it; 0 never locks; resume from sleep locks when `lock_on_suspend`.
+- [x] AC7 While locked no key reaches panes or sessions; only the unlock form and Quit work; `vault.lock_disconnects` closes sessions; dirty forms are discarded with the toast after unlock.
+- [x] AC8 A launch intent (T70) waits until unlock and then runs; with "continue without vault" a URL intent runs and a `--site` intent fails with the message.
+- [x] AC9 Snapshot tests at 80×24 and 160×48 for: unlock, wrong password, backoff, busy, first run, forgot (both variants), new-vault confirm, lock overlay, change password (both variants), password changed elsewhere; ASCII + `NO_COLOR` variants contain only ASCII.
+- [x] AC10 No password text appears in `Debug` output, snapshots, logs or files (canary test).
+- [ ] AC11 CI gates `fmt`, `clippy`, `test-local-only`, `test-os`, `canary` pass.
 
 ## Tests
 
-- UI-flow tests with synthetic key events, a mock keyring and cheap Argon2 params.
+### Unit tests
+- `masked_field_never_debugs_its_text` (sverb) (AC10).
+- `unlock_form_keys` (sverb, plus `Ctrl-n`, `Ctrl-r` → `Forgot`) (AC3).
+- `change_form_validates` (sverb), `recovery_change_form_cannot_be_cancelled`.
+- `first_run_validation_and_feedback` (AC4), `first_run_keyring_row_only_when_available` (AC4).
+- `forgot_screen_lists_only_available_options` (AC5).
+- `new_vault_requires_typed_confirmation` (AC5).
+- `auto_lock_timeout_zero_is_none`.
+- `vault_password_debug_is_redacted` (AC10).
+
+### Property / fuzz tests
+- `prop_masked_field_drops_control_chars` — random pasted strings never put control chars in the buffer.
+- `prop_vault_screens_render_at_any_size` — 0×0 … 200×60, every screen.
+
+### Snapshot tests
+`TestBackend` + `insta` at 80×24 and 160×48: `unlock_startup`, `unlock_wrong_password`,
+`unlock_backoff`, `unlock_busy`, `first_run`, `first_run_keyring_checked`, `forgot_all_options`,
+`forgot_no_recovery`, `new_vault_confirm`, `lock_overlay`, `change_password_recovery`,
+`change_password_mismatch`, `password_elsewhere`; plus `*_mono_ascii` for unlock, first run
+and lock overlay (AC9).
+
+### Integration tests
+UI-flow tests (sverb `app/vault/tests.rs` ported, with a fake vault service backed by a
+real `VaultEngine` on a temp DB with `Argon2Cost::TEST` and a mock keyring):
+- `startup_first_run_then_launch_after_unlock` (AC4, AC8).
+- `keyring_first_then_fallback_to_prompt` (AC2).
+- `backoff_countdown_disables_input` (AC3).
+- `keyring_recovery_opens_the_new_password_form` (AC5).
+- `auto_lock_after_idle_minutes`, `input_resets_the_idle_timer`, `zero_never_locks` (AC6).
+- `resume_from_sleep_locks_when_configured` (AC6).
+- `locked_app_gets_no_input_and_overlay_renders` (AC7), `quit_while_locked`, `quit_while_locked_with_transfers_needs_second_press` (AC7).
+- `lock_disconnects_sessions_when_configured` (AC7).
+- `lock_discards_forms_and_toasts_after_unlock` (AC7).
+- `without_a_vault_service_nothing_changes` (`--no-vault`).
+- `continue_without_vault_runs_url_intent_and_rejects_site_intent` (AC8).
+- `start_new_vault_moves_database_aside` — calls T30 `move_database_aside`; the kept file is named `courier-ftp.db.bak-…` (AC5).
+- `unlock_in_progress_keeps_form_busy` — service answers `UnlockInProgress` to a second submit; the form stays busy and the first result is applied (AC3).
+- `password_never_appears_in_debug_output` (AC10), `canary_password_not_in_logs_or_files` (AC10).
+
+### End-to-end tests
+- T76 PtyApp `first_run_create_vault_quit_unlock` — real binary, `COURIER_FTP_KEYRING=off`: create vault, quit, restart, wrong password, right password, panes appear.
+- T76 PtyApp `lock_and_unlock_keeps_sftp_session` against the `sshd` `password` profile: connect, `ctrl-x ctrl-l`, unlock, the remote pane still lists.
+
+## Out of scope
+
+- Sync account registration, login wizard, recovery-key screens (T90) — only the entry points are here.
+- Backup file format and restore logic (T30 §10, T73).
+- Settings page layout (T68), CLI parsing (T70).
+
+## Open questions
+
+1. sverb's `Ctrl-r` goes straight to keyring unlock; this task shows a "Forgot password" chooser first because courier-ftp has more recovery paths (sync key, backup, new vault). Confirm this deviation.
+2. T30 lists "Continue without vault" but does not say whether a vault can later be created from that mode on first run (no vault exists yet). This task shows the first-run screen again at the next start only. Should "Create vault" also be offered inside the running session?
+
+## Implementation notes
+
+- **Files.** `views.rs` (`Look`: `vault.*` styles and the Unicode/ASCII glyphs) and
+  `views/{unlock,first_run,forgot,lock_overlay}.rs` (forms; `ChangePasswordForm`,
+  `PasswordElsewhereForm`, `render_box`, `BoxLine` are in `unlock.rs`), `views/tests.rs`
+  (unit + property tests); `app/vault.rs` (reducer) with `app/vault/tests.rs` (UI flows)
+  and `app/vault/snapshot_tests.rs` (snapshots in `app/vault/snapshots/`);
+  `services/vault.rs` (`VaultService`, `VaultConfig`, `VAULT_DB`); `timers.rs`
+  (`Timers<K>`: one-shot tokio sleeps per kind, `take_due` refuses stale firings).
+- **Service.** `VaultService::spawn(VaultConfig, action_tx)` opens the store in
+  `spawn_blocking`, sends `Status`, then loops: `Lock` and `StartNewVault` run in the
+  loop itself (so a lock is never queued behind an Argon2 run), every other effect in
+  its own task. A generation counter re-locks an unlock that finishes after a lock.
+  `VaultService::engine()` hands the engine to later tasks (T31…). A database that
+  cannot be opened shows the prompt; every unlock then answers
+  `Other("The vault database is damaged: …")` (Forgot offers a new vault).
+  `InFlight` (`runtime.rs`) counts an effect until its answer is sent, so
+  `AppHarness::settle` waits for real engines.
+- **Events/effects added** (`#[non_exhaustive]`): `VaultEvent::{KeyringChangeFailed,
+  NewVaultFailed, Relogin(Result<(), String>)}`; `Relogin` answers "not available yet"
+  until T87. Internal actions `Action::{Vault, VaultTimer, VaultRequest}` (all
+  `#[serde(skip)]`; `VaultPassword` `Debug` is redacted).
+- **App API for later tasks.** `App::{with_vault, start_vault, attach_vault_service,
+  vault_service, lock_state, vault_available, vault_screen, open_change_password (T68),
+  toggle_keyring_unlock(enable) (T68), request_unlock (T58/T59/T64),
+  vault_defer_launch / on_launch (T70), lock_vault, vault_hides_panes}`; fields
+  `App::vault: VaultUi`, `App::disconnect_requests` (see below). `UnlockForm` has an
+  extra `notice` (the "press Ctrl-q again" text). `AppHarness::{with_vault,
+  attach_vault}`.
+- **`LaunchIntent`** is a stand-in (`Url(String)`, `Site(String)` in `app/vault.rs`)
+  until T70; `on_launch` shows "… is not available yet" for what runs and records it in
+  tests.
+- **CLI.** `--no-vault` and `--no-keyring` were added to `cli.rs` (T70 owns the rest);
+  `COURIER_FTP_KEYRING=off` also counts as `--no-keyring` (`keyring_env_off()`), and
+  the service then gets `NoKeyring` (no checkbox on first run).
+- **Deviations.** (1) Only the locked app (normal mode) hides the panes; the forms
+  shown while unlocked (change password, password changed elsewhere) and the unlock
+  form of "continue without vault" are drawn over the app, as in sverb (nothing
+  decrypted is hidden by the lock then). (2) The lock overlay is drawn from the first
+  unlock on; the startup screens are blank behind the box (mock-up). (3)
+  `vault.lock_disconnects` records the open sessions in `App::disconnect_requests`
+  and the form says nothing keeps running; T61 (which owns session handles) must
+  close them. (4) Step 4 (drop decrypted UI data) has nothing to drop yet (T58/T59/T64
+  add theirs in `lock_vault`). (5) Forgot `s`/`b` and first-run `Ctrl-b`/`Ctrl-g` stay
+  hidden (`ForgotScreen { sync, restore }`, `FirstRunForm { restore_available,
+  sync_available }` are false) until T90/T73 set them; `VaultStatusInfo::sync_account`
+  is always false until T87. (6) Lock reason sent to the engine is always `Manual`
+  (`VaultEffect::Lock` has no reason). (7) Suspend detection uses T30's
+  `SuspendDetector` (wall − monotonic > 10 s, or a frozen process > 30 s) on every
+  tick. (8) Auto-lock keeps one timer and re-arms it from the last input when it fires
+  early (no task per key). (9) Meter feedback is cut at the box width.
+- **Theme.** Style keys `vault.{title,border,text,dim,accent,error,warn,ok,info,overlay}`
+  in `config/config.json`; monochrome: title/border/accent/error/warn bold, dim/overlay
+  dim. `Modal::is_dirty` / `AnyDialog::is_dirty` / `ModalStack::any_dirty` were added
+  for the discarded-forms toast.
+- **PTY (T76).** `PtyApp::unlock` works unchanged (the box title is
+  `🔒 Unlock courier-ftp`). `PtyOptions::no_vault()` (adds `--no-vault`) is used by the
+  shell, file-list and harness PTY tests that are not about the vault;
+  `e2e_pty_resize_to_compact_and_back` now unlocks a `TestHome::with_vault` home (the
+  `no vault` segment would hide the compact hint at 60 columns). `TestHome::env` sets
+  `COURIER_FTP_TEST_ARGON2=test`: test-hooks binaries then create and re-wrap vaults
+  with `Argon2Cost::TEST` (debug Argon2 at 256 MiB takes far too long).
+  `exit-after-panes` now waits until the panes are drawn (after unlock).
+  New `tests/pty_vault.rs`: `first_run_create_vault_quit_unlock`,
+  `keyring_unlock_skips_the_prompt` (test-hooks `FileKeyring`), `lock_and_unlock`.
+- **Tests beyond the list:** `startup_without_keyring_shows_the_prompt`,
+  `password_changed_elsewhere_and_change_password_forms`,
+  `keyring_toggle_asks_for_the_password`, `vault_screens_render_at_small_sizes`,
+  `timers::tests::reschedule_cancels_and_stale_firings_are_refused`. The canary test
+  installs one global TRACE subscriber writing to a thread-local buffer.
+- **Not done here:** `lock_and_unlock_keeps_sftp_session` (Docker, `sshd` password
+  profile) needs a way to connect from the TUI (T58 quickconnect, T61 tabs); the
+  Docker-free `lock_and_unlock` covers the lock/unlock part. AC11's `test-os` and
+  `canary` CI jobs could not be run here; `fmt`, `clippy` (all features and
+  `--no-default-features`), the workspace tests, docs and the layering/unsafe scripts
+  pass locally.

@@ -1,0 +1,21 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&AuditPage\n{\n    events:\n    vec![AuditEventView\n    {\n        id: 99, kind: audit_kind::ITEMS_PUSHED.into(), actor: Some(id(1)),\n        target: None, at: T0, meta:\n        serde_json::json!({\"vault_id\": id(6), \"item_ids\": [id(1)]}),\n    }], next_before: Some(99),\n})"
+---
+{
+  "events": [
+    {
+      "id": 99,
+      "kind": "vault.items_pushed",
+      "actor": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+      "at": "2026-01-02T03:04:05Z",
+      "meta": {
+        "item_ids": [
+          "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01"
+        ],
+        "vault_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e06"
+      }
+    }
+  ],
+  "next_before": 99
+}

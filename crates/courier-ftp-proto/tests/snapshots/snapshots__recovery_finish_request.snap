@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&RecoveryFinishRequest\n{\n    email: \"alice@example.com\".into(), code: \"ABCD-EFGH-JKMN-PQRS\".into(),\n    registration_upload: vec![1], private_bundle_enc: vec![2], version: 3,\n    signature: vec![3; 4],\n})"
+---
+{
+  "email": "alice@example.com",
+  "code": "ABCD-EFGH-JKMN-PQRS",
+  "registration_upload": "AQ",
+  "private_bundle_enc": "Ag",
+  "version": 3,
+  "signature": "AwMDAw"
+}

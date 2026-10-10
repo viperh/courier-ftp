@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/components/dialog/snapshot_tests.rs
+expression: "hs.render(w, h)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│         ┌ Site settings ───────────────────────────────────────────┐         │
+│         │  Host             │ example.org                          │         │
+└─────────│  Password         │                                      │─────────┘
+┏▶Local ━━│  Port             │ 22                                   │─────────┐
+┃         │  Passive mode     │ [x]                                  │         │
+┃         │  Execute          │ [-]                                  │         │
+┃         │ ▶Protocol         │ SFTP                               ▾ │         │
+┃         │  Transfer mode    │ ┌────────────────────────────┐y      │         │
+┃         │  Remote directory │ │FTP                         │       │         │
+┃         │  Comments         │ │FTPS (explicit)             │       │ver      │
+┃         │                     │SFTP                        │       │Quickcon…│
+┃         │  Columns          │ └────────────────────────────┘       │         │
+┃         │                     [x] Size                             │         │
+┃         │                     [ ] Owner                            │         │
+┃         │                                                          │         │
+┗━━━━━━━━━│                    [ OK ]  [ Cancel ]                    │─────────┘
+┌ Queue ──└──────────────────────────────────────────────────────────┘─────────┐
+│(not available yet)                                                           │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ – not connected │ Type: Auto │ ⇅ off                                  F10 quit

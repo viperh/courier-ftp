@@ -1,0 +1,147 @@
+# Cargo-fuzz targets (T00 harness; targets come with T91 and the parser tasks).
+# Its own workspace (excluded from the root one): it needs nightly and libFuzzer,
+# and must not touch the root Cargo.lock.
+#
+#   cargo +nightly fuzz list
+#   fuzz/seed-corpus.sh                       # copy the fixtures into fuzz/corpus/
+#   cargo +nightly fuzz run <target> fuzz/corpus/<target> -- -max_total_time=30
+#
+# CI: `.github/workflows/ci.yml` (job `fuzz`, 30 s per target on every PR) and
+# `.github/workflows/fuzz.yml` (nightly, 10 min per target, crashes uploaded). Both
+# are skipped while `fuzz_targets/` holds no `*.rs` file.
+#
+# Adding a target: `fuzz_targets/<name>.rs` (`fuzz_target!(|data: &[u8]| body(data));`
+# where `body` is a `#[doc(hidden)] pub fn fuzz_…` of the owning crate that a property
+# test also runs), a `[[bin]]` below (test/doc/bench = false), the crate as a path
+# dependency, and seeds in `seed-corpus.sh`. The planned targets are listed in T91 §7.
+[package]
+name = "courier-ftp-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+courier-ftp-core = { path = "../crates/courier-ftp-core" }
+courier-ftp-crypto = { path = "../crates/courier-ftp-crypto" }
+courier-ftp-proto = { path = "../crates/courier-ftp-proto" }
+courier-ftp-proto-ftp = { path = "../crates/courier-ftp-proto-ftp" }
+courier-ftp-proto-sftp = { path = "../crates/courier-ftp-proto-sftp" }
+
+# Not part of the root workspace.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+# libFuzzer reports panics as crashes only when they abort.
+panic = "abort"
+
+[[bin]]
+name = "envelope_open"
+path = "fuzz_targets/envelope_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "device_blob_open"
+path = "fuzz_targets/device_blob_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bundle_open"
+path = "fuzz_targets/bundle_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "grant_open"
+path = "fuzz_targets/grant_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_dto_decode"
+path = "fuzz_targets/sync_dto_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ftp_listing"
+path = "fuzz_targets/ftp_listing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ftp_reply"
+path = "fuzz_targets/ftp_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ftp_pasv"
+path = "fuzz_targets/ftp_pasv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "remote_name_sanitize"
+path = "fuzz_targets/remote_name_sanitize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_connect_response"
+path = "fuzz_targets/http_connect_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "socks_reply"
+path = "fuzz_targets/socks_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ppk_parse"
+path = "fuzz_targets/ppk_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "known_hosts_parse"
+path = "fuzz_targets/known_hosts_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backup_decrypt"
+path = "fuzz_targets/backup_decrypt.rs"
+test = false
+doc = false
+bench = false
+
+# [[bin]]
+# name = "url_parse"
+# path = "fuzz_targets/url_parse.rs"
+# test = false
+# doc = false
+# bench = false

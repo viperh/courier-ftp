@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/keymap/app_tests.rs
+expression: "h.render(80, 24)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│                                                                              │
+│                                                    ┌ ctrl-x ─────────────────┐
+└────────────────────────────────────────────────────│     a CycleTransferType │
+┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ────│     b AddBookmark       │
+┃                                      ┃│            │     c CompareOptions    │
+┃                                      ┃│            │     d Disconnect        │
+┃                                      ┃│            │     D ShowAppLog        │
+┃                                      ┃│            │     e EditedFilesList   │
+┃                                      ┃│            │     f FiltersDialog     │
+┃                                      ┃│     Not con│     i ServerInfo        │
+┃                                      ┃│Ctrl-s Site │     j ToggleQueuePane   │
+┃                                      ┃│            │     k ToggleSpeedLimit  │
+┃                                      ┃│            │     l ClearLog          │
+┃                                      ┃│            │     m ManualTransfer    │
+┃                                      ┃│            │     n NewFile           │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└────────────│     N NetworkWizard     │
+┌ Queue ─────────────────────────────────────────────│     p OpenNextPrompt    │
+│(not available yet)                                 │     q ToggleQuickconnect│
+│                                                    │… 20 more (F1)           │
+└────────────────────────────────────────────────────└─────────────────────────┘
+ – not connected │ Type: Auto │ ⇅ off        Ctrl-x │ F1 help  F5 copy  F6 move

@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&UserPublicKeys\n{\n    user_id: id(1), email: Some(\"alice@example.com\".into()), x25519_pub:\n    vec![1; 4], ed25519_pub: vec![2; 4],\n})"
+---
+{
+  "user_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+  "email": "alice@example.com",
+  "x25519_pub": "AQEBAQ",
+  "ed25519_pub": "AgICAg"
+}

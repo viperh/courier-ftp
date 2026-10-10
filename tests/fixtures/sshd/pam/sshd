@@ -1,0 +1,9 @@
+# PAM stack for sshd in the e2e image. Only the `kbd` profile sets `UsePAM yes`.
+#
+# Two keyboard-interactive prompts: "Password: " (pam_unix, the user's password) and
+# "Verification code: " (pam_courier_otp, accepts only the fixed TEST code 424242).
+auth     required  pam_unix.so
+auth     required  pam_courier_otp.so
+account  required  pam_unix.so
+session  required  pam_permit.so
+password required  pam_deny.so

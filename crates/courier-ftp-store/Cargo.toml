@@ -1,0 +1,29 @@
+[package]
+name = "courier-ftp-store"
+description = "SQLite store for courier-ftp's encrypted items"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
+# (scripts/check-layering.py and deny.toml enforce it).
+[dependencies]
+courier-ftp-crypto = { workspace = true }
+
+# SQLite (bundled), versioned migrations, async wrappers.
+parking_lot = { workspace = true }
+rusqlite = { workspace = true }
+rusqlite_migration = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }

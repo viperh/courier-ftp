@@ -1,0 +1,51 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/eplf/names.txt
+---
+format: eplf
+used_fallback_encoding: false
+skipped_count: 3
+entries:
+  - name: " leading space"
+    kind: file
+    size: 1
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: "with\ttab"
+    kind: file
+    size: 2
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: ünï 名.txt
+    kind: file
+    size: 3
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: ".hidden"
+    kind: file
+    size: 4
+    modified: ~
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: true
+skipped:
+  - line: 6
+    reason: HostileName
+    text: "+r,\t"
+  - line: 7
+    reason: BadNumber
+    text: "+r,s99999999999999999999999,\toverflow"
+  - line: 8
+    reason: Unrecognised
+    text: "+r,sabc,\tbad-size"

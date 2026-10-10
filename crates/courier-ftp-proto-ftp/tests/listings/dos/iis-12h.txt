@@ -1,0 +1,5 @@
+02-29-24  12:00AM       <DIR>          aspnet_client
+02-29-24  11:59PM                 1024 web.config
+12-31-99  01:00PM            123456789 old-backup.zip
+01-01-70  12:15AM                    0 epoch.txt
+06-15-24  08:30AM       <DIR>          My Documents

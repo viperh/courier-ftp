@@ -1,0 +1,9 @@
+Directory DKA0:[PROJECT]
+
+SOURCE_CODE_DIRECTORY_WITH_A_LONG_NAME.DIR;1
+                          1/3        10-JAN-2024 08:00:00.00  [DEV,PROJECT]   (RWE,RWE,RE,)
+ANOTHER_EXTREMELY_LONG_NAME_FOR_A_FILE.DAT;2
+                        100/102      11-JAN-2024 09:30        [DEV,PROJECT]   (RWED,RWED,R,)
+SHORT.TXT;1               1/3        12-JAN-2024 10:45:00.00  [DEV,PROJECT]   (RWED,RWED,R,)
+
+Total of 3 files, 102/108 blocks.

@@ -1,0 +1,14 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&CreateVaultRequest\n{ id: id(6), org_id: id(7), name_enc: vec![7], self_grant: grant_upload(), })"
+---
+{
+  "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e06",
+  "org_id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e07",
+  "name_enc": "Bw",
+  "self_grant": {
+    "wrapped_vault_key": "AQID",
+    "signature": "BAUG",
+    "key_version": 1
+  }
+}

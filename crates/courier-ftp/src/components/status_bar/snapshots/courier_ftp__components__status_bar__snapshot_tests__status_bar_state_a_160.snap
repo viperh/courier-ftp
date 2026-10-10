@@ -1,0 +1,22 @@
+---
+source: crates/courier-ftp/src/components/status_bar/snapshot_tests.rs
+expression: "bar(&state_a(&h), w, &sym, &t)"
+---
+ 🔒  TLS 1.3 │ Type: Auto │ ⇅ ↓500 KiB/s ↑100 KiB/s │ ⚑ filters │ ⇄ sync ≠ compare │ Queue: 12 files, 30.2 MiB, ↓1.20 MiB/s, ~00:00:25          F1 help  F5 copy 
+--- styles ---
+  0   0+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   1+1   Style::new().fg(Color::Indexed(2)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0   3+8   Style::new().fg(Color::Indexed(2)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  11+16  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  27+23  Style::new().fg(Color::Indexed(3)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  50+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  53+9   Style::new().fg(Color::Indexed(3)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  62+3   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  65+16  Style::new().fg(Color::Indexed(3)).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0  81+62  Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 143+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 145+5   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 150+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)
+  0 152+2   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).bold()
+  0 154+5   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset).dim()
+  0 159+1   Style::new().fg(Color::Reset).bg(Color::Indexed(236)).underline_color(Color::Reset)

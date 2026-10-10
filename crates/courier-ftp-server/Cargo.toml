@@ -1,0 +1,68 @@
+[package]
+name = "courier-ftp-server"
+description = "Self-hosted sync server for courier-ftp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "courier-ftp-server"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+# No ratatui, no crossterm, no russh, no rusqlite; no client crates
+# (scripts/check-layering.py and deny.toml enforce it).
+[dependencies]
+courier-ftp-crypto = { workspace = true }
+courier-ftp-proto = { workspace = true }
+
+# Already pinned in [workspace.dependencies].
+base64 = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json", "env-filter"] }
+uuid = { workspace = true }
+zeroize = { workspace = true }
+
+# Server stack. sqlx-core + sqlx-postgres instead of the `sqlx` facade: the
+# facade links libsqlite3-sys, which conflicts with the client's bundled rusqlite
+# in the same Cargo.lock. `ws` for T85's /v1/ws.
+axum = { workspace = true, features = ["ws"] }
+axum-server = { workspace = true }
+governor = { workspace = true }
+ipnet = { workspace = true }
+lettre = { workspace = true }
+rustls = { workspace = true }
+sqlx-core = { workspace = true }
+sqlx-postgres = { workspace = true }
+# TOTP second factor (RFC 6238).
+totp-rs = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+[dev-dependencies]
+# Cheap client KSF for the auth test suites.
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
+futures = { workspace = true }
+http-body-util = { workspace = true }
+insta = { workspace = true, features = ["json"] }
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tower = { workspace = true, features = ["util"] }

@@ -1,0 +1,9 @@
+# Host-pattern fixture (AC5): which lines `ssh-keygen -F <host>` finds is asserted in
+# courier_ftp_proto_sftp::known_hosts::tests::matching_fixture_like_ssh_keygen_f.
+plain.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBhYxpK5M9dWWLkngJsG1h11alcrHTyZO7bn447uw5it
+|1|TiLoG1eC3mmpBNtvUXd6mbrVn8Y=|gOIVmUZAweBiA2FDlKYdy6QlUmA= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBhYxpK5M9dWWLkngJsG1h11alcrHTyZO7bn447uw5it
+[web.example.com]:2222 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBMgQlUDZaMH/48BCYXKphOlbt/KQeGZaAMBez1lZrcW0ahYWoj6FHlD3vzRezkCpR2A2OJq8j7RN6uxFVVas1bA=
+*.wild.example,!bad.wild.example ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCeLSibsEqUSuSQhPdpSAr8R1hffJkaYGay/jSnlsHyJQGbWLFzXYuHkr5G+aWcgI6oT3c1kolDnqPbbi22g76UgP8vE57SLOGfJ+yD7pUHBCfgrh/O7yyNMAxkYXIAiQsVum2ZzegQNi5gJ7gAN5HZEQEToPsOgZpH3SV9XP4pom68LfKtaFsq1jBK8I4MOy1vYGe/k303QzjDWvYS8MyfuHKIeHAiZ33ivwAQx+pstJBqVwF7fGe8WtjKj4OuO6taiA78AJdwMRUNfOWeGAT3JXIK1VvY/tAFKWLICGQPUVxiBYkAfcH0FnOD4BPjFkHQCEJIkLtiED6QZ9JPwxld
+
+web?.test,10.0.0.* ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBhYxpK5M9dWWLkngJsG1h11alcrHTyZO7bn447uw5it
+not-an-entry

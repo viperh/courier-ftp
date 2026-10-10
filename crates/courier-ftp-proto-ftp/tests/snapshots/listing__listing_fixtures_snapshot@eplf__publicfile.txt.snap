@@ -1,0 +1,50 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/eplf/publicfile.txt
+---
+format: eplf
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: bin
+    kind: dir
+    size: ~
+    modified: "1996-02-13T23:58:22Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: README
+    kind: file
+    size: 10376
+    modified: "1996-08-13T17:19:43Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: manual.txt
+    kind: file
+    size: 28967
+    modified: "1996-08-13T17:19:53Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: pub
+    kind: dir
+    size: ~
+    modified: "1996-08-13T17:20:03Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+  - name: empty
+    kind: file
+    size: 0
+    modified: "1996-08-13T17:20:13Z (Second)"
+    permissions: ~
+    owner: ~
+    group: ~
+    hidden: false
+skipped: []

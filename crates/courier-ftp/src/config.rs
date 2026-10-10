@@ -1,65 +1,198 @@
-#![allow(dead_code)] // Remove this once you start using the code
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
-use std::{collections::HashMap, env, path::PathBuf, sync::LazyLock};
+use courier_ftp_core::settings::{Settings, SettingsStore, SettingsWarning};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use directories::ProjectDirs;
-use ratatui::style::{Color, Modifier, Style};
-use serde::{Deserialize, de::Deserializer};
-use tracing::error;
+use serde::Deserialize;
+use tracing::{error, warn};
 
-use crate::{action::Action, app::Mode};
+use crate::{keymap::resolver::RawKeymap, paths::AppPaths};
 
 /// The default config, baked into the binary at compile time. User config
-/// files found in [`get_config_dir`] are layered on top of it.
-const CONFIG: &str = include_str!("../../../.config/config.json");
-
-/// Reverse-domain qualifier and organisation used to locate the per-user
-/// config and data directories. Change these when you rename the project.
-const APP_QUALIFIER: &str = "com";
-const APP_ORGANIZATION: &str = "viperh";
+/// files found in [`AppPaths::config_dir`] are layered on top of it.
+const CONFIG: &str = include_str!("../config/config.json");
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct AppConfig {
+pub(crate) struct AppConfig {
     #[serde(default)]
+    #[expect(dead_code, reason = "read by the log file (T71) and the vault (T30)")]
     pub data_dir: PathBuf,
     #[serde(default)]
     pub config_dir: PathBuf,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Config {
+/// The layered config as the `config` crate deserialises it. `keybindings`, `styles`
+/// and `settings` stay raw JSON so a bad entry never fails loading.
+#[derive(Debug, Default, Deserialize)]
+struct RawConfig {
     #[serde(default, flatten)]
+    config: AppConfig,
+    #[serde(default)]
+    keybindings: serde_json::Value,
+    #[serde(default)]
+    styles: serde_json::Value,
+    #[serde(default)]
+    settings: serde_json::Value,
+}
+
+/// The built-in `config.json`, parsed once.
+#[derive(Debug, Default)]
+struct Defaults {
+    keybindings: RawKeymap,
+    styles: BTreeMap<String, String>,
+}
+
+static DEFAULTS: LazyLock<Defaults> = LazyLock::new(|| {
+    let raw: RawConfig = match json5::from_str(CONFIG) {
+        Ok(raw) => raw,
+        Err(e) => {
+            // Covered by a test; never happens in a release build.
+            error!("built-in config: {e}");
+            return Defaults::default();
+        }
+    };
+    let mut problems = Vec::new();
+    Defaults {
+        keybindings: raw_keymap(&raw.keybindings, &mut problems),
+        styles: raw_styles(&raw.styles, &mut problems),
+    }
+});
+
+/// The built-in key bindings (T50, T51).
+pub(crate) fn default_keybindings() -> &'static RawKeymap {
+    &DEFAULTS.keybindings
+}
+
+/// The built-in style keys and their `default` theme values.
+pub(crate) fn default_styles() -> &'static BTreeMap<String, String> {
+    &DEFAULTS.styles
+}
+
+/// Reads `keybindings` (mode → key → action name); entries of the wrong JSON type
+/// are skipped and reported.
+fn raw_keymap(v: &serde_json::Value, problems: &mut Vec<String>) -> RawKeymap {
+    let mut out = RawKeymap::new();
+    let Some(modes) = v.as_object() else {
+        if !v.is_null() {
+            problems.push("keybindings: expected an object of modes".to_owned());
+        }
+        return out;
+    };
+    for (mode, table) in modes {
+        let Some(table) = table.as_object() else {
+            problems.push(format!("keybindings.{mode}: expected an object of keys"));
+            continue;
+        };
+        let entries = out.entry(mode.clone()).or_default();
+        for (key, action) in table {
+            match action.as_str() {
+                Some(a) => {
+                    entries.insert(key.clone(), a.to_owned());
+                }
+                None => problems.push(format!("keybindings.{mode}.{key}: expected an action name")),
+            }
+        }
+    }
+    out
+}
+
+/// Reads the flat `styles` map (style key → style string).
+fn raw_styles(v: &serde_json::Value, problems: &mut Vec<String>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(map) = v.as_object() else {
+        if !v.is_null() {
+            problems.push("styles: expected an object".to_owned());
+        }
+        return out;
+    };
+    for (key, style) in map {
+        match style.as_str() {
+            Some(s) => {
+                out.insert(key.clone(), s.to_owned());
+            }
+            None => problems.push(format!("styles.{key}: expected a style string")),
+        }
+    }
+    out
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Config {
     pub config: AppConfig,
-    #[serde(default)]
-    pub keybindings: KeyBindings,
-    #[serde(default)]
-    pub styles: Styles,
+    /// The user's `keybindings` (the resolver puts them over [`default_keybindings`]).
+    pub keybindings: RawKeymap,
+    /// The user's `styles` (the theme puts them over the preset).
+    pub styles: BTreeMap<String, String>,
+    /// The application settings (T05), defaults merged with the user's `settings` key.
+    pub settings: Settings,
+    /// Problems found in the user's `settings`; each bad value was replaced by its
+    /// default. Shown once as `Error:` lines in the message log at startup (T55).
+    pub settings_warnings: Vec<SettingsWarning>,
+    /// Structural problems in `keybindings` / `styles` (wrong JSON types).
+    pub config_problems: Vec<String>,
+}
+
+/// User config files loaded after `config.json`, so a `settings` key in one of them
+/// would shadow settings saved to `config.json`.
+const SHADOWING_FILES: [(&str, config::FileFormat); 3] = [
+    ("config.yaml", config::FileFormat::Yaml),
+    ("config.toml", config::FileFormat::Toml),
+    ("config.ini", config::FileFormat::Ini),
+];
+
+/// Refuses (`InvalidInput`) when `config.yaml`, `config.toml` or `config.ini` in
+/// `config_dir` has a top-level `settings` key: it is loaded after `config.json` and
+/// would hide the saved values.
+pub(crate) fn check_settings_not_shadowed(config_dir: &Path) -> courier_ftp_core::Result<()> {
+    for (file, format) in SHADOWING_FILES {
+        let path = config_dir.join(file);
+        if !path.exists() {
+            continue;
+        }
+        let table = config::Config::builder()
+            .add_source(config::File::from(path.clone()).format(format))
+            .build()
+            .and_then(|c| c.try_deserialize::<HashMap<String, config::Value>>())
+            .map_err(|e| courier_ftp_core::Error::InvalidInput(format!("{file}: {e}")))?;
+        if table.contains_key("settings") {
+            return Err(courier_ftp_core::Error::InvalidInput(format!(
+                "{file} has a \"settings\" key that would override the saved settings; \
+                 move it to config.json or remove it"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Saves a settings change made in the app (T68): refuses when another config file
+/// shadows `config.json`, then [`SettingsStore::update`].
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "called by the settings screen (T68)")
+)]
+pub(crate) fn save_settings(
+    store: &SettingsStore,
+    edit: impl FnOnce(&mut Settings),
+) -> courier_ftp_core::Result<Vec<SettingsWarning>> {
+    check_settings_not_shadowed(store.config_dir())?;
+    store.update(edit)
 }
 
 /// Upper-cased crate name, used as the prefix for the `*_DATA`, `*_CONFIG`
 /// and `*_LOG_LEVEL` environment variables (see `.envrc`).
-pub static PROJECT_NAME: LazyLock<String> =
+pub(crate) static PROJECT_NAME: LazyLock<String> =
     LazyLock::new(|| env!("CARGO_CRATE_NAME").to_uppercase().to_string());
-pub static DATA_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    env::var(format!("{}_DATA", PROJECT_NAME.clone()))
-        .ok()
-        .map(PathBuf::from)
-});
-pub static CONFIG_FOLDER: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    env::var(format!("{}_CONFIG", PROJECT_NAME.clone()))
-        .ok()
-        .map(PathBuf::from)
-});
 
 impl Config {
-    pub fn new() -> color_eyre::Result<Self, config::ConfigError> {
-        let default_config: Config = json5::from_str(CONFIG).unwrap();
-        let data_dir = get_data_dir();
-        let config_dir = get_config_dir();
+    pub(crate) fn new(paths: &AppPaths) -> color_eyre::Result<Self, config::ConfigError> {
+        let data_dir = &paths.data_dir;
+        let config_dir = &paths.config_dir;
         let mut builder = config::Config::builder()
-            .set_default("data_dir", data_dir.to_str().unwrap())?
-            .set_default("config_dir", config_dir.to_str().unwrap())?;
+            .set_default("data_dir", data_dir.to_string_lossy().into_owned())?
+            .set_default("config_dir", config_dir.to_string_lossy().into_owned())?;
 
         let config_files = [
             ("config.json5", config::FileFormat::Json5),
@@ -82,522 +215,226 @@ impl Config {
             error!("No configuration file found. Application may not behave as expected");
         }
 
-        let mut cfg: Self = builder.build()?.try_deserialize()?;
-
-        for (mode, default_bindings) in default_config.keybindings.0.iter() {
-            let user_bindings = cfg.keybindings.0.entry(*mode).or_default();
-            for (key, cmd) in default_bindings.iter() {
-                user_bindings
-                    .entry(key.clone())
-                    .or_insert_with(|| cmd.clone());
-            }
-        }
-        for (mode, default_styles) in default_config.styles.0.iter() {
-            let user_styles = cfg.styles.0.entry(*mode).or_default();
-            for (style_key, style) in default_styles.iter() {
-                user_styles.entry(style_key.clone()).or_insert(*style);
-            }
+        let cfg: RawConfig = builder.build()?.try_deserialize()?;
+        let mut config_problems = Vec::new();
+        let keybindings = raw_keymap(&cfg.keybindings, &mut config_problems);
+        let styles = raw_styles(&cfg.styles, &mut config_problems);
+        for p in &config_problems {
+            warn!("{p}");
         }
 
-        Ok(cfg)
-    }
-}
-
-pub fn get_data_dir() -> PathBuf {
-    if let Some(s) = DATA_FOLDER.clone() {
-        s
-    } else if let Some(proj_dirs) = project_directory() {
-        proj_dirs.data_local_dir().to_path_buf()
-    } else {
-        PathBuf::from(".").join(".data")
-    }
-}
-
-pub fn get_config_dir() -> PathBuf {
-    if let Some(s) = CONFIG_FOLDER.clone() {
-        s
-    } else if let Some(proj_dirs) = project_directory() {
-        proj_dirs.config_local_dir().to_path_buf()
-    } else {
-        PathBuf::from(".").join(".config")
-    }
-}
-
-fn project_directory() -> Option<ProjectDirs> {
-    ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, env!("CARGO_PKG_NAME"))
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct KeyBindings(pub HashMap<Mode, HashMap<Vec<KeyEvent>, Action>>);
-
-impl<'de> Deserialize<'de> for KeyBindings {
-    fn deserialize<D>(deserializer: D) -> color_eyre::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let parsed_map = HashMap::<Mode, HashMap<String, Action>>::deserialize(deserializer)?;
-
-        let keybindings = parsed_map
-            .into_iter()
-            .map(|(mode, inner_map)| {
-                let converted_inner_map = inner_map
-                    .into_iter()
-                    .map(|(key_str, cmd)| (parse_key_sequence(&key_str).unwrap(), cmd))
-                    .collect();
-                (mode, converted_inner_map)
-            })
-            .collect();
-
-        Ok(KeyBindings(keybindings))
-    }
-}
-
-fn parse_key_event(raw: &str) -> color_eyre::Result<KeyEvent, String> {
-    let raw_lower = raw.to_ascii_lowercase();
-    let (remaining, modifiers) = extract_modifiers(&raw_lower);
-    parse_key_code_with_modifiers(remaining, modifiers)
-}
-
-fn extract_modifiers(raw: &str) -> (&str, KeyModifiers) {
-    let mut modifiers = KeyModifiers::empty();
-    let mut current = raw;
-
-    loop {
-        match current {
-            rest if rest.starts_with("ctrl-") => {
-                modifiers.insert(KeyModifiers::CONTROL);
-                current = &rest[5..];
-            }
-            rest if rest.starts_with("alt-") => {
-                modifiers.insert(KeyModifiers::ALT);
-                current = &rest[4..];
-            }
-            rest if rest.starts_with("shift-") => {
-                modifiers.insert(KeyModifiers::SHIFT);
-                current = &rest[6..];
-            }
-            _ => break, // break out of the loop if no known prefix is detected
-        };
-    }
-
-    (current, modifiers)
-}
-
-fn parse_key_code_with_modifiers(
-    raw: &str,
-    mut modifiers: KeyModifiers,
-) -> color_eyre::Result<KeyEvent, String> {
-    let c = match raw {
-        "esc" => KeyCode::Esc,
-        "enter" => KeyCode::Enter,
-        "left" => KeyCode::Left,
-        "right" => KeyCode::Right,
-        "up" => KeyCode::Up,
-        "down" => KeyCode::Down,
-        "home" => KeyCode::Home,
-        "end" => KeyCode::End,
-        "pageup" => KeyCode::PageUp,
-        "pagedown" => KeyCode::PageDown,
-        "backtab" => {
-            modifiers.insert(KeyModifiers::SHIFT);
-            KeyCode::BackTab
+        let (settings, settings_warnings) = Settings::from_json_lenient(&cfg.settings);
+        for w in &settings_warnings {
+            // Only the key path: values can be hosts or paths (T91 §4).
+            warn!(path = %w.path, "setting ignored; using its default");
         }
-        "backspace" => KeyCode::Backspace,
-        "delete" => KeyCode::Delete,
-        "insert" => KeyCode::Insert,
-        "f1" => KeyCode::F(1),
-        "f2" => KeyCode::F(2),
-        "f3" => KeyCode::F(3),
-        "f4" => KeyCode::F(4),
-        "f5" => KeyCode::F(5),
-        "f6" => KeyCode::F(6),
-        "f7" => KeyCode::F(7),
-        "f8" => KeyCode::F(8),
-        "f9" => KeyCode::F(9),
-        "f10" => KeyCode::F(10),
-        "f11" => KeyCode::F(11),
-        "f12" => KeyCode::F(12),
-        "space" => KeyCode::Char(' '),
-        "hyphen" => KeyCode::Char('-'),
-        "minus" => KeyCode::Char('-'),
-        "tab" => KeyCode::Tab,
-        c if c.len() == 1 => {
-            let mut c = c.chars().next().unwrap();
-            if modifiers.contains(KeyModifiers::SHIFT) {
-                c = c.to_ascii_uppercase();
-            }
-            KeyCode::Char(c)
-        }
-        _ => return Err(format!("Unable to parse {raw}")),
-    };
-    Ok(KeyEvent::new(c, modifiers))
-}
 
-pub fn key_event_to_string(key_event: &KeyEvent) -> String {
-    let char;
-    let key_code = match key_event.code {
-        KeyCode::Backspace => "backspace",
-        KeyCode::Enter => "enter",
-        KeyCode::Left => "left",
-        KeyCode::Right => "right",
-        KeyCode::Up => "up",
-        KeyCode::Down => "down",
-        KeyCode::Home => "home",
-        KeyCode::End => "end",
-        KeyCode::PageUp => "pageup",
-        KeyCode::PageDown => "pagedown",
-        KeyCode::Tab => "tab",
-        KeyCode::BackTab => "backtab",
-        KeyCode::Delete => "delete",
-        KeyCode::Insert => "insert",
-        KeyCode::F(c) => {
-            char = format!("f({c})");
-            &char
-        }
-        KeyCode::Char(' ') => "space",
-        KeyCode::Char(c) => {
-            char = c.to_string();
-            &char
-        }
-        KeyCode::Esc => "esc",
-        KeyCode::Null => "",
-        KeyCode::CapsLock => "",
-        KeyCode::Menu => "",
-        KeyCode::ScrollLock => "",
-        KeyCode::Media(_) => "",
-        KeyCode::NumLock => "",
-        KeyCode::PrintScreen => "",
-        KeyCode::Pause => "",
-        KeyCode::KeypadBegin => "",
-        KeyCode::Modifier(_) => "",
-    };
-
-    let mut modifiers = Vec::with_capacity(3);
-
-    if key_event.modifiers.intersects(KeyModifiers::CONTROL) {
-        modifiers.push("ctrl");
-    }
-
-    if key_event.modifiers.intersects(KeyModifiers::SHIFT) {
-        modifiers.push("shift");
-    }
-
-    if key_event.modifiers.intersects(KeyModifiers::ALT) {
-        modifiers.push("alt");
-    }
-
-    let mut key = modifiers.join("-");
-
-    if !key.is_empty() {
-        key.push('-');
-    }
-    key.push_str(key_code);
-
-    key
-}
-
-pub fn parse_key_sequence(raw: &str) -> color_eyre::Result<Vec<KeyEvent>, String> {
-    if raw.chars().filter(|c| *c == '>').count() != raw.chars().filter(|c| *c == '<').count() {
-        return Err(format!("Unable to parse `{raw}`"));
-    }
-    let raw = if !raw.contains("><") {
-        let raw = raw.strip_prefix('<').unwrap_or(raw);
-        raw.strip_prefix('>').unwrap_or(raw)
-    } else {
-        raw
-    };
-    let sequences = raw
-        .split("><")
-        .map(|seq| {
-            if let Some(s) = seq.strip_prefix('<') {
-                s
-            } else if let Some(s) = seq.strip_suffix('>') {
-                s
-            } else {
-                seq
-            }
+        Ok(Self {
+            config: cfg.config,
+            keybindings,
+            styles,
+            settings,
+            settings_warnings,
+            config_problems,
         })
-        .collect::<Vec<_>>();
-
-    sequences.into_iter().map(parse_key_event).collect()
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Styles(pub HashMap<Mode, HashMap<String, Style>>);
-
-impl<'de> Deserialize<'de> for Styles {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let parsed_map = HashMap::<Mode, HashMap<String, String>>::deserialize(deserializer)?;
-
-        let styles = parsed_map
-            .into_iter()
-            .map(|(mode, inner_map)| {
-                let converted_inner_map = inner_map
-                    .into_iter()
-                    .map(|(str, style)| (str, parse_style(&style)))
-                    .collect();
-                (mode, converted_inner_map)
-            })
-            .collect();
-
-        Ok(Styles(styles))
-    }
-}
-
-pub fn parse_style(line: &str) -> Style {
-    let (foreground, background) =
-        line.split_at(line.to_lowercase().find("on ").unwrap_or(line.len()));
-    let foreground = process_color_string(foreground);
-    let background = process_color_string(&background.replace("on ", ""));
-
-    let mut style = Style::default();
-    if let Some(fg) = parse_color(&foreground.0) {
-        style = style.fg(fg);
-    }
-    if let Some(bg) = parse_color(&background.0) {
-        style = style.bg(bg);
-    }
-    style = style.add_modifier(foreground.1 | background.1);
-    style
-}
-
-fn process_color_string(color_str: &str) -> (String, Modifier) {
-    let color = color_str
-        .replace("grey", "gray")
-        .replace("bright ", "")
-        .replace("bold ", "")
-        .replace("underline ", "")
-        .replace("inverse ", "");
-
-    let mut modifiers = Modifier::empty();
-    if color_str.contains("underline") {
-        modifiers |= Modifier::UNDERLINED;
-    }
-    if color_str.contains("bold") {
-        modifiers |= Modifier::BOLD;
-    }
-    if color_str.contains("inverse") {
-        modifiers |= Modifier::REVERSED;
-    }
-
-    (color, modifiers)
-}
-
-fn parse_color(s: &str) -> Option<Color> {
-    let s = s.trim_start();
-    let s = s.trim_end();
-    if s.contains("bright color") {
-        let s = s.trim_start_matches("bright ");
-        let c = s
-            .trim_start_matches("color")
-            .parse::<u8>()
-            .unwrap_or_default();
-        Some(Color::Indexed(c.wrapping_shl(8)))
-    } else if s.contains("color") {
-        let c = s
-            .trim_start_matches("color")
-            .parse::<u8>()
-            .unwrap_or_default();
-        Some(Color::Indexed(c))
-    } else if s.contains("gray") {
-        let c = 232
-            + s.trim_start_matches("gray")
-                .parse::<u8>()
-                .unwrap_or_default();
-        Some(Color::Indexed(c))
-    } else if s.contains("rgb") {
-        let red = (s.as_bytes()[3] as char).to_digit(10).unwrap_or_default() as u8;
-        let green = (s.as_bytes()[4] as char).to_digit(10).unwrap_or_default() as u8;
-        let blue = (s.as_bytes()[5] as char).to_digit(10).unwrap_or_default() as u8;
-        let c = 16 + red * 36 + green * 6 + blue;
-        Some(Color::Indexed(c))
-    } else if s == "bold black" {
-        Some(Color::Indexed(8))
-    } else if s == "bold red" {
-        Some(Color::Indexed(9))
-    } else if s == "bold green" {
-        Some(Color::Indexed(10))
-    } else if s == "bold yellow" {
-        Some(Color::Indexed(11))
-    } else if s == "bold blue" {
-        Some(Color::Indexed(12))
-    } else if s == "bold magenta" {
-        Some(Color::Indexed(13))
-    } else if s == "bold cyan" {
-        Some(Color::Indexed(14))
-    } else if s == "bold white" {
-        Some(Color::Indexed(15))
-    } else if s == "black" {
-        Some(Color::Indexed(0))
-    } else if s == "red" {
-        Some(Color::Indexed(1))
-    } else if s == "green" {
-        Some(Color::Indexed(2))
-    } else if s == "yellow" {
-        Some(Color::Indexed(3))
-    } else if s == "blue" {
-        Some(Color::Indexed(4))
-    } else if s == "magenta" {
-        Some(Color::Indexed(5))
-    } else if s == "cyan" {
-        Some(Color::Indexed(6))
-    } else if s == "white" {
-        Some(Color::Indexed(7))
-    } else {
-        None
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
 
     #[test]
-    fn test_parse_style_default() {
-        let style = parse_style("");
-        assert_eq!(style, Style::default());
-    }
-
-    #[test]
-    fn test_parse_style_foreground() {
-        let style = parse_style("red");
-        assert_eq!(style.fg, Some(Color::Indexed(1)));
-    }
-
-    #[test]
-    fn test_parse_style_background() {
-        let style = parse_style("on blue");
-        assert_eq!(style.bg, Some(Color::Indexed(4)));
-    }
-
-    #[test]
-    fn test_parse_style_modifiers() {
-        let style = parse_style("underline red on blue");
-        assert_eq!(style.fg, Some(Color::Indexed(1)));
-        assert_eq!(style.bg, Some(Color::Indexed(4)));
-    }
-
-    #[test]
-    fn test_process_color_string() {
-        let (color, modifiers) = process_color_string("underline bold inverse gray");
-        assert_eq!(color, "gray");
-        assert!(modifiers.contains(Modifier::UNDERLINED));
-        assert!(modifiers.contains(Modifier::BOLD));
-        assert!(modifiers.contains(Modifier::REVERSED));
-    }
-
-    #[test]
-    fn test_parse_color_rgb() {
-        let color = parse_color("rgb123");
-        let expected = 16 + 36 + 2 * 6 + 3;
-        assert_eq!(color, Some(Color::Indexed(expected)));
-    }
-
-    #[test]
-    fn test_parse_color_unknown() {
-        let color = parse_color("unknown");
-        assert_eq!(color, None);
-    }
-
-    #[test]
     fn test_config() -> color_eyre::Result<()> {
-        let c = Config::new()?;
-        assert_eq!(
-            c.keybindings
-                .0
-                .get(&Mode::Normal)
-                .unwrap()
-                .get(&parse_key_sequence("<q>").unwrap_or_default())
-                .unwrap(),
-            &Action::Quit
-        );
+        use crate::{
+            action::Action,
+            app::Mode,
+            keymap::{
+                chord::KeyChord,
+                resolver::{KeyResolver, Resolution},
+            },
+        };
+        let tmp = tempfile::TempDir::new()?;
+        let c = Config::new(&temp_paths(&tmp))?;
+        let (mut r, problems) = KeyResolver::from_config(&c);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(matches!(
+            r.resolve(
+                KeyChord::ctrl('q'),
+                Mode::Normal,
+                tokio::time::Instant::now()
+            ),
+            Resolution::Action(Action::Quit)
+        ));
         Ok(())
     }
 
     #[test]
-    fn test_simple_keys() {
-        assert_eq!(
-            parse_key_event("a").unwrap(),
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty())
-        );
-
-        assert_eq!(
-            parse_key_event("enter").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty())
-        );
-
-        assert_eq!(
-            parse_key_event("esc").unwrap(),
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::empty())
-        );
+    fn built_in_config_parses() {
+        assert!(json5::from_str::<RawConfig>(CONFIG).is_ok());
+        assert!(default_styles().contains_key("border_focused"));
+        // Every mode has a section.
+        for m in <crate::app::Mode as strum::IntoEnumIterator>::iter() {
+            assert!(
+                default_keybindings().contains_key(&format!("{m:?}")),
+                "{m:?}"
+            );
+        }
     }
 
     #[test]
-    fn test_with_modifiers() {
-        assert_eq!(
-            parse_key_event("ctrl-a").unwrap(),
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)
-        );
+    fn wrong_json_types_are_problems_not_errors() -> color_eyre::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let paths = temp_paths(&tmp);
+        std::fs::create_dir_all(&paths.config_dir)?;
+        std::fs::write(
+            paths.config_dir.join("config.json"),
+            r#"{"keybindings": {"Normal": {"x": 3}, "Log": []}, "styles": {"border": {"a": 1}, "title": "bold"}}"#,
+        )?;
+        let c = Config::new(&paths)?;
+        assert_eq!(c.config_problems.len(), 3, "{:?}", c.config_problems);
+        assert_eq!(c.styles.get("title").map(String::as_str), Some("bold"));
+        Ok(())
+    }
 
-        assert_eq!(
-            parse_key_event("alt-enter").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT)
-        );
-
-        assert_eq!(
-            parse_key_event("shift-esc").unwrap(),
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::SHIFT)
-        );
+    fn temp_paths(tmp: &tempfile::TempDir) -> AppPaths {
+        AppPaths {
+            config_dir: tmp.path().join("config"),
+            data_dir: tmp.path().join("data"),
+            cache_dir: tmp.path().join("cache"),
+        }
     }
 
     #[test]
-    fn test_multiple_modifiers() {
-        assert_eq!(
-            parse_key_event("ctrl-alt-a").unwrap(),
-            KeyEvent::new(
-                KeyCode::Char('a'),
-                KeyModifiers::CONTROL | KeyModifiers::ALT
-            )
-        );
+    fn config_new_survives_bad_settings() -> color_eyre::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let paths = temp_paths(&tmp);
+        std::fs::create_dir_all(&paths.config_dir)?;
+        std::fs::write(
+            paths.config_dir.join("config.json"),
+            r#"{"settings": {"transfers": {"max_concurrent": 99}, "connection": {"timeout_secs": 30}},
+                "keybindings": {"Normal": {"ctrl-x": "Quit"}}}"#,
+        )?;
+        let c = Config::new(&paths)?;
+        assert_eq!(c.settings.transfers.max_concurrent, 4);
+        assert_eq!(c.settings.connection.timeout_secs, 30);
+        assert_eq!(c.settings_warnings.len(), 1);
+        assert_eq!(c.settings_warnings[0].path, "transfers.max_concurrent");
+        // Keybindings still load next to settings.
+        assert_eq!(c.keybindings["Normal"]["ctrl-x"], "Quit");
 
-        assert_eq!(
-            parse_key_event("ctrl-shift-enter").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL | KeyModifiers::SHIFT)
-        );
+        // No user settings at all: defaults, no warnings.
+        let tmp = tempfile::TempDir::new()?;
+        let c = Config::new(&temp_paths(&tmp))?;
+        assert_eq!(c.settings, Settings::default());
+        assert!(c.settings_warnings.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_reverse_multiple_modifiers() {
-        assert_eq!(
-            key_event_to_string(&KeyEvent::new(
-                KeyCode::Char('a'),
-                KeyModifiers::CONTROL | KeyModifiers::ALT
-            )),
-            "ctrl-alt-a".to_string()
-        );
+    fn saved_settings_reload_through_config() -> color_eyre::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let paths = temp_paths(&tmp);
+        let mut s = Settings::default();
+        s.interface.show_tree = true;
+        // Arrays, nested objects, data-carrying enums and chars survive the `config`
+        // crate's own value model.
+        s.file_types.ascii_extensions = vec!["txt".to_owned(), "md".to_owned()];
+        s.ftp.active_port_range = Some(courier_ftp_core::settings::PortRange {
+            min: 50000,
+            max: 50100,
+        });
+        s.ftp.active_external_ip =
+            courier_ftp_core::settings::ActiveExternalIp::FromUrl("http://ip.example/".into());
+        s.transfers.invalid_char_replacement = '-';
+        s.transfers.max_concurrent = 8;
+        s.save_user(&paths.config_dir)?;
+        let c = Config::new(&paths)?;
+        assert_eq!(c.settings, s);
+        assert!(c.settings_warnings.is_empty());
+        Ok(())
+    }
+
+    // T47 AC10: filter settings survive `save_user` and a reload through `Config::new`.
+    #[test]
+    fn filter_settings_save_user_roundtrip() -> color_eyre::Result<()> {
+        use courier_ftp_core::filters::{
+            AppliesTo, Condition, Filter, FilterScope, FilterSet, MatchMode, NumOp, StringOp,
+        };
+        let tmp = tempfile::TempDir::new()?;
+        let paths = temp_paths(&tmp);
+        let mut s = Settings::default();
+        let f = &mut s.filters;
+        f.filters[1].conditions.push(Condition::Name {
+            op: StringOp::Regex,
+            value: r"^\.git(modules)?$".to_owned(),
+        });
+        f.filters.push(Filter {
+            name: "Big old logs".to_owned(),
+            applies_to: AppliesTo::Files,
+            match_mode: MatchMode::All,
+            case_sensitive: false,
+            scope: FilterScope::RemoteOnly,
+            conditions: vec![
+                Condition::Name {
+                    op: StringOp::Glob,
+                    value: "*.LOG".to_owned(),
+                },
+                Condition::Size {
+                    op: NumOp::Greater,
+                    value: 1 << 20,
+                },
+                serde_json::from_value(serde_json::json!(
+                    {"type": "date", "op": "before", "value": "2026-01-31"}
+                ))?,
+            ],
+            builtin: false,
+        });
+        f.sets[0].remote = vec!["Git directories".to_owned(), "Big old logs".to_owned()];
+        f.sets.push(FilterSet {
+            name: "web".to_owned(),
+            local: vec!["Configuration files".to_owned()],
+            remote: vec![],
+        });
+        f.active_set = "web".to_owned();
+        f.apply_to_transfers = false;
+        s.save_user(&paths.config_dir)?;
+        let c = Config::new(&paths)?;
+        assert!(c.settings_warnings.is_empty(), "{:?}", c.settings_warnings);
+        assert_eq!(c.settings, s);
+        Ok(())
     }
 
     #[test]
-    fn test_invalid_keys() {
-        assert!(parse_key_event("invalid-key").is_err());
-        assert!(parse_key_event("ctrl-invalid-key").is_err());
-    }
+    fn save_refused_when_toml_shadows_settings() -> color_eyre::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let dir = tmp.path();
+        // A toml file without `settings` does not block saving.
+        std::fs::write(dir.join("config.toml"), "[styles]\n")?;
+        check_settings_not_shadowed(dir)?;
+        let store = SettingsStore::new(Settings::default(), dir.to_path_buf());
+        save_settings(&store, |s| s.interface.show_tree = true)?;
 
-    #[test]
-    fn test_case_insensitivity() {
-        assert_eq!(
-            parse_key_event("CTRL-a").unwrap(),
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)
-        );
+        std::fs::write(
+            dir.join("config.toml"),
+            "[settings.transfers]\nmax_concurrent = 2\n",
+        )?;
+        let before = std::fs::read_to_string(dir.join("config.json"))?;
+        let err = save_settings(&store, |s| s.interface.show_log = false).unwrap_err();
+        assert!(matches!(err, courier_ftp_core::Error::InvalidInput(_)));
+        assert!(store.current().interface.show_log);
+        assert!(err.to_string().contains("config.toml"), "{err}");
+        assert_eq!(std::fs::read_to_string(dir.join("config.json"))?, before);
 
-        assert_eq!(
-            parse_key_event("AlT-eNtEr").unwrap(),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT)
-        );
+        std::fs::remove_file(dir.join("config.toml"))?;
+        std::fs::write(
+            dir.join("config.yaml"),
+            "settings:\n  ftp:\n    use_mlsd: false\n",
+        )?;
+        assert!(check_settings_not_shadowed(dir).is_err());
+        Ok(())
     }
 }

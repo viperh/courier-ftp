@@ -1,0 +1,8 @@
+total 16
+drwxr-xr-x@  4 bob  staff   128 Mar  3 10:00 Library
+-rw-r--r--@  1 bob  staff  6148 Mar  3 10:00 .DS_Store
+-rw-r--r--   1 bob  staff   512 Oct 10  2021 old notes.txt
+lrwxr-xr-x   1 bob  staff    23 Mar  3 10:00 latest -> releases/v1.2.3/out.tar
+srwxrwxrwx   1 bob  staff     0 Jun 15 09:00 agent.sock
+prw-r--r--   1 bob  staff     0 Jun 15 09:00 fifo
+-rwxr-xr-x.  1 bob  staff  4096 Apr  1 00:00 selinux-dot.sh

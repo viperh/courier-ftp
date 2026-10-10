@@ -1,30 +1,355 @@
 # T46 — Directory listing cache
 
-**Phase:** E Transfers · **Depends on:** T03, T04 · **Crate:** `courier-ftp-core` (`cache` module) · **FEATURES.md:** §3 (directory listing cache, option to refresh or not)
+**Phase:** E Transfers · **Milestone:** M1 · **Depends on:** T03, T04 · **Crate(s):** `courier-ftp-core` (`cache` module) · **Decisions:** D10 · **FEATURES.md:** §3 (directory listing cache, option to refresh or not)
 
 ## Goal
 
-Avoid re-listing directories the user just visited, while keeping panes
-accurate after our own changes.
+Remote directories the user has already visited show instantly instead of being
+listed again, and panes stay accurate after the app's own operations (mkdir, delete,
+rename, chmod, upload) without a manual refresh. The cache lives in memory only,
+is shared by every tab connected to the same server, and is bounded in size.
 
-## Scope
+## Context
 
-1. `ListingCache` keyed by `(server identity = protocol+host+port+user, RemotePath)` → `Listing` + `fetched_at`. In memory only (never persisted — avoids leaking file names to disk).
-2. Shared across tabs connected to the same server.
-3. Policy: `cache.listing_cache` on/off; `ttl_secs` (0 = valid until explicit refresh). Navigating back to a cached dir shows it instantly; F5/`Ctrl-r` forces refresh.
-4. **Invalidation / patching** after our own operations so a refresh isn't needed:
-   - mkdir → insert entry; delete/rmdir → remove; rename → move entry (across dirs: remove + insert); chmod → update permissions; upload complete → insert/update entry with known size and mtime (mark mtime precision as approximate).
-   - Recursive delete of a dir → drop cached subtree.
-5. Memory cap (e.g. 200 directories, LRU eviction).
-6. Event `ListingUpdated { dir }` emitted on change so panes showing that dir re-render.
+- Before: T02 provides `ServerIdentity` (`ServerAddress::identity()`), the key for
+  caches; T03 provides `Backend::list(&mut self, dir, cancel) -> Result<Listing>` with
+  `Listing { dir: RemotePath, entries: Vec<Entry>, fetched_at: Instant, raw: Option<String> }`
+  and `SessionHandle`; T02 provides `ServerAddress`, `Protocol`, `RemotePath`, `Entry`,
+  `Timestamp`, `Permissions`; T04 provides `EventSender` and `CoreEvent`; T05 provides
+  `Settings.cache.listing_cache`, `Settings.cache.listing_cache_ttl_secs` and
+  `Settings.cache.listing_cache_max_dirs`.
+- After: the file list (T53) and directory tree (T54) read through the cache; file
+  operations (T62) and the transfer engine (T41) call the patch API after success;
+  recursive delete (T43) drops subtrees; search (T49) reads and fills the cache.
+- Local listings are **not** cached: the local filesystem is fast and is changed by other
+  programs all the time. The local pane always lists through `LocalBackend` (T06).
+
+## Technical specification
+
+### Types and APIs
+
+Module `courier_ftp_core::cache`.
+
+```rust
+// Cache key: `ServerIdentity` from T02 (`ServerAddress::identity()`): protocol +
+// lower-case host + effective port + user. Encryption is not part of it, so plain and
+// TLS sessions to one server share listings. Two tabs with equal identities share
+// cached listings.
+
+/// How a caller wants a listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListMode {
+    /// Fresh or stale cached listing is fine (panes). Stale listings are returned and
+    /// the caller is told to revalidate in the background.
+    PreferCache,
+    /// Only a fresh cached listing is used; stale or missing → fetch (search, T49).
+    FreshOnly,
+    /// Always fetch and replace the cached listing (`Refresh`, `ctrl-r`, T62; tree `TreeRefresh`, T54).
+    Refresh,
+}
+
+/// Result of a lookup without fetching.
+#[derive(Debug, Clone)]
+pub enum Lookup {
+    Fresh(Arc<Listing>),
+    /// Expired by TTL or marked unsure by a patch: show it, then revalidate.
+    Stale(Arc<Listing>),
+    Miss,
+}
+
+/// Where a listing returned by `get_or_fetch` came from.
+#[derive(Debug, Clone)]
+pub struct CachedListing {
+    pub listing: Arc<Listing>,
+    pub source: ListingSource,      // Cache | CacheStale | Backend
+}
+
+/// One change made by courier-ftp itself, applied without re-listing.
+#[derive(Debug, Clone)]
+pub enum CachePatch {
+    /// mkdir, new empty file (T62), or upload finished (T41).
+    Created { path: RemotePath, entry: Entry },
+    /// remove_file.
+    RemovedFile { path: RemotePath },
+    /// rmdir or recursive delete finished: entry removed from the parent and the
+    /// cached subtree under `path` dropped.
+    RemovedDir { path: RemotePath },
+    /// rename / move (same or different parent).
+    Renamed { from: RemotePath, to: RemotePath },
+    /// chmod succeeded with exactly this mode.
+    ModeChanged { path: RemotePath, mode: u32 },
+    /// Upload finished; `modified` is `Some` only when preserve_timestamps set it.
+    Uploaded { path: RemotePath, size: u64, modified: Option<Timestamp> },
+}
+
+/// Cheap to clone (`Arc` inside). Thread-safe; never holds its lock across `.await`.
+#[derive(Debug, Clone)]
+pub struct ListingCache { /* Arc<Inner> */ }
+
+impl ListingCache {
+    /// `policy` comes from `Settings.cache`; `events` from T04.
+    pub fn new(policy: CachePolicy, events: EventSender) -> Self;
+    /// Apply new settings (enable/disable, TTL). Disabling clears everything.
+    pub fn set_policy(&self, policy: CachePolicy);
+    pub fn lookup(&self, server: &ServerIdentity, dir: &RemotePath) -> Lookup;
+    /// Store a listing just fetched (including `Listing.raw`, used by T71's raw view).
+    pub fn store(&self, server: &ServerIdentity, listing: Listing) -> Arc<Listing>;
+    /// Fetch through the cache. Concurrent calls for the same (server, dir) are
+    /// coalesced: only one runs `fetch`, the others wait and reuse its result.
+    pub async fn get_or_fetch<F, Fut>(
+        &self, server: &ServerIdentity, dir: &RemotePath, mode: ListMode, fetch: F,
+    ) -> Result<CachedListing>
+    where F: FnOnce() -> Fut, Fut: Future<Output = Result<Listing>>;
+    pub fn patch(&self, server: &ServerIdentity, patch: CachePatch);
+    /// Drop one directory (used when a fetch says NotFound, or after an operation
+    /// whose result is unknown, e.g. a failed rename).
+    pub fn invalidate(&self, server: &ServerIdentity, dir: &RemotePath);
+    /// Drop `dir` and every cached directory below it.
+    pub fn invalidate_subtree(&self, server: &ServerIdentity, dir: &RemotePath);
+    pub fn clear_server(&self, server: &ServerIdentity);
+    /// Called on vault lock (T60) and on quit.
+    pub fn clear_all(&self);
+    pub fn stats(&self) -> CacheStats;   // dirs, entries, hits, misses, evictions
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CachePolicy {
+    pub enabled: bool,               // cache.listing_cache
+    pub ttl: Option<Duration>,       // cache.listing_cache_ttl_secs; 0 → None (no expiry)
+    pub max_dirs: usize,             // cache.listing_cache_max_dirs (default 200)
+}
+
+/// Hard limits over all directories (constants, not settings).
+pub const MAX_CACHED_ENTRIES: usize = 500_000;
+pub const MAX_CACHED_RAW_BYTES: usize = 64 * 1024 * 1024;
+```
+
+### Behaviour
+
+**Storage.** `Inner` holds a `std::sync::Mutex<State>`:
+`State { dirs: HashMap<(ServerIdentity, RemotePath), Slot>, total_entries: usize, total_raw_bytes: usize, clock: u64 }`,
+`Slot { listing: Arc<Listing>, cached_at: tokio::time::Instant, unsure: bool, last_used: u64 }`.
+`clock` increments on every lookup hit or store; `last_used` is set from it (LRU order).
+A separate `fetch_locks: Mutex<HashMap<(ServerIdentity, RemotePath), Arc<tokio::sync::Mutex<()>>>>`
+provides single-flight fetching; an entry is removed when its last waiter finishes.
+
+**Freshness.** A slot is *fresh* when `!unsure` and (`ttl` is `None` or
+`now - cached_at < ttl`). Otherwise it is *stale*. TTL uses `tokio::time::Instant` so
+tests can use `tokio::time::pause`.
+
+**`lookup`**: cache disabled → `Miss`. Present → `Fresh`/`Stale` and bumps `last_used`
+(counts a hit). Absent → `Miss` (counts a miss).
+
+**`get_or_fetch` algorithm**
+
+| Mode | Fresh slot | Stale slot | Missing |
+|---|---|---|---|
+| `PreferCache` | return `Cache` | return `CacheStale` (caller revalidates with `Refresh` in the background) | fetch |
+| `FreshOnly` | return `Cache` | fetch | fetch |
+| `Refresh` | fetch | fetch | fetch |
+
+"fetch" = record `requested_at = now`, acquire the per-key async lock, then re-check:
+if a slot now exists with `cached_at >= requested_at` (another caller fetched it while
+we waited), return it as `Cache`. Otherwise run `fetch()`; on `Ok` call `store` and
+return `Backend`; on `Err(Error::NotFound(_))` call `invalidate_subtree(dir)` and return
+the error; on any other error leave the cache unchanged and return the error.
+Cancellation: dropping the future releases the lock; the next waiter fetches itself.
+Cache disabled → `fetch()` is always called and nothing is stored.
+
+**`store`**: replaces the slot, sets `unsure = false`, keeps `Listing.raw`, updates
+`total_entries`, emits `ListingUpdated`, then evicts (directories first, then raw text, see Eviction).
+
+**Eviction.** After every insert, while `dirs.len() > max_dirs` or
+`total_entries > MAX_CACHED_ENTRIES`, remove the slot with the smallest `last_used`
+(linear scan over at most `max_dirs` slots). The slot just inserted is never evicted in the same
+pass, so a single directory larger than `MAX_CACHED_ENTRIES` is still served (it
+evicts everything else). Then, while the raw text of all slots exceeds
+`MAX_CACHED_RAW_BYTES`, set `raw = None` on the least recently used slot that still has
+raw text (the newest slot keeps its raw text even if it alone exceeds the limit; T71
+caps one listing's raw text at 16 MiB). Eviction is silent (no event).
+
+**Patches** (all O(entries in the affected directory); no-op if the parent is not cached):
+
+| Patch | Effect on cached directories |
+|---|---|
+| `Created { path, entry }` | In `parent(path)`: replace the entry with the same name or append; `unsure = true` when `entry` came from mkdir (only kind and name known). |
+| `RemovedFile { path }` | Remove the entry from `parent(path)`. |
+| `RemovedDir { path }` | Remove the entry from `parent(path)`; `invalidate_subtree(path)`. |
+| `Renamed { from, to }` | Remove from `parent(from)`; if `parent(to)` is cached, insert the moved entry renamed to `to.file_name()` (replacing a same-name entry). If the moved entry was a directory, `invalidate_subtree(from)` (cached children are not re-keyed). If `from`'s entry was not cached, `invalidate(parent(to))`. |
+| `ModeChanged { path, mode }` | Set `permissions = Some(Permissions::from_mode(mode))` (raw cleared) on the entry. |
+| `Uploaded { path, size, modified }` | Upsert a `File` entry with `size = Some(size)`; `modified` as given (`None` keeps the old value only if the entry existed and was not replaced by a different kind); `unsure = true` (owner, group, permissions and server-side mtime are unknown). |
+
+`unsure = true` makes the directory stale: it is still shown immediately, and the
+next `PreferCache` read tells the pane to revalidate in the background (FileZilla's
+"unsure" listing behaviour). Every patch that changes a cached directory emits one
+`ListingUpdated` for it. Listings are held as `Arc<Listing>` and patched with
+`Arc::make_mut`, so readers holding an older `Arc` are never disturbed.
+
+**Disabled cache.** `lookup` → `Miss`, `store` and `patch` do nothing except emit
+`ListingUpdated` for the affected parent directory, so panes re-list after our own
+operations even without caching.
+
+**Events.** The cache emits `CoreEvent::ListingUpdated { server: Some(identity), dir }`
+(T04) on store, patch and invalidate. Every pane in every tab whose session has that
+`ServerIdentity` and shows `dir` re-reads the cache (never refetches because of the
+event alone, which prevents refresh loops). `server: None` (local filesystem) is never
+emitted by the cache; T62 sends it for local operations.
+
+**Complexity limits.** `lookup`: O(1) average plus O(path length) hashing.
+`store`: O(entries) for counting plus O(`max_dirs`) eviction scan. Patches: O(entries in
+the parent directory). Memory: bounded by `MAX_CACHED_ENTRIES` entries plus `max_dirs`
+`Listing` headers.
+
+### Data formats and configuration
+
+Settings (defined in T05, consumed here):
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `cache.listing_cache` | bool | `true` | Use the cache. `false` = always list (FileZilla "don't cache"). |
+| `cache.listing_cache_ttl_secs` | u32 | `0` | Seconds a listing stays fresh; `0` = until refreshed or patched. Range 0–86 400 (T05 validation: out of range → default + warning). |
+| `cache.listing_cache_max_dirs` | u32 | `200` | LRU capacity in directories. Range 10–10 000 (T05). |
+
+Nothing is persisted. There is no on-disk format.
+
+### Errors
+
+The cache itself never fails. `get_or_fetch` returns the `courier_ftp_core::Error` of
+the `fetch` closure unchanged. `Error::NotFound` additionally removes the directory and
+its subtree from the cache; the pane (T53) shows its normal "directory not found" error.
+
+### Security and logging
+
+- Listings contain file names, which are user data: memory only, never written to disk,
+  never synced. `clear_all` runs on vault lock (T60) so a locked app holds no remote
+  file names, and on quit.
+- `Listing.raw` is kept (T71 shows it from the cached listing) but bounded: when the sum of
+  raw text over all slots exceeds `MAX_CACHED_RAW_BYTES` (64 MiB), the raw text of the least
+  recently used slots is dropped (set to `None`) until under the limit; the entries stay.
+  T71 then shows its "no raw listing" message and a refresh brings the text back.
+- Logging: `debug!` may include the directory path and server key (debug-only per T91);
+  `trace!` for hit/miss per lookup. At `info` and above only counts (`evicted 3 dirs`),
+  never hosts, users or paths.
+- Server-provided names are untrusted but only stored and compared here; display
+  sanitising is the UI's job (T50).
+
+## Implementation steps
+
+1. `cache` module skeleton: `CachePolicy`, `ListMode`, `Lookup`, `ListingSource`, `CachePatch`, constants; keying by `ServerIdentity`.
+2. `ListingCache::new/lookup/store/clear_*`, `CachePolicy::from_settings`, freshness and TTL with `tokio::time::Instant`.
+3. LRU eviction with both limits; `stats()`.
+4. `get_or_fetch` with per-key single-flight lock and the mode table.
+5. `CachePatch` and `patch()`; `invalidate`, `invalidate_subtree`.
+6. `ListingUpdated` emission; disabled-cache behaviour; `set_policy`.
+7. Bench `cache_patch_100k` and docs (module rustdoc with the mode table).
 
 ## Acceptance criteria
 
-- [ ] Cache hit avoids a backend call (mock counts calls).
-- [ ] Each mutating operation patches the cache correctly.
-- [ ] LRU eviction respects the cap.
-- [ ] Disabled cache always lists.
+- [x] AC1 A `PreferCache` read of a cached fresh directory makes zero backend calls (mock call counter).
+- [x] AC2 `Refresh` always calls the backend exactly once and replaces the cached listing.
+- [x] AC3 Ten concurrent `get_or_fetch` calls for the same uncached directory run `fetch` exactly once.
+- [x] AC4 Every `CachePatch` variant produces the listing described in the patch table (one test per variant and per edge case listed there).
+- [x] AC5 Never more than `cache.listing_cache_max_dirs` (default 200) directories or 500 000 entries cached after any sequence of stores; the least recently used directory is evicted first.
+- [x] AC6 With `cache.listing_cache = false`, every read calls the backend, nothing is stored, and patches still emit `ListingUpdated`.
+- [x] AC7 With TTL 30 s, a listing is fresh at 29 s and stale at 30 s (paused tokio time).
+- [x] AC8 A fetch returning `NotFound` removes that directory and its cached subtree.
+- [x] AC9 `clear_all` leaves `stats().dirs == 0`; no cache content is written to disk (no file I/O in the module; checked by review and the T91 canary scan).
+- [x] AC10 Patching a 100 000-entry cached directory takes < 5 ms (criterion bench `cache_patch_100k`, release).
+- [x] AC11 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os` pass.
 
 ## Tests
 
-- Unit tests for each patch operation and eviction.
+### Unit tests
+- `identity_key_shares_plain_and_tls_sessions` — listings stored under the identity of `ftp://host` are found for `ftpes://HOST:21`; `sftp://host` is a different key (T02 `ServerIdentity` rules).
+- `prefer_cache_hit_makes_no_backend_call` — AC1.
+- `refresh_always_fetches_and_replaces` — AC2.
+- `fresh_only_refetches_stale_listing` — mode table row for `FreshOnly`.
+- `prefer_cache_returns_stale_with_source_cachestale` — unsure listing returned, source flagged.
+- `ttl_boundary_29s_fresh_30s_stale` (`#[tokio::test(start_paused = true)]`) — AC7.
+- `ttl_zero_never_expires` — fresh after 10 days of paused time.
+- `patch_created_appends_and_replaces_same_name` — AC4.
+- `patch_mkdir_marks_unsure` — AC4.
+- `patch_removed_file_removes_entry` — AC4.
+- `patch_removed_dir_drops_subtree` — `/a/b` and `/a/b/c` cached; removing `/a/b` drops both and the entry in `/a`; `/a/bc` kept (prefix is per component). AC4, AC8.
+- `patch_rename_same_dir`, `patch_rename_across_dirs`, `patch_rename_dir_invalidates_old_subtree`, `patch_rename_unknown_source_invalidates_target_parent` — AC4.
+- `patch_mode_changed_sets_permissions` — AC4.
+- `patch_uploaded_upserts_with_size_and_marks_unsure` — AC4.
+- `patch_on_uncached_parent_is_noop_but_emits_event_when_disabled` — AC4, AC6.
+- `lru_evicts_least_recently_used_dir` — store 201 dirs, touch dir 0, dir 1 evicted. AC5.
+- `entry_cap_evicts_until_under_limit` — three 200 000-entry listings → oldest evicted. AC5.
+- `single_huge_listing_still_served` — one 600 000-entry listing kept alone. AC5.
+- `disabled_cache_always_fetches_and_stores_nothing` — AC6.
+- `not_found_invalidates_subtree` — AC8.
+- `raw_text_budget_drops_lru_raw_first` — three listings with 30 MiB raw each: the oldest keeps its entries but `raw == None`; total raw ≤ 64 MiB.
+- `clear_all_empties_cache` — AC9.
+- `listing_updated_emitted_once_per_changed_dir` — event receiver from T04 counts events.
+
+### Property / fuzz tests
+- `prop_cache_never_exceeds_limits` — random sequences of store/lookup/patch/invalidate (proptest, 256 cases) keep `dirs <= max_dirs` (random `max_dirs` in 10..=300), `entries <= 500_000` (allowing the single-huge-listing exception) and `total_entries` equal to the real sum. AC5.
+- `prop_patches_match_reference_model` — random patch sequences applied to the cache and to a plain `BTreeMap` model give the same entry names per directory. AC4.
+
+### Snapshot tests
+Not applicable (no UI).
+
+### Integration tests
+- `single_flight_coalesces_concurrent_fetches` — `MockBackend` (T03) with 50 ms latency, 10 concurrent tasks, `fetch` counter = 1. AC3.
+- `cancelled_fetch_lets_next_waiter_fetch` — first caller dropped mid-fetch; second completes with its own fetch.
+- Bench `cache_patch_100k` (criterion, `crates/courier-ftp-core/benches/cache.rs`, added to `scripts/bench-gates.toml`). AC10.
+
+### End-to-end tests
+None specific; T53/T62 e2e flows exercise the cache against real servers (T76).
+
+## Out of scope
+
+- Persisting the cache across restarts (never: it would leak file names to disk).
+- Caching local listings.
+- Re-keying cached subtrees on directory rename (they are dropped instead).
+- Change notification from the server (FTP/SFTP have none).
+
+## Open questions
+
+- Should the cache also be cleared when the last session to a server disconnects? FileZilla keeps it so reconnecting is instant; this task keeps it (cleared only on lock and quit). Product decision for the owner.
+
+## Implementation notes
+
+- Files: `crates/courier-ftp-core/src/cache/mod.rs` (the module), `cache/tests.rs` (unit,
+  proptest and the `MockBackend` single-flight tests: they need the mock, which is only
+  compiled for `cfg(test)`/`test-util`, so they live in the crate rather than `tests/`),
+  bench `crates/courier-ftp-core/benches/cache.rs` (`cache/cache_patch_100k`, gate in
+  `scripts/bench-gates.toml`).
+- Storage is nested (`HashMap<ServerIdentity, HashMap<RemotePath, Slot>>` plus counters)
+  instead of one map keyed by the tuple: lookups need no key clone, `clear_server` and
+  `invalidate_subtree` only scan one server's directories. Behaviour is as specified.
+- Coalescing re-check uses a store sequence number instead of `cached_at >= requested_at`:
+  with paused tokio time (or a coarse clock) a listing stored at the same instant as the
+  request would otherwise satisfy a `Refresh` without fetching (AC2). A waiter reuses a
+  slot only when it was stored after its own request began.
+- Single-flight locks are counted (`users`), so the map entry is removed exactly when the
+  last holder/waiter finishes, also on cancellation.
+- Additions: `ListingCache::policy()`, `CachePolicy::from_settings(&CacheSettings)` and
+  `Default` (= default settings), `CacheStats::raw_bytes`. `max_dirs` is at least 1.
+  `set_policy` with a smaller `max_dirs` evicts at once.
+- Events (choices the spec leaves open):
+  - `store` with the cache disabled stores nothing and sends no event (a pane re-reading
+    after it would just miss and fetch again: a loop).
+  - `invalidate` always sends one event for `dir`; `invalidate_subtree` for `dir` and every
+    dropped directory. The internal NotFound handling of `get_or_fetch` only announces
+    directories that were actually cached, so two panes showing a deleted directory cannot
+    ping-pong NotFound fetches.
+  - `clear_server` / `clear_all` send nothing (lock and quit).
+- Patch details the table leaves open:
+  - `Created` marks the parent unsure when the entry carries only name and kind (no size,
+    mtime, permissions, owner, group): that is how a mkdir entry is recognised. For any
+    non-file entry the cached subtree at `path` (a stale listing of an older directory
+    there) is dropped.
+  - `Renamed` drops the cached subtree at `to` as well (whatever was cached for the
+    overwritten target is wrong now); the "moved entry was a directory" rule applies to
+    every non-`File` kind (symlinks too). The entry takes `to`'s name.
+  - `Uploaded` on an existing `File` keeps its other metadata and sets the size (and
+    `modified` when given); any other kind is replaced by a fresh `File` entry.
+  - `ModeChanged` on an unknown name changes nothing and sends nothing.
+- `ListingCache`'s `Debug` prints only the stats (no hosts or paths).
+- Bench `cache/cache_patch_100k` (rename of the first entry of a 100 000-entry directory,
+  the worst case: removal shifts every entry, the target name is searched over all):
+  ~1.4 ms locally (gate 5 ms, CI 10 ms). AC11 checked locally (fmt, clippy, docs, tests);
+  the CI OS matrix runs on merge.

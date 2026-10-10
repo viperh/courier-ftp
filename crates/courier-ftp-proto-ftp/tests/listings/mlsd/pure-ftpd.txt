@@ -1,0 +1,5 @@
+type=cdir;sizd=4096;modify=20240131120000;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000;unique=803g2a1; .
+type=pdir;sizd=4096;modify=20240130120000;UNIX.mode=0755;UNIX.uid=0;UNIX.gid=0;unique=803g2; ..
+type=file;size=5368709120;modify=20230715083000;UNIX.mode=0644;UNIX.uid=1000;UNIX.gid=1000;unique=803g2a2; big.iso
+type=dir;sizd=4096;modify=20240101000000;UNIX.mode=0700;UNIX.uid=1000;UNIX.gid=1000;unique=803g2a3; private
+type=file;size=12;modify=20240229235959;UNIX.mode=0600;UNIX.uid=1000;UNIX.gid=1000;unique=803g2a4; leap-day.txt

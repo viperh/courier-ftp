@@ -1,0 +1,7 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&TotpRequest { code: Some(\"123456\".into()), })"
+---
+{
+  "code": "123456"
+}

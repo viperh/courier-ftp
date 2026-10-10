@@ -1,0 +1,32 @@
+[package]
+name = "courier-ftp-proto"
+description = "Wire types of the courier-ftp sync protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Keep this crate UI-agnostic and I/O-free: no ratatui, no crossterm, no clap, no
+# tokio/axum/reqwest/rusqlite/sqlx (scripts/check-layering.py and deny.toml enforce it).
+[dependencies]
+# Byte lengths of keys, bundles and signatures (T80).
+courier-ftp-crypto = { workspace = true }
+# base64url-no-padding binary fields.
+base64 = { workspace = true }
+serde = { workspace = true }
+# Audit event metadata (free-form JSON) and the fuzz body.
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# RFC 3339 timestamps.
+time = { workspace = true }
+uuid = { workspace = true }
+
+# JSON snapshots and round-trip property tests.
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+proptest = { workspace = true }

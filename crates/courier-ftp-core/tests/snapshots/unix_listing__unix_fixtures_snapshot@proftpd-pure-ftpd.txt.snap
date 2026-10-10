@@ -1,0 +1,64 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/proftpd-pure-ftpd.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: header
+  - line: 2
+    outcome: entry
+    entry:
+      name: incoming
+      kind: dir
+      size: 4096
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rwxr-xr-x (755)
+      owner: proftpd
+      group: proftpd
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: readme
+      kind: file
+      size: 512
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: proftpd
+      group: proftpd
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: leap-day.txt
+      kind: file
+      size: 9
+      modified: "2024-02-29T10:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: "1001"
+      group: "1001"
+      hidden: false
+  - line: 5
+    outcome: entry
+    entry:
+      name: www
+      kind: dir
+      size: 4096
+      modified: "2024-06-15T12:00:00Z (Minute)"
+      permissions: rwxr-xr-x (755)
+      owner: "1001"
+      group: "1001"
+      hidden: false
+  - line: 6
+    outcome: entry
+    entry:
+      name: spaces-in-group.txt
+      kind: file
+      size: 77
+      modified: "2024-06-01T09:30:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: domain
+      group: user Domain Users
+      hidden: false

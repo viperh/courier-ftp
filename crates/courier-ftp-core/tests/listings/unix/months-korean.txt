@@ -1,0 +1,2 @@
+-rw-r--r--    1 kim      users        100 1월 31 12:00 일월.txt
+-rw-r--r--    1 kim      users        100 12월 25 2023 성탄절.txt

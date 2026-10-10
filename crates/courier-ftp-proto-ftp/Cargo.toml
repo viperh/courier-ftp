@@ -1,0 +1,44 @@
+[package]
+name = "courier-ftp-proto-ftp"
+description = "FTP and FTPS client for courier-ftp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# `testing::FakeServer`, the scripted fake FTP server (T10; T11-T15, T72, T76 use it).
+test-util = []
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
+# (scripts/check-layering.py and deny.toml enforce it).
+[dependencies]
+courier-ftp-core = { workspace = true }
+async-trait = { workspace = true }
+encoding_rs = { workspace = true }
+fastrand = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+insta = { workspace = true, features = ["glob", "yaml"] }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }
+
+# Listing parser throughput (T13, AC10).
+[[bench]]
+name = "listing"
+harness = false

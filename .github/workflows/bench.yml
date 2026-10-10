@@ -1,0 +1,91 @@
+name: Benchmarks
+
+# Performance targets (tasks/00-ci-cd-workflows.md §4). Not run on every PR (shared
+# runners are noisy): nightly on master and on demand.
+#
+# * Hard gates for the spec targets, CI-adjusted (2x): scripts/bench-gates.toml
+#   (empty until the tasks that own the benches add their gates).
+# * Startup to the file panes with keyring unlock and 1 000 sites: median of 20 runs
+#   < 200 ms (once crates/courier-ftp/tests/startup.rs exists, T76).
+# * Regressions: every bench is compared with the last main baseline (cached); a
+#   median more than 15% slower fails the run (scripts/bench-gate.py compare).
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  bench:
+    name: bench
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # vergen-gix needs history and tags
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Restore the main baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: target/criterion
+          key: criterion-main-${{ github.run_id }}
+          restore-keys: criterion-main-
+      # `--bench '*'` fails when the workspace has no bench target yet.
+      - name: Run benchmarks
+        run: |
+          set -euo pipefail
+          benches="$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq '[.packages[].targets[] | select(.kind | index("bench"))] | length')"
+          if [[ "$benches" -eq 0 ]]; then
+            echo "No bench targets yet."
+            exit 0
+          fi
+          cargo bench --workspace --locked --bench '*' -- --save-baseline ci --noplot
+      - name: Spec gates (CI thresholds)
+        run: python3 scripts/bench-gate.py gate --baseline ci
+      - name: Regressions against main (> 15%)
+        run: |
+          set -euo pipefail
+          if ls target/criterion/*/*/main/estimates.json >/dev/null 2>&1; then
+            python3 scripts/bench-gate.py compare --old main --new ci --threshold 15
+          else
+            echo "No main baseline yet; this run becomes it."
+          fi
+      - name: Startup to the file panes (keyring unlock, 1k sites)
+        env:
+          COURIER_FTP_STARTUP_GATE_MS: "200"
+        run: |
+          set -euo pipefail
+          if test -f crates/courier-ftp/tests/startup.rs; then
+            cargo test --release --locked -p courier-ftp --features test-hooks --test startup \
+              -- --ignored --nocapture
+          else
+            echo "No startup test yet (T76)."
+          fi
+      # The new results become the baseline for the next run (master only).
+      - name: Promote the baseline
+        if: github.ref == 'refs/heads/master'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for d in target/criterion/*/*/ci; do
+            rm -rf "$(dirname "$d")/main"
+            cp -r "$d" "$(dirname "$d")/main"
+          done
+      - name: Save the main baseline
+        if: github.ref == 'refs/heads/master' && hashFiles('target/criterion/**/estimates.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion
+          key: criterion-main-${{ github.run_id }}

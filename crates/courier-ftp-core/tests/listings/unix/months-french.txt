@@ -1,0 +1,6 @@
+-rw-r--r--    1 jean     users        100 31 janv. 12:00 janvier.txt
+-rw-r--r--    1 jean     users        100 14 févr. 2023 fevrier.txt
+-rw-r--r--    1 jean     users        100  1 avr. 09:00 avril.txt
+-rw-r--r--    1 jean     users        100 14 juil. 2023 juillet.txt
+-rw-r--r--    1 jean     users        100 15 août 2023 aout.txt
+-rw-r--r--    1 jean     users        100 25 déc. 2023 decembre.txt

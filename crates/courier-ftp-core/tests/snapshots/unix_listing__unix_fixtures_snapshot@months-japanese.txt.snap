@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/months-japanese.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: ホワイトデー.txt
+      kind: file
+      size: 100
+      modified: "2024-03-14T09:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: sato
+      group: users
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: 文化の日.txt
+      kind: file
+      size: 100
+      modified: "2023-11-03T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: sato
+      group: users
+      hidden: false

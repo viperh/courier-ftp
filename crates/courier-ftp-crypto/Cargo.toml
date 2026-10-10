@@ -1,0 +1,58 @@
+[package]
+name = "courier-ftp-crypto"
+description = "Cryptography for the courier-ftp vault and sync (no I/O)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Keep this crate UI-agnostic: no ratatui, no crossterm, no clap
+# (scripts/check-layering.py and deny.toml enforce it).
+# Pure computation: no tokio, no I/O crates, no rusqlite.
+[dependencies]
+# Primitives, canonical encodings, item envelopes, device blobs.
+argon2 = { workspace = true, features = ["zeroize"] }
+chacha20poly1305 = { workspace = true, features = ["zeroize"] }
+getrandom = { workspace = true }
+hkdf = { workspace = true }
+rand_core = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+zstd = { workspace = true }
+# Account keys, recovery key, vault-key grants (all rand_core 0.10).
+ed25519-dalek = { workspace = true }
+hpke = { workspace = true }
+x25519-dalek = { workspace = true }
+# BIP39 recovery phrase; no `rand` feature (entropy comes from our CryptoRng).
+bip39 = { workspace = true }
+# OPAQUE cipher suite (src/opaque.rs). opaque-ke 4 is on the
+# digest 0.10 / rand_core 0.6 generation, so its SHA-512 must come from
+# sha2 0.10 (the workspace pin is 0.11); kept crate-local under an alias.
+opaque-ke = { workspace = true }
+sha2_010 = { package = "sha2", version = "0.10.9", default-features = false }
+
+# `CourierKsf::insecure_for_tests()` (cheap Argon2id for test suites). Only
+# `[dev-dependencies]` edges may enable it.
+[features]
+insecure-test-ksf = []
+
+# Tests, KATs and benches.
+[dev-dependencies]
+chacha20 = { workspace = true }
+courier-ftp-crypto = { path = ".", features = ["insecure-test-ksf"] }
+criterion = { workspace = true }
+hex = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+
+# Seal/open of a 1 KiB item.
+[[bench]]
+name = "envelope"
+harness = false

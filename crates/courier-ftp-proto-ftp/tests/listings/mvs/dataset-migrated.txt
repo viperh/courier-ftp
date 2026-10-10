@@ -1,0 +1,5 @@
+Volume Unit    Referred Ext Used Recfm Lrecl BlkSz Dsorg Dsname
+Migrated                                                CAROL.A
+Migrated                                                CAROL.B
+Migrated                                                CAROL.C
+WYOSPT 3390   2023/12/31  1    1  FB      80  6160  PS  CAROL.D

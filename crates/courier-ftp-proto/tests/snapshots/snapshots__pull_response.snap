@@ -1,0 +1,17 @@
+---
+source: crates/courier-ftp-proto/tests/snapshots.rs
+expression: "json(&PullResponse\n{ items: vec![remote_item()], head_revision: 7, more: false, })"
+---
+{
+  "items": [
+    {
+      "id": "0192f0c4-7a10-7c3e-9a55-0f6b2c1d3e01",
+      "revision": 7,
+      "key_version": 1,
+      "envelope": "AQ",
+      "deleted": true
+    }
+  ],
+  "head_revision": 7,
+  "more": false
+}

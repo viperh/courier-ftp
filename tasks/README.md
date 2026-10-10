@@ -12,9 +12,12 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
   finished. **Related** lists tasks it integrates with later; they don't block it.
   The dependency graph has no cycles, and every milestone only depends on itself and earlier
   milestones (checked when this list was last updated).
-- Each task has: **Goal**, **Depends on**, **Related**, **Crate(s)**, **FEATURES.md refs**,
-  **Scope** (step by step), **Design notes**, **Acceptance criteria**, **Tests**
-  and **Out of scope**.
+- Each task has the same structure: header (**Milestone**, **Depends on**, **Related**,
+  crates, decisions, FEATURES.md refs), **Goal**, **Context**, **Technical specification**
+  (types and APIs, behaviour, data formats and configuration, errors, security and logging),
+  **Implementation steps** (one commit each), numbered **Acceptance criteria** (AC1…),
+  **Tests** (unit, property/fuzz, snapshot, integration, end-to-end — each mapped to ACs),
+  **Out of scope** and **Open questions** for the owner.
 - Tick acceptance-criteria boxes in the file as they are met. A task is done when
   every box is ticked and the required CI checks from T00 pass.
 - Tasks can run in parallel once their hard dependencies are done.
@@ -33,7 +36,7 @@ this folder traces back to a section of [`../FEATURES.md`](../FEATURES.md).
 | D7 | Mouse | **Keyboard only** for v1. Mouse capture stays off. |
 | D8 | Dropped features | Kerberos/GSS auth, OS drag and drop, sound / sleep / shutdown on queue completion. No tasks exist for these. |
 | D9 | TLS | `rustls` (with `rustls-platform-verifier` for OS trust roots). No OpenSSL. *(Default chosen by Claude — say so if you want it changed.)* |
-| D10 | App settings | Non-secret settings stay in the existing layered config (`.config/config.json` defaults + user `config.*`). |
+| D10 | App settings | Non-secret settings stay in the existing layered config (`crates/courier-ftp/config/config.json` defaults + user `config.*`). |
 | D11 | Speed | Transfers run in parallel (4 by default) and large files are split into ranges over several connections, with SFTP request pipelining (T41b). |
 | D12 | Sync | Device sync through **courier-ftp's own self-hosted server** (`courier-ftp-server`: axum + PostgreSQL), end-to-end encrypted, OPAQUE login with the master password, based on sverb's design. Sync is optional; everything works offline without an account. |
 | D13 | sverb code | sverb's vault, crypto, store, protocol and sync code is **copied and adapted** into courier-ftp crates (no dependency on sverb). |
@@ -148,9 +151,9 @@ Within a milestone the tasks are listed in a valid order (each task after its ha
 1. [T46 Directory listing cache](46-listing-cache.md)
 1. [T51 Keybindings (hybrid)](51-keybindings.md)
 1. [T52 Dialog and form framework](52-dialog-framework.md)
-1. [T57 Status bar](57-status-bar.md)
 1. [T76 Test strategy and e2e harness (sverb parity)](76-integration-test-harness.md)
 1. [T55 Message log pane](55-message-log-pane.md)
+1. [T57 Status bar](57-status-bar.md)
 1. [T53 File list pane](53-file-list-pane.md)
 
 ### M2 — Vault and SFTP
@@ -231,7 +234,8 @@ Notes:
 
 ## Project-wide rules
 
-- `courier-ftp-core`, the protocol crates, crypto, store, proto, sync and server crates never depend on `ratatui`, `crossterm` or `clap`.
+- `courier-ftp-core`, the protocol crates, crypto, store, proto and sync crates never depend on `ratatui`, `crossterm` or `clap`. The server crate may use `clap` for its admin CLI, never `ratatui`/`crossterm`.
+- Crate layering: core → store → crypto (the store does not depend on core); T00 checks it.
 - The client must work fully without a sync server; sync is an optional cargo feature (`sync`, default on).
 - No `unwrap()`/`expect()` on anything that can fail at runtime (network, files, user input). Tests are exempt.
 - Secrets (`Password`, key passphrases, the vault key) are wrapped in `secrecy::SecretString`/`zeroize` types and never logged, even at debug level. Log lines that would contain `PASS` must be masked (`PASS ****`).

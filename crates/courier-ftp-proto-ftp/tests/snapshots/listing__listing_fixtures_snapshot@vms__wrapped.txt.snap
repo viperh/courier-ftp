@@ -1,0 +1,34 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/vms/wrapped.txt
+---
+format: vms
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: SOURCE_CODE_DIRECTORY_WITH_A_LONG_NAME
+    kind: dir
+    size: ~
+    modified: "2024-01-10T08:00:00Z (Second)"
+    permissions: "raw (RWE,RWE,RE,)"
+    owner: PROJECT
+    group: DEV
+    hidden: false
+  - name: ANOTHER_EXTREMELY_LONG_NAME_FOR_A_FILE.DAT
+    kind: file
+    size: 51200
+    modified: "2024-01-11T09:30:00Z (Minute)"
+    permissions: "raw (RWED,RWED,R,)"
+    owner: PROJECT
+    group: DEV
+    hidden: false
+  - name: SHORT.TXT
+    kind: file
+    size: 512
+    modified: "2024-01-12T10:45:00Z (Second)"
+    permissions: "raw (RWED,RWED,R,)"
+    owner: PROJECT
+    group: DEV
+    hidden: false
+skipped: []

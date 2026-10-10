@@ -1,0 +1,45 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/ibmi/european-dates.txt
+---
+format: ibm-i
+used_fallback_encoding: false
+skipped_count: 1
+entries:
+  - name: projekte
+    kind: dir
+    size: ~
+    modified: "2024-01-31T12:00:05Z (Second)"
+    permissions: ~
+    owner: ALICE
+    group: ~
+    hidden: false
+  - name: schalt.txt
+    kind: file
+    size: 102400
+    modified: "2024-02-29T23:59:59Z (Second)"
+    permissions: ~
+    owner: ALICE
+    group: ~
+    hidden: false
+  - name: maerz.txt
+    kind: file
+    size: 100
+    modified: "2024-03-01T00:00:00Z (Second)"
+    permissions: ~
+    owner: ALICE
+    group: ~
+    hidden: false
+  - name: four-digit-year.txt
+    kind: file
+    size: 100
+    modified: "2024-01-31T07:30:00Z (Second)"
+    permissions: ~
+    owner: ALICE
+    group: ~
+    hidden: false
+skipped:
+  - line: 4
+    reason: Unrecognised
+    text: "ALICE            100 31/01/24 00:00:00 *STMF      bad-us-date.txt"

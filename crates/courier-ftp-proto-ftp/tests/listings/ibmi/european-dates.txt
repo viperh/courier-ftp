@@ -1,0 +1,5 @@
+ALICE          36864 31.01.24 12:00:05 *DIR       projekte/
+ALICE         102400 29.02.24 23:59:59 *STMF      schalt.txt
+ALICE            100 01.03.24 00:00:00 *STMF      maerz.txt
+ALICE            100 31/01/24 00:00:00 *STMF      bad-us-date.txt
+ALICE            100 01/31/2024 07:30:00 *STMF     four-digit-year.txt

@@ -1,122 +1,164 @@
-use crossterm::event::{KeyEvent, MouseEvent};
+//! The component trait every UI piece implements, and drawing helpers shared by them.
+
+use std::sync::Arc;
+
+use courier_ftp_core::events::CoreEvent;
 use ratatui::{
     Frame,
     layout::{Rect, Size},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders},
 };
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::{sync::mpsc::UnboundedSender, time::Instant};
 
-use crate::{action::Action, config::Config, tui::Event};
-pub mod home;
+use crate::{
+    action::Action,
+    app::Mode,
+    config::Config,
+    keymap::chord::KeyChord,
+    ui::{symbols::Symbols, theme::Theme},
+};
 
-/// `Component` is a trait that represents a visual and interactive element of the user interface.
-///
-/// Implementors of this trait can be registered with the main application loop and will be able to
-/// receive events, update state, and be rendered on the screen.
-pub trait Component {
-    /// Register an action handler that can send actions for processing if necessary.
-    ///
-    /// # Arguments
-    ///
-    /// * `tx` - An unbounded sender that can send actions.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<()>`] - An Ok result or an error.
+pub(crate) mod dialog;
+pub(crate) mod file_list;
+pub(crate) mod help;
+pub(crate) mod main_screen;
+pub(crate) mod message_log;
+pub(crate) mod modal;
+pub(crate) mod placeholder;
+pub(crate) mod prompts;
+pub(crate) mod server_info;
+pub(crate) mod status_bar;
+pub(crate) mod which_key;
+pub(crate) mod widgets;
+
+/// What a component did with a raw key.
+#[derive(Debug)]
+pub(crate) enum KeyOutcome {
+    /// Used; the optional action is dispatched.
+    Consumed(Option<Action>),
+    /// Not used; the keymap resolves it.
+    Ignored,
+}
+
+/// Read-only context for drawing.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DrawCx<'a> {
+    /// Resolved styles.
+    pub theme: &'a Theme,
+    /// Glyphs.
+    pub symbols: &'a Symbols,
+    /// The component has the focus.
+    pub focused: bool,
+    /// Now (tokio `Instant`, virtual in tests); spinners derive frames from it.
+    pub now: Instant,
+    /// The spinner frame to show in the title while the component's owner has been
+    /// busy for more than 150 ms.
+    pub spinner: Option<&'static str>,
+}
+
+/// A visual and interactive element. Mouse handling is gone (D7).
+pub(crate) trait Component {
+    /// Gives the component the action channel.
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
-        let _ = tx; // to appease clippy
+        let _ = tx;
         Ok(())
     }
-    /// Register a configuration handler that provides configuration settings if necessary.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Configuration settings.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<()>`] - An Ok result or an error.
-    fn register_config_handler(&mut self, config: Config) -> color_eyre::Result<()> {
-        let _ = config; // to appease clippy
+
+    /// Gives the component the configuration.
+    fn register_config_handler(&mut self, config: Arc<Config>) -> color_eyre::Result<()> {
+        let _ = config;
         Ok(())
     }
-    /// Initialize the component with a specified area if necessary.
-    ///
-    /// # Arguments
-    ///
-    /// * `area` - Rectangular area to initialize the component within.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<()>`] - An Ok result or an error.
+
+    /// Called once with the terminal size.
     fn init(&mut self, area: Size) -> color_eyre::Result<()> {
-        let _ = area; // to appease clippy
+        let _ = area;
         Ok(())
     }
-    /// Handle incoming events and produce actions if necessary.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - An optional event to be processed.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<Option<Action>>`] - An action to be processed or none.
-    fn handle_events(&mut self, event: Option<Event>) -> color_eyre::Result<Option<Action>> {
-        let action = match event {
-            Some(Event::Key(key_event)) => self.handle_key_event(key_event)?,
-            Some(Event::Mouse(mouse_event)) => self.handle_mouse_event(mouse_event)?,
-            _ => None,
-        };
-        Ok(action)
+
+    /// Key table this component wants while focused (e.g. `FileList`, or `Filter`
+    /// while typing).
+    fn key_mode(&self) -> Mode {
+        Mode::Normal
     }
-    /// Handle key events and produce actions if necessary.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - A key event to be processed.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<Option<Action>>`] - An action to be processed or none.
-    fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-        let _ = key; // to appease clippy
+
+    /// Raw key before the keymap. Text widgets consume printable and editing keys here;
+    /// everything else returns `Ignored`.
+    fn handle_key(&mut self, key: KeyChord) -> color_eyre::Result<KeyOutcome> {
+        let _ = key;
+        Ok(KeyOutcome::Ignored)
+    }
+
+    /// Bracketed paste.
+    fn handle_paste(&mut self, text: &str) -> color_eyre::Result<KeyOutcome> {
+        let _ = text;
+        Ok(KeyOutcome::Ignored)
+    }
+
+    /// Bindable actions this component implements. A bindable action that no component
+    /// lists and the app does not handle itself shows "… is not available yet" (T51).
+    fn handled_actions(&self) -> &'static [Action] {
+        &[]
+    }
+
+    /// Actions (from the keymap or other components); most logic lives here.
+    fn update(&mut self, action: &Action) -> color_eyre::Result<Option<Action>> {
+        let _ = action;
         Ok(None)
     }
-    /// Handle mouse events and produce actions if necessary.
-    ///
-    /// # Arguments
-    ///
-    /// * `mouse` - A mouse event to be processed.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<Option<Action>>`] - An action to be processed or none.
-    fn handle_mouse_event(&mut self, mouse: MouseEvent) -> color_eyre::Result<Option<Action>> {
-        let _ = mouse; // to appease clippy
+
+    /// An event from the core (T04).
+    fn on_core_event(&mut self, event: &CoreEvent) -> color_eyre::Result<Option<Action>> {
+        let _ = event;
         Ok(None)
     }
-    /// Update the state of the component based on a received action. (REQUIRED)
-    ///
-    /// # Arguments
-    ///
-    /// * `action` - An action that may modify the state of the component.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<Option<Action>>`] - An action to be processed or none.
-    fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
-        let _ = action; // to appease clippy
-        Ok(None)
+
+    /// True while this component waits for async work (drives the spinner).
+    fn is_busy(&self) -> bool {
+        false
     }
-    /// Render the component on the screen. (REQUIRED)
-    ///
-    /// # Arguments
-    ///
-    /// * `f` - A frame used for rendering.
-    /// * `area` - The area in which the component should be drawn.
-    ///
-    /// # Returns
-    ///
-    /// * [`color_eyre::Result<()>`] - An Ok result or an error.
-    fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()>;
+
+    /// Reason to confirm before quitting ("2 transfers are running"), if any.
+    fn quit_blocker(&self) -> Option<String> {
+        None
+    }
+
+    /// Draws into `area`.
+    fn draw(&mut self, frame: &mut Frame, area: Rect, cx: &DrawCx) -> color_eyre::Result<()>;
+}
+
+/// The bordered block of a region: the focused one gets the `border_focused` style,
+/// the thick (or ASCII `#`) border and the focus marker before its title, so focus is
+/// visible without colour.
+pub(crate) fn region_block<'a>(title: &str, cx: &DrawCx) -> Block<'a> {
+    let (border_style, title_style, set) = if cx.focused {
+        (
+            cx.theme.style("border_focused"),
+            cx.theme.style("title_focused"),
+            cx.symbols.border_focused,
+        )
+    } else {
+        (
+            cx.theme.style("border"),
+            cx.theme.style("title"),
+            cx.symbols.border,
+        )
+    };
+    let mut spans = vec![if cx.focused {
+        Span::styled(cx.symbols.focus_marker.to_owned(), border_style)
+    } else {
+        Span::styled(" ".to_owned(), border_style)
+    }];
+    spans.push(Span::styled(title.to_owned(), title_style));
+    if let Some(frame) = cx.spinner {
+        spans.push(Span::styled(format!(" {frame}"), title_style));
+    }
+    spans.push(Span::styled(" ".to_owned(), border_style));
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_set(set)
+        .border_style(border_style)
+        .title(Line::from(spans))
 }

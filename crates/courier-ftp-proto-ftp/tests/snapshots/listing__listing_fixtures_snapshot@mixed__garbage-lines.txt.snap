@@ -1,0 +1,33 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/mixed/garbage-lines.txt
+---
+format: unix
+used_fallback_encoding: false
+skipped_count: 5
+entries:
+  - name: ok
+    kind: dir
+    size: 4096
+    modified: "2024-01-31T12:00:00Z (Minute)"
+    permissions: rwxr-xr-x (755)
+    owner: alice
+    group: staff
+    hidden: false
+skipped:
+  - line: 1
+    reason: Unrecognised
+    text: this is not a listing
+  - line: 3
+    reason: BadNumber
+    text: "-rw-r--r--    1 alice    staff     99999999999999999999999 Jan 31 12:00 overflow"
+  - line: 4
+    reason: Unrecognised
+    text: "\u0001\u0002\u0003"
+  - line: 5
+    reason: HostileName
+    text: "-rw-r--r--    1 alice    staff          10 Jan 31 12:00 x/y"
+  - line: 6
+    reason: Unrecognised
+    text: "?"

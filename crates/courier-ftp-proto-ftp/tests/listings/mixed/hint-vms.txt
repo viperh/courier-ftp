@@ -1,0 +1,3 @@
+Directory DISK$USER:[ALICE]
+
+LOGIN.COM;3               2/4        31-JAN-2024 12:00:05.32  [STAFF,ALICE]   (RWED,RWED,RE,)

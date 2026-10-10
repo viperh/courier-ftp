@@ -1,0 +1,76 @@
+#!/bin/bash
+# Generate the server certificate (TEST-ONLY) and restart the daemon in place.
+#
+# Usage: courier-set-cert [--no-restart] ca-signed|self-signed|expired|wrong-host
+#
+# SAN: IP:<container IP>, DNS:ftpd.test (wrong-host: DNS:wrong.example only).
+# ca-signed and wrong-host are valid one year from now; expired was valid in 2020.
+# Output: /etc/courier-ftpd/tls/{key,cert}.pem (also /etc/ssl/private/pure-ftpd.pem).
+set -euo pipefail
+
+restart=1
+if [[ "${1:-}" == "--no-restart" ]]; then restart=0; shift; fi
+variant="${1:?usage: courier-set-cert [--no-restart] <variant>}"
+ip="$(hostname -i | awk '{print $1}')"
+dir=/etc/courier-ftpd/tls
+ca=/etc/courier-ftpd/ca
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+san="IP:${ip},DNS:ftpd.test"
+[[ "$variant" == "wrong-host" ]] && san="DNS:wrong.example"
+printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n' "$san" > "$work/ext"
+
+openssl req -new -newkey rsa:2048 -nodes -keyout "$work/key.pem" -out "$work/req.pem" \
+    -subj "/CN=ftpd.test" 2>/dev/null
+
+case "$variant" in
+    ca-signed | wrong-host)
+        openssl x509 -req -in "$work/req.pem" -CA "$ca/ca.pem" -CAkey "$ca/ca.key" \
+            -CAcreateserial -CAserial "$work/serial" -days 365 -sha256 \
+            -extfile "$work/ext" -out "$work/cert.pem" 2>/dev/null
+        ;;
+    self-signed)
+        openssl x509 -req -in "$work/req.pem" -signkey "$work/key.pem" -days 365 -sha256 \
+            -extfile "$work/ext" -out "$work/cert.pem" 2>/dev/null
+        ;;
+    expired)
+        mkdir -p "$work/db"
+        : > "$work/db/index.txt"
+        echo 1000 > "$work/db/serial"
+        cat > "$work/ca.cnf" <<CNF
+[ca]
+default_ca = fixture
+[fixture]
+dir = $work/db
+database = $work/db/index.txt
+serial = $work/db/serial
+new_certs_dir = $work/db
+certificate = $ca/ca.pem
+private_key = $ca/ca.key
+default_md = sha256
+policy = anything
+copy_extensions = none
+[anything]
+commonName = supplied
+CNF
+        openssl ca -batch -notext -config "$work/ca.cnf" -in "$work/req.pem" \
+            -startdate 20200101000000Z -enddate 20210101000000Z \
+            -extfile "$work/ext" -out "$work/cert.pem" 2>/dev/null
+        ;;
+    *)
+        echo "courier-set-cert: unknown variant '$variant'" >&2
+        exit 64
+        ;;
+esac
+
+install -d -m 0755 "$dir"
+install -m 0600 "$work/key.pem" "$dir/key.pem"
+install -m 0644 "$work/cert.pem" "$dir/cert.pem"
+cat "$dir/key.pem" "$dir/cert.pem" > /etc/ssl/private/pure-ftpd.pem
+chmod 0600 /etc/ssl/private/pure-ftpd.pem
+echo "courier-set-cert: ${variant} (SAN ${san})" >&2
+
+if [[ $restart -eq 1 && -f /run/courier-ftpd.pid ]]; then
+    kill "$(cat /run/courier-ftpd.pid)" 2>/dev/null || true
+fi

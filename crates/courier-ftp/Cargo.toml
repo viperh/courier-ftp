@@ -1,6 +1,6 @@
 [package]
 name = "courier-ftp"
-description = "A terminal user interface built with ratatui"
+description = "A terminal FTP, FTPS and SFTP client"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -12,9 +12,24 @@ build = "build.rs"
 # `errors.rs` reads CARGO_PKG_REPOSITORY at compile time for the panic message,
 # so `repository` above must stay set.
 
+# Device sync through a courier-ftp-server (optional; everything works offline).
+[features]
+default = ["sync"]
+sync = ["dep:courier-ftp-sync"]
+# Crash-path and startup hooks for the binary's PTY tests (T76, T91). Never in
+# release builds (the T00 `packaging` job checks it).
+test-hooks = []
+
 [dependencies]
 courier-ftp-core = { workspace = true }
+# Wired into the `BackendFactory` (T03).
+courier-ftp-proto-ftp = { workspace = true }
+courier-ftp-proto-sftp = { workspace = true }
+# The vault database the vault service opens (T60).
+courier-ftp-store = { workspace = true }
+courier-ftp-sync = { workspace = true, optional = true }
 
+base64 = { workspace = true }
 better-panic = { workspace = true }
 clap = { workspace = true }
 color-eyre = { workspace = true }
@@ -24,16 +39,24 @@ directories = { workspace = true }
 futures = { workspace = true }
 human-panic = { workspace = true }
 json5 = { workspace = true }
+# Optional per-device vault unlock (T30, D3).
+keyring = { workspace = true }
 libc = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 strip-ansi-escapes = { workspace = true }
 strum = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-error = { workspace = true }
 tracing-subscriber = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
+zeroize = { workspace = true }
 
 # `Tui::suspend` raises SIGTSTP, which only exists on unix.
 [target.'cfg(not(windows))'.dependencies]
@@ -44,4 +67,26 @@ anyhow = { workspace = true }
 vergen-gix = { workspace = true }
 
 [dev-dependencies]
+# `MockServer` for the message log integration test (T55).
+courier-ftp-core = { workspace = true, features = ["test-util"] }
+criterion = { workspace = true }
+insta = { workspace = true }
 pretty_assertions = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+# Vault item ids in the prompt fixtures (T69).
+uuid = { workspace = true }
+
+# Message log push and render speed (T55, AC9).
+[[bench]]
+name = "message_log"
+harness = false
+
+# File list view build (T53, AC7).
+[[bench]]
+name = "file_list"
+harness = false
+
+[lints]
+workspace = true

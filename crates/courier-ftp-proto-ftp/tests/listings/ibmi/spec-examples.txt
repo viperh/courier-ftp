@@ -1,0 +1,5 @@
+ALICE          36864 01/31/24 12:00:05 *DIR       projects/
+ALICE         102400 01/31/24 12:00:05 *STMF      report.csv
+QSYS           12288 01/30/24 08:00:00 *LIB       MYLIB.LIB
+QSYS           77824 01/30/24 08:00:00 *FILE      MYLIB.LIB/MYFILE.FILE
+                                       *MEM       MYLIB.LIB/MYFILE.FILE/MBR1.MBR

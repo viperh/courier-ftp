@@ -1,0 +1,6 @@
+total 12
+-rw-r--r-- 1 alice staff 100 2024-01-31 12:00 long-iso.txt
+-rw-r--r-- 1 alice staff 100 2024-01-31 12:00:05 iso-seconds.txt
+-rw-r--r-- 1 alice staff 100 2024-01-31 12:00:05.5 iso-fraction.txt
+-rw-r--r-- 1 alice staff 100 2024-01-31 23:30:00.000000000 -0500 zone-minus.txt
+drwxr-xr-x 2 alice staff 4096 2023-12-31 00:00:00.999999999 +1400 zone-plus

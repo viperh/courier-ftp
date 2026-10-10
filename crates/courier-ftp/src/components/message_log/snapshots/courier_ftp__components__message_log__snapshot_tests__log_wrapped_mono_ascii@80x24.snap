@@ -1,0 +1,55 @@
+---
+source: crates/courier-ftp/src/components/message_log/snapshot_tests.rs
+expression: text
+---
++ Message log - Tab 1 ---------------------------------------------------------+
+|                   free); queue paused                                        |
+|12:03:41 Status:   Warning: the vault is locked; saved passwords are not      |
+|                   available                                                  |
+|12:04:02 Command:  NOOP                                                       |
+|12:04:02 Response: 200 NOOP ok.                                               |
+|12:04:30 Command:  CWD /var/www/html                                          |
+|12:04:30 Response: 250 Directory successfully changed.                        |
+|12:04:30 Command:  PASV                                                       |
+|12:04:30 Response: 227 Entering Passive Mode (203,0,113,5,195,81).            |
+|12:04:30 Command:  MLSD                                                       |
+|12:04:30 Response: 150 Here comes the directory listing.                      |
+|12:04:30 Response: 226 Directory send OK.                                     |
+|12:04:30 Status:   Directory listing of "/var/www/html" successful            |
+|12:05:01 Error:    Failed to retrieve directory listing: the server sent a    |
+|                   very long reply that keeps going the server sent a very    |
+|                   long reply that keeps going the server sent a very long    |
+|                   reply that keeps going the server sent a very long reply   |
+|                   that keeps going the server sent a very long reply that    |
+|                   keeps going                                                |
+|                   end-of-a-word-that-is-much-longer-than-anything-sensible-an|
+|                   d-must-be-broken-hard-because-it-has-no-spaces-at-all-01234|
+|                   56789                                                      |
++------------------------------------------------------------------------------+
+--- styles ---
+  1  20+19  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  2  10+7   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2  20+53  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  3  20+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  4   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  5   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  6   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  7   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  8   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+  9   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 10   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 11   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 12   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 13   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14   1+9   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 14  10+6   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14  20+55  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 15  20+55  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 16  20+55  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 17  20+56  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 18  20+55  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19  20+11  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20  20+59  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21  20+59  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22  20+5   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()

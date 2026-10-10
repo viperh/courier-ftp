@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/snapshot_tests.rs
+expression: "h.render(80, 24)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
+┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ──────────────────────────────┐
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│     Not connected to any server      │
+┃                                      ┃│Ctrl-s Site Manager · Ctrl-k Quickcon…│
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┃                                      ┃│                                      │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────┘
+ – not connected │ Type: Auto │ ⇅ off       F1 help  F5 copy  F6 move  F7 mkdir

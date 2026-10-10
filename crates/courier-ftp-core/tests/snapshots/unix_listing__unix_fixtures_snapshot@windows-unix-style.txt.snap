@@ -1,0 +1,40 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/windows-unix-style.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: windows-nt.txt
+      kind: file
+      size: 1234
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: "--------- (000)"
+      owner: owner
+      group: group
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: Program Files
+      kind: dir
+      size: 0
+      modified: "2024-02-01T09:15:00Z (Minute)"
+      permissions: "--------- (000)"
+      owner: owner
+      group: group
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: setup.exe
+      kind: file
+      size: 7340032
+      modified: "2019-12-31T00:00:00Z (Day)"
+      permissions: r--r--r-- (444)
+      owner: owner
+      group: group
+      hidden: false

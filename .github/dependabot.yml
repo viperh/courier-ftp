@@ -1,0 +1,22 @@
+# Weekly dependency updates (T00). A cargo update must keep the `deny`, `vet` and
+# `msrv` CI jobs green before merging (import an audit, certify, or add a cargo-vet
+# exemption in the same PR).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      cargo-patch:
+        update-types: [patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      actions:
+        patterns: ["*"]

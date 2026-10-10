@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# The cargo-fuzz crate is its own workspace (nightly, libfuzzer-sys).
+exclude = ["fuzz"]
 
 # Values shared by every crate in the workspace. Each crate opts in with
 # `version.workspace = true` etc. in its own Cargo.toml.
@@ -10,13 +12,40 @@ edition = "2024"
 authors = ["qviperh <olteanromeodavid34@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/viperh/courier-ftp"
-rust-version = "1.85"
+# MSRV: the highest `rust-version` declared by the pinned dependency set
+# (vergen-gix 10.0.1, later rusqlite_migration 2.6). CI job `msrv` checks it.
+rust-version = "1.95"
+
+# Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
+[workspace.lints.rust]
+# `deny`, not `forbid`: `forbid` cannot be lifted by an inner `allow`, and the
+# process-hardening module (`crates/courier-ftp-core/src/hardening/`, T91) needs one.
+# `scripts/check-unsafe.py` (CI job `unsafe-check`) fails on any other `allow`.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+await_holding_lock = "deny"
+large_futures = "warn"
 
 # Central dependency versions. Crates reference these with
 # `some-dep = { workspace = true }` so versions stay in lockstep.
 [workspace.dependencies]
 # --- internal ---
-courier-ftp-core = { path = "crates/courier-ftp-core" }
+courier-ftp-core = { path = "crates/courier-ftp-core", version = "0.1.0" }
+courier-ftp-crypto = { path = "crates/courier-ftp-crypto", version = "0.1.0" }
+courier-ftp-proto = { path = "crates/courier-ftp-proto", version = "0.1.0" }
+courier-ftp-proto-ftp = { path = "crates/courier-ftp-proto-ftp", version = "0.1.0" }
+courier-ftp-proto-sftp = { path = "crates/courier-ftp-proto-sftp", version = "0.1.0" }
+courier-ftp-store = { path = "crates/courier-ftp-store", version = "0.1.0" }
+courier-ftp-sync = { path = "crates/courier-ftp-sync", version = "0.1.0" }
+courier-ftp-server = { path = "crates/courier-ftp-server", version = "0.1.0" }
 
 # --- tui / terminal ---
 crossterm = { version = "0.29.0", features = ["serde", "event-stream"] }
@@ -24,9 +53,15 @@ ratatui = { version = "0.30.2", features = ["serde", "macros"] }
 signal-hook = "0.4.4"
 
 # --- async runtime ---
+# Only if native `async fn` in traits is not enough for `dyn Backend` (T03).
+async-trait = "0.1.92"
+bytes = "1.12.1"
 futures = "0.3.32"
+pin-project-lite = "0.2.17"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
+# Socket options: keep-alive timing and buffer sizes (T07).
+socket2 = "0.6.5"
 
 # --- cli / config ---
 clap = { version = "4.6.1", features = [
@@ -55,19 +90,209 @@ tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "serde"] }
 
 # --- misc ---
-libc = "0.2.186"
+# Local filesystem backend (T06): mtimes, free space, Linux fallocate, Unix owner names.
+filetime = "0.2.29"
+fs4 = { version = "1.1.0", default-features = false, features = ["sync"] }
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "std"] }
+uzers = { version = "0.12.2", default-features = false }
+hex = "0.4.3"
+libc = "0.2.189"
 strum = { version = "0.28.0", features = ["derive"] }
+# Display width of text in the TUI (T50; already a ratatui dependency).
+unicode-width = "0.2.2"
+# Grapheme clusters in text fields (T52; already a ratatui dependency).
+unicode-segmentation = "1.13.3"
+# Log file rotation (T71).
+tracing-appender = "0.2.5"
+# Process hardening on Windows (T91).
+windows-sys = "0.61.2"
+# Shell completions and the man page (T70, T77).
+clap_complete = "4.6"
+clap_mangen = "0.2"
+
+# --- tls (D9: rustls with the `ring` provider, no OpenSSL) ---
+rustls = { version = "0.23.43", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = "1.15.1"
+rustls-platform-verifier = "0.7.1"
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["logging", "ring", "tls12"] }
+# Certificate details for the trust prompt (T12, T69).
+x509-parser = "0.18.1"
+webpki-roots = "1.0.9"
+
+# --- ssh / sftp (D2) ---
+# No default features: `ring` instead of aws-lc-rs (D9: no C crypto beside ring), no
+# zlib; `rsa` for RSA user keys (T20).
+russh = { version = "0.64.1", default-features = false, features = ["ring", "rsa"] }
+russh-sftp = "3.0.1"
+# russh 0.64 requires exactly this pre-release. `encryption` decrypts
+# passphrase-protected OpenSSH keys, `ppk` reads PuTTY keys.
+ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "encryption", "ppk"] }
+# Private key formats (T20: PEM, PKCS#8, PuTTY; copied from sverb). The versions are
+# the ones russh / ssh-key already pull in.
+aes = "0.9.3"
+cbc = "0.2.1"
+hmac = "0.13.0"
+md-5 = "0.10.6"
+p256 = { version = "0.14.0", features = ["pkcs8"] }
+p384 = { version = "0.14.0", features = ["pkcs8"] }
+p521 = { version = "0.14.0", features = ["pkcs8"] }
+pkcs1 = { version = "0.8.0-rc.4", features = ["pem", "std"] }
+pkcs8 = { version = "0.11.0", features = ["encryption", "pem", "std"] }
+rsa = "=0.10.0-rc.18"
+sec1 = { version = "0.8.1", features = ["der", "pem", "std"] }
+sha1 = "0.11.0"
+
+# --- crypto / vault (T30, T80; versions copied from sverb) ---
+argon2 = "0.6.0"
+# BIP39 recovery phrase. No `rand` feature (entropy comes from our CryptoRng).
+bip39 = { version = "3.0.0", default-features = false, features = ["zeroize"] }
+chacha20poly1305 = "0.11.0"
+ed25519-dalek = { version = "3.0.0", features = ["zeroize"] }
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+hkdf = "0.13.0"
+hpke = "0.14.1"
+opaque-ke = { version = "4.0.1", features = ["argon2"] }
+rand = "0.10.3"
+rand_core = "0.10.1"
+secrecy = "0.10.3"
+sha2 = "0.11.0"
+subtle = "2.6.1"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
+# Master-password strength.
+zxcvbn = { version = "3.1.1", default-features = false }
+# Optional per-device unlock (D3). The default `v1` stores use the pure-Rust
+# zbus Secret Service on Linux (no C build dependencies).
+keyring = "4.2.0"
+
+# --- storage / sync client (T81-T83, T87, T88) ---
+ciborium = "0.2.2"
+# The store's reader pool lock (T82).
+parking_lot = "0.12.5"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite_migration = "2.6.0"
+uhlc = "0.9.0"
+zstd = "0.14.1"
+# The sync HTTP client: rustls with our own `ring` ClientConfig (no aws-lc, no native-tls).
+reqwest = { version = "0.12.28", default-features = false, features = [
+    "json",
+    "rustls-tls-webpki-roots-no-provider",
+] }
+# Live updates (the same tungstenite generation as axum's `ws`).
+tokio-tungstenite = { version = "0.29.0", default-features = false, features = [
+    "connect",
+    "handshake",
+    "rustls-tls-webpki-roots",
+] }
+# Retry jitter (T88).
+fastrand = "2.3.0"
+
+# --- server only (T84-T86; never a dependency of a client crate) ---
+axum = { version = "0.8.9", features = ["macros"] }
+axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
+governor = "0.10.4"
+lettre = { version = "0.11.23", default-features = false, features = [
+    "builder",
+    "hostname",
+    "ring",
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls",
+    "webpki-roots",
+] }
+base64 = "0.22.1"
+# Server only, for sqlx (the client uses `time`).
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+ipnet = "2.12.2"
+metrics = "0.24.6"
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+# Not the `sqlx` facade: its optional sqlx-sqlite pins a libsqlite3-sys that
+# conflicts (`links = "sqlite3"`) with rusqlite even when unused.
+sqlx-core = { version = "0.8.6", default-features = false, features = [
+    "_rt-tokio",
+    "_tls-rustls-ring-webpki",
+    "json",
+    "migrate",
+    "time",
+    "uuid",
+] }
+sqlx-postgres = { version = "0.8.6", default-features = false, features = [
+    "json",
+    "migrate",
+    "time",
+    "uuid",
+] }
+totp-rs = { version = "5.7.0", default-features = false }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.6.11", features = [
+    "compression-gzip",
+    "cors",
+    "limit",
+    "timeout",
+    "trace",
+] }
+
+# --- text ---
+# Non-UTF-8 server charsets.
+encoding_rs = "0.8.42"
+# URL user/password/path escapes (T02).
+percent-encoding = "2.3.2"
+globset = "0.4.20"
+regex = "1.13.1"
+# The one date/time crate (no chrono).
+time = { version = "0.3.55", features = [
+    "formatting",
+    "local-offset",
+    "macros",
+    "parsing",
+    "serde",
+] }
+
+# --- misc data ---
+bytesize = "2.7.0"
+# Watch files opened for editing (T63).
+notify = "8.2.0"
+# FileZilla `sitemanager.xml` import (T32).
+quick-xml = "0.42.0"
+serde_json = "1.0.151"
+# Settings JSON schema (T05).
+schemars = { version = "1.2.2", features = ["uuid1"] }
+uuid = { version = "1.27.0", features = ["v4", "v7", "serde"] }
 
 # --- build scripts ---
 anyhow = "1.0.103"
 vergen-gix = { version = "10.0.1", features = ["build", "cargo"] }
 
 # --- dev ---
+# Snapshot tests for listing parsers and UI rendering.
+insta = "1.49.0"
+# Router tests via tower::ServiceExt::oneshot (T84).
+http-body-util = "0.1.5"
 pretty_assertions = "1.4.1"
+tempfile = "3.27.0"
+tokio-test = "0.4.6"
+proptest = "1.11.0"
+trybuild = "1.0.121"
+criterion = "0.8.2"
+# Test certificates (T12).
+rcgen = "0.14"
+cargo_metadata = "0.23.1"
+toml = "1.1.6"
+# Docker e2e tests (T76).
+testcontainers = { version = "0.28.0", default-features = false }
+# PTY tests of the binary (T76).
+portable-pty = "0.9.0"
+vt100 = "0.16"
+# courier-ftp-crypto dev-deps (T80). `chacha20`'s `rng` feature provides the
+# deterministic ChaCha20Rng on rand_core 0.10.
+chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
+# opt-level 3, not "s": transfer throughput (T41b) and render targets (T53) matter
+# more than binary size. `panic = "unwind"`: the panic hook restores the terminal.
 [profile.release]
 codegen-units = 1
 lto = true
-opt-level = "s"
+opt-level = 3
+panic = "unwind"
 strip = true

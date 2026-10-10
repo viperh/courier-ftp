@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/components/dialog/snapshot_tests.rs
+expression: "h.render(80, 24)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│         ┌ Site settings ───────────────────────────────────────────┐         │
+│         │  Host             │ example.org                          │         │
+└─────────│  Password         │                                      │─────────┘
+┏▶Local ━━│  Port             │ 22                                   │─────────┐
+┃         │  Passive mode     │ [x]                                  │         │
+┃         │  Execute          │ [-]                                  │         │
+┃         │  Protocol         │ SFTP                               ▾ │         │
+┃         │  Transfer mode    │ (•) Auto  ( ) ASCII  ( ) Binary      │         │
+┃         │  Remote directory │ /var/www                             │         │
+┃         │ ▶Comments         │ first line                           │ver      │
+┃         │                     second line                          │Quickcon…│
+┃         │  Columns          │ [x] Name                             │         │
+┃         │                     [x] Size                             │         │
+┃         │                     [ ] Owner                            │         │
+┃         │                                                          │         │
+┗━━━━━━━━━│                    [ OK ]  [ Cancel ]                    │─────────┘
+┌ Queue ──└──────────────────────────────────────────────────────────┘─────────┐
+│(not available yet)                                                           │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ – not connected │ Type: Auto │ ⇅ off                                  F10 quit

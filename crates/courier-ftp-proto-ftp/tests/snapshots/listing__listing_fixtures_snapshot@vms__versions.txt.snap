@@ -1,0 +1,26 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listing.rs
+expression: snapshot(&parsed)
+input_file: crates/courier-ftp-proto-ftp/tests/listings/vms/versions.txt
+---
+format: vms
+used_fallback_encoding: false
+skipped_count: 0
+entries:
+  - name: NOTES.TXT
+    kind: file
+    size: 2048
+    modified: "2024-02-02T10:00:00Z (Second)"
+    permissions: "raw (RWED,RWED,RE,)"
+    owner: BOB
+    group: ~
+    hidden: false
+  - name: BUILD.COM
+    kind: file
+    size: 512
+    modified: "2024-01-31T09:00:00Z (Second)"
+    permissions: "raw (RWED,RWED,RE,)"
+    owner: BOB
+    group: ~
+    hidden: false
+skipped: []

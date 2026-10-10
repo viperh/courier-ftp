@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp/src/keymap/app_tests.rs
+expression: "h.render(80, 24)"
+---
+ Quickconnect (not available yet)                                               
+ 1 Local                                                                        
+┌ Me┌ 2 configuration problems ────────────────────────────────────────────┐───┐
+│   │ keybindings.FileList."ctrl-foo": invalid key: unknown key name "foo" │   │
+│   │ keybindings.FileList."x": unknown action "Remove" (see docs/keybindi │   │
+└───│                                                                      │───┘
+┏▶Lo│                                                                      │───┐
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┃   │                                                                      │on…│
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┃   │                                                                      │   │
+┗━━━│                                                                      │───┘
+┌ Qu│                              [ Close ]                           1/2 │───┐
+│(no└──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ – not connected │ Type: Auto │ ⇅ off    2 configuration problems — see the log

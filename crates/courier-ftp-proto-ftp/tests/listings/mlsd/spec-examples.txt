@@ -1,0 +1,4 @@
+type=dir;modify=20240131120000;perm=flcdmpe;unix.mode=0755;unix.owner=1000;unix.group=1000; public_html
+type=file;size=1048576;modify=20240131120000.123;perm=adfrw;unix.ownername=alice; a; tricky name.txt
+type=OS.unix=slink:/var/www;modify=20240131120000;unix.mode=0777; www
+type=cdir;modify=20240131120000;perm=flcdmpe; .

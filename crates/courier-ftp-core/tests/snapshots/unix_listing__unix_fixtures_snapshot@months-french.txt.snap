@@ -1,0 +1,73 @@
+---
+source: crates/courier-ftp-core/tests/unix_listing.rs
+expression: "Snapshot { used_fallback_encoding: used_fallback, lines: out, }"
+input_file: crates/courier-ftp-core/tests/listings/unix/months-french.txt
+---
+used_fallback_encoding: false
+lines:
+  - line: 1
+    outcome: entry
+    entry:
+      name: janvier.txt
+      kind: file
+      size: 100
+      modified: "2024-01-31T12:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: jean
+      group: users
+      hidden: false
+  - line: 2
+    outcome: entry
+    entry:
+      name: fevrier.txt
+      kind: file
+      size: 100
+      modified: "2023-02-14T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: jean
+      group: users
+      hidden: false
+  - line: 3
+    outcome: entry
+    entry:
+      name: avril.txt
+      kind: file
+      size: 100
+      modified: "2024-04-01T09:00:00Z (Minute)"
+      permissions: rw-r--r-- (644)
+      owner: jean
+      group: users
+      hidden: false
+  - line: 4
+    outcome: entry
+    entry:
+      name: juillet.txt
+      kind: file
+      size: 100
+      modified: "2023-07-14T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: jean
+      group: users
+      hidden: false
+  - line: 5
+    outcome: entry
+    entry:
+      name: aout.txt
+      kind: file
+      size: 100
+      modified: "2023-08-15T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: jean
+      group: users
+      hidden: false
+  - line: 6
+    outcome: entry
+    entry:
+      name: decembre.txt
+      kind: file
+      size: 100
+      modified: "2023-12-25T00:00:00Z (Day)"
+      permissions: rw-r--r-- (644)
+      owner: jean
+      group: users
+      hidden: false
