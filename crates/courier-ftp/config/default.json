@@ -121,6 +121,8 @@
       "<Ctrl-x><p>": "OpenPrompt",
       "<Ctrl-x><r>": "Reconnect",
       "<Ctrl-x><t>": "CycleTransferType",
+      "<Ctrl-x><u>": "UnlockVault",
+      "<Ctrl-x><v>": "LockVault",
       "<Ctrl-y>": "ToggleSyncBrowsing",
       "<Ctrl-z>": "Suspend",
       "<Delete>": "Delete",

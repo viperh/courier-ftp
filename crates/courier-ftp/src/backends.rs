@@ -27,13 +27,11 @@ use tokio_util::sync::CancellationToken;
 pub(crate) struct Backends {
     sftp: SftpBackendFactory,
     /// Where "Always trust" host keys go. It starts as a locked in-memory
-    /// store (nothing can be remembered); the vault (T30) puts its
+    /// store (nothing can be remembered); the app's vault (T60) puts its
     /// persistent store in after unlock and a locked one back after lock.
-    #[expect(dead_code, reason = "the vault (T30) swaps its store in")]
     pub(crate) host_keys: Arc<HostKeyStoreSlot>,
     /// Passwords and passphrases typed at a prompt, remembered for this run.
-    /// T30 clears it when the vault is locked.
-    #[expect(dead_code, reason = "the vault (T30) clears it on lock")]
+    /// Cleared when the vault is locked (T60).
     pub(crate) credentials: CredentialCache,
 }
 

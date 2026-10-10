@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/ui/vault/tests.rs
+assertion_line: 52
+expression: text
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ┌ Unlock vault ──────────────────────────────────────────────────────────────┐ "
+" │                                                                            │ "
+" │                                 courier-ftp                                │ "
+" │                                                                            │ "
+" │ Master password:  •••••••                                                  │ "
+" │                                                                            │ "
+" │       [ Unlock ]  [ Continue without vault ]  [ Forgot password? ]         │ "
+" │                                                                            │ "
+" │                                                                            │ "
+" └────────────────────────────────────────────────────────────────────────────┘ "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

@@ -101,6 +101,11 @@ pub(crate) enum Action {
     /// Open the next waiting prompt (host key, certificate, password…) now
     /// instead of when the user is idle (T69).
     OpenPrompt,
+    /// Lock the vault now (T60): keys are dropped and the unlock view covers
+    /// the panes.
+    LockVault,
+    /// Show the unlock view after "Continue without vault" (T60).
+    UnlockVault,
 
     // --- focus ---
     /// `Tab`: switch between the two file lists (Midnight Commander style).

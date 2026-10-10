@@ -26,6 +26,7 @@ use super::{
     quickconnect::{QuickKey, Quickconnect},
     status::{self, StatusState},
     theme::Theme,
+    vault::{VaultRequest, VaultView},
 };
 use crate::{
     action::{Action, Connected},
@@ -166,6 +167,12 @@ pub(crate) struct MainScreen {
     prompts: VecDeque<PromptRequest>,
     /// When the user last pressed a key.
     last_key: Option<Instant>,
+    /// The vault screens (T60), when this app has a vault.
+    vault: Option<VaultView>,
+    /// Whether the vault view covers the panes (unlock view, lock overlay).
+    vault_shown: bool,
+    /// What the vault view asked for, taken by the app after each key.
+    vault_requests: Vec<VaultRequest>,
 }
 
 impl MainScreen {
@@ -219,6 +226,9 @@ impl MainScreen {
             outbox: Vec::new(),
             prompts: VecDeque::new(),
             last_key: None,
+            vault: None,
+            vault_shown: false,
+            vault_requests: Vec::new(),
         }
     }
 
@@ -247,9 +257,47 @@ impl MainScreen {
         }
     }
 
+    /// Install the vault view (shown, covering the panes).
+    pub(crate) fn set_vault_view(&mut self, view: VaultView) {
+        self.vault = Some(view);
+        self.vault_shown = true;
+    }
+
+    /// The vault view, if this app has a vault.
+    pub(crate) fn vault_view_mut(&mut self) -> Option<&mut VaultView> {
+        self.vault.as_mut()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn vault_view(&self) -> Option<&VaultView> {
+        self.vault.as_ref()
+    }
+
+    /// Show or hide the vault view (hidden: "Continue without vault" or
+    /// unlocked).
+    pub(crate) fn show_vault(&mut self, shown: bool) {
+        self.vault_shown = shown && self.vault.is_some();
+    }
+
+    /// Whether the vault view covers the panes.
+    #[cfg(test)]
+    pub(crate) fn vault_shown(&self) -> bool {
+        self.vault_shown
+    }
+
+    /// The status bar's `🔐 locked`.
+    pub(crate) fn set_vault_locked(&mut self, locked: bool) {
+        self.status.vault_locked = locked;
+    }
+
+    /// What the vault view asked for since the last call.
+    pub(crate) fn take_vault_requests(&mut self) -> Vec<VaultRequest> {
+        std::mem::take(&mut self.vault_requests)
+    }
+
     /// The current input mode, which selects the keymap.
     pub(crate) fn mode(&self) -> Mode {
-        if !self.modals.is_empty() {
+        if !self.modals.is_empty() || self.vault_shown {
             return Mode::Dialog;
         }
         if self.log.is_searching() {
@@ -296,6 +344,14 @@ impl MainScreen {
     /// takes go to the keymap.
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> KeyOutcome {
         self.last_key = Some(Instant::now());
+        if self.vault_shown {
+            if let Some(view) = self.vault.as_mut()
+                && let Some(request) = view.handle_key(key, Instant::now())
+            {
+                self.vault_requests.push(request);
+            }
+            return KeyOutcome::Consumed;
+        }
         if let Some(top) = self.modals.last_mut() {
             if top.handle_key(key) == ModalOutcome::Close {
                 self.modals.pop();
@@ -328,7 +384,11 @@ impl MainScreen {
     /// Pasted text goes to the top modal (T52), the quickconnect bar or the
     /// focused list's address bar.
     pub(crate) fn handle_paste(&mut self, text: &str) {
-        if let Some(top) = self.modals.last_mut() {
+        if self.vault_shown {
+            if let Some(view) = self.vault.as_mut() {
+                view.handle_paste(text);
+            }
+        } else if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
         } else if self.focus == Region::Quickconnect {
             self.quickconnect.handle_paste(text);
@@ -392,6 +452,9 @@ impl MainScreen {
         match action {
             Action::Tick => {
                 self.tick = self.tick.wrapping_add(1);
+                if let Some(view) = self.vault.as_mut() {
+                    view.tick();
+                }
                 self.pump_prompts(Instant::now(), false);
             }
             Action::OpenPrompt => {
@@ -533,7 +596,9 @@ impl MainScreen {
     /// stopped waiting for are dropped.
     pub(crate) fn pump_prompts(&mut self, now: Instant, force: bool) {
         self.prompts.retain(|p| !p.reply.is_closed());
+        // Nothing opens over the vault view (input is blocked there).
         let busy = !self.modals.is_empty()
+            || self.vault_shown
             || (!force
                 && (matches!(self.mode(), Mode::Input | Mode::Filter)
                     || self
@@ -569,6 +634,27 @@ impl MainScreen {
         self.modals.retain(|m| !m.is_done());
         self.status.pending_prompts = self.prompts.len();
         let r = layout::compute(area, &self.opts);
+        if self.vault_shown
+            && let Some(view) = &self.vault
+        {
+            // Panes hidden, input blocked; the status bar stays so running
+            // transfers stay visible (T60 §4).
+            let status = r.status.unwrap_or(ratatui::layout::Rect::new(
+                area.x,
+                area.bottom().saturating_sub(1),
+                area.width,
+                1.min(area.height),
+            ));
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                status.y.saturating_sub(area.y),
+            );
+            view.draw(frame, above, &self.theme, Instant::now());
+            status::draw(frame, status, &self.status, &self.theme);
+            return;
+        }
         if !self.focus.visible_in(&r) {
             self.focus = Region::list(self.opts.compact_side);
             if !self.focus.visible_in(&r) {

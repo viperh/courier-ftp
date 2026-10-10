@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/ui/vault/tests.rs
+assertion_line: 231
+expression: text
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ┌ Forgot password? ──────────────────────────────────────────────────────────┐ "
+" │                                                                            │ "
+" │ Keyring unlock is on for this device: the system keyring can open the      │ "
+" │ vault, then you choose a new master password.                              │ "
+" │                                                                            │ "
+" │ › Unlock with the system keyring and set a new password                    │ "
+" │   Back                                                                     │ "
+" │                                                                            │ "
+" │ ↑/↓ choose · Enter select · Esc back                                       │ "
+" └────────────────────────────────────────────────────────────────────────────┘ "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

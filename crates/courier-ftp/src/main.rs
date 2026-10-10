@@ -20,6 +20,7 @@ mod keymap;
 mod logging;
 mod tui;
 mod ui;
+mod vault;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

@@ -48,12 +48,39 @@ impl TextInput {
         }
     }
 
-    /// A password field: shows `•` per character.
+    /// A password field: shows `•` per character. Its characters are zeroized
+    /// when cleared and when the field is dropped.
     pub(crate) fn password(label: impl Into<String>) -> Self {
-        Self {
-            masked: true,
-            ..Self::new(label)
-        }
+        let mut input = Self::new(label);
+        input.masked = true;
+        // Room for a long passphrase up front, so typing doesn't reallocate
+        // (and leave copies of the text behind) in the common case.
+        input.chars.reserve(256);
+        input
+    }
+
+    /// The text as a secret (for password fields), without an intermediate
+    /// copy that outlives the call.
+    pub(crate) fn secret(&self) -> SecretString {
+        SecretString::from(self.text())
+    }
+
+    /// Run `f` on the text in a buffer that is zeroized afterwards (strength
+    /// meters).
+    pub(crate) fn with_text<T>(&self, f: impl FnOnce(&str) -> T) -> T {
+        let text = zeroize::Zeroizing::new(self.text());
+        f(&text)
+    }
+
+    /// Whether the field is empty.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.chars.is_empty()
+    }
+
+    /// Empty the field, zeroizing what it held.
+    pub(crate) fn clear(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.chars);
+        self.cursor = 0;
     }
 
     pub(crate) fn with_value(mut self, value: &str) -> Self {
@@ -155,6 +182,14 @@ impl TextInput {
         let start = self.cursor.saturating_sub(width - 1);
         let end = (start + width).min(shown.len());
         (shown[start..end].iter().collect(), self.cursor - start)
+    }
+}
+
+impl Drop for TextInput {
+    fn drop(&mut self) {
+        if self.masked {
+            zeroize::Zeroize::zeroize(&mut self.chars);
+        }
     }
 }
 

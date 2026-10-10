@@ -33,6 +33,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-k>` | FocusQuickconnect |
 | `<?>` | Help |
 | `<F1>` | Help |
+| `<Ctrl-x><v>` | LockVault |
 | `<F7>` | Mkdir |
 | `<Shift-F7>` | MkdirEnter |
 | `<F6>` | Move |
@@ -70,6 +71,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-x><l>` | ToggleSpeedLimit |
 | `<Ctrl-y>` | ToggleSyncBrowsing |
 | `<Ctrl-e>` | ToggleTree |
+| `<Ctrl-x><u>` | UnlockVault |
 | `<F3>` | View |
 
 ## File lists

@@ -1211,8 +1211,10 @@ dependencies = [
  "color-eyre",
  "config",
  "courier-ftp-core",
+ "courier-ftp-crypto",
  "courier-ftp-proto-ftp",
  "courier-ftp-proto-sftp",
+ "courier-ftp-store",
  "courier-ftp-sync",
  "crossterm 0.29.0",
  "directories",
@@ -1237,6 +1239,7 @@ dependencies = [
  "tracing-error",
  "tracing-subscriber",
  "vergen-gix",
+ "zeroize",
 ]
 
 [[package]]

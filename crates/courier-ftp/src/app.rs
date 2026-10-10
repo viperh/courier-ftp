@@ -24,7 +24,8 @@ use crate::{
     config::Config,
     keymap::{Feed, KeyBindings, Sequencer},
     tui::{Event, Tui},
-    ui::{KeyOutcome, MainScreen, Side, Theme},
+    ui::{KeyOutcome, MainScreen, Side, Theme, VaultFacts, VaultRequest, VaultView},
+    vault::{Phase, Vault, VaultMsg},
 };
 
 /// The application: the event loop that ties the terminal, the
@@ -58,6 +59,10 @@ pub(crate) struct App {
     /// The last connection of this run, without its password, for
     /// [`Action::Reconnect`].
     last_connect: Option<ConnectRequest>,
+    /// The vault (T60); `None` in tests that don't need one.
+    vault: Option<Vault>,
+    vault_tx: mpsc::UnboundedSender<VaultMsg>,
+    vault_rx: mpsc::UnboundedReceiver<VaultMsg>,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -121,8 +126,35 @@ impl Mode {
 impl App {
     pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
         let config = Config::new()?;
-        let backends = Arc::new(Backends::new(&config.settings));
-        Ok(Self::with_backends(config, backends, tick_rate, frame_rate))
+        let backends = Backends::new(&config.settings);
+        // Kept before the factory moves into the app: the vault swaps the
+        // host key store and clears the credential cache.
+        let host_keys = Arc::clone(&backends.host_keys);
+        let credentials = backends.credentials.clone();
+        let app = Self::with_backends(config, Arc::new(backends), tick_rate, frame_rate);
+        let opener = crate::vault::opener(crate::config::get_data_dir());
+        Ok(app.with_vault(opener, host_keys, credentials))
+    }
+
+    /// Give the app a vault: it starts locked, the panes covered by the
+    /// vault view until the vault is unlocked or skipped.
+    pub(crate) fn with_vault(
+        mut self,
+        opener: crate::vault::VaultOpener,
+        host_keys: Arc<courier_ftp_core::trust::HostKeyStoreSlot>,
+        credentials: courier_ftp_proto_sftp::ssh::CredentialCache,
+    ) -> Self {
+        self.vault = Some(Vault::new(
+            opener,
+            host_keys,
+            credentials,
+            &self.settings.vault,
+            self.vault_tx.clone(),
+        ));
+        let unicode = crate::ui::unicode_symbols(&self.settings);
+        self.screen.set_vault_view(VaultView::opening(unicode));
+        self.screen.set_vault_locked(true);
+        self
     }
 
     /// An app using `backends` for connections (tests pass a mock server).
@@ -149,6 +181,7 @@ impl App {
         }
         let mut screen = MainScreen::new(config.clone(), theme);
         screen.set_action_tx(action_tx.clone());
+        let (vault_tx, vault_rx) = mpsc::unbounded_channel();
         Self {
             keybindings: config.keybindings.clone(),
             tick_rate,
@@ -167,6 +200,9 @@ impl App {
             backends,
             remote: None,
             last_connect: None,
+            vault: None,
+            vault_tx,
+            vault_rx,
         }
     }
 
@@ -182,6 +218,7 @@ impl App {
             format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
         );
         self.list(Side::Local, None, false);
+        self.start_vault();
 
         loop {
             tokio::select! {
@@ -193,6 +230,7 @@ impl App {
                     self.handle_action(&mut tui, action)?;
                 }
                 Some(event) = self.events_rx.recv() => self.screen.handle_core(event),
+                Some(msg) = self.vault_rx.recv() => self.vault_message(msg),
             }
             while let Ok(action) = self.action_rx.try_recv() {
                 self.handle_action(&mut tui, action)?;
@@ -229,8 +267,14 @@ impl App {
     /// doesn't take goes through the sequence matcher and the keymap of the
     /// current mode.
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
+        if let Some(vault) = &mut self.vault {
+            vault.on_input();
+        }
         if self.screen.handle_key(key) == KeyOutcome::Consumed {
             self.sequencer.reset();
+            for request in self.screen.take_vault_requests() {
+                self.vault_request(request);
+            }
             for next in self.screen.take_actions() {
                 self.action_tx.send(next)?;
             }
@@ -275,6 +319,32 @@ impl App {
                 self.sequencer.expire(Instant::now());
                 self.screen
                     .set_pending_keys(self.sequencer.pending_display());
+                if let Some(reason) = self.vault.as_mut().and_then(Vault::tick) {
+                    self.lock_vault(Some(reason));
+                }
+            }
+            Action::LockVault => match self.vault.as_ref().map(|v| v.phase) {
+                None => self.screen.flash("No vault"),
+                Some(Phase::Unlocked) => self.lock_vault(None),
+                Some(Phase::Opening) => {}
+                Some(_) => self.screen.show_vault(true),
+            },
+            Action::UnlockVault => match self.vault.as_ref().map(|v| v.phase) {
+                None => self.screen.flash("No vault"),
+                Some(Phase::Unlocked) => self.screen.flash("The vault is already unlocked"),
+                Some(_) => self.screen.show_vault(true),
+            },
+            Action::SiteManager | Action::Bookmarks
+                if self
+                    .vault
+                    .as_ref()
+                    .is_some_and(|v| v.phase != Phase::Unlocked) =>
+            {
+                self.offer_unlock(if matches!(action, Action::SiteManager) {
+                    "the Site Manager"
+                } else {
+                    "bookmarks"
+                });
             }
             // No transfers exist yet, so nothing needs confirming (T41 adds the
             // "transfers are running, quit anyway?" dialog).
@@ -514,6 +584,233 @@ impl App {
         self.screen.remote_disconnected(None);
     }
 
+    /// Open the vault database (at start).
+    pub(crate) fn start_vault(&mut self) {
+        if let Some(vault) = &mut self.vault {
+            vault.open(false);
+        }
+    }
+
+    fn vault_facts(&mut self) -> VaultFacts {
+        self.screen
+            .vault_view_mut()
+            .map(|v| v.facts())
+            .unwrap_or_default()
+    }
+
+    /// The vault view asked for something.
+    fn vault_request(&mut self, request: VaultRequest) {
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        match request {
+            VaultRequest::Create { password, keyring } => vault.create(password, keyring),
+            VaultRequest::Unlock(password) => vault.unlock(password),
+            VaultRequest::Reset(password) => vault.reset_with_keyring(password),
+            VaultRequest::Retry => {
+                vault.open(false);
+                if let Some(view) = self.screen.vault_view_mut() {
+                    view.set_busy(Some("Opening the vault…"));
+                }
+            }
+            VaultRequest::NewVault => vault.open(true),
+            VaultRequest::Skip => {
+                self.screen.show_vault(false);
+                self.events_tx.log(
+                    self.local_session,
+                    LogKind::Status,
+                    "Continuing without the vault: quickconnect only, nothing is saved. \
+                     Unlock with <Ctrl-x><u>.",
+                );
+            }
+            VaultRequest::Quit => self.should_quit = true,
+        }
+    }
+
+    /// A background vault call finished.
+    pub(crate) fn vault_message(&mut self, msg: VaultMsg) {
+        use courier_ftp_core::vault::VaultState;
+        let now = Instant::now();
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        match msg {
+            VaultMsg::Opened(Ok(opened)) => {
+                let crate::vault::Opened {
+                    engine,
+                    status,
+                    keyring_available,
+                    moved_aside,
+                } = *opened;
+                vault.opened(engine);
+                let facts = VaultFacts {
+                    keyring_enabled: status.keyring_enabled,
+                    keyring_available,
+                    sync_account: false,
+                };
+                let keyring_first = status.state == VaultState::Locked && status.keyring_enabled;
+                match status.state {
+                    VaultState::Uninitialised => vault.phase = Phase::Uninitialised,
+                    VaultState::Locked => vault.phase = Phase::Locked,
+                    VaultState::Unlocked => vault.on_unlocked(),
+                }
+                if keyring_first {
+                    vault.unlock_with_keyring();
+                }
+                if status.state == VaultState::Unlocked {
+                    self.vault_unlocked(None);
+                    return;
+                }
+                let Some(view) = self.screen.vault_view_mut() else {
+                    return;
+                };
+                if status.state == VaultState::Uninitialised {
+                    view.show_create(facts);
+                } else {
+                    view.show_unlock(facts, status.backoff.failures, status.retry_after, now);
+                }
+                view.set_note(
+                    moved_aside.map(|p| format!("The old database was moved to {}.", p.display())),
+                );
+                if keyring_first {
+                    view.set_busy(Some("Unlocking with the system keyring…"));
+                }
+            }
+            VaultMsg::Opened(Err(e)) => {
+                vault.phase = Phase::Unavailable;
+                tracing::warn!(error = %e, "vault unavailable");
+                if let Some(view) = self.screen.vault_view_mut() {
+                    view.show_unavailable(e.to_string());
+                }
+            }
+            VaultMsg::Created(result) => match result {
+                Ok(report) => {
+                    vault.on_unlocked();
+                    if let Some(reason) = report.keyring_error {
+                        self.events_tx.log(
+                            self.local_session,
+                            LogKind::Error,
+                            format!("Keyring unlock could not be enabled: {reason}"),
+                        );
+                    }
+                    self.vault_unlocked(Some("Vault created"));
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_error(Some(e.to_string()));
+                    }
+                }
+            },
+            VaultMsg::Unlocked { keyring, result } => match result {
+                Ok(report) => {
+                    vault.on_unlocked();
+                    if report.undecryptable > 0 {
+                        self.events_tx.log(
+                            self.local_session,
+                            LogKind::Error,
+                            format!(
+                                "{} vault items could not be decrypted and were skipped",
+                                report.undecryptable
+                            ),
+                        );
+                    }
+                    self.vault_unlocked(Some(if keyring {
+                        "Vault unlocked with the system keyring"
+                    } else {
+                        "Vault unlocked"
+                    }));
+                }
+                Err(e) if keyring => {
+                    tracing::info!(error = %e, "keyring unlock failed; asking for the password");
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_busy(None);
+                        view.set_note(Some(format!(
+                            "Keyring unavailable ({e}); enter the master password."
+                        )));
+                    }
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.unlock_failed(&e, now);
+                    }
+                }
+            },
+            VaultMsg::Reset(result) => match result {
+                Ok(_) => {
+                    vault.on_unlocked();
+                    self.vault_unlocked(Some("New master password set; vault unlocked"));
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_error(Some(e.to_string()));
+                    }
+                }
+            },
+        }
+    }
+
+    /// The vault is unlocked: hide the view, update the status bar.
+    fn vault_unlocked(&mut self, message: Option<&str>) {
+        self.screen.show_vault(false);
+        self.screen.set_vault_locked(false);
+        if let Some(view) = self.screen.vault_view_mut() {
+            view.set_busy(None);
+            view.set_note(None);
+        }
+        if let Some(message) = message {
+            self.events_tx
+                .log(self.local_session, LogKind::Status, message);
+            self.screen.flash(message);
+        }
+    }
+
+    /// Lock the vault (`<Ctrl-x><v>` or auto-lock): the unlock view covers
+    /// the panes; with `vault.lock_disconnects` the connection closes too.
+    fn lock_vault(&mut self, reason: Option<courier_ftp_core::vault::LockReason>) {
+        use courier_ftp_core::vault::LockReason;
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        vault.lock();
+        let facts = self.vault_facts();
+        let now = Instant::now();
+        let note = reason.map(|r| match r {
+            LockReason::Idle => format!(
+                "Locked after {} minutes without input.",
+                self.settings.vault.auto_lock_minutes
+            ),
+            LockReason::Suspend => "Locked because the system was suspended.".to_owned(),
+        });
+        if let Some(view) = self.screen.vault_view_mut() {
+            view.show_unlock(facts, 0, None, now);
+            view.set_note(note);
+        }
+        self.screen.show_vault(true);
+        self.screen.set_vault_locked(true);
+        self.events_tx
+            .log(self.local_session, LogKind::Status, "Vault locked");
+        self.screen.flash("Vault locked");
+        if self.settings.vault.lock_disconnects && self.remote.is_some() {
+            self.disconnect();
+        }
+    }
+
+    /// Site Manager, bookmarks and history need the vault: offer to unlock.
+    fn offer_unlock(&mut self, what: &str) {
+        let (modal, rx) = crate::ui::dialog::confirm(
+            "Vault locked",
+            &format!("The vault is locked. Unlock it to use {what}?"),
+            true,
+        );
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(true) = rx.await {
+                let _ = tx.send(Action::UnlockVault);
+            }
+        });
+    }
+
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| self.screen.draw(frame))?;
         Ok(())
@@ -531,3 +828,5 @@ async fn first_listing(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod vault_tests;
