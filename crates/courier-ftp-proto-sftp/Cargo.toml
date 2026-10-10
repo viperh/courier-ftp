@@ -56,6 +56,7 @@ proptest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
 # The in-process server and agent (`ssh::testing`, `agent::testing`) for the
 # integration tests. Path-only, so `cargo publish` drops it.
 courier-ftp-proto-sftp = { path = ".", features = ["test-util"] }
