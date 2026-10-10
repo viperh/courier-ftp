@@ -99,7 +99,10 @@ impl Config {
             }
         }
         if !found_config {
-            debug!("no user config file in {}; using the defaults", config_dir.display());
+            debug!(
+                "no user config file in {}; using the defaults",
+                config_dir.display()
+            );
         }
 
         let mut cfg: Self = builder.build()?.try_deserialize()?;

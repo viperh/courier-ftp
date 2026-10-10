@@ -28,6 +28,12 @@ pub(crate) trait Modal: Send {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
     /// Handle a key.
     fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome;
+    /// Insert pasted text (bracketed paste) into the focused field.
+    fn handle_paste(&mut self, _text: &str) {}
+    /// Whether the modal closed itself (a finished progress dialog).
+    fn is_done(&self) -> bool {
+        false
+    }
 }
 
 /// A centred rectangle of at most `width`×`height` inside `area`.
@@ -112,64 +118,120 @@ impl Modal for HelpOverlay {
     }
 }
 
-/// A question from the core (T04). For now only messages can be answered;
-/// the other kinds get their dialogs in T52/T58/T69 and can only be
-/// cancelled here (closing drops the request, which the core treats as
-/// "cancel").
-pub(crate) struct PromptDialog {
-    request: Option<PromptRequest>,
+/// The dialog for a question from the core (T04). The answer goes back
+/// through the request's `reply`; closing a dialog without answering drops
+/// it, which the core treats as "cancel". Trust prompts get their dialogs in
+/// T69 and file-exists prompts in T42; until then they can only be
+/// cancelled.
+pub(crate) fn prompt_modal(request: PromptRequest) -> Box<dyn Modal> {
+    use super::dialog::{Form, FormDialog, TextInput, message, prompt_password};
+    let PromptRequest { kind, reply, .. } = request;
+    match kind {
+        PromptKind::Message(text) => {
+            let (modal, rx) = message("Message", &text);
+            forward(rx, reply, |()| Some(PromptResponse::Ok));
+            modal
+        }
+        PromptKind::Password { for_ } => {
+            let (modal, rx) = prompt_password("Password", &format!("Password for {for_}"));
+            forward(rx, reply, |pw| pw.map(PromptResponse::Secret));
+            modal
+        }
+        PromptKind::KeyPassphrase { path } => {
+            let (modal, rx) = prompt_password(
+                "Key passphrase",
+                &format!("Passphrase for {}", path.to_display()),
+            );
+            forward(rx, reply, |pw| pw.map(PromptResponse::Secret));
+            modal
+        }
+        PromptKind::KeyboardInteractive {
+            name,
+            instructions,
+            prompts,
+        } => {
+            let count = prompts.len();
+            let mut form = Form::new(&["OK", "Cancel"]);
+            for (i, (label, echo)) in prompts.into_iter().enumerate() {
+                let field = if echo {
+                    TextInput::new(label)
+                } else {
+                    TextInput::password(label)
+                };
+                form = form.field(&format!("p{i}"), field);
+            }
+            let title = if name.is_empty() {
+                "Authentication".to_owned()
+            } else {
+                name
+            };
+            let title = if instructions.is_empty() {
+                title
+            } else {
+                format!("{title}: {instructions}")
+            };
+            let (dialog, rx) = FormDialog::new(title, 60, form, move |v| {
+                Ok((0..count)
+                    .map(|i| {
+                        let key = format!("p{i}");
+                        v.secret(&key)
+                            .unwrap_or_else(|| secrecy::SecretString::from(v.text(&key)))
+                    })
+                    .collect::<Vec<_>>())
+            });
+            forward(rx, reply, |answers| answers.map(PromptResponse::Answers));
+            Box::new(dialog)
+        }
+        other => Box::new(PendingPrompt {
+            kind: other,
+            _reply: reply,
+        }),
+    }
 }
 
-impl PromptDialog {
-    pub(crate) fn new(request: PromptRequest) -> Self {
-        Self {
-            request: Some(request),
+/// Wait for a dialog's answer and pass it to the core.
+fn forward<T: Send + 'static>(
+    rx: tokio::sync::oneshot::Receiver<T>,
+    reply: tokio::sync::oneshot::Sender<PromptResponse>,
+    map: impl FnOnce(T) -> Option<PromptResponse> + Send + 'static,
+) {
+    tokio::spawn(async move {
+        // A dropped dialog or `None` drops `reply`: the core sees "cancel".
+        if let Ok(answer) = rx.await
+            && let Some(response) = map(answer)
+        {
+            let _ = reply.send(response);
         }
-    }
+    });
+}
 
-    fn text(&self) -> (String, String, bool) {
-        match self.request.as_ref().map(|r| &r.kind) {
-            Some(PromptKind::Message(m)) => (" Message ".into(), m.clone(), true),
-            Some(PromptKind::TrustHostKey {
+/// A prompt whose dialog doesn't exist yet: shows the question, `Esc`
+/// cancels.
+struct PendingPrompt {
+    kind: PromptKind,
+    _reply: tokio::sync::oneshot::Sender<PromptResponse>,
+}
+
+impl Modal for PendingPrompt {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let text = match &self.kind {
+            PromptKind::TrustHostKey {
                 host,
                 fingerprint_sha256,
                 ..
-            }) => (
-                " Unknown host key ".into(),
-                format!("{host}\n{fingerprint_sha256}\n\n(Trust prompts arrive with T69.)"),
-                false,
+            } => format!(
+                "Unknown host key for {host}\n{fingerprint_sha256}\n\n(Trust prompts arrive with T69.)"
             ),
-            Some(PromptKind::Password { for_ }) => (
-                " Password ".into(),
-                format!("Password for {for_}\n\n(Password input arrives with T52.)"),
-                false,
-            ),
-            Some(other) => (
-                " Question ".into(),
-                format!("{other:?}\n\n(Not answerable yet.)"),
-                false,
-            ),
-            None => (String::new(), String::new(), false),
-        }
-    }
-}
-
-impl Modal for PromptDialog {
-    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let (title, text, answerable) = self.text();
-        let hint = if answerable {
-            "Enter OK · Esc cancel"
-        } else {
-            "Esc cancel"
+            other => format!("{other:?}\n\n(Not answerable yet.)"),
         };
         let rect = centered(area, 60, 9);
         frame.render_widget(Clear, rect);
         frame.render_widget(
-            Paragraph::new(format!("{text}\n\n{hint}"))
+            Paragraph::new(format!("{text}\n\nEsc cancel"))
                 .wrap(Wrap { trim: false })
                 .block(
                     Block::bordered()
-                        .title(title)
+                        .title(" Question ")
                         .border_style(theme.focused_border),
                 ),
             rect,
@@ -177,20 +239,10 @@ impl Modal for PromptDialog {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome {
-        match key.code {
-            KeyCode::Esc => {
-                self.request = None; // dropping the reply cancels
-                ModalOutcome::Close
-            }
-            KeyCode::Enter => {
-                if let Some(req) = self.request.take()
-                    && matches!(req.kind, PromptKind::Message(_))
-                {
-                    let _ = req.reply.send(PromptResponse::Ok);
-                }
-                ModalOutcome::Close
-            }
-            _ => ModalOutcome::Keep,
+        if key.code == KeyCode::Esc {
+            ModalOutcome::Close
+        } else {
+            ModalOutcome::Keep
         }
     }
 }

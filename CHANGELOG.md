@@ -37,3 +37,7 @@ the section matching the tag.
   context modes, sequences with a 1 s timeout shown in the status bar, bad
   bindings and conflicts reported instead of aborting, `docs/keybindings.md`
   generated from the keymap.
+- Dialog and form framework (T52): text, password, number and path fields,
+  checkboxes, dropdowns, radio groups, lists, tabbed forms, standard dialogs
+  and a progress dialog; bracketed paste; core password and
+  keyboard-interactive prompts now open real dialogs.

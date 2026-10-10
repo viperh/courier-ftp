@@ -577,6 +577,7 @@ dependencies = [
  "libc",
  "pretty_assertions",
  "ratatui",
+ "secrecy",
  "serde",
  "serde_json",
  "signal-hook 0.4.4",

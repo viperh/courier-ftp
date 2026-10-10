@@ -8,7 +8,7 @@ use super::{
     Side,
     focus::Region,
     layout::{self, LayoutOptions, Regions, Visibility},
-    modal::{HelpOverlay, Modal, ModalOutcome, PromptDialog},
+    modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
     panes::{self, FilePane, LogPane},
     theme::Theme,
 };
@@ -113,6 +113,23 @@ impl MainScreen {
         KeyOutcome::NotHandled
     }
 
+    /// Pasted text goes to the top modal (T52); the quickconnect bar takes it
+    /// from T58.
+    pub(crate) fn handle_paste(&mut self, text: &str) {
+        if let Some(top) = self.modals.last_mut() {
+            top.handle_paste(text);
+        }
+    }
+
+    /// Put a dialog on top of the modal stack.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "feature dialogs push themselves from T58 on")
+    )]
+    pub(crate) fn push_modal(&mut self, modal: Box<dyn Modal>) {
+        self.modals.push(modal);
+    }
+
     /// Apply an action. May return a follow-up action.
     pub(crate) fn update(&mut self, action: &Action) -> Option<Action> {
         match action {
@@ -180,7 +197,7 @@ impl MainScreen {
     pub(crate) fn handle_core(&mut self, event: CoreEvent) {
         match event {
             CoreEvent::Log(msg) => self.log.push(msg),
-            CoreEvent::Prompt(request) => self.modals.push(Box::new(PromptDialog::new(request))),
+            CoreEvent::Prompt(request) => self.modals.push(prompt_modal(request)),
             // Connection, listing, transfer and queue events get their UI in
             // T53/T56/T57/T61.
             _ => {}
@@ -197,6 +214,7 @@ impl MainScreen {
     /// Draw everything.
     pub(crate) fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
+        self.modals.retain(|m| !m.is_done());
         let r = layout::compute(area, &self.opts);
         if !self.focus.visible_in(&r) {
             self.focus = Region::list(self.opts.compact_side);

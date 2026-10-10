@@ -1,6 +1,7 @@
 //! The terminal user interface (T50): the main screen, its layout, focus,
 //! theme and modal stack.
 
+pub(crate) mod dialog;
 mod focus;
 mod layout;
 mod modal;

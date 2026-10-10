@@ -30,10 +30,10 @@ consistently.
 
 ## Acceptance criteria
 
-- [ ] All widgets have snapshot tests and key-handling unit tests.
-- [ ] Password input never renders the real text, including in snapshots.
-- [ ] Bracketed paste inserts text into inputs (multi-line paste collapsed to one line for single-line fields).
-- [ ] Nested dialogs (confirm on top of site editor) work.
+- [x] All widgets have snapshot tests and key-handling unit tests.
+- [x] Password input never renders the real text, including in snapshots.
+- [x] Bracketed paste inserts text into inputs (multi-line paste collapsed to one line for single-line fields).
+- [x] Nested dialogs (confirm on top of site editor) work.
 
 ## Tests
 

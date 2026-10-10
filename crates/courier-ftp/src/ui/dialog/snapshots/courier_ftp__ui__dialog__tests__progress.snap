@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp/src/ui/dialog/tests.rs
+expression: "draw_modal(&mut d, 60, 9).backend()"
+---
+"                                                            "
+"    ┌ Deleting ────────────────────────────────────────┐    "
+"    │Deleting /var/www/old                             │    "
+"    │                                                  │    "
+"    │█████████████         3 / 12                      │    "
+"    │                                                  │    "
+"    │                   [ Cancel ]                     │    "
+"    └──────────────────────────────────────────────────┘    "
+"                                                            "

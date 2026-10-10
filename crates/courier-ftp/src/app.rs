@@ -113,7 +113,8 @@ impl App {
     pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
         let mut tui = Tui::new()?
             .tick_rate(self.tick_rate)
-            .frame_rate(self.frame_rate);
+            .frame_rate(self.frame_rate)
+            .paste(true);
         tui.enter()?;
         self.events_tx.log(
             self.local_session,
@@ -158,6 +159,7 @@ impl App {
             Event::Render => tx.send(Action::Render)?,
             Event::Resize(x, y) => tx.send(Action::Resize(x, y))?,
             Event::Key(key) => self.handle_key_event(key)?,
+            Event::Paste(text) => self.screen.handle_paste(&text),
             _ => {}
         }
         Ok(())
