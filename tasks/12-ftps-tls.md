@@ -35,7 +35,7 @@ connections.
 
 - [x] All four encryption modes behave as listed.
 - [x] vsftpd with `require_ssl_reuse=YES` transfers files (session reuse works).
-- [ ] Self-signed cert → prompt; "always trust" persists in the vault; next connect is silent.
+- [x] Self-signed cert → prompt; "always trust" persists in the vault; next connect is silent.
 - [x] Changed cert after "always trust" → warning prompt.
 - [x] Plain fallback in `ExplicitIfAvailable` logs a warning.
 
@@ -43,9 +43,9 @@ connections.
 a tokio-rustls acceptor, a server that refuses non-resumed data connections
 like vsftpd `require_ssl_reuse=YES`, TLS 1.3 tickets and TLS 1.2 session ids).
 The Docker test against vsftpd (`crates/courier-ftp-e2e/tests/ftps.rs`) is
-written but only runs on CI; pure-ftpd/proftpd fixtures are T76's. The
-"always trust persists in the vault" box is ticked with T14, which swaps
-`VaultCertTrustStore` into the app's slot.
+written but only runs on CI; pure-ftpd/proftpd fixtures are T76's. T14
+swaps `VaultCertTrustStore` into the app's slot on unlock (tested in
+`crates/courier-ftp/src/app/vault_tests.rs`).
 
 ## Tests
 

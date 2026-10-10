@@ -136,9 +136,9 @@ pub const DATA_COMMANDS: &[&str] = &[
 pub const TLS_COMMANDS: &[&str] = &["AUTH", "CCC", "PBSZ", "PROT"];
 
 /// A byte stream the control connection can run over.
-pub trait ControlStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+pub trait ControlStream: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {}
 
-impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> ControlStream for T {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> ControlStream for T {}
 
 /// The control connection's stream: TCP, TLS over TCP (T12), or a test
 /// stream.

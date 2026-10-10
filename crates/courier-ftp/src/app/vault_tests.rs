@@ -479,3 +479,49 @@ async fn busy_database_offers_retry() {
     rig.submit().await;
     assert_eq!(rig.page(), Some(VaultPage::Create));
 }
+
+#[tokio::test]
+async fn certificate_trust_follows_the_vault() {
+    use courier_ftp_core::trust::{
+        CertTrustStore, CertTrustStoreSlot, MemoryCertTrustStore, TrustedCertificate,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    initialised(dir.path(), &keyring, false).await;
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    let certs = Arc::new(CertTrustStoreSlot::new(Arc::new(
+        MemoryCertTrustStore::locked(),
+    )));
+    let factory = courier_ftp_proto_ftp::backend::FtpBackendFactory::new(
+        courier_ftp_core::settings::Settings::default(),
+        Arc::new(courier_ftp_proto_ftp::tls::TlsTrust::with_system_verifier(
+            certs.clone(),
+            None,
+        )),
+    );
+    rig.app
+        .vault
+        .as_mut()
+        .unwrap()
+        .set_ftp(Arc::clone(&certs), factory, None);
+    assert!(!certs.can_remember().await);
+    rig.unlock(STRONG).await;
+    assert!(certs.can_remember().await);
+    let cert = TrustedCertificate::new(
+        "ftp.example.com",
+        21,
+        vec![1, 2, 3],
+        "CN=x",
+        time::OffsetDateTime::now_utc(),
+    );
+    certs.remember(cert.clone()).await.unwrap();
+    // Stored in the vault: it survives a lock and unlock.
+    rig.ctrl_x('v');
+    rig.settle().await;
+    assert!(!certs.can_remember().await);
+    assert!(certs.list().await.unwrap().is_empty());
+    rig.unlock(STRONG).await;
+    let back = certs.certs_for("ftp.example.com", 21).await.unwrap();
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].der, cert.der);
+}
