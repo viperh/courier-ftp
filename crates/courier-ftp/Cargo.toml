@@ -77,5 +77,10 @@ tokio = { workspace = true, features = ["test-util"] }
 name = "message_log"
 harness = false
 
+# File list view build (T53, AC7).
+[[bench]]
+name = "file_list"
+harness = false
+
 [lints]
 workspace = true

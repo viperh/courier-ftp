@@ -75,11 +75,10 @@ fn e2e_pty_sequences_and_fkeys() {
     let home = TestHome::new().unwrap();
     let mut app = launch(&home);
 
-    // `g g` (Top) and `G` (Bottom) reach the file list (T53 implements them).
-    slow_sequence(&mut app, "g", "g");
-    app.wait_for_text("First row is not available yet").unwrap();
-    app.send_keys("G").unwrap();
-    app.wait_for_text("Last row is not available yet").unwrap();
+    // A two-key sequence typed slowly reaches its action (T61 implements it).
+    slow_sequence(&mut app, "ctrl-x", "d");
+    app.wait_for_text("Disconnect the current tab is not available yet")
+        .unwrap();
 
     // `tab` moves the focus to the other side.
     app.send_keys("tab").unwrap();

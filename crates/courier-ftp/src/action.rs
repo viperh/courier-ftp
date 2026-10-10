@@ -4,7 +4,13 @@
 use serde::{Deserialize, Serialize};
 use strum::{Display, VariantNames};
 
-use crate::{components::main_screen::layout::Region, runtime::TaskId};
+use crate::{
+    components::{
+        file_list::{PaneId, PaneInput, PaneRequest},
+        main_screen::layout::Region,
+    },
+    runtime::TaskId,
+};
 
 /// Help-overlay and documentation group of a bindable action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, strum::EnumIter)]
@@ -99,6 +105,9 @@ pub(crate) const INTERNAL: &[&str] = &[
     "SettingsSaved",
     "QuitConfirmed",
     "Wake",
+    "Pane",
+    "PaneInput",
+    "PaneSettings",
 ];
 
 macro_rules! actions {
@@ -187,6 +196,15 @@ actions! {
         /// An async widget result is ready (path completion, T52): poll the dialogs.
         #[serde(skip)]
         Wake,
+        /// A file list pane asks the app to do something (T53).
+        #[serde(skip)]
+        Pane(PaneRequest),
+        /// An input for one file list pane (results, events; T53).
+        #[serde(skip)]
+        PaneInput(PaneId, PaneInput),
+        /// New settings for one file list pane (T53).
+        #[serde(skip)]
+        PaneSettings(PaneId, std::sync::Arc<courier_ftp_core::settings::Settings>),
     }
     bindable {
         // ---- Normal: general ----

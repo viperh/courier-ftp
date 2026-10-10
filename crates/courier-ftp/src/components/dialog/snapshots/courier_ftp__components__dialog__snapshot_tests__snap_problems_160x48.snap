@@ -13,7 +13,7 @@ expression: "hs.render(w, h)"
 │       │ styles: unknown style key `bogus`                                                                                                            │       │
 └───────│                                                                                                                                              │───────┘
 ┏▶Local │                                                                                                                                              │───────┐
-┃(not av│                                                                                                                                              │       │
+┃       │                                                                                                                                              │       │
 ┃       │                                                                                                                                              │       │
 ┃       │                                                                                                                                              │       │
 ┃       │                                                                                                                                              │       │

@@ -1,0 +1,159 @@
+---
+source: crates/courier-ftp/src/components/file_list/snapshot_tests.rs
+expression: text
+---
+┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃/srv/data                                                                                                                                                     ┃
+┃ Name ▲                                                                                                                     Size Type         Modified        ┃
+┃ ..                                                                                                                                                           ┃
+┃ assets/                                                                                                                         Directory    2026-10-01 12:00┃
+┃ css/                                                                                                                            Directory    2026-09-30 09:12┃
+┃ js/                                                                                                                             Directory    2026-09-30 09:12┃
+┃ uploads/                                                                                                                        Directory    2026-10-07 23:59┃
+┃ backup-2026-10-01.tar.gz                                                                                               1.21 GiB GZIP archive 2026-10-01 03:00┃
+┃ favicon.ico                                                                                                            15.0 KiB Icon file    2025-01-05      ┃
+┃ index.html                                                                                                             4.10 KiB HTML file    2026-10-08 18:22┃
+┃ logo.png → static/logo.png                                                                                                      Link         2026-06-02 10:41┃
+┃ README.md                                                                                                              2.31 KiB Markdown     2026-09-12 16:05┃
+┃ robots.txt                                                                                                                 68 B Text file    2024-11-30      ┃
+┃ sitemap.xml                                                                                                            12.4 KiB XML file     2026-10-08 02:00┃
+┃ style.min.css                                                                                                          48.7 KiB CSS file     2026-10-08 18:20┃
+┃ very-long-file-name-that-gets-truncated-in-the-pane.txt                                                                1.00 KiB Text file    2026-10-02 07:30┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃9 files and 4 directories. Total size: 1.21 GiB                                                                                                               ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+--- styles ---
+  0   0+160 Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  1   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  1 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2   2+6   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2 125+4   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2 130+4   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2 143+8   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  2 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  3   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  3   1+1   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).reversed()
+  3   2+2   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold().reversed()
+  3   4+155 Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).reversed()
+  3 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  4   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  4   2+7   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  4 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  5   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  5   2+4   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  5 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  6   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  6   2+3   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  6 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7   2+8   Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).bold()
+  7 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  8 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+  9 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 10 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 11  10+18  Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset).dim()
+ 11 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 12 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 13 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 14 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 15   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 15 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 16   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 16 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 17   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 17 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 18   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 18 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 19 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 20 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 21 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 22 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 23 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 24 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 25 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 26 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 27   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 27 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 28   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 28 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 29   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 29 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 30   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 30 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 31   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 31 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 32   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 32 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 33   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 33 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 34   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 34 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 35   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 35 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 36   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 36 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 37   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 37 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 38   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 38 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 39   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 39 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 40   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 40 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 41   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 41 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 42   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 42 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 43   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 43 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 44   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 44 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 45   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 45 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 46   0+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 46 159+1   Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()
+ 47   0+160 Style::new().fg(Color::Indexed(3)).bg(Color::Reset).underline_color(Color::Reset).bold()

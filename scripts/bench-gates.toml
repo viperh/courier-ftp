@@ -49,3 +49,8 @@ ci_max_ms = 0.01
 bench = "message_log/log_render_full_ring"  # T55 AC9
 max_ms = 1
 ci_max_ms = 2
+
+[[gate]]
+bench = "file_list/file_list_view_build_100k"  # T53 AC7
+max_ms = 80
+ci_max_ms = 160

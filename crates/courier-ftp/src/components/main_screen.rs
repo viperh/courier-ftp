@@ -214,10 +214,6 @@ impl MainScreen {
     }
 
     /// Replaces the component of `region` (later tasks and tests).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by T53–T58 and the harness")
-    )]
     pub(crate) fn set_component(&mut self, region: Region, component: Box<dyn Component>) {
         let slot: Option<&mut Box<dyn Component>> = match region {
             Region::Quickconnect => Some(&mut self.quickconnect),

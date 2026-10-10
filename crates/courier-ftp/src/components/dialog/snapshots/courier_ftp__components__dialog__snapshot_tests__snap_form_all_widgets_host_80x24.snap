@@ -9,13 +9,13 @@ expression: "h.render(80, 24)"
 │         │ ▶Host             │ example.org                          │         │
 └─────────│  Password         │                                      │─────────┘
 ┏▶Local ━━│  Port             │ 22                                   │─────────┐
-┃(not avai│  Passive mode     │ [x]                                  │         │
+┃         │  Passive mode     │ [x]                                  │         │
 ┃         │  Execute          │ [-]                                  │         │
 ┃         │  Protocol         │ SFTP                               ▾ │         │
 ┃         │  Transfer mode    │ (•) Auto  ( ) ASCII  ( ) Binary      │         │
 ┃         │  Remote directory │ /var/www                             │         │
-┃         │  Comments         │ first line                           │         │
-┃         │                     second line                          │         │
+┃         │  Comments         │ first line                           │ver      │
+┃         │                     second line                          │Quickcon…│
 ┃         │  Columns          │ [x] Name                             │         │
 ┃         │                     [x] Size                             │         │
 ┃         │                     [ ] Owner                            │         │

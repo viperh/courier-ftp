@@ -13,7 +13,7 @@ expression: "h.render(160, 48)"
 │                                                                                                                                                              │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ──────────────────────────────────────────────────────────────────────┐
-┃(not available yet)                                                           ┃│(not available yet)                                                           │
+┃                                                                              ┃│                                                                              │
 ┃                                                                              ┃│                                                                              │
 ┃                                                                              ┃│                                                                              │
 ┃                                                                              ┃│                                                                              │
@@ -25,8 +25,8 @@ expression: "h.render(160, 48)"
 ┃                             │ Software        SSH-2.0-OpenSSH_9.6                                                              │                             │
 ┃                             │                                                                                                  │                             │
 ┃                             │ Host key        ssh-ed25519 256                                                                  │                             │
-┃                             │ Fingerprint     SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM                               │                             │
-┃                             │ Key exchange    curve25519-sha256                                                                │                             │
+┃                             │ Fingerprint     SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM                               │ver                          │
+┃                             │ Key exchange    curve25519-sha256                                                                │ickconnect                   │
 ┃                             │ Cipher          chacha20-poly1305@openssh.com                                                    │                             │
 ┃                             │ MAC             implicit (AEAD cipher)                                                           │                             │
 ┃                             │ Compression     none                                                                             │                             │

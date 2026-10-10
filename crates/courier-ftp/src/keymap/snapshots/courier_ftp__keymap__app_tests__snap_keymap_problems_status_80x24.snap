@@ -9,13 +9,13 @@ expression: "h.render(80, 24)"
 │   │ keybindings.FileList."x": unknown action "Remove" (see docs/keybindi │   │
 └───│                                                                      │───┘
 ┏▶Lo│                                                                      │───┐
-┃(no│                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
+┃   │                                                                      │on…│
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │

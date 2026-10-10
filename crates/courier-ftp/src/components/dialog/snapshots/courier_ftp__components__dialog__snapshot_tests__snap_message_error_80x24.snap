@@ -9,13 +9,13 @@ expression: "hs.render(w, h)"
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ──────────────────────────────┐
-┃(not available yet)                   ┃│(not available yet)                   │
+┃                                      ┃│                                      │
 ┃                                      ┃│                                      │
 ┃                   ┌ Error: Transfer ─────────────────────┐                   │
 ┃                   │ 12 files were transferred.           │                   │
 ┃                   │ The queue is empty.                  │                   │
-┃                   │                                      │                   │
-┃                   │                [ OK ]                │                   │
+┃                   │                                      │to any server      │
+┃                   │                [ OK ]                │ · Ctrl-k Quickcon…│
 ┃                   └──────────────────────────────────────┘                   │
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │

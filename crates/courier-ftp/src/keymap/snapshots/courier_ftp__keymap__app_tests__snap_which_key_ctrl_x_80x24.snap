@@ -9,13 +9,13 @@ expression: "h.render(80, 24)"
 │                                                    ┌ ctrl-x ─────────────────┐
 └────────────────────────────────────────────────────│     a CycleTransferType │
 ┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ────│     b AddBookmark       │
-┃(not available yet)                   ┃│(not availab│     c CompareOptions    │
+┃                                      ┃│            │     c CompareOptions    │
 ┃                                      ┃│            │     d Disconnect        │
 ┃                                      ┃│            │     D ShowAppLog        │
 ┃                                      ┃│            │     e EditedFilesList   │
 ┃                                      ┃│            │     f FiltersDialog     │
-┃                                      ┃│            │     i ServerInfo        │
-┃                                      ┃│            │     j ToggleQueuePane   │
+┃                                      ┃│     Not con│     i ServerInfo        │
+┃                                      ┃│Ctrl-s Site │     j ToggleQueuePane   │
 ┃                                      ┃│            │     k ToggleSpeedLimit  │
 ┃                                      ┃│            │     l ClearLog          │
 ┃                                      ┃│            │     m ManualTransfer    │
