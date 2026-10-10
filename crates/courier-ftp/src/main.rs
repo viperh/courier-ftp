@@ -20,6 +20,7 @@ mod errors;
 mod keymap;
 mod logging;
 mod sites;
+mod transfers;
 mod tui;
 mod ui;
 mod vault;

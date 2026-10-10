@@ -1,5 +1,5 @@
-//! Shared pane helpers and the remaining T50 shells: the queue (T56) and
-//! tab bar (T61) tasks replace their bodies.
+//! Shared pane helpers and the remaining T50 shell: the tab bar (T61 replaces
+//! its body).
 
 use ratatui::{
     Frame,
@@ -31,17 +31,6 @@ pub(crate) fn draw_tabs(frame: &mut Frame, area: Rect, theme: &Theme) {
             Span::styled(" Tabs: ", theme.dim),
             Span::styled("[1 local]", theme.title),
         ])),
-        area,
-    );
-}
-
-pub(crate) fn draw_queue(frame: &mut Frame, area: Rect, focused: bool, theme: &Theme) {
-    frame.render_widget(
-        Paragraph::new(Line::styled("The queue is empty.", theme.dim)).block(block(
-            " Queue (0) · Failed (0) · Successful (0) ",
-            focused,
-            theme,
-        )),
         area,
     );
 }

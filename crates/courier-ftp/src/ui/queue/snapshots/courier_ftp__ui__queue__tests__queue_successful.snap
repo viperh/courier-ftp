@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp/src/ui/queue/tests.rs
+assertion_line: 170
+expression: text
+---
+"┌ Queued files (5) │ Failed transfers (1) │ Successful transfers (2) ──────────────────────────────────────────────────┐"
+"│Local file                              Remote file                          Size       Time     Duration Avg speed   │"
+"│▾ sftp://alice@web01 — 2 files                                                                                        │"
+"│  /home/alice/site/app.js             → /var/www/app.js                      7.8 KiB    14:30:00 00:00:02 3.9 KiB/s   │"
+"│  /home/alice/site/about.html         → /var/www/about.html                  7.8 KiB    14:30:00 00:00:01 7.8 KiB/s   │"
+"│                                                                                                                      │"
+"│                                                                                                                      │"
+"└ Queue: 5 files, 306.0 MiB · processing ──────────────────────────────────────────────────────────────────────────────┘"

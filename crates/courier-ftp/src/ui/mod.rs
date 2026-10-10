@@ -11,6 +11,7 @@ mod layout;
 mod log;
 mod modal;
 mod panes;
+mod queue;
 mod quickconnect;
 mod screen;
 pub(crate) mod site_manager;
@@ -25,6 +26,10 @@ pub(crate) use courier_ftp_core::filters::Side;
 pub(crate) use focus::Region;
 pub(crate) use modal::Modal;
 pub(crate) use quickconnect::HistoryItem;
+#[cfg(test)]
+pub(crate) mod file_list_effect {
+    pub(crate) use super::file_list::Effect;
+}
 pub(crate) use screen::{KeyOutcome, MainScreen};
 pub(crate) use text_viewer::TextViewer;
 pub(crate) use theme::Theme;

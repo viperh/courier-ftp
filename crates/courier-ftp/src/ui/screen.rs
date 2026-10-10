@@ -28,6 +28,7 @@ use super::{
     log::LogPane,
     modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
     panes,
+    queue::QueuePane,
     quickconnect::{QuickKey, Quickconnect},
     site_manager::SiteManagerView,
     status::{self, StatusState},
@@ -162,6 +163,11 @@ pub(crate) struct MainScreen {
     pub(crate) local_tree: DirTree,
     pub(crate) remote_tree: DirTree,
     log: LogPane,
+    /// The transfer queue (T56).
+    queue: QueuePane,
+    /// The transfer engine's state (processing, paused), once the app runs
+    /// one.
+    engine_status: Option<tokio::sync::watch::Receiver<courier_ftp_core::transfer::EngineStatus>>,
     quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
     tick: u64,
@@ -232,6 +238,11 @@ impl MainScreen {
         let local = FileList::new(Side::Local, &config.settings, local_filters);
         let remote = FileList::new(Side::Remote, &config.settings, remote_filters);
         let unicode = status.unicode;
+        let queue = QueuePane::new(
+            crate::transfers::new_queue(&config.settings),
+            unicode,
+            time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC),
+        );
         let local_tree = DirTree::new(Side::Local, unicode, local.show_hidden());
         let remote_tree = DirTree::new(Side::Remote, unicode, remote.show_hidden());
         let compare_opts = CompareOpts {
@@ -249,6 +260,8 @@ impl MainScreen {
             local_tree,
             remote_tree,
             log,
+            queue,
+            engine_status: None,
             quickconnect: Quickconnect::new().with_unicode(unicode),
             modals: Vec::new(),
             tick: 0,
@@ -273,6 +286,43 @@ impl MainScreen {
     /// Where dialogs send their results.
     pub(crate) fn set_action_tx(&mut self, tx: UnboundedSender<Action>) {
         self.action_tx = Some(tx);
+    }
+
+    /// The queue the pane shows (shared with the engine and persister).
+    pub(crate) fn queue_shared(&self) -> &courier_ftp_core::queue::SharedQueue {
+        self.queue.shared()
+    }
+
+    /// Follow the transfer engine's status (processing, paused).
+    pub(crate) fn set_engine_status(
+        &mut self,
+        rx: tokio::sync::watch::Receiver<courier_ftp_core::transfer::EngineStatus>,
+    ) {
+        self.engine_status = Some(rx);
+    }
+
+    /// The side of the focused file list (not its tree).
+    pub(crate) fn focused_list_side(&self) -> Option<Side> {
+        match self.focus {
+            Region::LocalList => Some(Side::Local),
+            Region::RemoteList => Some(Side::Remote),
+            _ => None,
+        }
+    }
+
+    /// The transfer type chosen in the status bar.
+    pub(crate) fn transfer_type(&self) -> courier_ftp_core::settings::TransferTypeChoice {
+        self.status.transfer_type
+    }
+
+    /// List `dir` again when `side` shows it (a transfer into it finished).
+    pub(crate) fn refresh_dir(&mut self, side: Side, dir: &RemotePath) {
+        if self.pane(side).dir.as_ref() != Some(dir) || self.pane(side).busy {
+            return;
+        }
+        let tx = self.action_tx.clone();
+        let effect = self.pane_mut(side).update(&Action::Refresh, tx.as_ref());
+        self.apply(effect);
     }
 
     /// The actions the panes asked for since the last call.
@@ -482,6 +532,9 @@ impl MainScreen {
             self.pump_sites();
             return KeyOutcome::Consumed;
         }
+        if self.focus == Region::Queue && self.queue.handle_key(key) {
+            return KeyOutcome::Consumed;
+        }
         // A region typing text of its own (a search query) takes every key.
         if self.focus == Region::Log && self.log.handle_search_key(key) {
             return KeyOutcome::Consumed;
@@ -560,6 +613,14 @@ impl MainScreen {
             };
             self.status
                 .flash(format!("Copied {what} to the clipboard"), Instant::now());
+            return None;
+        }
+        if QueuePane::handles_anywhere(action)
+            || (self.focus == Region::Queue && QueuePane::handles(action))
+        {
+            let tx = self.action_tx.clone();
+            let effect = self.queue.update(action, tx.as_ref());
+            self.apply(effect);
             return None;
         }
         if self.focus == Region::Log && is_pane_action(action) {
@@ -1150,6 +1211,7 @@ impl MainScreen {
 
     /// Something from the core (T04).
     pub(crate) fn handle_core(&mut self, event: CoreEvent) {
+        self.queue.handle_core(&event, Instant::now());
         match event {
             CoreEvent::Log(msg) => self.log.push(msg),
             CoreEvent::Prompt(request) => {
@@ -1210,6 +1272,11 @@ impl MainScreen {
         self.modals.retain(|m| !m.is_done());
         self.status.pending_prompts = self.prompts.len();
         let r = layout::compute(area, &self.opts);
+        let now = Instant::now();
+        let (stats, speed) = self.queue.stats(now);
+        self.status.queue_files = stats.items as u64;
+        self.status.queue_bytes = stats.bytes;
+        self.status.queue_speed_bps = speed;
         if self.vault_shown
             && let Some(view) = &self.vault
         {
@@ -1283,7 +1350,24 @@ impl MainScreen {
                 .draw(frame, a, f == Region::RemoteList, self.tick, theme);
         }
         if let Some(a) = r.queue {
-            panes::draw_queue(frame, a, f == Region::Queue, theme);
+            let status = self
+                .engine_status
+                .as_ref()
+                .map(|rx| rx.borrow().clone())
+                .unwrap_or_default();
+            let processing =
+                courier_ftp_core::queue::lock_queue(self.queue.shared()).is_processing();
+            self.queue.draw(
+                frame,
+                a,
+                f == Region::Queue,
+                super::queue::RunState {
+                    processing,
+                    paused: status.paused,
+                },
+                theme,
+                now,
+            );
         }
         if let Some(a) = r.status {
             status::draw(frame, a, &self.status, theme);
