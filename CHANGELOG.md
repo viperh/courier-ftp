@@ -125,3 +125,6 @@ the section matching the tag.
   setting, stored encrypted in the vault (passwords included), device-local
   default directories and key paths, path lookup (Work/Production/web01), and
   saved SSH key passphrases and vault SSH keys used when connecting.
+- Transfer queue model (T40): priorities, reorder, pause, retry and requeue,
+  server grouping, stats; persisted encrypted in the vault under a device key,
+  with JSON export/import without passwords.
