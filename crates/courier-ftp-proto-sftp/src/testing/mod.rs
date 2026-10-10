@@ -22,10 +22,11 @@ use std::{
 };
 
 use courier_ftp_core::{
-    backend::{Backend, BackendContext, ConnectInfo, conformance::ConformanceEnv, mock},
-    model::{FtpEncryption, LogonType, Protocol, RemotePath, ServerAddress},
+    backend::{BackendContext, ConnectInfo},
+    events::{EventReceiver, SessionId, channel as event_channel},
+    model::{FtpEncryption, LogonType, Protocol, ServerAddress},
     secret::SecretString,
-    settings::Settings,
+    settings::{DebugLevel, Settings},
 };
 use russh_sftp::{
     client::{Config, RawSftpSession},
@@ -272,7 +273,7 @@ pub async fn duplex_backend(
     let timeout = u64::from(settings.connection.timeout_secs.max(1));
     let stats = ServerStats::new(knobs);
     let raw = duplex_session(&stats, root, timeout);
-    let (ctx, rx) = mock::test_context_with(settings);
+    let (ctx, rx) = test_context_with(settings);
     let address = ServerAddress::new(
         Protocol::Sftp,
         FtpEncryption::ExplicitIfAvailable,
@@ -412,37 +413,28 @@ impl SftpTestServer {
 
     /// A backend with `settings`.
     pub fn backend_with(&self, settings: Settings) -> SftpBackend {
-        let (ctx, rx) = mock::test_context_with(settings);
+        let (ctx, rx) = test_context_with(settings);
         drain(rx);
         self.backend(ctx)
     }
 }
 
-/// Keep the receiver alive (prompts would otherwise be cancelled) and discard events.
-fn drain(mut rx: courier_ftp_core::events::EventReceiver) {
-    tokio::spawn(async move { while rx.recv().await.is_some() {} });
+/// A backend context for `settings` (core's `mock::test_context_with`, which needs
+/// core's `test-util`).
+pub fn test_context_with(settings: Settings) -> (BackendContext, EventReceiver) {
+    let (events, rx) = event_channel(DebugLevel::Debug);
+    let (_tx, settings) = tokio::sync::watch::channel(Arc::new(settings));
+    (
+        BackendContext {
+            session: SessionId::next(),
+            events,
+            settings,
+        },
+        rx,
+    )
 }
 
-/// A conformance environment over a fresh [`SftpTestServer`] (T03 suite).
-pub fn conformance_env() -> ConformanceEnv {
-    let server = Arc::new(SftpTestServer::spawn(SftpTestKnobs::default()));
-    let make_server = Arc::clone(&server);
-    #[cfg(unix)]
-    let make_symlink: Option<courier_ftp_core::backend::conformance::MakeSymlink> = {
-        let link_server = Arc::clone(&server);
-        Some(Box::new(move |link: &RemotePath, target: &str| {
-            std::os::unix::fs::symlink(target, link_server.local(link.as_str()))
-                .map_err(courier_ftp_core::Error::Io)
-        }))
-    };
-    #[cfg(not(unix))]
-    let make_symlink = None;
-    ConformanceEnv {
-        scratch: RemotePath::parse("/scratch").unwrap(),
-        make: Box::new(move || Ok(Box::new(make_server.backend_default()) as Box<dyn Backend>)),
-        // Sparse files: ext4/xfs/APFS; NTFS would allocate 5 GiB.
-        large_files: cfg!(any(target_os = "linux", target_os = "macos")),
-        skip: Vec::new(),
-        make_symlink,
-    }
+/// Keep the receiver alive (prompts would otherwise be cancelled) and discard events.
+fn drain(mut rx: EventReceiver) {
+    tokio::spawn(async move { while rx.recv().await.is_some() {} });
 }

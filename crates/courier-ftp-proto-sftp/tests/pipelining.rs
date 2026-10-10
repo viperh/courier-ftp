@@ -71,6 +71,7 @@ async fn download(b: &mut dyn Backend, path: &str) -> (u64, Duration) {
         .await
         .unwrap();
     let took = start.elapsed();
+    eprintln!("download of {n} bytes: {took:?} (virtual)");
     drop(r);
     b.finish_transfer(TransferEnd::Complete).await.unwrap();
     (n, took)
@@ -90,6 +91,7 @@ async fn upload(b: &mut dyn Backend, path: &str, len: u64) -> Duration {
     }
     w.flush().await.unwrap();
     let took = start.elapsed();
+    eprintln!("upload of {len} bytes: {took:?} (virtual)");
     w.shutdown().await.unwrap();
     drop(w);
     b.finish_transfer(TransferEnd::Complete).await.unwrap();

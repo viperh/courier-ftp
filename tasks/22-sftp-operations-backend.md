@@ -349,23 +349,23 @@ create directory /var/www/new: Permission denied`).
 ## Acceptance criteria
 
 - [ ] AC1 `backend_conformance_tests!` passes against `SftpTestServer` in the normal `cargo test` run and, in the e2e job, against the `password`, `chroot-sftp` and `windows-like` sshd profiles.
-- [ ] AC2 A symlink to a directory lists as `Symlink { target: Some(..), target_kind: Some(Dir) }`, and `list(symlink path)` returns the target's entries; a broken symlink has `target_kind: None`.
-- [ ] AC3 Resumed download (`open_read` at offset) and resumed upload (`ResumeAt(n)`) produce byte-identical files (SHA-256), including at an offset above 4 GiB on a sparse test file.
-- [ ] AC4 Every row of the error mapping table is produced by the test server's fault injection and maps as specified.
-- [ ] AC5 `rename(.., replace = true)` sends `posix-rename@openssh.com` when advertised and replaces an existing target; without it, renaming onto an existing file returns `AlreadyExists` and leaves both files unchanged; `rename(.., replace = false)` onto an existing file returns `AlreadyExists` without sending `RENAME`.
-- [ ] AC6 `mkdir` of an existing directory and `open_write(Create)` of an existing file return `AlreadyExists`.
-- [ ] AC7 Pipelining (paused time, duplex pair, 50 ms per-request latency, 64 MiB file): the server sees 64 READ requests in flight and the download takes ≤ 1.7 s of virtual time with defaults, versus ≥ 100 s with `max_outstanding_requests = 1`; the same for WRITE.
-- [ ] AC8 With short reads (server caps reads at 10 000 bytes) downloads are byte-identical and no byte range is requested twice after the chunk adapts.
+- [x] AC2 A symlink to a directory lists as `Symlink { target: Some(..), target_kind: Some(Dir) }`, and `list(symlink path)` returns the target's entries; a broken symlink has `target_kind: None`.
+- [x] AC3 Resumed download (`open_read` at offset) and resumed upload (`ResumeAt(n)`) produce byte-identical files (SHA-256), including at an offset above 4 GiB on a sparse test file.
+- [x] AC4 Every row of the error mapping table is produced by the test server's fault injection and maps as specified.
+- [x] AC5 `rename(.., replace = true)` sends `posix-rename@openssh.com` when advertised and replaces an existing target; without it, renaming onto an existing file returns `AlreadyExists` and leaves both files unchanged; `rename(.., replace = false)` onto an existing file returns `AlreadyExists` without sending `RENAME`.
+- [x] AC6 `mkdir` of an existing directory and `open_write(Create)` of an existing file return `AlreadyExists`.
+- [x] AC7 Pipelining (paused time, duplex pair, 50 ms per-request latency, 64 MiB file): the server sees 64 READ requests in flight and the download takes ≤ 1.7 s of virtual time with defaults, versus ≥ 100 s with `max_outstanding_requests = 1`; the same for WRITE.
+- [x] AC8 With short reads (server caps reads at 10 000 bytes) downloads are byte-identical and no byte range is requested twice after the chunk adapts.
 - [ ] AC9 With `limits@openssh.com` advertising `max_read_len = 16 384`, no READ or WRITE larger than 16 384 bytes is sent; with OpenSSH (e2e) the read chunk is 261 120 bytes.
-- [ ] AC10 In-flight data per open file never exceeds 8 MiB (server-side counter over a 256 MiB transfer).
-- [ ] AC11 Entries named `a/b`, with NUL, `.`/`..`, or 5 000 bytes long are not returned; a name with an ESC sequence is returned verbatim; the skip count is logged.
-- [ ] AC12 Listing a directory of 100 000 files returns 100 000 entries with owner/group names parsed from longnames; a fake server streaming more than 1 000 000 names gets a `Protocol` error and the handle is closed.
-- [ ] AC13 Cancelling `list` returns `Error::Cancelled` within 100 ms and a `CLOSE` for the directory handle is sent.
-- [ ] AC14 Killing the server mid-download yields `Error::Connection` from the reader and `is_connected() == false`; `SessionHandle` (T03) reconnects once on the next call.
-- [ ] AC15 `raw_command` returns `Unsupported`; `capabilities()` equals the table (incl. `positional_writes = true`); `set_mtime` with a 1960 date returns `InvalidInput`; `chmod` sends only the permissions attribute; `security_info()` reports `encrypted`, "SSH", the host key and negotiated algorithms.
+- [x] AC10 In-flight data per open file never exceeds 8 MiB (server-side counter over a 256 MiB transfer).
+- [x] AC11 Entries named `a/b`, with NUL, `.`/`..`, or 5 000 bytes long are not returned; a name with an ESC sequence is returned verbatim; the skip count is logged.
+- [x] AC12 Listing a directory of 100 000 files returns 100 000 entries with owner/group names parsed from longnames; a fake server streaming more than 1 000 000 names gets a `Protocol` error and the handle is closed.
+- [x] AC13 Cancelling `list` returns `Error::Cancelled` within 100 ms and a `CLOSE` for the directory handle is sent.
+- [x] AC14 Killing the server mid-download yields `Error::Connection` from the reader and `is_connected() == false`; `SessionHandle` (T03) reconnects once on the next call.
+- [x] AC15 `raw_command` returns `Unsupported`; `capabilities()` equals the table (incl. `positional_writes = true`); `set_mtime` with a 1960 date returns `InvalidInput`; `chmod` sends only the permissions attribute; `security_info()` reports `encrypted`, "SSH", the host key and negotiated algorithms.
 - [ ] AC16 Throughput: `scripts/bench-sftp.sh` on localhost shows ≥ 80 % of OpenSSH `sftp` CLI throughput for a 1 GiB download and upload; numbers recorded in the table below.
 - [ ] AC17 T00 gates pass (`fmt`, `clippy -D warnings`, `docs`, `test`, `deny`); no `unwrap`/`expect` outside tests.
-- [ ] AC18 `stat` of a symlink returns `Symlink` (not the target's kind) with `target_kind` filled; `open_read` with `range_len = Some(n)` returns exactly `n` bytes and the server sees no READ at or past `offset + n`; `WriteAt(n)` keeps bytes before `n` and after the written range.
+- [x] AC18 `stat` of a symlink returns `Symlink` (not the target's kind) with `target_kind` filled; `open_read` with `range_len = Some(n)` returns exactly `n` bytes and the server sees no READ at or past `offset + n`; `WriteAt(n)` keeps bytes before `n` and after the written range.
 
 Benchmark results (fill in when done):
 
@@ -434,3 +434,84 @@ Manual: `scripts/bench-sftp.sh` — AC16.
 Resolved: T03 `TransferOpts.range_len` (read limit), T03 `rename(from, to, replace)`
 semantics (shared with T14), and the top-level `sftp.*` settings section with this task's
 ranges (T05).
+
+## Implementation notes
+
+- **Layout.** `convert.rs` (+ `convert/{tests,props}.rs`), `io.rs` (`SftpReader`,
+  `SftpWriter`, `IoParams`, `TransferState`, `write_flags`; + `io/props.rs`),
+  `backend.rs` (+ `backend/tests.rs`), `testing/{mod,server}.rs` (feature `test-util`,
+  which now also enables `tempfile` and core's `test-util`). Integration tests:
+  `tests/conformance_against_test_server.rs`, `tests/operations.rs` (AC2–AC6, AC11–AC15,
+  AC18), `tests/pipelining.rs` (AC7–AC10). E2e: `crates/courier-ftp-e2e/tests/
+  {backend_conformance,sftp_backend,proxies}.rs`; `scripts/bench-sftp.sh`.
+- **Public API for dependants (T41/T41b/T58/T71):** `SftpBackend::{new, server_info,
+  tuning}` (+ `attach` under `test-util`), `backend::{SftpTuning, ServerLimits,
+  ServerExtensions, SftpServerInfo, IoSizes, io_sizes, SFTP_CAPABILITIES, mtime_attrs,
+  chmod_attrs, MAX_INFLIGHT_BYTES, MAX_CHUNK, …}`, `io::{SftpReader, SftpWriter, IoParams,
+  TransferState, write_flags}`, `convert::{entry_from_name, entry_from_attrs,
+  kind_from_mode, map_status, SftpOp, io_error, core_error, from_io, clone_error}`,
+  `testing::{SftpTestServer, SftpTestKnobs, ServerStats, duplex_sftp_pair,
+  duplex_session, duplex_backend, test_context_with}`. T20 additions:
+  `SshConnection::{host_key, peer_addr}`, `ssh::testing::{SubsystemHook,
+  TestServer::{spawn, abort_connections}}`, `TestServerConfig::sftp`.
+- **Own test server, not russh-sftp's.** russh-sftp's server handler answers one
+  request at a time, which hides pipelining. `testing::server` decodes/encodes with
+  russh-sftp's `protocol` types but handles each request on arrival and sends the reply
+  `per_request_latency` later (a link-latency model), so in-flight depth and bytes are
+  measurable. Extra knobs beyond the spec: `read_caps` (per-READ caps for the property
+  test), `bogus_reply_next` (wrong reply type → `UnexpectedPacket`), `inject_names`,
+  `synthetic_dirs`, `readdir_batch`, `owner`/`group`. Paths are chroot-like (`/` = the
+  temp dir, `/scratch` exists). On non-Unix hosts permissions are kept in a map and
+  symlinks are unsupported (the symlink tests are `cfg(unix)`).
+- **Pipelining mechanism.** Request futures own an `Arc<RawSftpSession>` and sit in a
+  `FuturesOrdered`; a pushed future is polled once by the next `poll_next`, which sends
+  the request. Results come back in push order. The reader's depth is
+  `min(outstanding, budget / chunk)` and it also tracks bytes in flight.
+- **Deviations.**
+  - A broken symlink is `target_kind: Some(SymlinkTarget::Broken)` (core's model and the
+    local backend, T06, use `Broken`; `None` means "not resolved"), not `None` as AC2
+    says. A `STAT` failing for another reason (permission) leaves `None`.
+  - The chunk is clamped to 4 KiB..=255 KiB **and** never above a non-zero server limit
+    (a server limit below 4 KiB would otherwise make every READ fail with russh-sftp's
+    `Limited`).
+  - A short read at the known end of the file (FSTAT size) does not adapt the chunk.
+  - `mkdir` returns `AlreadyExists` when the probing `LSTAT` finds anything (file or
+    dir) at the path — the T03 contract "AlreadyExists if present".
+  - `rename` failures other than `AlreadyExists` name the source (`NotFound(from)`).
+  - `PermissionDenied` carries the path; the session log reads
+    `Error: <op text> <path>: Permission denied`. `stat` → `NotFound` and `Cancelled`
+    are not logged as errors.
+  - Reader/writer errors are `io::Error`s whose inner error is the core error
+    (`convert::core_error` recovers it; kinds map `Connection` → `ConnectionReset`,
+    `Timeout` → `TimedOut`, so `Error::from(io)` stays connection-lost). The same error
+    is the deferred error returned by `finish_transfer(Complete)`.
+  - `finish_transfer` while the stream is still alive → `Internal`. A dropped stream is
+    aborted implicitly by the next operation (T03 rule 4).
+  - Connection loss without SSH (`attach`, duplex tests) is detected from the first
+    connection-level error (`broken` flag); with SSH also from `SshConnection::is_open`.
+  - `TestServer` (T20) now keeps clones of the accepted sockets: russh runs each server
+    session on its own task, so aborting the accept-loop's task did not close the
+    connection. `abort_connections()`/drop shut the sockets down.
+  - AC7 measures the data phase (open stream → EOF / all WRITEs acknowledged); with
+    `OPEN`+`FSTAT` / `CLOSE` the whole transfer adds 2 × 50 ms resp. 50 ms of virtual
+    time. Measured: read ≈ 1.65 s, write ≈ 1.6 s; with one request in flight ≥ 102 s.
+  - AC1 e2e: the per-profile conformance runs are `crates/courier-ftp-e2e/tests/
+    backend_conformance.rs` (T76 AC13: `backend_conformance_tests!(ignored, …)` with
+    backends from `E2eBackendFactory`; modules `sftp_password`, `sftp_key`,
+    `sftp_chroot_sftp`, `sftp_windows_like`) instead of `e2e_conformance_*` functions in
+    `sftp_backend.rs`, so CI runs the suite once per profile. Each profile's container
+    runs on its own thread/runtime (the env fn is synchronous) and is shared by the
+    running cases; without Docker every case reports itself skipped.
+  - `E2eBackendFactory` builds `SftpBackend` with a process-wide `TrustVerifier` over a
+    `MemoryHostKeyStore` (no OpenSSH known_hosts), so `Headless` answers host-key
+    prompts. `proxies.rs` has the SFTP part (`sftp_via_socks5`,
+    `sftp_via_http_connect_auth`: a 7-case conformance subset); the FTP part is T14's.
+  - `scripts/bench-sftp.sh` runs the ignored e2e test `bench_sftp_vs_openssh`
+    (`COURIER_BENCH=1`): the OpenSSH `sftp -B 261120 -R 64` side runs inside the sshd
+    container over loopback via `sshpass` (no OpenSSH client is assumed on the host).
+- **Not done here:** Docker is not available locally, so the e2e tests
+  (`backend_conformance.rs` SFTP modules, `sftp_backend.rs`, `proxies.rs`) compile and
+  skip but were never run: AC1 (e2e part), AC9 (OpenSSH 255 KiB part) and AC16 (benchmark,
+  table above still empty) stay unticked until CI's e2e job / a manual run passes.
+  Open question 1 (non-UTF-8 names) kept at the default: accepted for v1.
+

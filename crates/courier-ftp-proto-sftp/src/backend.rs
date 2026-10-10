@@ -280,7 +280,7 @@ impl std::fmt::Debug for SftpBackend {
     }
 }
 
-/// The text after "Error: <op> <path>: ".
+/// The text after `Error: <op> <path>: `.
 fn user_message(err: &Error) -> String {
     match err {
         Error::NotFound(_) => "No such file or directory".to_owned(),
