@@ -214,9 +214,19 @@ impl SiteManager {
         parent: Option<ItemId>,
         name: &str,
     ) -> Result<ItemId, SiteError> {
+        self.add_folder_as(parent, name, ItemId::new()).await
+    }
+
+    /// [`SiteManager::add_folder`] with a given id (imports keep ids).
+    pub(super) async fn add_folder_as(
+        &mut self,
+        parent: Option<ItemId>,
+        name: &str,
+        id: ItemId,
+    ) -> Result<ItemId, SiteError> {
         let mut folder = Folder::new(name);
+        folder.id = id;
         folder.vault = self.vault_of(parent);
-        let id = folder.id;
         let mut next = self.tree.clone();
         next.insert(parent, SiteNode::Folder(folder))?;
         self.commit(next, &[id]).await?;

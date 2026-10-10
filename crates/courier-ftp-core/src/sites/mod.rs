@@ -67,10 +67,19 @@
 //! - "Convert quickconnect entry to site": [`SiteManager::add_from_history`]
 //!   (or [`HistoryEntry::to_site`] to prefill an editor).
 //!
-//! **Import/export (T32)**: build [`Folder`]/[`Site`] values, pick free names
-//! with [`SiteTree::unique_name`], create folders with `add_folder` and sites
-//! with `save_site`. Export walks [`SiteTree::walk`] / [`SiteTree::path_of`];
-//! the full site, passwords and local paths included, is in [`Site`].
+//! **Import/export (T32)** — [`import`] and [`export`]:
+//! - FileZilla: suggest [`import::filezilla_locations`], parse with
+//!   [`import::parse_filezilla`], write with [`import::apply`]`(&mut sites,
+//!   tree, None, Some(&import::filezilla_folder_name(today)))`; show
+//!   [`import::ImportReport::summary`] and its `skipped` list. Reload
+//!   [`Bookmarks`] afterwards.
+//! - courier-ftp files: [`import::is_encrypted_export`] (ask for the
+//!   passphrase), [`import::parse_export`] (Argon2: `spawn_blocking`), then
+//!   [`import::apply`] with no folder.
+//! - Export: [`export::collect`]`(&sites, ExportScope::…)`, then
+//!   [`export::to_json`] (no secrets), [`export::to_encrypted`] (with
+//!   passwords and vault SSH keys, passphrase-sealed) or
+//!   [`export::to_filezilla_xml`] (no passwords).
 //!
 //! **CLI `--site` (T70)**: [`SiteManager::find_site`]`("Work/Production/web01")`.
 //!
@@ -90,7 +99,10 @@
 
 mod bookmarks;
 mod error;
+pub mod export;
+mod filezilla;
 mod history;
+pub mod import;
 mod site;
 mod store;
 mod tree;
@@ -99,10 +111,15 @@ mod validate;
 #[cfg(test)]
 mod history_tests;
 #[cfg(test)]
+mod import_tests;
+#[cfg(test)]
 mod tests;
 
 pub use bookmarks::{Bookmark, BookmarkTarget, Bookmarks};
 pub use error::SiteError;
+#[doc(hidden)]
+pub use filezilla::fuzz_filezilla_xml;
+pub use filezilla::{MAX_DEPTH, MAX_ELEMENTS, MAX_XML_LEN, decode_remote_dir, encode_remote_dir};
 pub use history::{
     HISTORY_LIMIT, History, HistoryEntry, RECENT_LIMIT, RecentServer, RecentTarget,
     load_recent_servers, recent_servers,
