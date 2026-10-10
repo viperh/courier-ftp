@@ -83,3 +83,10 @@ the section matching the tag.
   entered), pipelined resumable transfers (64 requests of up to 255 KiB in
   flight, 90–120 % of OpenSSH sftp throughput), SftpBackendFactory and
   scripts/bench-sftp.sh.
+- Item model (T81): UUIDv7 ids, nine item kinds with typed views, HLC-stamped
+  CBOR bodies, field-level last-writer-wins merge with tombstones and
+  clock-skew warnings, read-time schema migrations.
+- Local store (T82, courier-ftp-store): SQLite with WAL, one writer plus a
+  reader pool, migrations that refuse newer schemas, an outbox entry on every
+  write, device-local data and blobs, key pins, local approvals, in-memory
+  search labels, 0700/0600 permissions.
