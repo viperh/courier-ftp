@@ -669,7 +669,9 @@ async fn passive_failure_without_fallback_is_an_error() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&err, Error::Connection(m) if m.starts_with("Failed to open data connection")),
+        matches!(&err, Error::Connection(m) if m.starts_with("Failed to open data connection"))
+            // Windows retries a refused SYN for ~2 s; the dial may time out first.
+            || matches!(err, Error::Timeout),
         "{err:?}"
     );
     assert!(!st.use_active);

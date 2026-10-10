@@ -365,28 +365,28 @@ Settings (T05, none added): `ftp.transfer_mode` (`Passive`), `ftp.fallback_to_ac
 
 ## Acceptance criteria
 
-- [ ] AC1 `parse_pasv` accepts the format variants in the test table and rejects > 255
+- [x] AC1 `parse_pasv` accepts the format variants in the test table and rejects > 255
   values, < 6 numbers and port 0; `parse_epsv` accepts any repeated delimiter and rejects
   mismatched delimiters and ports > 65535.
-- [ ] AC2 EPSV, PASV, EPRT (IPv4 + IPv6) and PORT each complete a `RETR` against the fake
+- [x] AC2 EPSV, PASV, EPRT (IPv4 + IPv6) and PORT each complete a `RETR` against the fake
   server; an IPv6 data channel works against `[::1]`.
-- [ ] AC3 PASV address rules: unroutable address replaced by the peer when the setting is
+- [x] AC3 PASV address rules: unroutable address replaced by the peer when the setting is
   on (kept when off); a different routable address is always replaced; Status line logged.
-- [ ] AC4 Passive failure with `fallback_to_active` retries once in active mode, succeeds,
+- [x] AC4 Passive failure with `fallback_to_active` retries once in active mode, succeeds,
   and the next transfer uses active mode without trying passive.
-- [ ] AC5 Active mode honours the port range (bound port within range) and rejects a data
+- [x] AC5 Active mode honours the port range (bound port within range) and rejects a data
   connection from an unexpected IP; through a generic proxy it fails with `Unsupported`;
   with `active_no_external_ip_on_local` on and a loopback/private control peer, `PORT`/`EPRT`
   carries the local IP even when `external_ip` is `Fixed`/`FromUrl` (no URL request made),
   and with it off the external IP is sent.
-- [ ] AC6 `AsciiDecode`/`AsciiEncode` output is independent of chunking (CR at chunk end)
+- [x] AC6 `AsciiDecode`/`AsciiEncode` output is independent of chunking (CR at chunk end)
   and `decode(encode(x)) == x` for LF-only text.
-- [ ] AC7 Resume via `REST` produces byte-identical files for download and upload, including
+- [x] AC7 Resume via `REST` produces byte-identical files for download and upload, including
   an offset > 4 GiB (fake server, sparse data) — `REST 5368709120` on the wire.
-- [ ] AC8 Cancelling a transfer mid-stream runs ABOR + resync and the next `PWD` succeeds
+- [x] AC8 Cancelling a transfer mid-stream runs ABOR + resync and the next `PWD` succeeds
   within 1 s (paused time) for each server reply variant (426+226, 226 only, 225, 500).
-- [ ] AC9 A `226` received before the data EOF does not cause an error or data loss.
-- [ ] AC10 `ensure_type` sends `TYPE A`/`TYPE I` only when the requested type differs from
+- [x] AC9 A `226` received before the data EOF does not cause an error or data loss.
+- [x] AC10 `ensure_type` sends `TYPE A`/`TYPE I` only when the requested type differs from
   the tracked type; a `Retr` with `range_len: Some(n)` yields exactly `n` bytes, then the
   abort sequence leaves the control usable and `finish` returns Ok.
 - [ ] AC11 Docker e2e: passive and active downloads/uploads (SHA-256 verified) against
@@ -525,6 +525,12 @@ Not applicable (no UI, no corpus).
     them further (e.g. 550 → `NotFound`).
   - `active_rejects_foreign_peer` is `#[cfg(target_os = "linux")]` (it connects from
     127.0.0.2, which only Linux routes on loopback).
+- The `x86_64-pc-windows-gnu` clippy check could not run here (`ring` needs a MinGW C
+  compiler); the `cfg(windows)` ASCII identity test runs in CI's Windows job.
 - Docker is not available here: the four e2e tests compile and skip (`require_docker!`);
   CI's e2e job runs them. Nightly `cargo fuzz` was not run (the property test runs the
   same body on random input).
+- **Unticked ACs:** AC11 (Docker e2e: the tests exist in `ftp_data.rs` and skip here;
+  CI's e2e job runs them) and AC12 (all local gates pass — fmt, both clippy runs, tests,
+  docs, layering, unsafe check, `cargo vet`, `cargo deny`; the 30 s `ftp_pasv` fuzz run
+  and the OS matrix are CI jobs).
