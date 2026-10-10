@@ -78,3 +78,8 @@ the section matching the tag.
   trust / Cancel), changed keys raise a warning with old and new fingerprints,
   trusted keys are remembered, and OpenSSH known_hosts (including hashed
   entries and @revoked) is honoured read-only.
+- SFTP backend (T22): every file operation over russh-sftp, owner/group names
+  from longname, symlink targets resolved (links to directories can be
+  entered), pipelined resumable transfers (64 requests of up to 255 KiB in
+  flight, 90–120 % of OpenSSH sftp throughput), SftpBackendFactory and
+  scripts/bench-sftp.sh.
