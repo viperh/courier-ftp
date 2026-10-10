@@ -17,6 +17,16 @@ pub(crate) struct Cli {
     /// Frame rate, i.e. number of frames per second
     #[arg(short, long, value_name = "FLOAT", default_value_t = 60.0)]
     pub(crate) frame_rate: f64,
+
+    /// Write debug-level application logs (they may contain hostnames,
+    /// user names and paths)
+    #[arg(long)]
+    pub(crate) debug: bool,
+
+    /// Message log debug level for this run: 0 none, 1 warning, 2 info,
+    /// 3 verbose (adds raw listings and TLS/SSH details), 4 debug
+    #[arg(long, value_name = "0-4", value_parser = clap::value_parser!(u8).range(0..=4))]
+    pub(crate) debug_level: Option<u8>,
 }
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
@@ -140,6 +150,17 @@ mod tests {
             let script = String::from_utf8(out).unwrap();
             assert!(script.contains("courier-ftp"), "{shell:?}");
         }
+    }
+
+    #[test]
+    fn debug_flags_parse() {
+        let cli = Cli::try_parse_from(["courier-ftp", "--debug", "--debug-level", "3"]).unwrap();
+        assert!(cli.debug);
+        assert_eq!(cli.debug_level, Some(3));
+        assert!(Cli::try_parse_from(["courier-ftp", "--debug-level", "5"]).is_err());
+        let cli = Cli::try_parse_from(["courier-ftp"]).unwrap();
+        assert!(!cli.debug);
+        assert_eq!(cli.debug_level, None);
     }
 
     #[test]

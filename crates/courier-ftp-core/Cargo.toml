@@ -35,6 +35,8 @@ uhlc = { workspace = true }
 uuid = { workspace = true }
 encoding_rs = { workspace = true }
 fs4 = { workspace = true }
+# FileZilla sitemanager.xml import/export (T32).
+quick-xml = { workspace = true }
 regex = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
@@ -64,6 +66,7 @@ windows-sys = { workspace = true, features = [
 # Cheap Argon2 (`Argon2Cost::TEST`) for the vault tests.
 courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
 criterion = { workspace = true }
+insta = { workspace = true }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }

@@ -18,6 +18,7 @@ pub mod filters;
 pub mod hardening;
 pub mod listing;
 pub mod local;
+pub mod logfile;
 pub mod model;
 pub mod net;
 pub mod queue;

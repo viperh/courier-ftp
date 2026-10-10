@@ -1,4 +1,4 @@
-//! Standard dialogs: [`confirm`], [`message`], [`error`], [`prompt_text`],
+//! Standard dialogs: [`confirm`], [`ask`], [`message`], [`error`], [`prompt_text`],
 //! [`prompt_password`], [`choose`], and the [`ProgressDialog`].
 //!
 //! Each returns the modal to push and a receiver for the answer. A dropped
@@ -122,6 +122,27 @@ pub(crate) fn confirm(
         if default_yes { 0 } else { 1 },
         Box::new(move |pressed| {
             let _ = tx.send(pressed == Some(0));
+        }),
+    );
+    (Box::new(modal), rx)
+}
+
+/// Text with a row of `buttons`: the index of the pressed one, `None` for
+/// Esc.
+pub(crate) fn ask(
+    title: &str,
+    text: &str,
+    buttons: &[&str],
+    default: usize,
+) -> (Box<dyn Modal>, oneshot::Receiver<Option<usize>>) {
+    let (tx, rx) = oneshot::channel();
+    let modal = ChoiceBox::new(
+        title,
+        text,
+        buttons,
+        default,
+        Box::new(move |pressed| {
+            let _ = tx.send(pressed);
         }),
     );
     (Box::new(modal), rx)

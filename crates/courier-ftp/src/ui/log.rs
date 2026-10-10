@@ -7,6 +7,7 @@
 //! which are highlighted), `v` starts a range, `y` copies the cursor line or
 //! range, `w` wraps long lines (otherwise `h`/`l` scroll sideways), `e` shows
 //! only errors, `t` shows every session instead of only the current tab's.
+//! `Y` copies and `S` saves ("Save log as…") every line the filters show (T71).
 
 use std::collections::{HashSet, VecDeque};
 
@@ -63,14 +64,7 @@ pub(crate) struct LogPane {
 const PREFIX_WIDTH: usize = 10;
 
 fn prefix(kind: LogKind) -> &'static str {
-    match kind {
-        LogKind::Status => "Status:",
-        LogKind::Command => "Command:",
-        LogKind::Response => "Response:",
-        LogKind::Error => "Error:",
-        LogKind::ListingRaw => "Listing:",
-        LogKind::Debug(_) => "Trace:",
-    }
+    courier_ftp_core::logfile::kind_label(kind)
 }
 
 impl LogPane {
@@ -312,6 +306,17 @@ impl LogPane {
                     return Some(Action::CopyToClipboard(text));
                 }
             }
+            Action::CopyLog | Action::SaveLog => {
+                let text = self.all_text();
+                if text.is_empty() {
+                    return None;
+                }
+                return Some(if matches!(action, Action::CopyLog) {
+                    Action::CopyToClipboard(text)
+                } else {
+                    Action::SaveLogText(text)
+                });
+            }
             Action::ClearLog => {
                 self.lines.clear();
                 self.anchor = None;
@@ -328,6 +333,15 @@ impl LogPane {
             _ => {}
         }
         None
+    }
+
+    /// Every line the filters show, as copied or saved text (T71).
+    fn all_text(&self) -> String {
+        self.view()
+            .iter()
+            .map(|&i| self.format(&self.lines[i].msg))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// The cursor line, or the visual range, as copied text.
@@ -673,6 +687,24 @@ mod tests {
             "match highlighted"
         );
         assert!(t.backend().to_string().contains("/match"));
+    }
+
+    #[test]
+    fn copy_and_save_the_whole_filtered_log() {
+        let mut p = pane();
+        assert_eq!(p.update(&Action::CopyLog), None);
+        p.push(msg(LogKind::Status, "one"));
+        p.push(msg(LogKind::Error, "two"));
+        p.push(msg(LogKind::Status, "three"));
+        let Some(Action::CopyToClipboard(text)) = p.update(&Action::CopyLog) else {
+            panic!("nothing copied");
+        };
+        assert_eq!(text.lines().count(), 3);
+        p.update(&Action::ToggleErrorsOnly);
+        let Some(Action::SaveLogText(text)) = p.update(&Action::SaveLog) else {
+            panic!("nothing to save");
+        };
+        assert_eq!(text, "12:34:56  Error:    two");
     }
 
     #[test]

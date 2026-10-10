@@ -78,7 +78,8 @@ pub enum LogKind {
     Response,
     /// A failure.
     Error,
-    /// A raw directory listing line (shown only with `logging.show_raw_listing`).
+    /// A raw directory listing line (shown with `logging.show_raw_listing`, or
+    /// at debug level 3 and up).
     ListingRaw,
     /// Debug output of level 1 (warning) to 4 (debug); shown when the configured
     /// level is at least this.
@@ -237,7 +238,10 @@ impl LogFilter {
     fn allows(&self, kind: LogKind) -> bool {
         match kind {
             LogKind::Debug(n) => n >= 1 && n <= self.level.load(Ordering::Relaxed),
-            LogKind::ListingRaw => self.raw_listing.load(Ordering::Relaxed),
+            // Debug level 3 (verbose) and up includes raw listings too (T71).
+            LogKind::ListingRaw => {
+                self.raw_listing.load(Ordering::Relaxed) || self.level.load(Ordering::Relaxed) >= 3
+            }
             _ => true,
         }
     }
@@ -446,6 +450,12 @@ mod tests {
         tx.log(s, LogKind::ListingRaw, "raw");
         assert_eq!(log_texts(&mut rx), ["raw"]);
         assert!(!tx.enabled(LogKind::Debug(1)));
+
+        // Level 3+ shows raw listings without the setting.
+        tx.set_raw_listing(false);
+        assert!(!tx.enabled(LogKind::ListingRaw));
+        tx.set_log_level(3);
+        assert!(tx.enabled(LogKind::ListingRaw));
     }
 
     #[test]

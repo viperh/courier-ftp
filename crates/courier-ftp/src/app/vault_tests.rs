@@ -24,7 +24,8 @@ const STRONG: &str = "correct horse battery staple violin";
 const OTHER: &str = "purple elephant marmalade trombone";
 
 struct Rig {
-    app: App,
+    /// Boxed: `App` is large, and the test futures hold a `Rig`.
+    app: Box<App>,
     host_keys: Arc<HostKeyStoreSlot>,
 }
 
@@ -57,7 +58,10 @@ async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
         Arc::clone(&host_keys),
         CredentialCache::new(),
     );
-    let mut rig = Rig { app, host_keys };
+    let mut rig = Rig {
+        app: Box::new(app),
+        host_keys,
+    };
     rig.app.start_vault();
     rig.settle().await;
     rig
@@ -466,7 +470,7 @@ async fn busy_database_offers_retry() {
         CredentialCache::new(),
     );
     let mut rig = Rig {
-        app,
+        app: Box::new(app),
         host_keys: Arc::new(HostKeyStoreSlot::new(
             Arc::new(MemoryHostKeyStore::locked()),
         )),
@@ -478,4 +482,114 @@ async fn busy_database_offers_retry() {
     fail.store(false, std::sync::atomic::Ordering::SeqCst);
     rig.submit().await;
     assert_eq!(rig.page(), Some(VaultPage::Create));
+}
+
+// ------------------------------------------------------------------ T33 history
+
+impl Rig {
+    /// Run until `done` holds (30 s cap), not just until things are idle.
+    async fn until(&mut self, what: &str, done: impl Fn(&App) -> bool) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while !done(&self.app) {
+            assert!(tokio::time::Instant::now() < deadline, "timed out: {what}");
+            self.settle().await;
+        }
+    }
+
+    async fn quickconnect(&mut self, url: &str) {
+        self.app.dispatch(Action::FocusQuickconnect).unwrap();
+        for c in ['e', 'u'] {
+            self.app
+                .handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+                .unwrap();
+        }
+        self.app.screen.handle_paste(url);
+        self.key(KeyCode::Enter);
+        self.settle().await;
+    }
+
+    fn history_len(app: &App) -> Option<usize> {
+        app.screen.quickconnect().history().map(<[_]>::len)
+    }
+
+    fn connected(app: &App) -> bool {
+        app.remote.as_ref().is_some_and(|r| r.connected)
+    }
+}
+
+#[tokio::test]
+async fn quickconnect_history_is_saved_picked_and_cleared() {
+    use courier_ftp_core::{model::item::ItemKind, vault::ItemVault};
+
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    rig.create(STRONG, false).await;
+    rig.until("history loaded", |a| Rig::history_len(a) == Some(0))
+        .await;
+
+    // A successful connect is recorded, with the typed password.
+    rig.quickconnect("sftp://alice:s3cret@mock.invalid").await;
+    rig.until("history recorded", |a| Rig::history_len(a) == Some(1))
+        .await;
+    let item = rig.app.screen.quickconnect().history().unwrap()[0].clone();
+    assert_eq!(item.label, "sftp://alice@mock.invalid");
+    assert!(item.request.info.logon.password().is_some());
+    let stored = rig.engine().list(ItemKind::HistoryEntry).await.unwrap();
+    assert_eq!(stored.len(), 1);
+
+    // The dropdown lists it without the password; picking it connects.
+    rig.app.dispatch(Action::Disconnect).unwrap();
+    rig.settle().await;
+    rig.app.dispatch(Action::QuickconnectHistory).unwrap();
+    let text = rig.screen(100, 30);
+    assert!(text.contains("Connection history"), "{text}");
+    assert!(text.contains("sftp://alice@mock.invalid"), "{text}");
+    assert!(text.contains("Clear history"), "{text}");
+    assert!(!text.contains("s3cret"), "{text}");
+    rig.key(KeyCode::Enter);
+    rig.until("connected from history", Rig::connected).await;
+    assert_eq!(
+        rig.app.remote.as_ref().unwrap().info.address.host,
+        "mock.invalid"
+    );
+
+    // Locked: the history is gone from the bar.
+    rig.ctrl_x('v');
+    rig.settle().await;
+    assert_eq!(Rig::history_len(&rig.app), None);
+    rig.unlock(STRONG).await;
+    rig.until("history reloaded", |a| Rig::history_len(a) == Some(1))
+        .await;
+
+    // "Clear history" is the last entry.
+    rig.app.dispatch(Action::QuickconnectHistory).unwrap();
+    rig.key(KeyCode::Down);
+    rig.key(KeyCode::Enter);
+    rig.until("history cleared", |a| Rig::history_len(a) == Some(0))
+        .await;
+    assert!(
+        rig.engine()
+            .list(ItemKind::HistoryEntry)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn locked_vault_explains_the_missing_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    initialised(dir.path(), &keyring, false).await;
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    rig.alt('c');
+    rig.settle().await;
+    rig.app.dispatch(Action::QuickconnectHistory).unwrap();
+    let text = rig.screen(120, 40);
+    assert!(text.contains("unlock it"), "{text}");
+    // A connect while locked isn't saved anywhere.
+    rig.quickconnect("sftp://bob:pw@mock.invalid").await;
+    rig.until("connected", Rig::connected).await;
+    assert_eq!(Rig::history_len(&rig.app), None);
 }
