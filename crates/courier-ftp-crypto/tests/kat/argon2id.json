@@ -1,0 +1,23 @@
+{
+  "description": "Argon2id v0x13, 32-byte output, m=19456 t=2 p=1",
+  "vectors": [
+    {
+      "key": "0ea1f5ba1b2b52cad2dfe6bd795287273f7cc9ce6bf62c3562228f2d8cccb78a",
+      "m_kib": 19456,
+      "p": 1,
+      "params_cbor": "a563616c67686172676f6e326964656d5f6b6962194c006174026170016473616c74502fa6204bca5bda08909655563fff1989",
+      "password": "636f727265637420686f727365206261747465727920737461706c65",
+      "salt": "2fa6204bca5bda08909655563fff1989",
+      "t": 2
+    },
+    {
+      "key": "13dd416d382871b295a74ddc890612b67ae78dbfb2d24591beb13aaf59f8e74a",
+      "m_kib": 19456,
+      "p": 1,
+      "params_cbor": "a563616c67686172676f6e326964656d5f6b6962194c006174026170016473616c74501af0fcb3dfeb762c20008e272875e733",
+      "password": "",
+      "salt": "1af0fcb3dfeb762c20008e272875e733",
+      "t": 2
+    }
+  ]
+}

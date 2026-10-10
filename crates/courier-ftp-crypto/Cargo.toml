@@ -11,10 +11,51 @@ rust-version.workspace = true
 # Pure crypto: no I/O, no async runtime, no storage, no UI
 # (scripts/check-layering.py).
 [dependencies]
+# Primitives, canonical encodings, item envelopes.
+argon2 = { workspace = true, features = ["zeroize"] }
+chacha20poly1305 = { workspace = true, features = ["zeroize"] }
+getrandom = { workspace = true }
+hkdf = { workspace = true }
+rand_core = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
 thiserror = { workspace = true }
+zeroize = { workspace = true }
+zstd = { workspace = true }
+# `KdfParams` is stored as a CBOR map (`meta.kdf`, T30).
+ciborium = { workspace = true }
+serde = { workspace = true }
+# Account keys, recovery key, vault-key grants (all rand_core 0.10).
+ed25519-dalek = { workspace = true }
+hpke = { workspace = true }
+x25519-dalek = { workspace = true }
+# BIP39 recovery phrase; no `rand` feature (entropy comes from our CryptoRng).
+bip39 = { workspace = true }
+# OPAQUE cipher suite (src/opaque.rs). opaque-ke 4 is on the
+# digest 0.10 / rand_core 0.6 generation, so its SHA-512 must come from
+# sha2 0.10 (the workspace `sha2` is 0.11), under the `sha2_010` alias.
+opaque-ke = { workspace = true }
+sha2_010 = { workspace = true }
+
+[features]
+# Cheap Argon2id for test suites: `Argon2Cost::TEST` and
+# `CourierKsf::insecure_for_tests()`. Never enabled in release builds.
+insecure-test-ksf = []
 
 [dev-dependencies]
+# The integration tests use `Argon2Cost::TEST`.
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
+chacha20 = { workspace = true }
+criterion = { workspace = true }
+hex = { workspace = true }
 pretty_assertions = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+
+# Seal/open of a 1 KiB item.
+[[bench]]
+name = "envelope"
+harness = false
 
 [lints]
 workspace = true

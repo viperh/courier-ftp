@@ -87,6 +87,9 @@ opaque-ke = { version = "4.0.1", features = ["argon2"] }
 rand_core = "0.10.1"
 secrecy = { version = "0.10.3", features = ["serde"] }
 sha2 = "0.11.0"
+# opaque-ke 4 is on the digest 0.10 generation: its SHA-512 must come from sha2
+# 0.10 (courier-ftp-crypto `opaque`, T80).
+sha2_010 = { package = "sha2", version = "0.10.9", default-features = false }
 subtle = "2.6.1"
 x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1.9.1", features = ["derive"] }
@@ -167,6 +170,9 @@ cargo_metadata = "0.23.1"
 testcontainers = { version = "0.28.0", default-features = false }
 toml = "1.1.8"
 criterion = "0.8.2"
+# Deterministic RNG and hex for the crypto known-answer tests (T80).
+chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
+hex = "0.4.3"
 insta = "1.49.0"
 pretty_assertions = "1.4.1"
 proptest = "1.11.0"
