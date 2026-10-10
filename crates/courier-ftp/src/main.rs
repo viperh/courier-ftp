@@ -25,6 +25,7 @@ mod keymap;
 mod logging;
 mod paths;
 mod runtime;
+mod services;
 #[cfg(test)]
 mod snapshot_tests;
 mod tabs;
@@ -47,6 +48,8 @@ fn main() -> color_eyre::Result<()> {
 
 async fn async_main() -> color_eyre::Result<()> {
     crate::errors::init()?;
+    // First thing after the panic hook, before anything secret exists (T30, T91).
+    let hardening = courier_ftp_core::hardening::harden_process();
 
     // Resolved before argument parsing: `--version` prints the directories. On
     // failure the user gets the one-line reason and exit code 1, before any
@@ -64,6 +67,12 @@ async fn async_main() -> color_eyre::Result<()> {
 
     paths.ensure_dirs()?;
     crate::logging::init(&paths)?;
+    tracing::debug!(
+        core_dumps_disabled = hardening.core_dumps_disabled,
+        non_dumpable = hardening.non_dumpable,
+        failures = ?hardening.failures,
+        "process hardening"
+    );
     let config = Config::new(&paths)?;
     let mut app = App::new(
         config,

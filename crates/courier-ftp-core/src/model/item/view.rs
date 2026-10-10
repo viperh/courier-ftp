@@ -160,6 +160,11 @@ impl PartialEq for SecretField {
 
 impl Eq for SecretField {}
 
+/// CBOR tag that replaces stored secret values in the vault cache's bodies (T30), so
+/// views read from the cache see [`SecretField::Kept`]. Never written to disk: writes
+/// always start from the decrypted stored body.
+pub(crate) const KEPT_SECRET_TAG: u64 = 0x6b65_7074; // "kept"
+
 /// A typed view of one item kind.
 pub trait ItemView: Sized {
     /// The kind of item this view reads.
@@ -239,8 +244,12 @@ impl<'a> FieldReader<'a> {
         self.opt_text(key)?.ok_or(ViewError::Missing(key))
     }
 
-    /// A secret text field: `Value` when stored, `Absent` otherwise.
+    /// A secret text field: `Value` when stored, `Absent` otherwise, `Kept` in a body
+    /// from the T30 cache (secret values replaced by a crate-private CBOR tag).
     pub fn secret(&self, key: &str) -> Result<SecretField, ViewError> {
+        if matches!(self.value(key), Some(Value::Tag(tag, _)) if *tag == KEPT_SECRET_TAG) {
+            return Ok(SecretField::Kept);
+        }
         let s = self.map(key, "text", |v| v.as_text().map(SecretString::from))?;
         Ok(SecretField::from_option(s))
     }

@@ -1,0 +1,15 @@
+{
+  "format": "courier-ftp-backup",
+  "version": 1,
+  "kdf": {
+    "alg": "argon2id",
+    "m_kib": 19456,
+    "t": 1,
+    "p": 1,
+    "salt_b64": "EREREREREREREREREREREQ=="
+  },
+  "nonce_b64": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi",
+  "ciphertext_b64": "WQuP7knaVFULNNLLR+QwttjupO5cNMKwO8w/SHFdFfGDZIy2YYPFSMJW6h2UBRDKjpQJ/PnSkgHsjsLc4rE0q/ujFpvBAtkMkbEHTSiN4jgD94sIF9xfFeHtO7pXn9SUWELabb5AOOo80sGGYKRuk07X9pbnjR2g3/E1DNmSVHlHUJtu5AufSFl7+4AGadAe0dYggE8yHpQFRU2qAJkPNysAnrJ+CREllwHDxFxzMXsRU41A4w==",
+  "created_at": "2026-10-09T12:00:00Z",
+  "app_version": "0.1.0"
+}

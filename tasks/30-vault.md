@@ -556,50 +556,50 @@ else → `Error::Vault(err.to_string())`.
 
 ## Acceptance criteria
 
-- [ ] AC1 `initialize` → put 3 sites, 2 known hosts, 1 bookmark → `lock` → `unlock` returns
+- [x] AC1 `initialize` → put 3 sites, 2 known hosts, 1 bookmark → `lock` → `unlock` returns
   byte-identical `ItemBody`s (secrets included via `get`).
-- [ ] AC2 With `MemKeyring`: keyring unlock succeeds silently; with the keyring set unavailable
+- [x] AC2 With `MemKeyring`: keyring unlock succeeds silently; with the keyring set unavailable
   or the entry removed it returns `Keyring(_)` and password unlock still works; after keyring
   unlock `change_password(None, new)` succeeds and the new password unlocks, the old one fails.
-- [ ] AC3 A wrong password changes only `meta.unlock_failures` and `meta.unlock_next_allowed_at`
+- [x] AC3 A wrong password changes only `meta.unlock_failures` and `meta.unlock_next_allowed_at`
   (SHA-256 of every other meta value, vault row and item row unchanged).
-- [ ] AC4 Backoff: with a `ManualClock`, failures 1–4 have no delay; failure 5 → 1 s, 6 → 2 s,
+- [x] AC4 Backoff: with a `ManualClock`, failures 1–4 have no delay; failure 5 → 1 s, 6 → 2 s,
   7 → 4 s, 8 → 8 s, 9 → 16 s, 10 and 20 → 30 s; an attempt during backoff returns `Backoff` and
   `kdf_runs()` does not increase; two engines on the same file share the counter (failures from
   both add up).
-- [ ] AC5 `AutoLock(15)` is due exactly after 15 min without input and not due 14 min 59 s
+- [x] AC5 `AutoLock(15)` is due exactly after 15 min without input and not due 14 min 59 s
   after the last `on_input`; `SuspendDetector` returns true for a 60 s wall jump with 1 s
   monotonic, and for a 31 s monotonic gap, false for a backwards wall jump.
-- [ ] AC6 After `lock().await`, `live_keys() == 0`, `list` returns `Locked`, and the host-key
+- [x] AC6 After `lock().await`, `live_keys() == 0`, `list` returns `Locked`, and the host-key
   store reports `can_persist() == false`.
-- [ ] AC7 `meta.kdf` with `m_kib = 1024`, `m_kib = 8 GiB`, `t = 0`, `t = 65`, `p = 17` or
+- [x] AC7 `meta.kdf` with `m_kib = 1024`, `m_kib = 8 GiB`, `t = 0`, `t = 65`, `p = 17` or
   `alg = "scrypt"` makes `unlock` return `Corrupt` with `kdf_runs() == 0`.
-- [ ] AC8 `initialize("password123")` returns `WeakPassword` with non-empty zxcvbn feedback;
+- [x] AC8 `initialize("password123")` returns `WeakPassword` with non-empty zxcvbn feedback;
   `"correct horse battery staple violin"` is accepted.
-- [ ] AC9 Canary test: after a full unlock/put/get/lock cycle with `COURIER_FTP_LOG_LEVEL=trace`,
+- [x] AC9 Canary test: after a full unlock/put/get/lock cycle with `COURIER_FTP_LOG_LEVEL=trace`,
   the canary password appears in no log line, no `Debug` output of engine types, and not in the
   `.db`/`-wal`/`-shm` files (T91 `canary-scan.sh`).
-- [ ] AC10 Flipping one byte of `lmk_wrapped_pw`, of a `vaults.wrapped_key` or of an item
+- [x] AC10 Flipping one byte of `lmk_wrapped_pw`, of a `vaults.wrapped_key` or of an item
   envelope gives respectively `WrongPassword`, a skipped vault with a `warn`, and an unreadable
   item counted in `status().unreadable_items`, never a panic.
-- [ ] AC11 With `vault.store_passwords = false`, putting a site with a password stores no
+- [x] AC11 With `vault.store_passwords = false`, putting a site with a password stores no
   `password` field (decrypted body has none) and `history-entry` items are written with
   `dirty = 0` when `sync.history = false`.
-- [ ] AC12 Two engines on one file: an item put by engine A appears in engine B's `list` within
+- [x] AC12 Two engines on one file: an item put by engine A appears in engine B's `list` within
   3 s (change poller), and both can write 100 items concurrently without errors.
 - [ ] AC13 Backup: `encrypt` → `decrypt` round-trips a payload; a wrong password → `Decrypt`;
   a header with `m_kib = 4 GiB + 1` → `Kdf` without running Argon2; a payload decompressing to
   > 1 GiB → `Corrupt`; the `backup_decrypt` fuzz target runs 30 s clean.
-- [ ] AC14 Linux: after `harden_process()`, `is_dumpable() == Some(false)` and
+- [x] AC14 Linux: after `harden_process()`, `is_dumpable() == Some(false)` and
   `core_dump_limit() == Some(0)`; `check-unsafe.py` passes with `unsafe` only in
   `hardening/{unix,windows}.rs`.
-- [ ] AC15 Unlock of a vault with 10 000 items (excluding Argon2) finishes in < 500 ms in the
+- [x] AC15 Unlock of a vault with 10 000 items (excluding Argon2) finishes in < 500 ms in the
   release-mode bench `vault_unlock_10k` (gated in `bench-gates.toml`).
 - [ ] AC16 CI gates `fmt`, `clippy`, `docs`, `test-local-only`, `test-os`, `unsafe-check`,
   `canary`, `fuzz` pass.
-- [ ] AC17 `Argon2Cost::TEST` and all presets pass T80's `Argon2Params::validate`; a vault
+- [x] AC17 `Argon2Cost::TEST` and all presets pass T80's `Argon2Params::validate`; a vault
   initialised with `TEST` unlocks again (load-time bound check passes).
-- [ ] AC18 `keyring_from_env`: `off` → `NoKeyring`; `file:<dir>` → `FileKeyring` with the
+- [x] AC18 `keyring_from_env`: `off` → `NoKeyring`; `file:<dir>` → `FileKeyring` with the
   `test-hooks` feature (keyring unlock works across two engine instances) and `NoKeyring`
   without it.
 
@@ -671,3 +671,78 @@ Not applicable (screens are T60).
    decide whether turning the setting off should offer deletion immediately.
 2. Resolved: T12 implements `VaultCertTrustStore` itself on this API and T81's
    `TrustedCertItem`.
+
+## Implementation notes
+
+- **Layout.** `vault/{mod,engine,items,cache,kdf,unlock,lock,password,keyring,policy,trust,blobs,backup}.rs`
+  (`items.rs` is extra: the item operations, device-local helpers and the change poller;
+  `engine.rs` holds the state machine, unlock/lock, password and keyring flows and
+  `VaultCrypto`). `hardening/{mod,unix,windows}.rs` replace the old `hardening.rs` stub
+  (ported from sverb; `Debug` of `Locked` is `Locked([REDACTED])`). `harden_process()` runs
+  right after `errors::init()` in `main`; its report is logged at `debug` once logging is up.
+- **State.** `state()` is I/O-free, so a fresh database reads `Locked` until `status()` (or
+  an unlock attempt returning `NotInitialized`) has seen that `meta.kdf` is missing; then it
+  reads `Uninitialised`. `unlock` on an already unlocked vault checks the password (backoff
+  applies) and returns the current report. `initialize` also takes the unlock mutex
+  (`UnlockInProgress` while an unlock runs). Extra report types: `InitReport
+  { keyring_error }`, `UnlockReport { method, items, unreadable_items, unknown_kind_items,
+  skipped_vaults }`; `VaultOptions::from_settings(&Settings)`.
+- **Cache and `Kept`.** Cached bodies replace every non-null secret value by a CBOR tag
+  (`model::item::view::KEPT_SECRET_TAG`, crate-private); `FieldReader::secret` reads it as
+  `SecretField::Kept`, so `list` views never hold secret values and saving such a view keeps
+  the stored secret. The tag never reaches disk: every write starts from the decrypted row.
+- **Writes.** One internal path (`items::apply_writes`) serves `put`, `put_many`, `delete`,
+  `delete_many`, `restore` and the host-key store: one IMMEDIATE transaction, `hlc_last`
+  observed first and written last, `ReadOnlyVault` / `ReadOnlyItem` / `CrossVaultReference`
+  / `ItemTooLarge` (> 1 MiB, checked in `seal`) roll the whole batch back. A `put` of an
+  item that exists in another vault → `CrossVaultReference("the item belongs to another
+  vault")` (moves are T89's `transfer`). `get::<V>` of an item of another kind →
+  `NotFound`. `delete_many` skips missing/already deleted ids; `delete`/`restore` of a
+  missing id → `NotFound`.
+- **Approvals on put.** Not recorded at write time: T31 (step 2) and T91 treat values whose
+  stamp's device is this device as pre-approved, which covers "values typed here are
+  pre-approved" without a list of fields here. `approve`/`is_approved` store and check
+  `local_approvals` (cached; deletes drop the item's approvals).
+- **Permissions.** `vault_permission`: personal → `Manage`; a shared vault reads
+  `meta.vault_permission/<uuid>` at unlock (default `Write`); a vault without a loaded key →
+  `Read`. `put`/`delete` refuse `Read` vaults (`ReadOnlyVault`).
+- **Not added here (T87/T88/T89 add them with the listed signatures):** `sync_handles`,
+  `lmk_rewrap_rows`, `reload`, `apply_remote`, `transfer`. Added because the engine needs
+  them anyway: `reload_items` (used by the poller), `local_changes`, `vault_permission`,
+  `crypto()` / `VaultCrypto`. Extra public helpers: `item_ids(kind)` (live ids from the
+  cache), `wait_background()` (`#[doc(hidden)]`, waits for the cost-upgrade task),
+  `MAX_BODY_LEN`, `MAX_BATCH`, `blob_names::{TRANSFER_QUEUE, TABS}`, `VaultKind` and
+  `ItemRow` re-exported from the store.
+- **`DeviceBlobStore`** (T40's trait) is defined in `vault::blobs` and re-exported as
+  `courier_ftp_core::vault::DeviceBlobStore`; T40's `queue::persist` should re-export it
+  rather than define a second trait.
+- **Cost upgrade** runs in a spawned task after a password unlock; it re-checks in its
+  transaction that `meta.kdf` is still the one it unlocked with (a password change in
+  between wins).
+- **Lock** aborts the poller, waits up to 5 s for the operation gate (every async
+  operation holds a read guard), swaps in a fresh `MemoryHostKeyStore`, then drops the
+  session; `VaultHostKeyStore` holds the engine weakly (no reference cycle through the
+  switchable store).
+- **Backup container.** `MAX_FILE` (2 GiB) is checked on the text length; the payload size
+  is counted by streaming into a 64 KiB scratch buffer before the real decompression (no
+  1 GiB allocation for a bomb; `bomb_rejected` builds a 32 KiB RLE frame of 1 GiB + 1
+  bytes). `encrypt_with` checks the export password (zxcvbn ≥ 3); `#[doc(hidden)]
+  encrypt_raw` (fixed salt/nonce, no check) serves the KAT and the committed fixture
+  `tests/fixtures/backups/sample.cftp-backup` (also the fuzz seed). `BackupItem.body`
+  round-trips through `ciborium::Value` (`ItemBody` has no `Deserialize`, T81).
+- **Binary.** `services/keyring.rs`: `OsKeyring`, `keyring_from_env()` and the testable
+  `keyring_from_value(Option<&str>)`; `FileKeyring` files are `0600`. Nothing in the binary
+  builds a `VaultEngine` yet (T60), so the module carries `allow(dead_code)`.
+- **e2e.** `TestHome::{with_vault, vault, trust_host_key, list, vault_db}` exist now
+  (`add_site`, `add_bookmark`, `trust_cert` wait for T31/T33/T12).
+- **Tests beyond the list:** `t15_delete_restore_device_local_and_approvals`,
+  `t16_put_many_merge_and_too_large`; `vault_props` unlocks with the memory keyring so its
+  200 cases run no Argon2.
+- **Acceptance status.** AC9: the in-repo canary test passes (TRACE logs, `Debug` output,
+  `.db`/`-wal`/`-shm`); T91's `canary-scan.sh` CI job is not run here. AC13: everything
+  but the 30 s `cargo fuzz` run (no nightly toolchain here; `fuzz_body_never_panics` runs
+  the body on 10 000 inputs and `cargo check` of the target is left to CI) — unticked.
+  AC14: Linux tests pass; the Windows file could not be clippy-checked locally (no
+  MinGW C compiler for the `-gnu` target's C dependencies) — it is sverb's file with
+  only comments changed. AC15: `vault/vault_unlock_10k` measured 113 ms (release,
+  `--quick`), gate added to `scripts/bench-gates.toml`. AC16 (CI) unticked until CI runs.

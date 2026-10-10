@@ -37,6 +37,8 @@ directories = { workspace = true }
 futures = { workspace = true }
 human-panic = { workspace = true }
 json5 = { workspace = true }
+# Optional per-device vault unlock (T30, D3).
+keyring = { workspace = true }
 libc = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
@@ -63,6 +65,8 @@ anyhow = { workspace = true }
 vergen-gix = { workspace = true }
 
 [dev-dependencies]
+# Vault engines over a real store in the keyring tests (T30).
+courier-ftp-store = { workspace = true }
 # `MockServer` for the message log integration test (T55).
 courier-ftp-core = { workspace = true, features = ["test-util"] }
 criterion = { workspace = true }

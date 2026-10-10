@@ -132,6 +132,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "backup_decrypt"
+path = "fuzz_targets/backup_decrypt.rs"
+test = false
+doc = false
+bench = false
+
 # [[bin]]
 # name = "url_parse"
 # path = "fuzz_targets/url_parse.rs"
