@@ -226,6 +226,22 @@ impl Ftpd {
             return Ok(());
         }
         docker::wait_banner(&self.fixture, self.addr(), |b| b.starts_with("220")).await?;
+        if self.profile == FtpdProfile::VsftpdMaxConn1 {
+            // The probe's session process holds the only slot until vsftpd reaps it.
+            crate::poll_until(
+                "vsftpd-maxconn1 to free the probe's slot",
+                crate::timeout(),
+                Duration::from_millis(50),
+                || async {
+                    self.exec_root("test \"$(pgrep -c -x vsftpd)\" -le 1")
+                        .await
+                        .ok()
+                        .filter(ExecOutput::success)
+                        .map(|_| ())
+                },
+            )
+            .await?;
+        }
         Ok(())
     }
 

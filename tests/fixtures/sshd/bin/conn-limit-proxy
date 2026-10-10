@@ -27,24 +27,37 @@ async def pipe(reader, writer):
             pass
 
 
-async def handle(reader, writer, target):
+ACTIVE_FILE = "/run/conn-limit-proxy.active"
+
+
+def set_active(n):
+    """Track the open connection count; tests wait for 0 before connecting."""
     global active
+    active = n
+    try:
+        with open(ACTIVE_FILE, "w") as f:
+            f.write(f"{n}\n")
+    except OSError:
+        pass
+
+
+async def handle(reader, writer, target):
     if active >= 1:
         print("conn-limit-proxy: refusing a second connection", file=sys.stderr, flush=True)
         writer.close()
         return
-    active += 1
+    set_active(active + 1)
     try:
         up_reader, up_writer = await asyncio.open_connection(*target)
     except OSError as err:
         print(f"conn-limit-proxy: upstream: {err}", file=sys.stderr, flush=True)
         writer.close()
-        active -= 1
+        set_active(active - 1)
         return
     try:
         await asyncio.gather(pipe(reader, up_writer), pipe(up_reader, writer))
     finally:
-        active -= 1
+        set_active(active - 1)
 
 
 async def main():

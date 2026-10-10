@@ -130,6 +130,22 @@ impl Sshd {
 
     async fn wait_ready(&self) -> Result<()> {
         docker::wait_banner(&self.fixture, self.addr(), |b| b.starts_with("SSH-2.0-")).await?;
+        if self.profile == SshdProfile::MaxConn1 {
+            // The probe holds conn-limit-proxy's only slot until both sides close.
+            crate::poll_until(
+                "sshd maxconn1 to free the probe's slot",
+                crate::timeout(),
+                Duration::from_millis(50),
+                || async {
+                    self.exec_root("test \"$(cat /run/conn-limit-proxy.active)\" = 0")
+                        .await
+                        .ok()
+                        .filter(ExecOutput::success)
+                        .map(|_| ())
+                },
+            )
+            .await?;
+        }
         Ok(())
     }
 

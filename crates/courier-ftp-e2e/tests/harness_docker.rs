@@ -41,7 +41,7 @@ async fn sftp_ls_inside(sshd: &Sshd) -> Option<String> {
         }
         _ => format!(
             "echo 'ls fixtures' | sshpass -p {PASSWORD} sftp {opts} \
-             -o PubkeyAuthentication=no -b - {USER}@127.0.0.1"
+             -o BatchMode=no -o PubkeyAuthentication=no -b - {USER}@127.0.0.1"
         ),
     };
     let out = sshd.exec_root(&cmd).await.unwrap();
