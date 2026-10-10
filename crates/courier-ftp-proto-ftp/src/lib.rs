@@ -7,4 +7,21 @@
 //!
 //! Layering: depends only on `courier-ftp-core`; never on a UI crate.
 
-pub mod listing;
+pub mod command; // T10
+pub mod control; // T10
+pub mod encoding; // T10
+pub mod features; // T10
+pub mod listing; // T13
+pub mod login; // T10
+pub mod reply; // T10
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing; // T10 (`FakeServer`), T11/T12 add steps
+
+pub use command::{Command, CommandArg};
+pub use control::{
+    BoxedIo, ControlConnection, ControlIo, ControlParams, ControlState, StreamUpgrade,
+};
+pub use encoding::{LineDecoder, SessionEncoding};
+pub use features::{Features, MlstFact, parse_feat};
+pub use login::{LoginPromptInfo, LoginScript, LoginStep, LoginTarget, StepKind, StepValue};
+pub use reply::{Reply, ReplyClass, ReplyCode, ReplyError, ReplyParser, parse_pwd};

@@ -538,37 +538,37 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
 
 ## Acceptance criteria
 
-- [ ] AC1 Multi-line replies parse correctly for: the RFC 959 example (continuation line
+- [x] AC1 Multi-line replies parse correctly for: the RFC 959 example (continuation line
   starting with a different code + space), ProFTPD style (`NNN-` on every line), indented
   continuation lines, a bare `NNN` terminator, and LF-only line endings.
-- [ ] AC2 Parsing result is identical for every possible split of the input into two and
+- [x] AC2 Parsing result is identical for every possible split of the input into two and
   three chunks (property test, ≥ 1 000 cases).
 - [ ] AC3 Oversized line (> 64 KiB), > 10 000 lines, > 4 MiB, and a first line without a
   code each yield `Error::Protocol` and mark the connection `Broken`; the parser never
   panics (fuzz target runs 30 s in CI without findings).
-- [ ] AC4 Login works for: normal (331→230), anonymous, `230` straight after `USER`, `332`
+- [x] AC4 Login works for: normal (331→230), anonymous, `230` straight after `USER`, `332`
   account required after `PASS`, ask-for-password (prompt only after 331; no prompt when
   `USER` gets 230), and cancelled prompt → `Error::Cancelled`.
-- [ ] AC5 530 → `Error::Auth`; "421 Too many connections" at greeting and "530 too many
+- [x] AC5 530 → `Error::Auth`; "421 Too many connections" at greeting and "530 too many
   connections" → `Error::ConnectionLimit`; any other 421 at greeting and 421 after login →
   `Error::Connection`.
-- [ ] AC6 `FEAT` parsed into `Features` (MLST facts with `*`, `REST STREAM`, `AUTH TLS;SSL`,
+- [x] AC6 `FEAT` parsed into `Features` (MLST facts with `*`, `REST STREAM`, `AUTH TLS;SSL`,
   `UTF8`, `HASH`); `500` reply to FEAT leaves all flags false and login still succeeds.
-- [ ] AC7 Charset: `OPTS UTF8 ON` sent only for Auto/Utf8 with `UTF8` advertised; Auto
+- [x] AC7 Charset: `OPTS UTF8 ON` sent only for Auto/Utf8 with `UTF8` advertised; Auto
   switches to windows-1252 on the first invalid UTF-8 line; custom charset with an
   unmappable character → `Error::InvalidInput` and nothing written.
-- [ ] AC8 CR, LF and NUL in any argument (including user and password) are rejected before
+- [x] AC8 CR, LF and NUL in any argument (including user and password) are rejected before
   writing; 0xFF bytes are doubled on the wire.
-- [ ] AC9 Message log shows `PASS ****` and `ACCT ****`; a canary password never appears in
+- [x] AC9 Message log shows `PASS ****` and `ACCT ****`; a canary password never appears in
   `LogMessage`s, `Debug` output or `tracing` output (test captures all three).
-- [ ] AC10 Inactivity timeout: server that stops sending for 20 s (paused time) →
+- [x] AC10 Inactivity timeout: server that stops sending for 20 s (paused time) →
   `Error::Timeout`; a server trickling one byte every 15 s does **not** time out.
-- [ ] AC11 Cancellation during a reply wait returns `Error::Cancelled` within 100 ms and the
+- [x] AC11 Cancellation during a reply wait returns `Error::Cancelled` within 100 ms and the
   next command returns `Error::Connection`.
-- [ ] AC12 `PWD` parsing: `257 "/a ""b"" c" created` → `/a "b" c`; unquoted fallback works.
-- [ ] AC13 `raw_command` refuses every verb in the list without sending; `SITE HELP` is sent
+- [x] AC12 `PWD` parsing: `257 "/a ""b"" c" created` → `/a "b" c`; unquoted fallback works.
+- [x] AC13 `raw_command` refuses every verb in the list without sending; `SITE HELP` is sent
   verbatim and returns all reply lines.
-- [ ] AC14 Keep-alive: `noop` sends `NOOP`; `random` sends only `NOOP`, `PWD` or `TYPE`
+- [x] AC14 Keep-alive: `noop` sends `NOOP`; `random` sends only `NOOP`, `PWD` or `TYPE`
   (restoring the current type), all three seen over 100 seeded calls; nothing is sent
   while a transfer is open.
 - [ ] AC15 Docker e2e: login + negotiate succeed against the T76 profiles `vsftpd-plain`,
@@ -658,3 +658,60 @@ in the log (FileZilla wording): `Resolving address of {host}`, `Connecting to {a
   `random`? (Setting owner: T05.)
 - Resolved: warnings are `Status` lines prefixed `Warning: ` (T04 has no `LogKind::Warning`);
   "too many connections" maps to `Error::ConnectionLimit` (T02).
+
+## Implementation notes
+
+- **Layout:** `crates/courier-ftp-proto-ftp/src/{reply,command,encoding,features,control,login,testing}.rs`;
+  tests in `reply/tests.rs` (parser, PWD, property tests), `control/tests.rs` (every
+  `FakeServer` integration test of the list, paused time) and inline `#[cfg(test)]` modules
+  (`command`, `encoding`, `features` with the `insta` debug snapshots in `src/snapshots/`).
+  E2e: `crates/courier-ftp-e2e/tests/ftp_control.rs`. Fuzz: `fuzz/fuzz_targets/ftp_reply.rs`
+  (+ `[[bin]]`, seeds in `fuzz/seed-corpus.sh` now carry the selector byte).
+- **New runtime deps** (all workspace, already in `Cargo.lock`): `async-trait`, `fastrand`
+  (seedable keep-alive RNG), `tokio`, `tokio-util`, `tracing`, `zeroize`; dev:
+  `tokio` (`test-util`), `tracing-subscriber`. Feature `test-util` exposes `testing`.
+- **Public API additions beyond the spec (for T11–T15):**
+  - `ReplyCode::new/get/class`, `Reply::new/code/first_line_text`, `Display` for both;
+    `reply::parse_pwd(&Reply)` (the PWD/MKD `257` parser), limits `MAX_LINE_BYTES`,
+    `MAX_REPLY_LINES`, `MAX_REPLY_BYTES`; `ReplyParser::take_notes()` (charset switch /
+    invalid UTF-8 notes, logged by the connection).
+  - `Command::line(String)` (verbatim custom command), `Command::secret_line(SecretString,
+    log_text)` (T15 `StepValue::Line`), `Command::with_log_text`, `Command::verb()`.
+  - `SessionEncoding::{charset, decode_line_noted, confirm_utf8, is_switched, wants_utf8,
+    line_decoder, text_decoder}`; `LineDecoder::new(Charset)` / `decode` /
+    `text_decoder()` (T13 `TextDecoder` for listings, matching the session state). The
+    `Auto` switch is one shared flag: the parser's `LineDecoder` and the session's
+    `SessionEncoding` (and T14's listing decoding via `decode_line`) always agree.
+  - `ControlConnection::{server_name, session_log, take_cwd_invalidated,
+    take_prompted_password, take_prompted_account, seed_keepalive_rng (doc-hidden)}`,
+    `control::REFUSED_RAW_VERBS`, `login::ANONYMOUS_PASSWORD`, `LoginStep::new(kind, value,
+    target)` (generates the masked `log_text`).
+  - `testing::Step::ExpectRaw(Vec<u8>)` (raw bytes of the next client line, for charset
+    and IAC checks) and `testing::Transcript { received, sent }`.
+- **Deviations:**
+  - `LoginScript` has a second field `prompt: Option<LoginPromptInfo>` (`for_logon`
+    stores its `prompt` argument there; T15 scripts without prompts pass `None`, and an
+    `Ask*` step without it is `Error::Internal`).
+  - `send` maps a `421` reply to `Error::Connection(text)` (and marks the connection
+    `Broken`) instead of returning it: "421 after login → `Connection`" and keep-alive
+    need it, and 421 always closes the control connection. The login state machine and
+    the greeting read the raw reply internally and apply the `ConnectionLimit` rule.
+  - `send` while a transfer is open returns `Error::Internal` (T11 writes `ABOR` with
+    `write_command`).
+  - `negotiate` sends SYST, FEAT, `OPTS UTF8 ON`, `OPTS MLST` but not `PWD` (T14 calls
+    `pwd()`; the spec's API doc for `negotiate` lists only those four).
+  - A dropped command future (state `Busy` left behind) makes the next call fail with
+    `Connection("connection lost")` and marks the connection `Broken` (reply state
+    unknown), like cancellation.
+  - `connect` logs `Waiting for welcome message...` (T07 already logged `Connection
+    established`); `from_stream` logs the full FileZilla line.
+  - `DEL` (0x7F) is also replaced with U+FFFD in reply text (C0/C1 per spec).
+  - `Features::raw` holds only the unknown feature lines (trimmed).
+- Docker is not available here: the five e2e tests compile and skip (`require_docker!`);
+  CI's e2e job runs them. Nightly `cargo fuzz` was not run (the property tests run the
+  same body: 256 random 0–128 KiB inputs + 256 reply-shaped inputs, and the chunking
+  invariance property 1 000 cases).
+- **Unticked ACs:** AC3 (parser limits are tested and pass; only the 30 s nightly
+  `cargo fuzz` run is outstanding — CI's `fuzz` job runs it), AC15 (Docker e2e, CI's e2e
+  job), AC16 (all local gates pass: fmt, clippy, tests, docs, layering, unsafe check,
+  `cargo vet`, `cargo deny`; the `fuzz` and OS-matrix jobs run in CI).

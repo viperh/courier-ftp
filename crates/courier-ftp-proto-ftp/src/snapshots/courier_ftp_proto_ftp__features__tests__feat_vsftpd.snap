@@ -1,0 +1,31 @@
+---
+source: crates/courier-ftp-proto-ftp/src/features.rs
+expression: v
+---
+Features {
+    feat_supported: true,
+    mlst: None,
+    mlsd: false,
+    size: true,
+    mdtm: true,
+    mfmt: false,
+    mff: false,
+    rest_stream: true,
+    utf8: true,
+    epsv: true,
+    eprt: true,
+    tvfs: true,
+    clnt: false,
+    mode_z: false,
+    host: false,
+    auth: [],
+    pbsz: false,
+    prot: false,
+    ccc: false,
+    hash: None,
+    site: [],
+    lang: None,
+    raw: [
+        "PASV",
+    ],
+}
