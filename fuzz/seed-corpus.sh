@@ -78,6 +78,7 @@ seed_bytes ftp_reply feat '\x5a211-Features:\r\n AUTH TLS;SSL\r\n REST STREAM\r\
 seed_bytes ftp_pasv pasv '227 Entering Passive Mode (192,168,1,2,195,80)\r\n'
 seed_bytes ftp_pasv pasv-bare '227 =192,168,1,2,4,1\r\n'
 seed_bytes ftp_pasv epsv '229 Entering Extended Passive Mode (|||50000|)\r\n'
+seed_bytes ftp_pasv eprt '|2|2001:db8::7|50069|'
 
 # HTTP CONNECT answers.
 seed_bytes http_connect_response ok 'HTTP/1.1 200 Connection established\r\n\r\n220 FTP ready\r\n'

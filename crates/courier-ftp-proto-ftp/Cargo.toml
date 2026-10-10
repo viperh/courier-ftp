@@ -25,6 +25,7 @@ fastrand = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 zeroize = { workspace = true }
