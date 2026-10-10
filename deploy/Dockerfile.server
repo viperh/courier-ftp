@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+#
+#   docker build -f deploy/Dockerfile.server -t courier-ftp-server .
+#
+# Stage 1 builds a fully static musl binary (rustls + ring, no OpenSSL).
+# Stage 2 is distroless/static running as the unprivileged `nonroot` user
+# (uid 65532). Distroless has no shell or curl, so the HEALTHCHECK uses the
+# binary's own `healthcheck` subcommand.
+# The build context is the repository root; deploy/Dockerfile.server.dockerignore
+# keeps target/ and VCS data out of it.
+
+FROM rust:1-alpine AS build
+RUN apk add --no-cache musl-dev build-base
+WORKDIR /src
+COPY . .
+# The target follows the build platform (x86_64 or aarch64), so
+# `docker buildx build --platform linux/arm64` builds an arm64 binary. The release
+# images are built from the release binaries instead (Dockerfile.server.release).
+ENV RUSTFLAGS="-C target-feature=+crt-static"
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    target="$(uname -m)-unknown-linux-musl" \
+ && rustup target add "$target" \
+ && cargo build --locked --release -p courier-ftp-server --target "$target" \
+ && install -D -m 0755 "target/$target/release/courier-ftp-server" /out/courier-ftp-server
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/courier-ftp-server /usr/local/bin/courier-ftp-server
+USER nonroot:nonroot
+ENV COURIER_BIND=0.0.0.0:8080 \
+    COURIER_LOG_FORMAT=json
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=6s --start-period=20s --retries=3 \
+    CMD ["/usr/local/bin/courier-ftp-server", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/courier-ftp-server"]
+CMD ["serve"]

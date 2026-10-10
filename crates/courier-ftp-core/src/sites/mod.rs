@@ -50,16 +50,36 @@
 //!   passphrase already filled in) plus the default directories and modes
 //!   to apply. After the session is up, [`SiteManager::record_connected`].
 //!
-//! **Bookmarks and history (T33)**: site bookmarks reference
-//! [`Site::id`]; "convert quickconnect entry to site" builds a [`Site`]
-//! (`Site::new` + logon) and calls `save_site` with `parent = None`;
-//! "recent servers" reads `last_connected_at` ([`SiteLocalStore`]); when a
-//! site is deleted its device-local row is removed.
+//! **Bookmarks and history (T33)**
+//! - [`Bookmarks::load`]`(vault, local)`: global bookmarks
+//!   ([`Bookmarks::global`]) and site bookmarks ([`Bookmarks::for_site`]),
+//!   with `add`/`rename`/`edit`/`delete`/`reorder`. Applying one:
+//!   [`Bookmark::target`] (directories to open, synchronized browsing for
+//!   T66). A bookmark's local directory has a device-local override, like a
+//!   site's default local directory. Deleting a site deletes its bookmarks.
+//! - [`History::new`]`(vault, local)`: the quickconnect history
+//!   ([`History::list`], [`History::record`] after a successful quickconnect,
+//!   [`History::clear`]); [`HistoryEntry::to_connect_info`] to connect again.
+//!   Locked vault: every call fails with `VaultError::Locked`.
+//! - Recent servers: [`load_recent_servers`] (sites and quickconnect entries
+//!   by device-local `last_connected_at`; item 0 is "reconnect to last
+//!   server"). Deleting a site removes its device-local row, so it drops out.
+//! - "Convert quickconnect entry to site": [`SiteManager::add_from_history`]
+//!   (or [`HistoryEntry::to_site`] to prefill an editor).
 //!
-//! **Import/export (T32)**: build [`Folder`]/[`Site`] values, pick free names
-//! with [`SiteTree::unique_name`], create folders with `add_folder` and sites
-//! with `save_site`. Export walks [`SiteTree::walk`] / [`SiteTree::path_of`];
-//! the full site, passwords and local paths included, is in [`Site`].
+//! **Import/export (T32)** — [`import`] and [`export`]:
+//! - FileZilla: suggest [`import::filezilla_locations`], parse with
+//!   [`import::parse_filezilla`], write with [`import::apply`]`(&mut sites,
+//!   tree, None, Some(&import::filezilla_folder_name(today)))`; show
+//!   [`import::ImportReport::summary`] and its `skipped` list. Reload
+//!   [`Bookmarks`] afterwards.
+//! - courier-ftp files: [`import::is_encrypted_export`] (ask for the
+//!   passphrase), [`import::parse_export`] (Argon2: `spawn_blocking`), then
+//!   [`import::apply`] with no folder.
+//! - Export: [`export::collect`]`(&sites, ExportScope::…)`, then
+//!   [`export::to_json`] (no secrets), [`export::to_encrypted`] (with
+//!   passwords and vault SSH keys, passphrase-sealed) or
+//!   [`export::to_filezilla_xml`] (no passwords).
 //!
 //! **CLI `--site` (T70)**: [`SiteManager::find_site`]`("Work/Production/web01")`.
 //!
@@ -77,16 +97,33 @@
 //! schema load read-only ([`Site::read_only`]). Device-local columns are
 //! added with a new store migration (`courier-ftp-store/migrations/`).
 
+mod bookmarks;
 mod error;
+pub mod export;
+mod filezilla;
+mod history;
+pub mod import;
 mod site;
 mod store;
 mod tree;
 mod validate;
 
 #[cfg(test)]
+mod history_tests;
+#[cfg(test)]
+mod import_tests;
+#[cfg(test)]
 mod tests;
 
+pub use bookmarks::{Bookmark, BookmarkTarget, Bookmarks};
 pub use error::SiteError;
+#[doc(hidden)]
+pub use filezilla::fuzz_filezilla_xml;
+pub use filezilla::{MAX_DEPTH, MAX_ELEMENTS, MAX_XML_LEN, decode_remote_dir, encode_remote_dir};
+pub use history::{
+    HISTORY_LIMIT, History, HistoryEntry, RECENT_LIMIT, RecentServer, RecentTarget,
+    load_recent_servers, recent_servers,
+};
 pub use site::{Site, SiteConnect, SiteKey, SiteLocal, SiteLogon, path_style};
 #[cfg(any(test, feature = "test-util"))]
 pub use store::MemSiteLocalStore;

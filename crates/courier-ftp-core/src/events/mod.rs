@@ -78,7 +78,8 @@ pub enum LogKind {
     Response,
     /// A failure.
     Error,
-    /// A raw directory listing line (shown only with `logging.show_raw_listing`).
+    /// A raw directory listing line (shown with `logging.show_raw_listing`, or
+    /// at debug level 3 and up).
     ListingRaw,
     /// Debug output of level 1 (warning) to 4 (debug); shown when the configured
     /// level is at least this.
@@ -189,6 +190,40 @@ pub enum CoreEvent {
     },
     /// The core is waiting for an answer.
     Prompt(PromptRequest),
+    /// Progress of a recursive listing, delete or chmod (T43), for the
+    /// status bar. Coalesced by the sender (about 10 per second), plus a
+    /// final one with `finished` set.
+    RecursiveProgress(RecursiveProgress),
+}
+
+/// Which recursive operation a [`RecursiveProgress`] is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RecursiveOperation {
+    /// Walking a tree (counting, comparing, searching).
+    Listing,
+    /// Recursive delete.
+    Delete,
+    /// Recursive chmod.
+    Chmod,
+}
+
+/// Progress of a recursive operation (T43).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecursiveProgress {
+    /// The session doing the work.
+    pub session: SessionId,
+    /// What is being done.
+    pub operation: RecursiveOperation,
+    /// The directory being listed or processed.
+    pub current: RemotePath,
+    /// Directories found so far.
+    pub dirs: u64,
+    /// Files (and symlinks) found so far.
+    pub files: u64,
+    /// Entries deleted or changed so far (0 for a plain listing).
+    pub done: u64,
+    /// The operation ended (completed, cancelled or failed).
+    pub finished: bool,
 }
 
 /// Which log lines are kept. Shared by every clone of an [`EventSender`] and
@@ -203,7 +238,10 @@ impl LogFilter {
     fn allows(&self, kind: LogKind) -> bool {
         match kind {
             LogKind::Debug(n) => n >= 1 && n <= self.level.load(Ordering::Relaxed),
-            LogKind::ListingRaw => self.raw_listing.load(Ordering::Relaxed),
+            // Debug level 3 (verbose) and up includes raw listings too (T71).
+            LogKind::ListingRaw => {
+                self.raw_listing.load(Ordering::Relaxed) || self.level.load(Ordering::Relaxed) >= 3
+            }
             _ => true,
         }
     }
@@ -412,6 +450,12 @@ mod tests {
         tx.log(s, LogKind::ListingRaw, "raw");
         assert_eq!(log_texts(&mut rx), ["raw"]);
         assert!(!tx.enabled(LogKind::Debug(1)));
+
+        // Level 3+ shows raw listings without the setting.
+        tx.set_raw_listing(false);
+        assert!(!tx.enabled(LogKind::ListingRaw));
+        tx.set_log_level(3);
+        assert!(tx.enabled(LogKind::ListingRaw));
     }
 
     #[test]

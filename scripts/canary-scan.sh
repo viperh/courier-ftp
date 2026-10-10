@@ -16,6 +16,10 @@
 #   - a hostname canary must not appear in log lines at INFO, WARN or ERROR (debug and
 #     trace may contain hostnames, T91), in crash reports (built from the info+
 #     ring), or anywhere in DB files, recordings, backups or dumps.
+#   - the session log (session.log, session.log.N; T71: the message log written to a
+#     file, "2026-10-09 12:00:00 #3 Status: …") is the user's own record and may name
+#     hosts, but never a secret: its lines have no tracing level, so only the secret
+#     rule applies.
 #
 # Usage: scripts/canary-scan.sh [--self-test] [DIR...]
 #   default DIR: target/tmp (CARGO_TARGET_TMPDIR, where the binary's tests keep their
@@ -113,11 +117,16 @@ self_test() {
     echo '2026-10-09T10:00:00.000002Z  INFO courier_ftp_proto_sftp: connect.rs:11: connected'
     echo '2026-10-09T10:00:00.000003Z TRACE courier_ftp: x.rs:1: password=[REDACTED]'
   } > "$tmp/clean/state/courier-ftp.2026-10-09.log"
+  {
+    echo '2026-10-09 12:00:00 #3 Status: Connecting to canary-host-5.example...'
+    echo '2026-10-09 12:00:01 #3 Command: PASS ****'
+  } > "$tmp/clean/data/session.log"
+  echo '2026-10-09 11:00:00 #2 Status: Disconnected from canary-host-5.example' > "$tmp/clean/data/session.log.1"
   printf 'SQLite format 3\0encrypted\0' > "$tmp/clean/data/courier-ftp.db"
   if ! scan "$tmp/clean" >/dev/null 2>&1; then echo "self-test: clean tree flagged" >&2; rm -rf "$tmp"; return 1; fi
 
   local case_name
-  for case_name in info-secret debug-secret info-host crash-host db-secret wal-host backup-secret; do
+  for case_name in info-secret debug-secret info-host crash-host db-secret wal-host backup-secret session-secret rotated-secret; do
     rm -rf "$tmp/dirty"; mkdir -p "$tmp/dirty/state/crash" "$tmp/dirty/data/recordings"
     case "$case_name" in
       info-secret) echo '2026-10-09T10:00:00Z  INFO courier-ftp: a.rs:1: password CANARY-PW-7f3a' > "$tmp/dirty/state/courier-ftp.2026-10-09.log" ;;
@@ -127,6 +136,8 @@ self_test() {
       db-secret) printf 'SQLite\0CANARY-TOKEN-x\0' > "$tmp/dirty/data/courier-ftp.db" ;;
       wal-host) printf 'WAL\0canary-host-4\0' > "$tmp/dirty/data/courier-ftp.db-wal" ;;
       backup-secret) echo '{"ciphertext_b64":"CANARY-PASS-9"}' > "$tmp/dirty/x.cftp-backup" ;;
+      session-secret) echo '2026-10-09 12:00:01 #3 Command: PASS CANARY-PW-6' > "$tmp/dirty/data/session.log" ;;
+      rotated-secret) echo '2026-10-09 12:00:01 #3 Command: ACCT CANARY-PW-7' > "$tmp/dirty/data/session.log.2" ;;
     esac
     rc=0; scan "$tmp/dirty" >/dev/null 2>&1 || rc=$?
     if [[ $rc -ne 1 ]]; then echo "self-test: $case_name not detected" >&2; rm -rf "$tmp"; return 1; fi

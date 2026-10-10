@@ -13,6 +13,7 @@
 //! - [`items`]: [`ItemVault`] for the site model, bookmarks, history, trust;
 //! - [`device_blobs`]: [`DeviceBlobVault`] for device-local blobs (the queue, T40);
 //! - [`host_keys`]: the vault-backed [`HostKeyStore`](crate::trust::HostKeyStore);
+//! - [`certs`]: the vault-backed [`CertTrustStore`](crate::trust::CertTrustStore);
 //! - [`backup`]: the `.cftp-backup` file format (T73).
 //!
 //! # Key hierarchy
@@ -29,6 +30,7 @@
 //! verifier is stored. The engine never contacts a sync server to unlock.
 
 pub mod backup;
+pub mod certs;
 pub mod device_blobs;
 pub mod host_keys;
 pub mod items;
@@ -45,6 +47,7 @@ use std::time::Duration;
 
 use zeroize::Zeroize;
 
+pub use self::certs::VaultCertTrustStore;
 #[cfg(any(test, feature = "test-util"))]
 pub use self::device_blobs::MemDeviceBlobs;
 pub use self::device_blobs::{DeviceBlobVault, blob_id};

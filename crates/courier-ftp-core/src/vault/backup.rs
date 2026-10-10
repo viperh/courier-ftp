@@ -109,25 +109,6 @@ pub fn seal<R: CryptoRng + ?Sized>(
     created_at: i64,
     rng: &mut R,
 ) -> Result<Vec<u8>, BackupError> {
-    let kdf = KdfParams::generate(cost, rng);
-    let nonce = random_nonce24(rng);
-    let header = Header {
-        format: FORMAT.to_owned(),
-        version: VERSION,
-        kdf: KdfHeader {
-            alg: kdf.alg,
-            m_kib: kdf.m_kib,
-            t: kdf.t,
-            p: kdf.p,
-            salt: Base64::encode_string(&kdf.salt),
-        },
-        nonce: Base64::encode_string(nonce.as_bytes()),
-        created_at,
-        items: items.len() as u64,
-    };
-    let header_json =
-        serde_json::to_vec(&header).map_err(|e| BackupError::Corrupt(e.to_string()))?;
-
     let mut list = Vec::with_capacity(items.len());
     for item in items {
         let body = item
@@ -143,15 +124,62 @@ pub fn seal<R: CryptoRng + ?Sized>(
     let mut cbor = Zeroizing::new(Vec::new());
     ciborium::into_writer(&Value::Array(list), &mut *cbor)
         .map_err(|e| BackupError::Corrupt(e.to_string()))?;
+    seal_payload(
+        FORMAT,
+        AAD_LABEL,
+        &cbor,
+        items.len() as u64,
+        password,
+        cost,
+        created_at,
+        rng,
+    )
+}
+
+/// The container under [`seal`], for other formats (T32's encrypted site
+/// export): `header-json "\n" XChaCha20-Poly1305(Argon2id(password),
+/// aad = aad_label || header-json, zstd(payload))`, with `format` in the
+/// header and `count` as its item count.
+///
+/// # Errors
+/// As [`seal`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn seal_payload<R: CryptoRng + ?Sized>(
+    format: &str,
+    aad_label: &[u8],
+    payload: &[u8],
+    count: u64,
+    password: &SecretString,
+    cost: Argon2Cost,
+    created_at: i64,
+    rng: &mut R,
+) -> Result<Vec<u8>, BackupError> {
+    let kdf = KdfParams::generate(cost, rng);
+    let nonce = random_nonce24(rng);
+    let header = Header {
+        format: format.to_owned(),
+        version: VERSION,
+        kdf: KdfHeader {
+            alg: kdf.alg,
+            m_kib: kdf.m_kib,
+            t: kdf.t,
+            p: kdf.p,
+            salt: Base64::encode_string(&kdf.salt),
+        },
+        nonce: Base64::encode_string(nonce.as_bytes()),
+        created_at,
+        items: count,
+    };
+    let header_json =
+        serde_json::to_vec(&header).map_err(|e| BackupError::Corrupt(e.to_string()))?;
+
     let compressed = Zeroizing::new(
-        zstd::encode_all(cbor.as_slice(), ZSTD_LEVEL)
-            .map_err(|e| BackupError::Corrupt(e.to_string()))?,
+        zstd::encode_all(payload, ZSTD_LEVEL).map_err(|e| BackupError::Corrupt(e.to_string()))?,
     );
-    drop(cbor);
 
     let key = argon2id(password.expose_secret().as_bytes(), &kdf)
         .map_err(|e| BackupError::Format(e.to_string()))?;
-    let ct = aead::seal(&key, &nonce, &aad(&header_json), &compressed)
+    let ct = aead::seal(&key, &nonce, &aad(aad_label, &header_json), &compressed)
         .map_err(|e| BackupError::Corrupt(e.to_string()))?;
 
     let mut out = header_json;
@@ -160,8 +188,8 @@ pub fn seal<R: CryptoRng + ?Sized>(
     Ok(out)
 }
 
-fn aad(header_json: &[u8]) -> Vec<u8> {
-    let mut aad = AAD_LABEL.to_vec();
+fn aad(label: &[u8], header_json: &[u8]) -> Vec<u8> {
+    let mut aad = label.to_vec();
     aad.extend_from_slice(header_json);
     aad
 }
@@ -171,11 +199,11 @@ fn aad(header_json: &[u8]) -> Vec<u8> {
 /// # Errors
 /// [`BackupError::Format`].
 pub fn peek(file: &[u8]) -> Result<(i64, u64), BackupError> {
-    let (header, _, _) = split(file)?;
+    let (header, _, _) = split(file, FORMAT)?;
     Ok((header.created_at, header.items))
 }
 
-fn split(file: &[u8]) -> Result<(Header, &[u8], &[u8]), BackupError> {
+fn split<'f>(file: &'f [u8], format: &str) -> Result<(Header, &'f [u8], &'f [u8]), BackupError> {
     let bad = |what: &str| BackupError::Format(what.to_owned());
     let nl = file
         .iter()
@@ -184,7 +212,7 @@ fn split(file: &[u8]) -> Result<(Header, &[u8], &[u8]), BackupError> {
         .ok_or_else(|| bad("no header"))?;
     let (header_json, rest) = file.split_at(nl);
     let header: Header = serde_json::from_slice(header_json).map_err(|_| bad("bad header"))?;
-    if header.format != FORMAT {
+    if header.format != format {
         return Err(bad("wrong format"));
     }
     if header.version != VERSION {
@@ -213,15 +241,34 @@ fn open_with_cap(
     password: &SecretString,
     cap: u64,
 ) -> Result<Vec<BackupItem>, BackupError> {
-    let (header, header_json, ct) = split(file)?;
+    let payload = open_payload(file, FORMAT, AAD_LABEL, password, cap)?;
+    decode_items(&payload)
+}
+
+/// Opens a container written by [`seal_payload`] with `format` and
+/// `aad_label` and returns the decompressed payload (at most `cap` bytes).
+///
+/// **CPU- and memory-heavy** (Argon2).
+///
+/// # Errors
+/// As [`open`].
+pub(crate) fn open_payload(
+    file: &[u8],
+    format: &str,
+    aad_label: &[u8],
+    password: &SecretString,
+    cap: u64,
+) -> Result<Zeroizing<Vec<u8>>, BackupError> {
+    let (header, header_json, ct) = split(file, format)?;
     let (kdf, nonce) = header_params(&header)?;
     let key = argon2id(password.expose_secret().as_bytes(), &kdf)
         .map_err(|e| BackupError::Format(e.to_string()))?;
-    let compressed = aead::open(&key, &nonce, &aad(header_json), ct).map_err(|e| match e {
-        CryptoError::Auth => BackupError::Decrypt,
-        other => BackupError::Corrupt(other.to_string()),
-    })?;
-    decode_payload(&compressed, cap)
+    let compressed =
+        aead::open(&key, &nonce, &aad(aad_label, header_json), ct).map_err(|e| match e {
+            CryptoError::Auth => BackupError::Decrypt,
+            other => BackupError::Corrupt(other.to_string()),
+        })?;
+    decompress(&compressed, cap)
 }
 
 /// The header's KDF parameters (bounds-checked, so Argon2 may run) and nonce.
@@ -249,6 +296,11 @@ fn header_params(header: &Header) -> Result<(KdfParams, Nonce24), BackupError> {
 /// The authenticated plaintext: zstd (stopped after `cap` bytes), then the
 /// CBOR item list.
 fn decode_payload(compressed: &[u8], cap: u64) -> Result<Vec<BackupItem>, BackupError> {
+    decode_items(&decompress(compressed, cap)?)
+}
+
+/// zstd, stopped after `cap` bytes.
+fn decompress(compressed: &[u8], cap: u64) -> Result<Zeroizing<Vec<u8>>, BackupError> {
     let decoder = zstd::stream::read::Decoder::new(compressed)
         .map_err(|e| BackupError::Corrupt(e.to_string()))?;
     let mut cbor = Zeroizing::new(Vec::new());
@@ -259,7 +311,7 @@ fn decode_payload(compressed: &[u8], cap: u64) -> Result<Vec<BackupItem>, Backup
     if cbor.len() as u64 > cap {
         return Err(BackupError::TooLarge);
     }
-    decode_items(&cbor)
+    Ok(cbor)
 }
 
 /// Fuzz body (T91 §7, cargo-fuzz target `backup_decrypt`): everything [`open`]
@@ -271,11 +323,11 @@ fn decode_payload(compressed: &[u8], cap: u64) -> Result<Vec<BackupItem>, Backup
 pub fn fuzz_backup_decrypt(data: &[u8]) {
     // A small cap keeps hostile zstd frames cheap.
     const CAP: u64 = 1 << 20;
-    if let Ok((header, header_json, ct)) = split(data)
+    if let Ok((header, header_json, ct)) = split(data, FORMAT)
         && let Ok((_kdf, nonce)) = header_params(&header)
     {
         let key = courier_ftp_crypto::Key32::from_bytes([7; 32]);
-        if let Ok(compressed) = aead::open(&key, &nonce, &aad(header_json), ct) {
+        if let Ok(compressed) = aead::open(&key, &nonce, &aad(AAD_LABEL, header_json), ct) {
             let _ = decode_payload(&compressed, CAP);
         }
     }

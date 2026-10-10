@@ -1017,5 +1017,49 @@ fn login_script_for_logon_types() {
     );
 }
 
+// ----- session log file (T71) ----------------------------------------------
+
+/// A real login written to the session log file: commands are there, masked;
+/// the password is nowhere. The file stays in `target/tmp/canary-ftp-session/`
+/// for `scripts/canary-scan.sh` (CI job `canary`).
+#[tokio::test]
+async fn session_log_file_has_masked_commands() {
+    use courier_ftp_core::logfile::SessionLogFile;
+    const PW: &str = "CANARY-PW-ftp-session-31c9";
+
+    let exe = std::env::current_exe().unwrap();
+    let dir = exe
+        .ancestors()
+        .nth(3)
+        .unwrap()
+        .join("tmp/canary-ftp-session");
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join("session.log");
+    let file = SessionLogFile::open(path.clone(), 1, 2, time::UtcOffset::UTC).unwrap();
+
+    let mut script = vec![send(GREETING)];
+    script.extend(exchange("USER bob", &["331 Password required for bob"]));
+    script.extend(exchange(&format!("PASS {PW}"), &["230 User logged in"]));
+    script.extend(after_login(&["500 FEAT not understood"], vec![], "\"/\""));
+    let server = FakeServer::start(script).await;
+    let (ctx, mut rx) = context();
+    let conn = connect(&options(&server, normal("bob", PW)), ctx)
+        .await
+        .unwrap();
+    conn.quit().await;
+    server.finish().await;
+    while let Some(event) = rx.try_recv() {
+        if let CoreEvent::Log(msg) = event {
+            file.record(&msg);
+        }
+    }
+    assert!(file.flush_timeout(Duration::from_secs(10)));
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(" Command: USER bob\n"), "{text}");
+    assert!(text.contains(" Command: PASS ****\n"), "{text}");
+    assert!(text.contains(" Response: 230 User logged in\n"), "{text}");
+    assert!(!text.contains(PW), "{text}");
+}
+
 /// FTP proxy logins (T15) against the same fake server.
 mod proxy;

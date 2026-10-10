@@ -1,20 +1,28 @@
-//! Trust in SSH host keys (T21).
+//! Trust in SSH host keys (T21) and TLS certificates (T12).
 //!
 //! - [`HostKey`]: a public key as SSH encodes it, with its fingerprints;
 //! - [`HostKeyStore`]: keys the user chose to "Always trust"
 //!   ([`MemoryHostKeyStore`] here; the vault-backed store is T30);
 //! - [`known_hosts`]: read-only import of OpenSSH's `known_hosts` files;
-//! - [`decide`]: the pure decision between accepting, refusing and asking.
+//! - [`decide`]: the pure decision between accepting, refusing and asking;
+//! - [`cert`]: trusted TLS certificates ([`CertTrustStore`]) and
+//!   [`decide_certificate`] for FTPS (T12).
 //!
 //! The SSH verifier that puts these together lives in
 //! `courier-ftp-proto-sftp` (`ssh::trust`), at the edge where russh's key
 //! type is converted into a [`HostKey`].
 
+pub mod cert;
 mod host_key;
 pub mod known_hosts;
 mod store;
 
 pub use self::{
+    cert::{
+        CertDecision, CertTrustInputs, CertTrustSource, CertTrustStore, CertTrustStoreSlot,
+        MemoryCertTrustStore, TrustedCertificate, cert_sha256, colon_hex, decide_certificate,
+        sha1_fingerprint, sha256_fingerprint,
+    },
     host_key::HostKey,
     known_hosts::{KnownHosts, KnownHostsMatch},
     store::{HostKeyStore, HostKeyStoreSlot, KnownHost, MemoryHostKeyStore},

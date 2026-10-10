@@ -477,17 +477,26 @@ impl Backend for MockBackend {
             Some(_) => return Err(Error::InvalidInput(format!("{dir} is not a directory"))),
             None => return Err(not_found(dir)),
         }
-        let entries = st
+        let children: Vec<(&str, &Node)> = st
             .nodes
             .iter()
             .filter(|(p, _)| p.parent().as_ref() == Some(dir))
-            .filter_map(|(p, n)| p.file_name().map(|name| n.entry(name)))
+            .filter_map(|(p, n)| p.file_name().map(|name| (name, n)))
             .collect();
+        // An MLSD-style raw listing, for the "show raw listing" diagnostic.
+        let raw = children
+            .iter()
+            .map(|(name, n)| {
+                let kind = if n.is_dir { "dir" } else { "file" };
+                format!("type={kind};size={}; {name}\r\n", n.data.len())
+            })
+            .collect::<String>();
+        let entries = children.iter().map(|(name, n)| n.entry(name)).collect();
         Ok(Listing {
             dir: dir.clone(),
             entries,
             fetched_at: Instant::now(),
-            raw: None,
+            raw: Some(raw),
         })
     }
 

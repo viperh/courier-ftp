@@ -14,11 +14,16 @@ use std::{
 };
 
 use courier_ftp_core::{
+    model::item::{ItemId, ProxyCredential},
     settings::VaultSettings,
-    trust::{HostKeyStoreSlot, MemoryHostKeyStore},
-    vault::{AutoLock, LockReason, VaultError, VaultHostKeyStore, VaultStatus},
+    trust::{CertTrustStoreSlot, HostKeyStoreSlot, MemoryCertTrustStore, MemoryHostKeyStore},
+    vault::{
+        AutoLock, ItemVaultExt, LockReason, VaultCertTrustStore, VaultError, VaultHostKeyStore,
+        VaultStatus,
+    },
 };
 use courier_ftp_crypto::kdf::Argon2Cost;
+use courier_ftp_proto_ftp::backend::FtpBackendFactory;
 use courier_ftp_proto_sftp::ssh::CredentialCache;
 use courier_ftp_store::{
     Store, StoreError,
@@ -88,6 +93,29 @@ pub(crate) enum Phase {
     Unlocked,
 }
 
+/// What the vault switches for FTP on unlock and lock.
+struct FtpHooks {
+    certs: Arc<CertTrustStoreSlot>,
+    factory: FtpBackendFactory,
+    proxy_password: Option<String>,
+}
+
+/// The FTP proxy password stored in the `proxy-credential` item `id`.
+async fn read_proxy_password(engine: &VaultEngine, id: &str) -> Option<SecretString> {
+    let id: ItemId = id.parse().ok()?;
+    let views = match engine.list_views::<ProxyCredential>().await {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::warn!(%err, "reading the FTP proxy password failed");
+            return None;
+        }
+    };
+    views
+        .into_iter()
+        .find(|(item, _)| item.id == id)
+        .and_then(|(_, view)| view.password)
+}
+
 /// See the module docs.
 pub(crate) struct Vault {
     open: VaultOpener,
@@ -97,6 +125,8 @@ pub(crate) struct Vault {
     host_keys: Arc<HostKeyStoreSlot>,
     /// Passwords typed at prompts this run; cleared on lock.
     credentials: CredentialCache,
+    /// FTPS certificate trust and the FTP proxy password (T12/T14).
+    ftp: Option<FtpHooks>,
     tx: UnboundedSender<VaultMsg>,
     /// The engine's `lock()` started by [`Vault::lock`]; unlocks wait for it
     /// so a quick unlock can't be undone by a late lock.
@@ -127,6 +157,7 @@ impl Vault {
             engine: None,
             host_keys,
             credentials,
+            ftp: None,
             tx,
             pending_lock: None,
             phase: Phase::Opening,
@@ -135,7 +166,23 @@ impl Vault {
         }
     }
 
-    #[cfg(test)]
+    /// Swap the certificate store with the host key store, and give the FTP
+    /// factory the FTP proxy password from the vault item `proxy_password`
+    /// (the settings' `password_ref`) while unlocked.
+    pub(crate) fn set_ftp(
+        &mut self,
+        certs: Arc<CertTrustStoreSlot>,
+        factory: FtpBackendFactory,
+        proxy_password: Option<String>,
+    ) {
+        self.ftp = Some(FtpHooks {
+            certs,
+            factory,
+            proxy_password,
+        });
+    }
+
+    /// The engine, once the database is open.
     pub(crate) fn engine(&self) -> Option<&VaultEngine> {
         self.engine.as_ref()
     }
@@ -248,6 +295,17 @@ impl Vault {
         if let Some(engine) = &self.engine {
             self.host_keys
                 .replace(Arc::new(VaultHostKeyStore::new(Arc::new(engine.clone()))));
+            if let Some(ftp) = &self.ftp {
+                ftp.certs
+                    .replace(Arc::new(VaultCertTrustStore::new(Arc::new(engine.clone()))));
+                if let Some(id) = ftp.proxy_password.as_deref() {
+                    let (engine, factory, id) =
+                        (engine.clone(), ftp.factory.clone(), id.to_owned());
+                    tokio::spawn(async move {
+                        factory.set_ftp_proxy_password(read_proxy_password(&engine, &id).await);
+                    });
+                }
+            }
         }
         self.phase = Phase::Unlocked;
         self.auto_lock.reset(Instant::now());
@@ -258,6 +316,10 @@ impl Vault {
     pub(crate) fn lock(&mut self) {
         self.host_keys
             .replace(Arc::new(MemoryHostKeyStore::locked()));
+        if let Some(ftp) = &self.ftp {
+            ftp.certs.replace(Arc::new(MemoryCertTrustStore::locked()));
+            ftp.factory.set_ftp_proxy_password(None);
+        }
         self.credentials.clear();
         self.phase = Phase::Locked;
         if let Some(engine) = self.engine.clone() {
