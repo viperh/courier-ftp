@@ -67,7 +67,8 @@ fn layouts_render_at_every_size() {
         (Layout::Explorer, "explorer"),
         (Layout::Widescreen, "widescreen"),
     ] {
-        for (w, h) in [(80, 24), (120, 40), (200, 60)] {
+        // T76: every view at 80×24 and 160×48; T50: also 120×40 and 200×60.
+        for (w, h) in [(80, 24), (120, 40), (160, 48), (200, 60)] {
             let mut s = screen(layout);
             let terminal = render(&mut s, w, h);
             insta::assert_snapshot!(format!("{name}_{w}x{h}"), terminal.backend());

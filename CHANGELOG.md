@@ -44,3 +44,6 @@ the section matching the tag.
 - Status bar (T57): security, transfer type, speed limit, filters, sync and
   compare, vault and queue indicators, pending keys and transient messages,
   key hints, ASCII fallback; server info dialog (`Ctrl-x i`).
+- `courier-ftp-e2e` test harness, first stage (T76): Docker opt-in and CI
+  enforcement, polling helpers, failure diagnostics, temporary homes, workspace
+  layering and `unsafe` policy tests; CI `e2e` job.

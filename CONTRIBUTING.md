@@ -13,17 +13,18 @@
 | `fmt` | `cargo fmt --all --check` |
 | `clippy` | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` and the local-only build: `cargo clippy -p courier-ftp --all-targets --no-default-features --locked -- -D warnings` |
 | `docs` | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --workspace --locked` |
-| `test-local-only` | `cargo test --workspace --no-default-features --locked --exclude courier-ftp-sync --exclude courier-ftp-server` |
-| `test-os` | the same suite on Windows and macOS: `cargo test --workspace --locked --exclude courier-ftp-server` |
+| `test-local-only` | `cargo test --workspace --no-default-features --locked --exclude courier-ftp-sync --exclude courier-ftp-server --exclude courier-ftp-e2e` |
+| `test-os` | the same suite on Windows and macOS: `cargo test --workspace --locked --exclude courier-ftp-server --exclude courier-ftp-e2e` |
 | `bench-build` | `cargo bench --workspace --no-run --locked` and `python3 scripts/bench-gate.py self-test` |
 | `deny` | `cargo deny --all-features check advisories bans licenses sources` (install with `cargo install --locked cargo-deny`) |
 | `msrv` | `cargo +1.96 check --workspace --all-features --locked` (the version is `rust-version` in `Cargo.toml`) |
-| `layering` | `python3 scripts/check-layering.py` |
+| `layering` | `cargo test -p courier-ftp-e2e --test workspace_metadata` and `python3 scripts/check-layering.py` |
+| `e2e` | `COURIER_E2E=1 cargo test -p courier-ftp-e2e -- --include-ignored` (needs Docker; container tests skip without `COURIER_E2E=1`) |
 | `unsafe-check` | `python3 scripts/check-unsafe.py` |
 | `canary` | `scripts/canary-scan.sh --self-test`, then the suite with `COURIER_FTP_LOG_LEVEL=trace` and `scripts/canary-scan.sh` |
 | `packaging` | `python3 scripts/update-packaging.py --self-test`, then build twice with `scripts/release-package.sh` and `cmp` the archives (see `ci.yml`) |
 
-Jobs that are switched on by later tasks: `e2e` (T76), `server-db` (T84),
+Jobs that are switched on by later tasks: `server-db` (T84),
 `server-docker` (T86), `vet` (T91) and `fuzz` (T91). `.github/workflows/ci.yml`
 lists them at the top.
 
@@ -34,7 +35,7 @@ directories: set `COURIER_FTP_HOME` to a temporary directory (config goes to
 ### Branch protection
 
 Required checks on `master`: fmt, clippy, docs, test-local-only, test-os, deny,
-unsafe-check, layering, canary, packaging. Add e2e, server-db and fuzz when they
+unsafe-check, layering, canary, packaging, e2e. Add server-db and fuzz when they
 are switched on.
 
 ## Crate layering

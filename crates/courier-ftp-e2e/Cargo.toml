@@ -1,0 +1,28 @@
+[package]
+name = "courier-ftp-e2e"
+description = "End-to-end tests for courier-ftp (Docker-based FTP, SFTP and sync server tests)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# The e2e harness (T76): server fixtures in Docker, a temporary
+# `COURIER_FTP_HOME` (`TestHome`), failure diagnostics, and the workspace
+# checks. Every container test is `#[ignore]`d; run them with
+# `COURIER_E2E=1 cargo test -p courier-ftp-e2e -- --ignored`.
+[dependencies]
+courier-ftp-core = { workspace = true, features = ["test-util"] }
+
+testcontainers = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+cargo_metadata = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+toml = { workspace = true }

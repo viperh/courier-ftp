@@ -31,7 +31,7 @@ servers that is skipped by default and required in CI.
 ## Delivery in stages
 
 This task starts in milestone M1 and grows with the project:
-1. **M1**: crate skeleton, `require_docker!`, `timeout()`, `diag`, `TestHome` (without vault until T30), `workspace_metadata.rs`, `forbid_unsafe.rs`, the CI `e2e` job (T00).
+1. **M1** ✅ done: crate skeleton, `require_docker!`, `timeout()`/`wait_for()`, `diag`, `TestHome` (without vault until T30), `workspace_metadata.rs`, `forbid_unsafe.rs`, harness self-tests, the CI `e2e` job (T00). TUI layout snapshots now include 160×48.
 2. **M2**: `sshd` fixture image and profiles (needed by T20/T22), `Headless`.
 3. **M3**: FTP fixture images and profiles (needed by T14), hostile-server fixture.
 4. **M4**: toxiproxy, transfer scenarios.

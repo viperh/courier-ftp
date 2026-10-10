@@ -3,7 +3,8 @@ name: CI # Continuous Integration
 # T00: the same job set as sverb, adapted to courier-ftp's crates. Jobs that need
 # code which doesn't exist yet are switched on by the task that adds it:
 #
-#   e2e, layering test   T76  (Docker FTP/SFTP fixtures, crates/courier-ftp-e2e)
+#   e2e fixture images   T14/T20/T22 (vsftpd, ProFTPD, Pure-FTPd, OpenSSH; the
+#                        e2e job below already runs the container tests)
 #   server-db            T84  (Postgres tests of courier-ftp-server)
 #   server-docker        T86  (deploy/docker-compose.yml, /healthz, non-root image)
 #   vet                  T91  (supply-chain/, check-vet-crypto.py)
@@ -111,7 +112,7 @@ jobs:
           COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home # `runner` is only available at step level
         run: >-
           cargo test --workspace --no-default-features --locked
-          --exclude courier-ftp-sync --exclude courier-ftp-server
+          --exclude courier-ftp-sync --exclude courier-ftp-server --exclude courier-ftp-e2e
 
   # Our addition (sverb has no Windows/macOS test job): the local filesystem
   # backend, paths and terminal suspend are OS-specific.
@@ -136,7 +137,32 @@ jobs:
       - name: Run tests
         env:
           COURIER_FTP_HOME: ${{ runner.temp }}/courier-ftp-home
-        run: cargo test --workspace --locked --exclude courier-ftp-server
+        run: cargo test --workspace --locked --exclude courier-ftp-server --exclude courier-ftp-e2e
+
+  # The Docker e2e suite (T76). Required check. Container tests are
+  # `#[ignore]`d and opted into with COURIER_E2E=1; `require_docker!` fails
+  # (instead of skipping) when Docker is missing on CI. Fixture images are
+  # built here with layer caching as T14/T20/T22 add them.
+  e2e:
+    name: E2E (docker)
+    runs-on: ubuntu-latest
+    env:
+      COURIER_E2E: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Docker info
+        run: docker info
+      - name: Run e2e tests
+        run: cargo test -p courier-ftp-e2e --locked --no-fail-fast -- --include-ignored --test-threads=4
+      - name: Leftover containers
+        if: failure()
+        run: docker ps -a
 
   deny:
     name: cargo-deny
@@ -189,9 +215,11 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      # T76 adds the first implementation of these rules as a test
-      # (`cargo test -p courier-ftp-e2e --test workspace_metadata`); the script is the
-      # independent second one, over the all-features and local-only graphs.
+      - uses: Swatinem/rust-cache@v2
+      - name: Workspace metadata and layering test
+        run: cargo test -p courier-ftp-e2e --test workspace_metadata --locked
+      # Independent second implementation of the same rules, over the
+      # all-features and local-only (no-default-features) graphs.
       - name: Check dependency direction (script)
         run: python3 scripts/check-layering.py
 
@@ -272,4 +300,4 @@ jobs:
           cmp out1/courier-ftp-0.0.0-linux-x86_64.tar.gz out2/courier-ftp-0.0.0-linux-x86_64.tar.gz
           (cd out1 && sha256sum -c ./*.sha256)
       - name: crates package (cargo install courier-ftp)
-        run: cargo package --workspace --locked
+        run: cargo package --workspace --exclude courier-ftp-e2e --locked
