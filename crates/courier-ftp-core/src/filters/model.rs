@@ -104,6 +104,16 @@ pub enum Side {
     Remote,
 }
 
+impl Side {
+    /// The opposite side.
+    pub fn other(self) -> Self {
+        match self {
+            Side::Local => Side::Remote,
+            Side::Remote => Side::Local,
+        }
+    }
+}
+
 impl FilterScope {
     /// Whether a filter with this scope may run on `side`.
     pub fn allows(self, side: Side) -> bool {

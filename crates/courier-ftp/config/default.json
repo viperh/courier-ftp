@@ -1,8 +1,31 @@
 {
   "keybindings": {
     "Normal": {
-      "<Ctrl-h>": "Help",
-      "<Ctrl-q>": "Quit"
+      "<Ctrl-q>": "Quit",
+      "<F10>": "Quit",
+      "<F1>": "Help",
+      "<Ctrl-z>": "Suspend",
+      "<Tab>": "FocusNext",
+      "<BackTab>": "FocusPrev",
+      "<Ctrl-k>": "FocusQuickconnect",
+      "<Ctrl-l>": "ToggleLog",
+      "<Ctrl-j>": "ToggleQueue",
+      "<Ctrl-e>": "ToggleTree",
+      "<Ctrl-r>": "Refresh"
+    },
+    "Input": {
+      "<Ctrl-q>": "Quit",
+      "<F10>": "Quit",
+      "<F1>": "Help",
+      "<Ctrl-z>": "Suspend",
+      "<Esc>": "FocusLocal",
+      "<Tab>": "FocusNext"
+    },
+    "Filter": {
+      "<Esc>": "FocusLocal"
+    },
+    "Dialog": {
+      "<Esc>": "CloseDialog"
     }
   },
   "settings": {

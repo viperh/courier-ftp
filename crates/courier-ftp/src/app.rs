@@ -1,81 +1,121 @@
+use courier_ftp_core::{
+    backend::Backend,
+    events::{self, EventReceiver, EventSender, LogKind, SessionId},
+    local::LocalBackend,
+    model::RemotePath,
+};
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, home::Home},
-    config::Config,
+    config::{Config, KeyBindings},
     tui::{Event, Tui},
+    ui::{KeyOutcome, MainScreen, Side, Theme},
 };
 
-/// The application: owns the components and runs the event loop.
+/// The application: the event loop that ties the terminal, the
+/// [`MainScreen`] and the core together.
+///
+/// One `tokio::select!` waits on terminal events, the action channel and the
+/// core's event bus (T04). Work that touches the filesystem or network runs in
+/// spawned tasks that report back with an [`Action`], so drawing never waits
+/// on I/O.
 pub(crate) struct App {
-    config: Config,
+    keybindings: KeyBindings,
     tick_rate: f64,
     frame_rate: f64,
-    components: Vec<Box<dyn Component>>,
+    screen: MainScreen,
     should_quit: bool,
     should_suspend: bool,
-    mode: Mode,
     last_tick_key_events: Vec<KeyEvent>,
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
+    events_tx: EventSender,
+    events_rx: EventReceiver,
+    /// The session id of the local pane, for log lines.
+    local_session: SessionId,
 }
 
-/// Input modes. Keybindings and styles in `crates/courier-ftp/config/default.json` are keyed by
+/// Input modes. Keybindings and styles in `config/default.json` are keyed by
 /// these names, so adding a variant here means adding a section there too.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Mode {
+    /// Browsing: file lists, log and queue have focus.
     #[default]
     Normal,
+    /// Typing a pane's quick filter (T53).
+    Filter,
+    /// A text field (quickconnect) has focus.
+    Input,
+    /// A dialog is open.
+    Dialog,
 }
 
 impl App {
     pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
+        let config = Config::new()?;
         let (action_tx, action_rx) = mpsc::unbounded_channel();
+        let (events_tx, events_rx) = events::channel(config.settings.logging.level);
+        events_tx.set_raw_listing(config.settings.logging.show_raw_listing);
+        let theme = Theme::new(
+            config.styles.0.get(&Mode::Normal),
+            Theme::no_color_requested(),
+        );
+        let local_session = SessionId::next();
+        for warning in &config.settings_warnings {
+            events_tx.log(local_session, LogKind::Error, format!("config: {warning}"));
+        }
         Ok(Self {
+            keybindings: config.keybindings.clone(),
             tick_rate,
             frame_rate,
-            components: vec![Box::new(Home::new())],
+            screen: MainScreen::new(config, theme),
             should_quit: false,
             should_suspend: false,
-            config: Config::new()?,
-            mode: Mode::Normal,
             last_tick_key_events: Vec::new(),
             action_tx,
             action_rx,
+            events_tx,
+            events_rx,
+            local_session,
         })
     }
 
     pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
         let mut tui = Tui::new()?
-            // .mouse(true) // uncomment this line to enable mouse support
             .tick_rate(self.tick_rate)
             .frame_rate(self.frame_rate);
         tui.enter()?;
+        self.events_tx.log(
+            self.local_session,
+            LogKind::Status,
+            format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
+        );
+        self.list(Side::Local, None);
 
-        for component in self.components.iter_mut() {
-            component.register_action_handler(self.action_tx.clone())?;
-        }
-        for component in self.components.iter_mut() {
-            component.register_config_handler(self.config.clone())?;
-        }
-        for component in self.components.iter_mut() {
-            component.init(tui.size()?)?;
-        }
-
-        let action_tx = self.action_tx.clone();
         loop {
-            self.handle_events(&mut tui).await?;
-            self.handle_actions(&mut tui)?;
+            tokio::select! {
+                event = tui.next_event() => match event {
+                    Some(event) => self.handle_event(event)?,
+                    None => self.should_quit = true,
+                },
+                Some(action) = self.action_rx.recv() => {
+                    self.handle_action(&mut tui, action)?;
+                }
+                Some(event) = self.events_rx.recv() => self.screen.handle_core(event),
+            }
+            while let Ok(action) = self.action_rx.try_recv() {
+                self.handle_action(&mut tui, action)?;
+            }
             if self.should_suspend {
                 tui.suspend()?;
-                action_tx.send(Action::Resume)?;
-                action_tx.send(Action::ClearScreen)?;
-                // tui.mouse(true);
+                self.action_tx.send(Action::Resume)?;
+                self.action_tx.send(Action::ClearScreen)?;
                 tui.enter()?;
             } else if self.should_quit {
                 tui.stop()?;
@@ -86,97 +126,104 @@ impl App {
         Ok(())
     }
 
-    async fn handle_events(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
-        let Some(event) = tui.next_event().await else {
-            return Ok(());
-        };
-        let action_tx = self.action_tx.clone();
+    fn handle_event(&mut self, event: Event) -> color_eyre::Result<()> {
+        let tx = &self.action_tx;
         match event {
-            Event::Quit => action_tx.send(Action::Quit)?,
-            Event::Tick => action_tx.send(Action::Tick)?,
-            Event::Render => action_tx.send(Action::Render)?,
-            Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
+            Event::Quit => tx.send(Action::Quit)?,
+            Event::Tick => tx.send(Action::Tick)?,
+            Event::Render => tx.send(Action::Render)?,
+            Event::Resize(x, y) => tx.send(Action::Resize(x, y))?,
             Event::Key(key) => self.handle_key_event(key)?,
             _ => {}
         }
-        for component in self.components.iter_mut() {
-            if let Some(action) = component.handle_events(Some(event.clone()))? {
-                action_tx.send(action)?;
-            }
-        }
         Ok(())
     }
 
+    /// Keys go to the screen first (modal, then focused region); what it
+    /// doesn't take is looked up in the keymap of the current mode.
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
-        let action_tx = self.action_tx.clone();
-        let Some(keymap) = self.config.keybindings.0.get(&self.mode) else {
+        if self.screen.handle_key(key) == KeyOutcome::Consumed {
+            self.last_tick_key_events.clear();
+            return Ok(());
+        }
+        let Some(keymap) = self.keybindings.0.get(&self.screen.mode()) else {
             return Ok(());
         };
-        match keymap.get(&vec![key]) {
-            Some(action) => {
-                info!("Got action: {action:?}");
-                action_tx.send(action.clone())?;
-            }
-            _ => {
-                // If the key was not handled as a single key action,
-                // then consider it for multi-key combinations.
-                self.last_tick_key_events.push(key);
-
-                // Check for multi-key combinations
-                if let Some(action) = keymap.get(&self.last_tick_key_events) {
-                    info!("Got action: {action:?}");
-                    action_tx.send(action.clone())?;
-                }
-            }
+        if let Some(action) = keymap.get(&vec![key]) {
+            info!("Got action: {action:?}");
+            self.action_tx.send(action.clone())?;
+            return Ok(());
+        }
+        // Not a single-key binding: try it as part of a sequence.
+        self.last_tick_key_events.push(key);
+        if let Some(action) = keymap.get(&self.last_tick_key_events) {
+            info!("Got action: {action:?}");
+            self.action_tx.send(action.clone())?;
         }
         Ok(())
     }
 
-    fn handle_actions(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
-        while let Ok(action) = self.action_rx.try_recv() {
-            if action != Action::Tick && action != Action::Render {
-                debug!("{action:?}");
+    fn handle_action(&mut self, tui: &mut Tui, action: Action) -> color_eyre::Result<()> {
+        if !matches!(action, Action::Tick | Action::Render) {
+            debug!("{action}");
+        }
+        match &action {
+            Action::Tick => self.last_tick_key_events.clear(),
+            // No transfers exist yet, so nothing needs confirming (T41 adds the
+            // "transfers are running, quit anyway?" dialog).
+            Action::Quit => self.should_quit = true,
+            Action::Suspend => self.should_suspend = true,
+            Action::Resume => self.should_suspend = false,
+            Action::ClearScreen => tui.terminal.clear()?,
+            Action::Resize(w, h) => {
+                tui.resize(Rect::new(0, 0, *w, *h))?;
+                self.render(tui)?;
             }
-            match action {
-                Action::Tick => {
-                    self.last_tick_key_events.drain(..);
-                }
-                Action::Quit => self.should_quit = true,
-                Action::Suspend => self.should_suspend = true,
-                Action::Resume => self.should_suspend = false,
-                Action::ClearScreen => tui.terminal.clear()?,
-                Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
-                Action::Render => self.render(tui)?,
-                Action::Error(ref err) => {
-                    tracing::error!(?err)
-                }
-                _ => {}
+            Action::Render => self.render(tui)?,
+            Action::Refresh => {
+                let dir = self.screen.local.dir.clone();
+                self.list(Side::Local, dir);
             }
-            for component in self.components.iter_mut() {
-                if let Some(action) = component.update(action.clone())? {
-                    self.action_tx.send(action)?
+            Action::Error(err) => {
+                tracing::error!(?err);
+                self.events_tx
+                    .log(self.local_session, LogKind::Error, err.clone());
+            }
+            _ => {}
+        }
+        if let Some(next) = self.screen.update(&action) {
+            self.action_tx.send(next)?;
+        }
+        Ok(())
+    }
+
+    /// List `dir` (the home directory when `None`) in the background; the
+    /// pane shows a spinner until [`Action::ListingLoaded`] arrives.
+    fn list(&mut self, side: Side, dir: Option<RemotePath>) {
+        if side == Side::Remote {
+            return; // remote sessions arrive with T14/T22 and T58/T61
+        }
+        self.screen.pane_mut(side).busy = true;
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let mut backend = LocalBackend::new();
+            let cancel = CancellationToken::new();
+            let result = async {
+                backend.connect(cancel.clone()).await?;
+                let dir = match dir {
+                    Some(dir) => dir,
+                    None => backend.home_dir().await?,
                 };
+                backend.list(&dir, cancel).await
             }
-        }
-        Ok(())
-    }
-
-    fn handle_resize(&mut self, tui: &mut Tui, w: u16, h: u16) -> color_eyre::Result<()> {
-        tui.resize(Rect::new(0, 0, w, h))?;
-        self.render(tui)?;
-        Ok(())
+            .await
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Action::ListingLoaded { side, result });
+        });
     }
 
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
-        tui.draw(|frame| {
-            for component in self.components.iter_mut() {
-                if let Err(err) = component.draw(frame, frame.area()) {
-                    let _ = self
-                        .action_tx
-                        .send(Action::Error(format!("Failed to draw: {err:?}")));
-                }
-            }
-        })?;
+        tui.draw(|frame| self.screen.draw(frame))?;
         Ok(())
     }
 }

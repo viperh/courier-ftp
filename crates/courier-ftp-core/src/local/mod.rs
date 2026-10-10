@@ -2,8 +2,8 @@
 //! code path with remote panes: file lists, search, filters, comparison and
 //! recursive operations.
 //!
-//! The backend speaks [`RemotePath`]s like every other backend; [`paths`]
-//! maps them to native paths (identity on Unix, drive letters, UNC paths and a
+//! The backend speaks [`RemotePath`]s like every other backend; they are
+//! mapped to native paths (identity on Unix, drive letters, UNC paths and a
 //! virtual drive-list root on Windows). The UI shows paths with
 //! [`display_native`].
 

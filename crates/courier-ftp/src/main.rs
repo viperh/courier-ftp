@@ -12,11 +12,11 @@ use crate::app::App;
 mod action;
 mod app;
 mod cli;
-mod components;
 mod config;
 mod errors;
 mod logging;
 mod tui;
+mod ui;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

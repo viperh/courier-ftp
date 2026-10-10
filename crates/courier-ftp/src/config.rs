@@ -131,6 +131,19 @@ impl Config {
     }
 }
 
+impl Config {
+    /// Only the built-in defaults, ignoring user files and the environment
+    /// (for tests).
+    #[cfg(test)]
+    pub(crate) fn builtin() -> Self {
+        let mut cfg: Config = json5::from_str(CONFIG).expect("built-in config parses");
+        let (settings, report) = Settings::from_value(&cfg.settings_raw);
+        assert!(report.warnings.is_empty(), "{report:?}");
+        cfg.settings = settings;
+        cfg
+    }
+}
+
 pub(crate) fn get_data_dir() -> PathBuf {
     if let Some(s) = DATA_FOLDER.clone() {
         s
@@ -264,13 +277,6 @@ fn parse_key_code_with_modifiers(
     Ok(KeyEvent::new(c, modifiers))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "used by the help overlay (T50) and keymap docs (T51)"
-    )
-)]
 pub(crate) fn key_event_to_string(key_event: &KeyEvent) -> String {
     let char;
     let key_code = match key_event.code {

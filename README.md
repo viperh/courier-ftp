@@ -7,8 +7,8 @@ FileZilla client, built in Rust on [ratatui](https://ratatui.rs) and
 [tokio](https://tokio.rs).
 
 > **Status: early development.** The foundation is being built (milestone M1 in
-> [`tasks/`](tasks/README.md)): the domain model, settings, event bus, filters
-> and the `Backend` trait exist. There is no usable client yet: no connections,
+> [`tasks/`](tasks/README.md)): the domain model, settings, event bus, filters,
+> the `Backend` trait, the local filesystem backend and the main screen exist. There is no usable client yet: no connections,
 > no transfers.
 
 ## What it will do
@@ -69,7 +69,9 @@ cargo run -p courier-ftp -- --version     # prints git info and the resolved dir
 cargo run -p courier-ftp --no-default-features   # local-only build, without sync
 ```
 
-`Ctrl-q` quits and `Ctrl-z` suspends.
+`F1` lists the keys. `Tab` switches between the local and remote pane, `Ctrl-l`,
+`Ctrl-j` and `Ctrl-e` toggle the log, queue and directory trees, `Ctrl-q` or
+`F10` quits and `Ctrl-z` suspends. The full keymap arrives with T51.
 
 ## Configuration
 

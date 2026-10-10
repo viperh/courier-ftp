@@ -1,0 +1,24 @@
+---
+source: crates/courier-ftp/src/ui/tests.rs
+expression: t.backend()
+---
+"Small terminal: one pane at a time, Tab switches            "
+"┌ Local:  ─────────────────────────────────────────────────┐"
+"│..                                                        │"
+"│assets/                                                   │"
+"│index.html                                                │"
+"│style.css                                                 │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"│                                                          │"
+"└──────────────────────────────────────────────────────────┘"
+" Queue: empty   F1 help  Tab switch pane  Ctrl-q quit       "

@@ -27,3 +27,7 @@ the section matching the tag.
   in-memory mock backend for tests (T03).
 - Local filesystem backend with Windows drive/UNC path mapping, a file name
   sanitizer and a backend conformance suite (T06).
+- Main screen (T50): Classic, Explorer and Widescreen layouts, a single-pane
+  mode for small terminals, focus handling, a modal stack with a help overlay
+  generated from the keymap, `NO_COLOR` support; the local pane lists the home
+  directory in the background.
