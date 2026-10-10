@@ -621,6 +621,12 @@ impl App {
         .map_err(|e| e.to_string())?
     }
 
+    /// Whether a debounced settings save is still waiting or writing (tests).
+    #[cfg(test)]
+    pub(crate) fn save_pending(&self) -> bool {
+        self.save_task.is_some()
+    }
+
     /// Saves the settings 1 s after the last change (each change restarts the wait).
     fn schedule_save(&mut self) {
         if let Some(id) = self.save_task.take() {

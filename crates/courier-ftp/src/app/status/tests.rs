@@ -74,7 +74,7 @@ fn cycle_transfer_type_order_and_persist() {
     );
     assert!(last_row(&h.render(80, 24)).contains("Type: Binary"));
     // The debounced save writes the user config.
-    h.advance(Duration::from_secs(2));
+    h.advance(Duration::from_secs(2)).wait_saved();
     let paths = h.paths().unwrap();
     let saved = Config::new(&paths).unwrap();
     assert_eq!(
@@ -102,7 +102,7 @@ fn toggle_speed_limit_refused_without_limits() {
         .set_transient(|s| s.transfers.upload_limit_kib = 64);
     h.action(Action::ToggleSpeedLimit);
     assert!(h.app().settings.current().transfers.speed_limit_enabled);
-    h.advance(Duration::from_secs(2));
+    h.advance(Duration::from_secs(2)).wait_saved();
     let saved = Config::new(&h.paths().unwrap()).unwrap();
     assert!(saved.settings.transfers.speed_limit_enabled);
     assert_eq!(saved.settings.transfers.upload_limit_kib, 64);
