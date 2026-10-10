@@ -318,21 +318,21 @@ transient, so `SessionHandle` (T03) does not reconnect.
 
 ## Acceptance criteria
 
-- [ ] AC1 `decide` returns the documented decision for every row of the decision table and for the precedence cases (store vs OpenSSH conflict, session trust vs changed store entry, revoked vs stored).
-- [ ] AC2 Unknown key: exactly one `TrustHostKey` prompt; `AlwaysTrust` with a persistent store adds one entry (replacing nothing); a second connection with a new `SessionTrust` connects without a prompt.
-- [ ] AC3 `TrustOnce`: no store write; further connections in the same process (same `SessionTrust`) don't prompt; with a fresh `SessionTrust` the prompt appears again.
-- [ ] AC4 Changed key: the prompt carries `changed = Some(old)` with the old SHA-256 fingerprints and their source; `Reject` fails the connect with `Error::HostKey`; `AlwaysTrust` replaces the old same-type entry (store contains only the new key afterwards).
-- [ ] AC5 OpenSSH files: plain, hashed (`|1|…`), `[host]:2222`, wildcard and `!negated` patterns match exactly as `ssh-keygen -F` would (fixture file); comments, blank and malformed lines are skipped with warnings.
-- [ ] AC6 A key listed `@revoked` is rejected with no prompt, even when the store trusts it.
-- [ ] AC7 `can_save` is false with `MemoryHostKeyStore::new()`; an `AlwaysTrust` answer then writes nothing and behaves like `TrustOnce`.
-- [ ] AC8 Four concurrent connects to the same unknown key produce exactly one prompt and all four succeed after `TrustOnce` (all four fail after `Reject`).
-- [ ] AC9 With an ECDSA key stored, a server holding ed25519 and ECDSA host keys presents ECDSA and connects without a prompt.
-- [ ] AC10 OpenSSH files are never modified (test asserts unchanged content and mtime after accept/reject flows); with `sftp.use_openssh_known_hosts = false` they are not read.
-- [ ] AC11 MD5 and SHA-256 fingerprints of the fixture keys equal the `ssh-keygen -l` / `-E md5` output recorded in the fixtures.
-- [ ] AC12 `list`/`remove` work on the memory store; removing a key clears `SessionTrust` so the next connect prompts again.
-- [ ] AC13 The known_hosts parser never panics on arbitrary input (proptest, 10 000 cases; body shared with the `known_hosts_parse` fuzz target) and skips files > 4 MiB.
+- [x] AC1 `decide` returns the documented decision for every row of the decision table and for the precedence cases (store vs OpenSSH conflict, session trust vs changed store entry, revoked vs stored).
+- [x] AC2 Unknown key: exactly one `TrustHostKey` prompt; `AlwaysTrust` with a persistent store adds one entry (replacing nothing); a second connection with a new `SessionTrust` connects without a prompt.
+- [x] AC3 `TrustOnce`: no store write; further connections in the same process (same `SessionTrust`) don't prompt; with a fresh `SessionTrust` the prompt appears again.
+- [x] AC4 Changed key: the prompt carries `changed = Some(old)` with the old SHA-256 fingerprints and their source; `Reject` fails the connect with `Error::HostKey`; `AlwaysTrust` replaces the old same-type entry (store contains only the new key afterwards).
+- [x] AC5 OpenSSH files: plain, hashed (`|1|…`), `[host]:2222`, wildcard and `!negated` patterns match exactly as `ssh-keygen -F` would (fixture file); comments, blank and malformed lines are skipped with warnings.
+- [x] AC6 A key listed `@revoked` is rejected with no prompt, even when the store trusts it.
+- [x] AC7 `can_save` is false with `MemoryHostKeyStore::new()`; an `AlwaysTrust` answer then writes nothing and behaves like `TrustOnce`.
+- [x] AC8 Four concurrent connects to the same unknown key produce exactly one prompt and all four succeed after `TrustOnce` (all four fail after `Reject`).
+- [x] AC9 With an ECDSA key stored, a server holding ed25519 and ECDSA host keys presents ECDSA and connects without a prompt.
+- [x] AC10 OpenSSH files are never modified (test asserts unchanged content and mtime after accept/reject flows); with `sftp.use_openssh_known_hosts = false` they are not read.
+- [x] AC11 MD5 and SHA-256 fingerprints of the fixture keys equal the `ssh-keygen -l` / `-E md5` output recorded in the fixtures.
+- [x] AC12 `list`/`remove` work on the memory store; removing a key clears `SessionTrust` so the next connect prompts again.
+- [x] AC13 The known_hosts parser never panics on arbitrary input (proptest, 10 000 cases; body shared with the `known_hosts_parse` fuzz target) and skips files > 4 MiB.
 - [ ] AC14 e2e: first connect to the `password` profile prompts; after `sverb-regen-hostkeys`-style regeneration (T76 fixture) the next connect shows the changed-key prompt and is rejected when answered `Reject`.
-- [ ] AC15 T00 gates (`fmt`, `clippy -D warnings`, `docs`, tests) pass for both crates.
+- [x] AC15 T00 gates (`fmt`, `clippy -D warnings`, `docs`, tests) pass for both crates.
 
 ## Tests
 
@@ -395,3 +395,49 @@ and a scripted prompt responder on the `EventReceiver`:
    vault (so they sync to devices without OpenSSH)? Not done in v1.
 2. Should "Always trust" be pre-checked in the prompt (T69 currently pre-checks it when
    the vault is unlocked, as in FileZilla's dialog sketch in the original task)?
+
+## Implementation notes
+
+- **Layout.** Core: `trust.rs` (re-exports) + `trust/host_keys.rs` (`KnownHostId`,
+  `KnownHost`, `HostKeyStore`, `MemoryHostKeyStore`, `SwitchableHostKeyStore`,
+  `SessionTrust`, `normalize_host`) + `trust/tests.rs`; T12 adds `CertTrustStore` next to
+  it. proto-sftp: `known_hosts/{mod,parse,hashed,lookup,fingerprint,openssh}.rs` (+
+  `tests.rs`, `props.rs`), `verify/{mod,tests}.rs` (`decide`, `DecisionInput`,
+  `Decision`, `AcceptedBy`, `TrustVerifier`, reason constants `REJECTED_UNKNOWN`,
+  `REJECTED_CHANGED`, `CANCELLED`), `tests/host_keys.rs`; e2e
+  `crates/courier-ftp-e2e/tests/ssh_host_keys.rs`; fuzz target
+  `fuzz/fuzz_targets/known_hosts_parse.rs` (body `known_hosts::fuzz_known_hosts_parse`,
+  shared with `known_hosts::props::parse_never_panics`); fixtures in
+  `tests/fixtures/known_hosts/` (the seed-corpus path `fuzz/seed-corpus.sh` already used).
+- **Extra public API:** `KnownHostId::new_v7()`, `MemoryHostKeyStore::with_entries`,
+  `OpenSshKnownHosts::{from_settings(&SftpSettings), paths, take_notices}` (T58 builds the
+  reader with `from_settings`), `known_hosts::openssh::{default_paths, MAX_FILE_BYTES,
+  MAX_FILE_LINES}`, `known_hosts::{key_blob, pattern_list_matches, hashed::hash_with_salt}`,
+  `TrustVerifier::{store, session_trust}`. `ssh::testing::TestServerConfig` gained
+  `host_keys: Vec<PrivateKey>` (empty = the fixed Ed25519 key) and `TestServer::host_keys()`.
+- **Core change:** `OldKey` / `OldKeySource` (T04) now also derive `Eq` (needed by
+  `Decision: Eq`). `courier-ftp-core` depends on `sha2` (for
+  `KnownHost::fingerprint_sha256`), proto-sftp on `subtle` and `time` (all already in the
+  lock file; no new crates, `cargo vet --locked` and `cargo deny` pass).
+- **OpenSSH notices.** `OpenSshKnownHosts` has no event sender, so the one-per-process
+  "file too large" warning is queued and logged by `TrustVerifier::verify` as a `Status`
+  line `Warning: <path> is larger than 4 MiB or 100000 lines and was skipped`. On Unix the
+  home directory comes from `$HOME` (no `$HOME` → only the `/etc/ssh` files).
+- **Decide details.** A presented blob that is not base64 → `Reject("The server's host key
+  could not be read")` (cannot happen with T20's `ServerKey`). Row 1 compares blobs only
+  (a revoked line of any key type). Session log for an accepted key says `(vault)` for
+  every store, the memory store included.
+- **In-flight dedupe** uses a `watch` channel per `(host, port, fingerprint)`; the asker
+  holds a guard whose `Drop` sends "retry" — the handshake drops the verify future when the
+  connect token fires, so waiters are woken either way. A new asker first re-checks
+  `SessionTrust` (a connection that decided just before another one's acceptance does not
+  ask again).
+- **AC5/AC11 provenance.** No `ssh-keygen` is available here: the SHA-256 fingerprints are
+  sverb's recorded `ssh-keygen -l` output; the MD5 lines in `fingerprints.txt` were computed
+  with Python `hashlib` over the blob (the same definition as `ssh-keygen -E md5`); the
+  expected matches in `matching_fixture_like_ssh_keygen_f` follow OpenSSH's matching rules
+  (hashed, `[host]:port`, `*`/`?`, `!negation`) but were not cross-checked with
+  `ssh-keygen -F`.
+- **Not done here:** Docker is unavailable, so the e2e tests (`e2e_unknown_host_key_prompt_then_trusted`,
+  `e2e_changed_host_key_blocked`) compile and skip but were never run; AC14 stays unticked
+  until CI's e2e job passes. T76's `TestHome::trust_host_key` still needs T30's vault store.

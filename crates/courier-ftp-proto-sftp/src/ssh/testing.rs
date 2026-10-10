@@ -77,6 +77,9 @@ pub struct TestServerConfig {
     pub preferred: Option<Preferred>,
     /// Each `password` request is answered after this delay.
     pub auth_delay: Duration,
+    /// The host keys (T21: several types, or another key for a "changed key").
+    /// Empty: the fixed Ed25519 [`host_key`].
+    pub host_keys: Vec<PrivateKey>,
 }
 
 impl Default for TestServerConfig {
@@ -93,6 +96,7 @@ impl Default for TestServerConfig {
             disconnect_after_none: None,
             preferred: None,
             auth_delay: Duration::ZERO,
+            host_keys: Vec::new(),
         }
     }
 }
@@ -320,7 +324,7 @@ pub struct TestServer {
     task: JoinHandle<()>,
     connections: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
     handles: Arc<Mutex<Vec<server::Handle>>>,
-    host_key: PublicKey,
+    host_keys: Vec<PublicKey>,
 }
 
 impl Drop for TestServer {
@@ -344,10 +348,14 @@ impl TestServer {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let seen = Arc::new(Mutex::new(Seen::default()));
-        let key = host_key();
-        let host_key = key.public_key().clone();
+        let keys = if config.host_keys.is_empty() {
+            vec![host_key()]
+        } else {
+            config.host_keys.clone()
+        };
+        let host_keys: Vec<PublicKey> = keys.iter().map(|k| k.public_key().clone()).collect();
         let server_config = Arc::new(server::Config {
-            keys: vec![key],
+            keys,
             preferred: config.preferred.clone().unwrap_or_default(),
             methods: method_set(&config.methods),
             max_auth_attempts: config.max_auth_attempts,
@@ -413,7 +421,7 @@ impl TestServer {
             task,
             connections,
             handles,
-            host_key,
+            host_keys,
         }
     }
 
@@ -441,9 +449,14 @@ impl TestServer {
         self.addr.port()
     }
 
-    /// The server's host key.
+    /// The server's (first) host key.
     pub fn host_key(&self) -> &PublicKey {
-        &self.host_key
+        &self.host_keys[0]
+    }
+
+    /// Every host key the server holds.
+    pub fn host_keys(&self) -> &[PublicKey] {
+        &self.host_keys
     }
 
     /// The authentication requests seen so far.
