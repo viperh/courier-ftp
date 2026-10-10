@@ -47,5 +47,7 @@ vt100 = { workspace = true }
 cargo_metadata = { workspace = true }
 courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
 proptest = { workspace = true }
+# Parses the fixture keys exactly like the client (T20).
+ssh-key = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 toml = { workspace = true }

@@ -1,0 +1,8 @@
+#!/bin/bash
+# Replace every host key, then SIGHUP sshd (PID 1) so it re-executes with them
+# (`Sshd::regenerate_host_key`, changed-key tests).
+set -euo pipefail
+rm -f /etc/ssh/ssh_host_*
+ssh-keygen -A >&2
+/usr/sbin/sshd -t
+kill -HUP 1
