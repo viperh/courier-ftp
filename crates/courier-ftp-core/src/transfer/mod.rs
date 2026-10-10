@@ -104,7 +104,9 @@
 //!
 //! - **T42**: [`ExistsPolicy`] (with [`ExistsContext`] / [`ExistsDecision`]).
 //! - **T43**: [`DirExpander`]: directory placeholders take a slot, get
-//!   listed, and are replaced by their children.
+//!   listed, and are replaced by their children. Implemented by
+//!   [`recursive::RecursiveExpander`]; [`recursive`] also has the walker and
+//!   recursive delete/chmod.
 //! - **T44**: [`RateLimiter`] (`acquire`, `chunk_size`, `settings_changed`).
 //! - **T45**: `QueueFinished { stats }`.
 //! - **T41b**: the pool and the worker are the places to add warm-up and
@@ -114,6 +116,7 @@
 mod engine;
 mod hooks;
 mod progress;
+pub mod recursive;
 mod worker;
 
 #[cfg(test)]

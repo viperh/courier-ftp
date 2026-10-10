@@ -24,12 +24,20 @@ chmod — lazily, cancellably, with filters applied.
 
 ## Acceptance criteria
 
-- [ ] 100 000-file tree (mock backend) expands without exceeding a bounded memory budget (count live entries in test).
-- [ ] Symlink loop doesn't hang with `follow_symlinks = true`.
-- [ ] Delete removes everything bottom-up; partial failure reports which entries remain.
-- [ ] Chmod tri-state masks computed correctly.
-- [ ] Filters prevent queuing excluded entries.
+- [x] 100 000-file tree (mock backend) expands without exceeding a bounded memory budget (count live entries in test).
+- [x] Symlink loop doesn't hang with `follow_symlinks = true`.
+- [x] Delete removes everything bottom-up; partial failure reports which entries remain.
+- [x] Chmod tri-state masks computed correctly.
+- [x] Filters prevent queuing excluded entries.
 
 ## Tests
 
 - Mock backend trees; local backend in temp dir with symlink loops (Unix only).
+
+## Status
+
+Implemented in `courier_ftp_core::transfer::recursive` (`Walker`, `RecursiveExpander`,
+`dir_placeholder`, `delete_recursive`, `chmod_recursive`, `ChmodSpec`), plus
+`CoreEvent::RecursiveProgress`. The confirmation dialogs, the chmod dialog and the
+status-bar display of the progress event are T62's (and T57's). Docker e2e tests
+against real servers are not part of this task.
