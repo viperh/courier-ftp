@@ -4,8 +4,8 @@ expression: "hs.render(w, h)"
 ---
  Quickconnect (not available yet)                                                                                                                               
  1 Local                                                                                                                                                        
-┌ Message log ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│(not available yet)                                                                                                                                           │
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                                                              │
 │                                                                                                                                                              │
 │       ┌ Raw directory listing ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐       │
 │       │ drwxr-xr-x  2 www www 4096 May  2 10:02 dir2                                                                                                 │       │
@@ -13,7 +13,7 @@ expression: "hs.render(w, h)"
 │       │ drwxr-xr-x  2 www www 4096 May  2 10:04 dir4                                                                                                 │       │
 └───────│ drwxr-xr-x  2 www www 4096 May  2 10:05 dir5                                                                                                 │───────┘
 ┏▶Local │ drwxr-xr-x  2 www www 4096 May  2 10:06 dir6                                                                                                 │───────┐
-┃(not av│ drwxr-xr-x  2 www www 4096 May  2 10:07 dir7                                                                                                 │       │
+┃       │ drwxr-xr-x  2 www www 4096 May  2 10:07 dir7                                                                                                 │       │
 ┃       │ drwxr-xr-x  2 www www 4096 May  2 10:08 dir8                                                                                                 │       │
 ┃       │ drwxr-xr-x  2 www www 4096 May  2 10:09 dir9                                                                                                 │       │
 ┃       │ drwxr-xr-x  2 www www 4096 May  2 10:10 dir10                                                                                                │       │

@@ -26,6 +26,7 @@ use crate::{
             MainScreen, STATUS_MESSAGE_TTL, StatusInfo,
             layout::{Region, ScreenLayout},
         },
+        message_log::MessageLogPane,
         modal::ModalStack,
         which_key,
     },
@@ -37,6 +38,7 @@ use crate::{
     runtime::{Runner, TaskId, TaskOwner},
     tui::{Event, Tui},
     ui::{
+        clipboard::{Clipboard, ClipboardHandle},
         symbols::{Symbols, TermEnv},
         theme::Theme,
     },
@@ -164,6 +166,9 @@ pub(crate) struct App {
     pub(crate) main: MainScreen,
     pub(crate) modals: ModalStack,
     term_env: TermEnv,
+    /// The clipboard shared with components (T55 log, T62 Copy URL, T71 CopyLog).
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by T62 and T71"))]
+    clipboard: ClipboardHandle,
     theme: Theme,
     symbols: Symbols,
     action_tx: mpsc::UnboundedSender<Action>,
@@ -217,10 +222,13 @@ impl App {
             warn!("configuration problem: {p}");
         }
         let symbols = Symbols::resolve(interface.unicode_symbols, &term_env);
+        let clipboard = Clipboard::from_env(&term_env).into_handle();
+        let log = MessageLogPane::new(Arc::clone(&clipboard), &config.settings.logging);
         let pane_service = panes::pane_service(&settings, &events_tx);
         let mut app = Self {
             runner: Runner::new(action_tx.clone()),
-            main: MainScreen::new(&interface),
+            main: MainScreen::new(&interface, Box::new(log)),
+            clipboard,
             config,
             settings,
             tick_rate,
@@ -265,6 +273,12 @@ impl App {
     #[cfg_attr(not(test), allow(dead_code, reason = "used by tests and T53–T71"))]
     pub(crate) fn action_sender(&self) -> mpsc::UnboundedSender<Action> {
         self.action_tx.clone()
+    }
+
+    /// The shared clipboard.
+    #[cfg_attr(not(test), expect(dead_code, reason = "used by T62 and T71"))]
+    pub(crate) fn clipboard(&self) -> &ClipboardHandle {
+        &self.clipboard
     }
 
     /// Registers handlers and initialises every component.

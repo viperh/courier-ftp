@@ -353,7 +353,20 @@
     "file_list.cursor_inactive": "dim inverse",
     "file_list.header": "bold",
     "file_list.footer": "",
-    "file_list.error": "bold red"
+    "file_list.error": "bold red",
+    "log.status": "",
+    "log.warning": "yellow",
+    "log.command": "blue",
+    "log.response": "green",
+    "log.error": "bold red",
+    "log.trace": "gray",
+    "log.listing": "cyan",
+    "log.time": "dim",
+    "log.cursor": "bold underline",
+    "log.visual": "inverse",
+    "log.search_match": "inverse",
+    "log.border": "",
+    "log.border_focused": "bold yellow"
   },
   "settings": {
     "interface": {

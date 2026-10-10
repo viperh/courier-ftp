@@ -5,17 +5,17 @@ expression: screen
  Quickconnect (not available yet)                                               
  1 Local  ┌ Many fields ────────────────────────────────────────────┐           
 ┌ Message │  Field number 8  │ value 8                              ▲──────────┐
-│(not avai│  Field number 9  │ value 9                              │          │
+│         │  Field number 9  │ value 9                              │          │
 │         │  Field number 10 │ value 10                             │          │
 └─────────│  Field number 11 │ value 11                             │──────────┘
 ┏▶Local ━━│  Field number 12 │ value 12                             │──────────┐
-┃(not avai│  Field number 13 │ value 13                             │          │
+┃         │  Field number 13 │ value 13                             │          │
 ┃         │  Field number 14 │ value 14                             │          │
 ┃         │  Field number 15 │ value 15                             │          │
 ┃         │  Field number 16 │ value 16                             │          │
 ┃         │  Field number 17 │ value 17                             │          │
-┃         │  Field number 18 │ value 18                             │          │
-┃         │  Field number 19 │ value 19                             │          │
+┃         │  Field number 18 │ value 18                             │rver      │
+┃         │  Field number 19 │ value 19                             │ Quickcon…│
 ┃         │  Field number 20 │ value 20                             │          │
 ┃         │  Field number 21 │ value 21                             │          │
 ┃         │  Field number 22 │ value 22                             │          │

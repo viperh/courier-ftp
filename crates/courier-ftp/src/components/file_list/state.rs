@@ -8,7 +8,7 @@ use courier_ftp_core::{
     backend::Listing,
     filters::{FilterEngine, QuickFilter as GlobMatcher, Side as FilterSide},
     local::path_map::{from_native, to_native},
-    model::{Entry, LocalPath, RemotePath, ServerIdentity},
+    model::{Entry, EntryKind, LocalPath, RemotePath, ServerIdentity},
     settings::{Column, ColumnSpec, EnterOnFile, Settings, SortSpec},
 };
 use serde::{Deserialize, Serialize};
@@ -865,6 +865,8 @@ impl FileListState {
                     s.files += 1;
                     match e.size {
                         Some(b) => s.bytes = s.bytes.saturating_add(b),
+                        // A link has no size of its own.
+                        None if matches!(e.kind, EntryKind::Symlink { .. }) => {}
                         None => s.unknown_size = true,
                     }
                 }

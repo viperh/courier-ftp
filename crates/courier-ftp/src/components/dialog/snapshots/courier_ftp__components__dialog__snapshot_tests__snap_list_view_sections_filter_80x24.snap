@@ -4,18 +4,18 @@ expression: "hs.render(w, h)"
 ---
  Quickconnect (not available yet)                                               
  1 Local                                                                        
-┌ Message log ─────────────────────────────────────────────────────────────────┐
-│(not available yet)                                                           │
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┏▶Local ━━━━━━┌ Columns ────────────────────────────────────────┐──────────────┐
-┃(not availabl│ ▶Columns │ [x] Name                             │              │
+┃             │ ▶Columns │ [x] Name                             │              │
 ┃             │            [x] Name                             │              │
 ┃             │                                                 │              │
 ┃             │                                                 │              │
 ┃             │                                                 │              │
-┃             │                                                 │              │
-┃             │                                                 │              │
+┃             │                                                 │y server      │
+┃             │                                                 │rl-k Quickcon…│
 ┃             │            /me_                                 │              │
 ┃             │                                                 │              │
 ┃             │               [ OK ]  [ Cancel ]                │              │

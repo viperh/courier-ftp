@@ -4,18 +4,18 @@ expression: "hs.render(w, h)"
 ---
  Quickconnect (not available yet)                                               
  1 Local                                                                        
-┌ Message log ─────────────────────────────────────────────────────────────────┐
-│(not available yet)                                                           │
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ──────────────────────────────┐
-┃(not available yet)                   ┃│(not available yet)                   │
+┃                                      ┃│                                      │
 ┃                                      ┃│                                      │
 ┃                   ┌ Error: Transfer ─────────────────────┐                   │
 ┃                   │ 12 files were transferred.           │                   │
 ┃                   │ The queue is empty.                  │                   │
-┃                   │                                      │                   │
-┃                   │                [ OK ]                │                   │
+┃                   │                                      │to any server      │
+┃                   │                [ OK ]                │ · Ctrl-k Quickcon…│
 ┃                   └──────────────────────────────────────┘                   │
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │

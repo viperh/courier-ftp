@@ -145,7 +145,7 @@ fn centered(buf: &mut Buffer, area: Rect, lines: &[(String, Style)], ell: &str) 
 }
 
 /// The pane title: `Local` / `Remote · web01` (+ ` [filtered]`).
-pub(crate) fn pane_title(state: &FileListState) -> String {
+pub(crate) fn pane_title(state: &FileListState, symbols: &Symbols) -> String {
     let mut t = match state.id.side {
         Side::Local => "Local".to_owned(),
         Side::Remote => "Remote".to_owned(),
@@ -155,7 +155,7 @@ pub(crate) fn pane_title(state: &FileListState) -> String {
         &state.label,
         state.status != PaneStatus::NotConnected,
     ) {
-        t.push_str(" · ");
+        t.push_str(if symbols.unicode { " · " } else { " - " });
         t.push_str(&crate::ui::text::sanitize(label));
     }
     if state.is_filtered() {
@@ -183,7 +183,7 @@ pub(crate) fn draw(state: &FileListState, frame: &mut Frame, area: Rect, rcx: &R
         }
         return;
     }
-    let block = region_block(&pane_title(state), cx);
+    let block = region_block(&pane_title(state, symbols), cx);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let buf = frame.buffer_mut();
@@ -206,7 +206,11 @@ pub(crate) fn draw(state: &FileListState, frame: &mut Frame, area: Rect, rcx: &R
             &[
                 ("Not connected to any server".to_owned(), Style::default()),
                 (
-                    rcx.not_connected_hint.to_owned(),
+                    if symbols.unicode {
+                        rcx.not_connected_hint.to_owned()
+                    } else {
+                        rcx.not_connected_hint.replace('·', "-")
+                    },
                     theme.style("placeholder"),
                 ),
             ],

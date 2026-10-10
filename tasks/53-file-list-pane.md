@@ -552,19 +552,19 @@ No error panics or leaves the pane in an empty state when a previous listing exi
 
 ## Acceptance criteria
 
-- [ ] AC1 Snapshot tests at 80×24 and 160×48 exist and pass for: local listing, remote listing, marked rows, quick filter editing, filtered view, empty dir, error with and without previous listing, not connected, loading, and the 40×12 narrow pane.
-- [ ] AC2 `columns::fit` produces exactly the column sets in the table for inner widths 22, 23, 34, 35, 45, 46, 59, 60, 63, 64, 80, 81.
-- [ ] AC3 Natural sort orders `file2 < file10`, `a1 < a01 < a2`; case-insensitive by default; dirs first in both directions.
-- [ ] AC4 After `Parent`, the cursor is on the directory we came from; after `Back`, on the entry remembered for that directory.
-- [ ] AC5 A stale `ListingLoaded` (older `RequestId`) never replaces the current listing.
+- [x] AC1 Snapshot tests at 80×24 and 160×48 exist and pass for: local listing, remote listing, marked rows, quick filter editing, filtered view, empty dir, error with and without previous listing, not connected, loading, and the 40×12 narrow pane.
+- [x] AC2 `columns::fit` produces exactly the column sets in the table for inner widths 22, 23, 34, 35, 45, 46, 59, 60, 63, 64, 80, 81.
+- [x] AC3 Natural sort orders `file2 < file10`, `a1 < a01 < a2`; case-insensitive by default; dirs first in both directions.
+- [x] AC4 After `Parent`, the cursor is on the directory we came from; after `Back`, on the entry remembered for that directory.
+- [x] AC5 A stale `ListingLoaded` (older `RequestId`) never replaces the current listing.
 - [ ] AC6 Rendering a 100 000-entry listing formats only the visible rows (counter test) and the `file_list_render_100k` bench meets ≤ 5 ms p99 (bench gate).
-- [ ] AC7 View build for 100 000 entries runs off the UI thread and completes ≤ 80 ms (bench gate); the UI keeps handling keys meanwhile.
-- [ ] AC8 Names with ESC, control and bidi characters render as visible escapes; no raw control byte reaches the `TestBackend` buffer.
-- [ ] AC9 With `NO_COLOR` and ASCII symbols the marked, cursor, directory and link states are still distinguishable in the text snapshot (`*`, `/`, `->`) and every cell is ASCII.
-- [ ] AC10 A failed listing keeps the previous directory and shows the mapped error text.
-- [ ] AC11 Filters/quick filter that hide marked entries unmark them; footer counts match the view.
-- [ ] AC12 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check` and `cargo test --workspace` pass (T00 gates).
-- [ ] AC13 The pane reacts to exactly the T51 `FileList` keys: `.` toggles hidden files, `ctrl-d`/`ctrl-u` move half a page, `Q`/`shift-f5` request `QueueOnly`, `M`/`shift-f7` request `MkdirEnter`; `ctrl-h` does nothing.
+- [x] AC7 View build for 100 000 entries runs off the UI thread and completes ≤ 80 ms (bench gate); the UI keeps handling keys meanwhile.
+- [x] AC8 Names with ESC, control and bidi characters render as visible escapes; no raw control byte reaches the `TestBackend` buffer.
+- [x] AC9 With `NO_COLOR` and ASCII symbols the marked, cursor, directory and link states are still distinguishable in the text snapshot (`*`, `/`, `->`) and every cell is ASCII.
+- [x] AC10 A failed listing keeps the previous directory and shows the mapped error text.
+- [x] AC11 Filters/quick filter that hide marked entries unmark them; footer counts match the view.
+- [x] AC12 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check` and `cargo test --workspace` pass (T00 gates).
+- [x] AC13 The pane reacts to exactly the T51 `FileList` keys: `.` toggles hidden files, `ctrl-d`/`ctrl-u` move half a page, `Q`/`shift-f5` request `QueueOnly`, `M`/`shift-f7` request `MkdirEnter`; `ctrl-h` does nothing.
 
 ## Tests
 
@@ -621,3 +621,75 @@ the cursor cell is `REVERSED` and directories are bold.
 ## Open questions
 
 1. FileZilla offers three folder placements (first / inline / always on top); T05 has only `dirs_first: bool`. This task maps `true` to "always on top". Should the three-way option be added?
+
+## Implementation notes
+
+- **Files.** `components/file_list.rs` (the `FileListPane` component, keymap action →
+  `PaneCommand` table, `HANDLED` = `handled_actions()`) + `components/file_list/`
+  `{state,view,columns,format,render,natural,column_menu,service,tests,snapshot_tests}.rs`
+  (crate style `foo.rs` + `foo/`, not `mod.rs`). App side: `src/app/panes.rs`
+  (`App::handle_pane_request`, `App::route_pane_input`, `install_panes`, `start_panes`,
+  `PaneService` in `App.panes`). Bench `crates/courier-ftp/benches/file_list.rs`
+  (includes `view.rs`, `natural.rs`, `format.rs` by `#[path]`, like T55's bench).
+- **Public names for dependants:** `file_list::{FileListPane, FileListState, PaneId,
+  Side, PaneDir, PaneInput, PaneRequest, PaneCommand, FileOp, PaneStatus}`,
+  `state::{Selection, RequestId, InterfaceEdit, RowDecoration, RowStyleKey, ViewJob}`,
+  `service::{PaneService, RemoteSource, list_local, list_remote, list_through_cache}`,
+  `format::{capture_local_offset, local_offset}`. Actions: internal
+  `Action::Pane(PaneRequest)`, `Action::PaneInput(PaneId, PaneInput)`,
+  `Action::PaneSettings(PaneId, Arc<Settings>)`.
+- **Deviations from the type sketch (all additive):**
+  - `PaneRequest` has extra variants `BuildView { pane, generation, job }` (the
+    off-thread view build; the app runs `job.run()` on `spawn_blocking` and answers
+    `SortDone`), `PromptPattern { pane, mark }` (`+`/`-` → T52 `prompt_text`, answered
+    with `PaneInput::Pattern`), `ColumnMenu { pane, columns }` (answered with
+    `PaneInput::Columns`), `Settings(InterfaceEdit)` (the app applies it through
+    `change_interface`, which saves debounced and sends `PaneSettings` to the panes) and
+    `Notice { pane, text }`. `MirrorToOtherPane` also carries the pane's `dir`.
+  - `PaneInput` has extra variants `Navigate(PaneDir)` (start-up, T54/T64), `MirrorFrom`,
+    `Pattern`, `Columns`, `Notice`, `Reload` (relist through the cache, sent on a
+    matching `CoreEvent::ListingUpdated`); `Connected { server, label }` carries the
+    `ServerIdentity` (matched against `ListingUpdated`) and the title label;
+    `SortDone` also carries `filtered` (entries hidden by T47 filters, for
+    `is_filtered()`). `PaneCtx.filters` is `&Arc<FilterEngine>`.
+  - The address bar editor (`PathInput`) lives in the component (it needs the action
+    channel); the state has `address_editing: bool` and the commands
+    `AddressSubmit(String)` / `AddressCancel`. While editing the pane's key mode is
+    `Input` (`enter` → `InputSubmit`, `esc` → `InputCancel`); remote panes have no
+    completer yet (T13/T22).
+  - Marks are a small built-in bit set and the cursor memory a 256-entry LRU vector
+    (no `fixedbitset`/`lru` dependency added; same memory bounds).
+  - `columns::fit`: in compact mode (inner width < 60) Type is never shown; otherwise
+    at width 59 Type would just fit next to the compact date and contradict the
+    priority table (AC2).
+  - The Permissions column shows the 10-character `ls` form (`drwxr-xr-x`) as in the
+    mock-ups; links count as no unknown size in the footer total.
+  - Parent navigation puts the cursor on the directory we came from even when the
+    cursor memory has another entry for the parent.
+  - Quick filter keystrokes above 10 000 entries are not debounced: each keystroke
+    starts a new off-thread build and stale generations are dropped.
+  - Column menu: a T52 `ListView` with checkboxes and `K`/`J` in its own dialog
+    (`ColumnMenuDialog`); changes apply when it is confirmed (`enter`), not live.
+  - The narrow footer is `10 files, 4 dirs. 1.21 GiB` (table), the title separator is
+    `-` in ASCII mode, and the remote border accent (T31 `background_color`) is not
+    drawn yet (`SiteColor` does not exist).
+  - `Refresh` (`ctrl-r`) and `NewFile` are handled by the focused pane until T62 owns
+    them. File operations emit `PaneRequest::FileOp`; until T62/T63 the app shows
+    "<action> is not available yet".
+- **App wiring.** The local pane starts in the working directory (else home), listed
+  by `App::run` (`start_panes`); harness tests start with an empty local pane and
+  navigate explicitly. The remote pane is `NotConnected` until T58/T61 put a
+  `RemoteSource` into `App.panes.remote` and send `PaneInput::Connected`; remote
+  listings then go through `ListingCache` (`PreferCache`, `Refresh` with `force`), a
+  stale hit is revalidated in the background. `main` captures the local UTC offset
+  before the runtime starts (next to T55's). T50's `MainScreen::set_component` lost its
+  `dead_code` expectation; `Action::Wake` now also reaches the focused component
+  (address bar completion). T51's `unimplemented_action_shows_not_available` uses
+  `ctrl-s` instead of `s n` (now handled), and T51's PTY test uses `ctrl-x d` instead
+  of `g g`/`G`.
+- **Performance.** `render_formats_only_visible_rows` counts formatted rows (≤ 46 at
+  160×48 with 100 000 entries). Bench `file_list/file_list_view_build_100k` with its
+  gate (80 ms, CI 160 ms). `file_list_render_100k` is an ignored timing test
+  (`cargo test --release -p courier-ftp -- --ignored file_list_`), not a criterion
+  bench: the renderer needs the theme/config modules of the binary.
+- **E2E.** `crates/courier-ftp-e2e/tests/pty_file_list.rs::browse_local_dir_and_sort`.

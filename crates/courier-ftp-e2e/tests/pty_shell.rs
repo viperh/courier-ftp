@@ -29,8 +29,7 @@ fn e2e_pty_starts_and_quits() {
     let home = TestHome::new().unwrap();
     let mut app = launch(&home);
     assert!(app.alternate_screen());
-    app.send_keys("ctrl-q").unwrap();
-    let status = app.wait_exit().unwrap();
+    let status = app.quit().unwrap();
     assert!(status.success(), "{status:?}");
     assert!(!app.alternate_screen(), "the alternate screen was not left");
     let raw = String::from_utf8_lossy(app.raw_output());
@@ -59,8 +58,7 @@ fn e2e_pty_resize_to_compact_and_back() {
             && s.contains("Queue")
     })
     .unwrap();
-    app.send_keys("ctrl-q").unwrap();
-    assert!(app.wait_exit().unwrap().success());
+    assert!(app.quit().unwrap().success());
 }
 
 /// Send `first`, wait like a slow typist, then `second` (one two-key sequence).
@@ -77,11 +75,10 @@ fn e2e_pty_sequences_and_fkeys() {
     let home = TestHome::new().unwrap();
     let mut app = launch(&home);
 
-    // `g g` (Top) and `G` (Bottom) reach the file list (T53 implements them).
-    slow_sequence(&mut app, "g", "g");
-    app.wait_for_text("First row is not available yet").unwrap();
-    app.send_keys("G").unwrap();
-    app.wait_for_text("Last row is not available yet").unwrap();
+    // A two-key sequence typed slowly reaches its action (T61 implements it).
+    slow_sequence(&mut app, "ctrl-x", "d");
+    app.wait_for_text("Disconnect the current tab is not available yet")
+        .unwrap();
 
     // `tab` moves the focus to the other side.
     app.send_keys("tab").unwrap();
@@ -98,8 +95,7 @@ fn e2e_pty_sequences_and_fkeys() {
 
     // `ctrl-x l` (ClearLog, T55) and `ctrl-x j` (toggle the queue pane).
     slow_sequence(&mut app, "ctrl-x", "l");
-    app.wait_for_text("Clear the message log of the current scope is not available yet")
-        .unwrap();
+    app.wait_for_text("Log cleared").unwrap();
     assert!(app.screen().contains("Queue"));
     slow_sequence(&mut app, "ctrl-x", "j");
     app.wait_for_screen("the queue pane to hide", |s| !s.contains("Queue"))
@@ -107,6 +103,5 @@ fn e2e_pty_sequences_and_fkeys() {
     slow_sequence(&mut app, "ctrl-x", "j");
     app.wait_for_text("Queue").unwrap();
 
-    app.send_keys("ctrl-q").unwrap();
-    assert!(app.wait_exit().unwrap().success());
+    assert!(app.quit().unwrap().success());
 }

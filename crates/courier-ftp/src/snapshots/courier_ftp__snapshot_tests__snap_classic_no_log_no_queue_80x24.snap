@@ -5,7 +5,6 @@ expression: "h.render(80, 24)"
  Quickconnect (not available yet)                                               
  1 Local                                                                        
 ┏▶Local ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌ Remote ──────────────────────────────┐
-┃(not available yet)                   ┃│(not available yet)                   │
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │
@@ -15,7 +14,8 @@ expression: "h.render(80, 24)"
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │
-┃                                      ┃│                                      │
+┃                                      ┃│     Not connected to any server      │
+┃                                      ┃│Ctrl-s Site Manager · Ctrl-k Quickcon…│
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │
 ┃                                      ┃│                                      │

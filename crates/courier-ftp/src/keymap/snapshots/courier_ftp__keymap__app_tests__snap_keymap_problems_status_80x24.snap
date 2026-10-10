@@ -5,17 +5,17 @@ expression: "h.render(80, 24)"
  Quickconnect (not available yet)                                               
  1 Local                                                                        
 ┌ Me┌ 2 configuration problems ────────────────────────────────────────────┐───┐
-│(no│ keybindings.FileList."ctrl-foo": invalid key: unknown key name "foo" │   │
+│   │ keybindings.FileList."ctrl-foo": invalid key: unknown key name "foo" │   │
 │   │ keybindings.FileList."x": unknown action "Remove" (see docs/keybindi │   │
 └───│                                                                      │───┘
 ┏▶Lo│                                                                      │───┐
-┃(no│                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
+┃   │                                                                      │on…│
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │
 ┃   │                                                                      │   │

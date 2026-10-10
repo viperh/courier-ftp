@@ -480,7 +480,38 @@ impl PtyApp {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|e| E2eError::new(format!("resize: {e}")))
+            .map_err(|e| E2eError::new(format!("resize: {e}")))?;
+        // Let the app handle SIGWINCH before the next key: crossterm 0.29 drops an input
+        // notification that arrives in the same epoll batch as the signal.
+        let until = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < until {
+            self.pump(READ_EVERY);
+        }
+        Ok(())
+    }
+
+    /// Press `ctrl-q` and wait for the app to exit, pressing it again every 2 s (up to
+    /// 5 times). A repeated key also wakes crossterm if it missed the first one (see
+    /// [`PtyApp::resize`]); with nothing blocking, extra Quit actions are harmless.
+    ///
+    /// # Errors
+    /// Sending failed, or the app did not exit within the timeout (it is killed).
+    pub fn quit(&mut self) -> std::result::Result<ExitStatus, WaitError> {
+        for _ in 0..5 {
+            self.send_keys("ctrl-q").map_err(|e| WaitError {
+                what: "pressing ctrl-q".into(),
+                waited: Duration::ZERO,
+                last: e.to_string(),
+            })?;
+            let until = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < until {
+                self.pump(READ_EVERY);
+                if self.poll_exit().is_some() {
+                    return self.wait_exit();
+                }
+            }
+        }
+        self.wait_exit()
     }
 
     /// Wait for the unlock screen (T60), type [`MASTER_PASSWORD`] and Enter, and wait

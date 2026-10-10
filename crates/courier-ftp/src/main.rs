@@ -35,13 +35,17 @@ mod tui;
 mod ui;
 
 fn main() -> color_eyre::Result<()> {
-    // Before the runtime spawns threads: the `time` crate refuses afterwards (T53).
+    // `time` reads the local UTC offset only while the process is single-threaded,
+    // so before the runtime starts (message log timestamps, T55).
+    crate::components::message_log::init_local_offset();
     crate::components::file_list::format::capture_local_offset();
-    run()
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async_main())
 }
 
-#[tokio::main]
-async fn run() -> color_eyre::Result<()> {
+async fn async_main() -> color_eyre::Result<()> {
     crate::errors::init()?;
 
     // Resolved before argument parsing: `--version` prints the directories. On

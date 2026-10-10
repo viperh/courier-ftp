@@ -38,6 +38,12 @@ async fn http_proxy(
             }
             if tunnel {
                 echo(s).await;
+            } else {
+                // Close gracefully: closing with unread client bytes (e.g. the tunneled GET)
+                // sends RST, and Windows then drops the response the client hasn't read.
+                let _ = s.shutdown().await;
+                let mut sink = [0u8; 1024];
+                while matches!(s.read(&mut sink).await, Ok(n) if n > 0) {}
             }
         }
     })

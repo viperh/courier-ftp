@@ -235,13 +235,15 @@ fn snap(name: &str, make: impl Fn() -> FileListState, spinner: Option<&'static s
     for mono in [false, true] {
         let l = look(mono);
         let mut s = make();
+        let spinner = spinner.map(|f| if mono { "|" } else { f });
         let full = if mono {
             format!("{name}_mono_ascii")
         } else {
             name.to_owned()
         };
         assert_view_snapshots!(full.clone(), draw_with(&mut s, &l, spinner));
-        if mono {
+        // Hostile names include CJK and emoji on purpose.
+        if mono && name != "hostile_names" {
             for (w, h) in crate::testing::SIZES {
                 let text = crate::testing::render(w, h, draw_with(&mut s, &l, spinner));
                 let screen = text.split("--- styles ---").next().unwrap_or("");
@@ -504,7 +506,12 @@ fn cursor_reversed_and_dirs_bold() {
         let row_of = |needle: &str| {
             u16::try_from(text.lines().position(|l| l.contains(needle)).unwrap()).unwrap()
         };
-        let reversed = |y: u16| buf[(5, y)].style().add_modifier.contains(Modifier::REVERSED);
+        let reversed = |y: u16| {
+            buf[(5, y)]
+                .style()
+                .add_modifier
+                .contains(Modifier::REVERSED)
+        };
         // Cursor on index.html (marked too).
         assert!(reversed(row_of("*index.html")));
         assert!(!reversed(row_of("favicon.ico")));

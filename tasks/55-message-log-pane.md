@@ -429,15 +429,15 @@ status, never the text); nothing is logged at `info`+. Events for unknown sessio
 
 ## Acceptance criteria
 
-- [ ] AC1 Snapshot tests at 80×24 and 160×48 for: every `LogKind` prefix, wrapped lines, All view with tags, scrolled up with `▼ N new`, search active, kind filter `errors only`, no-wrap with horizontal scroll, empty log, and the narrow width rules (widths 40, 55, 65).
-- [ ] AC2 Style test: each `LogKind` row uses its style key; with `NO_COLOR` the error row is bold and trace dim, and no cell has a colour.
-- [ ] AC3 A ring never holds more than `logging.pane_max_lines` lines and no stored line exceeds 4 096 characters plus suffix (unit + property test).
-- [ ] AC4 Follow mode keeps the newest line visible; scrolling up stops following, counts unseen lines, and `G` resumes.
-- [ ] AC5 Search finds matches with smart case; `n`/`N` move older/newer and wrap.
-- [ ] AC6 `y` emits a correct OSC 52 sequence (`ESC ] 52 ; c ; <base64> BEL`) for one line and for a visual range; text over 76 800 bytes is cut at a char boundary (payload ≤ 100 KiB) with the "cut" message; over SSH only OSC 52 is used; with a local tool and oversize text, OSC 52 is skipped and the tool gets the full text.
-- [ ] AC7 Messages from a transfer session of the same server appear in that tab's view; unrelated sessions appear in All and the active tab.
-- [ ] AC8 Every stored line passes through T50's `sanitize`: no stored or drawn line contains C0/C1/DEL/bidi characters for any server input (property test over `LogStore::push`).
-- [ ] AC9 Benchmarks meet: push ≥ 200 000 lines/s, full-ring render ≤ 1 ms median (bench gates, T00 §4).
+- [x] AC1 Snapshot tests at 80×24 and 160×48 for: every `LogKind` prefix, wrapped lines, All view with tags, scrolled up with `▼ N new`, search active, kind filter `errors only`, no-wrap with horizontal scroll, empty log, and the narrow width rules (widths 40, 55, 65).
+- [x] AC2 Style test: each `LogKind` row uses its style key; with `NO_COLOR` the error row is bold and trace dim, and no cell has a colour.
+- [x] AC3 A ring never holds more than `logging.pane_max_lines` lines and no stored line exceeds 4 096 characters plus suffix (unit + property test).
+- [x] AC4 Follow mode keeps the newest line visible; scrolling up stops following, counts unseen lines, and `G` resumes.
+- [x] AC5 Search finds matches with smart case; `n`/`N` move older/newer and wrap.
+- [x] AC6 `y` emits a correct OSC 52 sequence (`ESC ] 52 ; c ; <base64> BEL`) for one line and for a visual range; text over 76 800 bytes is cut at a char boundary (payload ≤ 100 KiB) with the "cut" message; over SSH only OSC 52 is used; with a local tool and oversize text, OSC 52 is skipped and the tool gets the full text.
+- [x] AC7 Messages from a transfer session of the same server appear in that tab's view; unrelated sessions appear in All and the active tab.
+- [x] AC8 Every stored line passes through T50's `sanitize`: no stored or drawn line contains C0/C1/DEL/bidi characters for any server input (property test over `LogStore::push`).
+- [x] AC9 Benchmarks meet: push ≥ 200 000 lines/s, full-ring render ≤ 1 ms median (bench gates, T00 §4).
 - [ ] AC10 CI gates `fmt`, `clippy`, `test-local-only`, `test-os` pass.
 
 ## Tests
@@ -489,3 +489,62 @@ status, never the text); nothing is logged at `info`+. Events for unknown sessio
 None. (Resolved: transfer-session lines are routed by server identity; this task owns
 `ui::clipboard` with OSC 52 + platform tools and no `arboard`, T62 uses it; T50 owns
 `sanitize`, `Symbols` and `TabId`.)
+
+## Implementation notes
+
+- **Files.** `ui/clipboard.rs` (clipboard), `components/message_log.rs` (the pane,
+  `LogViewState`, `LogSearch`), `components/message_log/store.rs` (`LogStore`,
+  `LogLine`, `LineOrigin`, `LogScope`, `ServerKey`, `MAX_LINE_CHARS`),
+  `components/message_log/render.rs` (`Columns`, `KindFilter`, `LogStyles`, `Matcher`,
+  the anchor-based `render_body`), tests in `message_log/{tests,snapshot_tests}.rs`.
+  `tabs::TabRoute` is in `tabs.rs`. `store.rs` and `render.rs` depend only on
+  `crate::tabs`, `crate::ui::text` and external crates because
+  `benches/message_log.rs` includes them with `#[path]` (`courier-ftp` is a binary
+  crate, a bench cannot import its modules). Keep it that way.
+- **Store ownership.** The `LogStore` is owned by `MessageLogPane` (not by `App`):
+  components are `Box<dyn Component>` and receive core events themselves, so the pane
+  is the natural owner. Accessors: `MessageLogPane::store()`/`store_mut()`/
+  `set_active_tab(TabId)` (T61 calls it on tab switch; lines of unknown sessions go to
+  the active tab's ring). `MainScreen::new` now takes the log component.
+- **`LogStore::push` returns the scopes** that received the line (used for the unseen
+  counters); the spec's signature returned `()`.
+- **Transfer tag.** Besides `on_connected`/`on_disconnected`, the store tracks
+  `SessionOpened`/`SessionClosed` (`on_session_opened`/`on_session_closed`): a session
+  opened for a non-browse purpose gets `[T]` even before its `Connected` event (its
+  "Connecting to …" lines arrive first). The All view's tab number is `TabId.0 + 1`;
+  tabs ≥ 10 show `[+]` (the tag column is fixed at 4 columns).
+- **Clipboard.** `Clipboard::copy` returns `Err(Io(e))` when the platform tool failed
+  to start and OSC 52 failed too; `NothingCopied` when nothing was available. The
+  status for one line reads `Copied 1 line`. `App::clipboard()` exposes the shared
+  handle for T62/T71.
+- **Local time.** `time` reads the local UTC offset only while the process is
+  single-threaded, so `main` is no longer `#[tokio::main]`: it calls
+  `message_log::init_local_offset()` and then builds the multi-thread runtime by hand.
+  Tests and benches show UTC.
+- **Search.** The input row stays visible after `Enter` (shows `/query  match i of n`,
+  `(search wrapped)` after a wrap) until `Esc`. `i` counts from the oldest match.
+  Typing updates the count but does not move the view; `Enter` jumps to the current
+  match (the nearest one at or above the bottom of the view). The debounced count
+  (rings over 20 000 lines) runs on the next `Tick` after 100 ms and returns
+  `Action::Wake` to get a redraw; `counting…` is shown meanwhile.
+- **Escape.** The `Log` table binds `esc` to `Escape` (T51), so the pane handles
+  `Escape` (only while focused) as well as `Cancel`.
+- **Copy text.** Lines are copied as displayed at the current width (narrow rules
+  applied), unwrapped.
+- **Rendering details.** When everything above the anchor fits, remaining rows are
+  filled with the lines below the anchor. In no-wrap mode the `«`/`»` (`<`/`>`)
+  markers use `log.time`. Sanitiser escapes are found again at draw time (`^X`,
+  `<U+XXXX>`), so a literal `^[` from a server is styled like an escape too. The
+  bottom-border `▼ N new` has no trailing `─` before the corner.
+- **Style keys** `log.*` are in `config/config.json`; `monochrome` maps `log.warning`/
+  `log.error` to bold, `log.trace`/`log.listing`/`log.time` to dim, `log.cursor` to
+  bold + underline, `log.visual`/`log.search_match` to reverse. `text.escape` keeps
+  T50's style.
+- **Benches.** `benches/message_log.rs` (group `message_log`: `log_push`,
+  `log_render_full_ring`) with gates in `scripts/bench-gates.toml`. Measured locally:
+  push 0.68 µs/line (~1.5 M lines/s), full-ring render 0.20 ms median.
+- **Other tests touched.** T50/T51/T52 app snapshots now show the empty log pane
+  (`Message log · Tab 1`) instead of the placeholder; T76's
+  `e2e_pty_sequences_and_fkeys` now expects `Log cleared` after `ctrl-x l`.
+- **Not done here:** AC10's `test-os` job (Windows/macOS) could not be run locally;
+  `fmt`, `clippy`, `docs`, the Linux tests, `cargo vet` and `cargo deny` pass.

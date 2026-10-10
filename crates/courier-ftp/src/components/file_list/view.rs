@@ -10,7 +10,7 @@ use courier_ftp_core::{
     settings::{Column, SortSpec},
 };
 
-use super::{format::type_description, natural::natural_cmp};
+use super::{format::type_description, natural::natural_key};
 
 /// Above this many entries the view is built off the UI thread.
 pub(crate) const INLINE_LIMIT: usize = 10_000;
@@ -43,9 +43,16 @@ pub(crate) struct BuiltView {
 
 /// The precomputed sort key of one entry.
 struct SortKey<'a> {
-    name: Cow<'a, str>,
+    name: NameKey<'a>,
     secondary: Secondary<'a>,
     dir: bool,
+}
+
+/// The name part of a sort key: a natural key (`memcmp` order) or the folded name.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum NameKey<'a> {
+    Natural(Vec<u8>),
+    Plain(Cow<'a, str>),
 }
 
 enum Secondary<'a> {
@@ -72,6 +79,22 @@ fn cmp_secondary(a: &Secondary<'_>, b: &Secondary<'_>) -> Ordering {
         (Secondary::Text(x), Secondary::Text(y)) => x.cmp(y),
         (Secondary::Time(x), Secondary::Time(y)) => x.cmp(y),
         _ => Ordering::Equal,
+    }
+}
+
+/// The name as sorted: unchanged when case-sensitive or already lower case.
+fn fold(name: &str, case_sensitive: bool) -> Cow<'_, str> {
+    if case_sensitive {
+        return Cow::Borrowed(name);
+    }
+    if name.is_ascii() {
+        if name.bytes().any(|b| b.is_ascii_uppercase()) {
+            Cow::Owned(name.to_ascii_lowercase())
+        } else {
+            Cow::Borrowed(name)
+        }
+    } else {
+        Cow::Owned(name.to_lowercase())
     }
 }
 
@@ -118,10 +141,13 @@ pub(crate) fn sort(entries: &[Entry], view: &mut [u32], params: &ViewParams) {
         .map(|&i| {
             let e = &entries[i as usize];
             SortKey {
-                name: if params.case_sensitive {
-                    Cow::Borrowed(e.name.as_str())
-                } else {
-                    Cow::Owned(e.name.to_lowercase())
+                name: {
+                    let folded = fold(&e.name, params.case_sensitive);
+                    if params.natural {
+                        NameKey::Natural(natural_key(&folded))
+                    } else {
+                        NameKey::Plain(folded)
+                    }
                 },
                 secondary: secondary(e, params.sort.column),
                 dir: e.is_dir_like(),
@@ -130,13 +156,6 @@ pub(crate) fn sort(entries: &[Entry], view: &mut [u32], params: &ViewParams) {
         .collect();
     // Sort positions into `keys`, then map back to entry indices.
     let mut order: Vec<u32> = (0..u32::try_from(view.len()).unwrap_or(u32::MAX)).collect();
-    let name_cmp = |a: &str, b: &str| {
-        if params.natural {
-            natural_cmp(a, b)
-        } else {
-            a.cmp(b)
-        }
-    };
     order.sort_unstable_by(|&x, &y| {
         let (ka, kb) = (&keys[x as usize], &keys[y as usize]);
         if params.dirs_first && ka.dir != kb.dir {
@@ -148,7 +167,7 @@ pub(crate) fn sort(entries: &[Entry], view: &mut [u32], params: &ViewParams) {
         }
         let (ia, ib) = (view[x as usize], view[y as usize]);
         let primary = cmp_secondary(&ka.secondary, &kb.secondary)
-            .then_with(|| name_cmp(&ka.name, &kb.name))
+            .then_with(|| ka.name.cmp(&kb.name))
             .then_with(|| entries[ia as usize].name.cmp(&entries[ib as usize].name))
             .then_with(|| ia.cmp(&ib));
         if params.sort.descending {

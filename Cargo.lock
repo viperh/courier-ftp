@@ -1119,6 +1119,7 @@ name = "courier-ftp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "better-panic",
  "clap",
  "color-eyre",
@@ -1127,6 +1128,7 @@ dependencies = [
  "courier-ftp-proto-ftp",
  "courier-ftp-proto-sftp",
  "courier-ftp-sync",
+ "criterion",
  "crossterm 0.29.0",
  "directories",
  "futures",

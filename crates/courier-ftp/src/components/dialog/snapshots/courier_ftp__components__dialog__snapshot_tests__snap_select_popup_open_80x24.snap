@@ -4,18 +4,18 @@ expression: "hs.render(w, h)"
 ---
  Quickconnect (not available yet)                                               
  1 Local                                                                        
-┌ Message log ─────────────────────────────────────────────────────────────────┐
-│(not avai┌ Site settings ───────────────────────────────────────────┐         │
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│         ┌ Site settings ───────────────────────────────────────────┐         │
 │         │  Host             │ example.org                          │         │
 └─────────│  Password         │                                      │─────────┘
 ┏▶Local ━━│  Port             │ 22                                   │─────────┐
-┃(not avai│  Passive mode     │ [x]                                  │         │
+┃         │  Passive mode     │ [x]                                  │         │
 ┃         │  Execute          │ [-]                                  │         │
 ┃         │ ▶Protocol         │ SFTP                               ▾ │         │
 ┃         │  Transfer mode    │ ┌────────────────────────────┐y      │         │
 ┃         │  Remote directory │ │FTP                         │       │         │
-┃         │  Comments         │ │FTPS (explicit)             │       │         │
-┃         │                     │SFTP                        │       │         │
+┃         │  Comments         │ │FTPS (explicit)             │       │ver      │
+┃         │                     │SFTP                        │       │Quickcon…│
 ┃         │  Columns          │ └────────────────────────────┘       │         │
 ┃         │                     [x] Size                             │         │
 ┃         │                     [ ] Owner                            │         │

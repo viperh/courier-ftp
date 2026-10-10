@@ -4,18 +4,18 @@ expression: "h.render(80, 24)"
 ---
  Quickconnect (not available yet)                                               
  1 Local                                                                        
-┌ Message log ─────────────────────────────────────────────────────────────────┐
-│(not avai┌ Site settings ───────────────────────────────────────────┐         │
+┌ Message log · Tab 1 ─────────────────────────────────────────────────────────┐
+│         ┌ Site settings ───────────────────────────────────────────┐         │
 │         │  Host             │ example.org                          │         │
 └─────────│  Password         │                                      │─────────┘
 ┏▶Local ━━│  Port             │ 22                                   │─────────┐
-┃(not avai│ ▶Passive mode     │ [x]                                  │         │
+┃         │ ▶Passive mode     │ [x]                                  │         │
 ┃         │  Execute          │ [-]                                  │         │
 ┃         │  Protocol         │ SFTP                               ▾ │         │
 ┃         │  Transfer mode    │ (•) Auto  ( ) ASCII  ( ) Binary      │         │
 ┃         │  Remote directory │ /var/www                             │         │
-┃         │  Comments         │ first line                           │         │
-┃         │                     second line                          │         │
+┃         │  Comments         │ first line                           │ver      │
+┃         │                     second line                          │Quickcon…│
 ┃         │  Columns          │ [x] Name                             │         │
 ┃         │                     [x] Size                             │         │
 ┃         │                     [ ] Owner                            │         │
