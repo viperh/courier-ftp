@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(MvsDataset)
+dir   "SOURCE.COBOL" size=- mtime=2024-01-31T00:00:00.000Z/Day perms=- owner=- group=-
+file  "LOGS.DAILY" size=- mtime=2023-12-01T00:00:00.000Z/Day perms=- owner=- group=-
+file  "JCL.BACKUP" size=- mtime=2024-06-14T00:00:00.000Z/Day perms=- owner=- group=-
+dir   "LOAD.LIBRARY" size=- mtime=2024-05-02T00:00:00.000Z/Day perms=- owner=- group=-
+file  "NEVER.USED" size=- mtime=- perms=- owner=- group=-
+file  "OLD.ARCHIVE.DATA" size=- mtime=- perms=- owner=- group=-
+dir   "TEST" size=- mtime=- perms=- owner=- group=-
+file  "TAPE.BACKUP.G0001V00" size=- mtime=- perms=- owner=- group=-

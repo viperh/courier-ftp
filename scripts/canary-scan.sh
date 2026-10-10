@@ -8,7 +8,7 @@
 # After a test run with COURIER_FTP_LOG_LEVEL=trace, this script walks the given directories and
 # checks every artifact courier-ftp writes:
 #   log files (courier-ftp.*.log), crash reports (crash/), SQLite files (*.db, -wal, -shm,
-#   -journal), recordings (recordings/), backups (*.courier-ftp-backup), and server DB dumps
+#   -journal), recordings (recordings/), backups (*.cftp-backup, T30), and server DB dumps
 #   (*.sql, *.dump).
 # Rules:
 #   - a secret canary must not appear in any of them (they are plaintext, or must be
@@ -35,7 +35,7 @@ classify() { # <path> -> log|crash|db|recording|backup|dump|""
     */recordings/*) echo recording; return ;;
   esac
   case "$base" in
-    *.courier-ftp-backup) echo backup ;;
+    *.courier-ftp-backup|*.cftp-backup) echo backup ;;
     *.db|*.db-wal|*.db-shm|*.db-journal|*.sqlite|*.sqlite3|*.sqlite-wal|*.sqlite-shm) echo db ;;
     *.sql|*.dump|*.pgdump) echo dump ;;
     *.log|*.log.*|courier-ftp.*.log|courier-ftp.log*) echo log ;;
@@ -126,7 +126,7 @@ self_test() {
       crash-host) echo 'panicked at x: canary-host-3.example' > "$tmp/dirty/state/crash/crash-1.txt" ;;
       db-secret) printf 'SQLite\0CANARY-TOKEN-x\0' > "$tmp/dirty/data/courier-ftp.db" ;;
       wal-host) printf 'WAL\0canary-host-4\0' > "$tmp/dirty/data/courier-ftp.db-wal" ;;
-      backup-secret) echo '{"ciphertext_b64":"CANARY-PASS-9"}' > "$tmp/dirty/x.courier-ftp-backup" ;;
+      backup-secret) echo '{"ciphertext_b64":"CANARY-PASS-9"}' > "$tmp/dirty/x.cftp-backup" ;;
     esac
     rc=0; scan "$tmp/dirty" >/dev/null 2>&1 || rc=$?
     if [[ $rc -ne 1 ]]; then echo "self-test: $case_name not detected" >&2; rm -rf "$tmp"; return 1; fi

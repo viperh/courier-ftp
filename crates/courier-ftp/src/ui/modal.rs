@@ -1,6 +1,6 @@
 //! The modal stack's contract and the dialogs T50 needs: the help overlay and
 //! a basic prompt dialog. T52 adds the form widgets and standard dialogs; T69
-//! the trust prompts.
+//! the trust prompts (in `trust`).
 
 use courier_ftp_core::events::{PromptKind, PromptRequest, PromptResponse};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -120,11 +120,14 @@ impl Modal for HelpOverlay {
 
 /// The dialog for a question from the core (T04). The answer goes back
 /// through the request's `reply`; closing a dialog without answering drops
-/// it, which the core treats as "cancel". Trust prompts get their dialogs in
-/// T69 and file-exists prompts in T42; until then they can only be
-/// cancelled.
-pub(crate) fn prompt_modal(request: PromptRequest) -> Box<dyn Modal> {
-    use super::dialog::{Form, FormDialog, TextInput, message, prompt_password};
+/// it, which the core treats as "cancel". File-exists prompts get their
+/// dialog in T42; until then they can only be cancelled. `unicode` picks the
+/// symbols of the trust prompts.
+pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Modal> {
+    use super::{
+        dialog::{Form, FormDialog, TextInput, message, prompt_password},
+        trust::{certificate_dialog, host_key_dialog},
+    };
     let PromptRequest { kind, reply, .. } = request;
     match kind {
         PromptKind::Message(text) => {
@@ -182,10 +185,32 @@ pub(crate) fn prompt_modal(request: PromptRequest) -> Box<dyn Modal> {
             forward(rx, reply, |answers| answers.map(PromptResponse::Answers));
             Box::new(dialog)
         }
-        other => Box::new(PendingPrompt {
-            kind: other,
-            _reply: reply,
-        }),
+        PromptKind::TrustHostKey {
+            host,
+            key,
+            known,
+            can_remember,
+        } => Box::new(host_key_dialog(
+            &host,
+            &key,
+            known.as_ref(),
+            can_remember,
+            unicode,
+            reply,
+        )),
+        PromptKind::TrustCertificate {
+            details,
+            known_sha256,
+            can_remember,
+        } => Box::new(certificate_dialog(
+            &details,
+            known_sha256.as_deref(),
+            can_remember,
+            time::OffsetDateTime::now_utc(),
+            unicode,
+            reply,
+        )),
+        other => Box::new(PendingPrompt { kind: other, reply }),
     }
 }
 
@@ -209,21 +234,12 @@ fn forward<T: Send + 'static>(
 /// cancels.
 struct PendingPrompt {
     kind: PromptKind,
-    _reply: tokio::sync::oneshot::Sender<PromptResponse>,
+    reply: tokio::sync::oneshot::Sender<PromptResponse>,
 }
 
 impl Modal for PendingPrompt {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let text = match &self.kind {
-            PromptKind::TrustHostKey {
-                host,
-                fingerprint_sha256,
-                ..
-            } => format!(
-                "Unknown host key for {host}\n{fingerprint_sha256}\n\n(Trust prompts arrive with T69.)"
-            ),
-            other => format!("{other:?}\n\n(Not answerable yet.)"),
-        };
+        let text = format!("{:?}\n\n(Not answerable yet.)", self.kind);
         let rect = centered(area, 60, 9);
         frame.render_widget(Clear, rect);
         frame.render_widget(
@@ -244,5 +260,10 @@ impl Modal for PendingPrompt {
         } else {
             ModalOutcome::Keep
         }
+    }
+
+    fn is_done(&self) -> bool {
+        // The core stopped waiting.
+        self.reply.is_closed()
     }
 }

@@ -13,11 +13,39 @@ rust-version.workspace = true
 courier-ftp-core = { workspace = true }
 courier-ftp-crypto = { workspace = true }
 
+# SQLite (bundled: compiled from source with `cc`, so no system library is
+# needed on Linux, macOS or Windows), versioned migrations, async wrappers.
+rusqlite = { workspace = true }
+rusqlite_migration = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 
+# The vault engine (`vault`, T30): item access for core, master passwords as
+# `SecretString`, zeroizing buffers, the OS keyring for keyring unlock (D3).
+async-trait = { workspace = true }
+keyring = { workspace = true, optional = true }
+secrecy = { workspace = true }
+zeroize = { workspace = true }
+
+[features]
+default = ["os-keyring"]
+# The platform keyring (macOS Keychain, Windows Credential Manager, Secret
+# Service on Linux via pure-Rust zbus) for optional keyring unlock. Without it,
+# keyring unlock is unavailable.
+os-keyring = ["dep:keyring"]
+
 [dev-dependencies]
+# Cheap Argon2 (`Argon2Cost::TEST`) for the vault tests.
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
+# MemItemVault and the in-memory keyring.
+courier-ftp-core = { workspace = true, features = ["test-util"] }
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+# The canary test captures trace-level logs.
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true

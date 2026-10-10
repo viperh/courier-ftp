@@ -11,6 +11,7 @@ use crate::app::App;
 
 mod action;
 mod app;
+mod backends;
 mod cli;
 mod clipboard;
 mod config;
@@ -19,6 +20,7 @@ mod keymap;
 mod logging;
 mod tui;
 mod ui;
+mod vault;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -31,7 +33,15 @@ async fn main() -> color_eyre::Result<()> {
     }
 
     crate::errors::init()?;
+    // No core dumps, no same-user ptrace (Linux), before any secret exists (T91).
+    let hardening = courier_ftp_core::hardening::harden_process();
     crate::logging::init()?;
+    tracing::debug!(
+        core_dumps_disabled = hardening.core_dumps_disabled,
+        non_dumpable = hardening.non_dumpable,
+        failures = ?hardening.failures,
+        "process hardening"
+    );
 
     let mut app = App::new(args.tick_rate, args.frame_rate)?;
     app.run().await?;

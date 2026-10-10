@@ -1,25 +1,31 @@
 use courier_ftp_core::{
-    backend::Backend,
+    backend::{Backend, BackendFactory, ConnectInfo, Listing, SessionHandle},
     cache::ListingCache,
     events::{self, EventReceiver, EventSender, LogKind, SessionId},
     local::LocalBackend,
-    model::RemotePath,
+    model::{RemotePath, ServerAddress},
+    settings::Settings,
 };
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{
-    action::Action,
+    action::{Action, ConnectRequest, Connected},
+    backends::Backends,
     config::Config,
     keymap::{Feed, KeyBindings, Sequencer},
     tui::{Event, Tui},
-    ui::{KeyOutcome, MainScreen, Side, Theme},
+    ui::{KeyOutcome, MainScreen, Side, Theme, VaultFacts, VaultRequest, VaultView},
+    vault::{Phase, Vault, VaultMsg},
 };
 
 /// The application: the event loop that ties the terminal, the
@@ -45,6 +51,48 @@ pub(crate) struct App {
     local_session: SessionId,
     /// Directory listings, shared by every pane (T46).
     cache: ListingCache,
+    settings: Settings,
+    /// Creates a backend for each connection (T03).
+    backends: Arc<dyn BackendFactory>,
+    /// The remote pane's connection.
+    remote: Option<Remote>,
+    /// The last connection of this run, without its password, for
+    /// [`Action::Reconnect`].
+    last_connect: Option<ConnectRequest>,
+    /// The vault (T60); `None` in tests that don't need one.
+    vault: Option<Vault>,
+    vault_tx: mpsc::UnboundedSender<VaultMsg>,
+    vault_rx: mpsc::UnboundedReceiver<VaultMsg>,
+}
+
+/// The remote pane's connection (one tab until T61).
+struct Remote {
+    session: SessionId,
+    info: ConnectInfo,
+    handle: Arc<SessionHandle>,
+    /// Cancels the connection attempt, its prompts and running listings.
+    cancel: CancellationToken,
+    /// Whether `connect` finished; listings wait for it.
+    connected: bool,
+}
+
+/// `alice@host` (with the port when it isn't the protocol's default), for
+/// titles and dialogs.
+fn server_label(a: &ServerAddress) -> String {
+    let mut out = String::new();
+    if let Some(user) = &a.user {
+        out.push_str(user);
+        out.push('@');
+    }
+    if a.host.contains(':') {
+        out.push_str(&format!("[{}]", a.host));
+    } else {
+        out.push_str(&a.host);
+    }
+    if a.port != a.default_port() {
+        out.push_str(&format!(":{}", a.port));
+    }
+    out
 }
 
 /// Input modes. Keybindings and styles in `config/default.json` are keyed by
@@ -78,6 +126,44 @@ impl Mode {
 impl App {
     pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
         let config = Config::new()?;
+        let backends = Backends::new(&config.settings);
+        // Kept before the factory moves into the app: the vault swaps the
+        // host key store and clears the credential cache.
+        let host_keys = Arc::clone(&backends.host_keys);
+        let credentials = backends.credentials.clone();
+        let app = Self::with_backends(config, Arc::new(backends), tick_rate, frame_rate);
+        let opener = crate::vault::opener(crate::config::get_data_dir());
+        Ok(app.with_vault(opener, host_keys, credentials))
+    }
+
+    /// Give the app a vault: it starts locked, the panes covered by the
+    /// vault view until the vault is unlocked or skipped.
+    pub(crate) fn with_vault(
+        mut self,
+        opener: crate::vault::VaultOpener,
+        host_keys: Arc<courier_ftp_core::trust::HostKeyStoreSlot>,
+        credentials: courier_ftp_proto_sftp::ssh::CredentialCache,
+    ) -> Self {
+        self.vault = Some(Vault::new(
+            opener,
+            host_keys,
+            credentials,
+            &self.settings.vault,
+            self.vault_tx.clone(),
+        ));
+        let unicode = crate::ui::unicode_symbols(&self.settings);
+        self.screen.set_vault_view(VaultView::opening(unicode));
+        self.screen.set_vault_locked(true);
+        self
+    }
+
+    /// An app using `backends` for connections (tests pass a mock server).
+    pub(crate) fn with_backends(
+        config: Config,
+        backends: Arc<dyn BackendFactory>,
+        tick_rate: f64,
+        frame_rate: f64,
+    ) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let (events_tx, events_rx) = events::channel(config.settings.logging.level);
         events_tx.set_raw_listing(config.settings.logging.show_raw_listing);
@@ -95,7 +181,8 @@ impl App {
         }
         let mut screen = MainScreen::new(config.clone(), theme);
         screen.set_action_tx(action_tx.clone());
-        Ok(Self {
+        let (vault_tx, vault_rx) = mpsc::unbounded_channel();
+        Self {
             keybindings: config.keybindings.clone(),
             tick_rate,
             frame_rate,
@@ -109,7 +196,14 @@ impl App {
             events_rx,
             local_session,
             cache,
-        })
+            settings: config.settings.clone(),
+            backends,
+            remote: None,
+            last_connect: None,
+            vault: None,
+            vault_tx,
+            vault_rx,
+        }
     }
 
     pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
@@ -124,6 +218,7 @@ impl App {
             format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
         );
         self.list(Side::Local, None, false);
+        self.start_vault();
 
         loop {
             tokio::select! {
@@ -135,6 +230,7 @@ impl App {
                     self.handle_action(&mut tui, action)?;
                 }
                 Some(event) = self.events_rx.recv() => self.screen.handle_core(event),
+                Some(msg) = self.vault_rx.recv() => self.vault_message(msg),
             }
             while let Ok(action) = self.action_rx.try_recv() {
                 self.handle_action(&mut tui, action)?;
@@ -171,8 +267,14 @@ impl App {
     /// doesn't take goes through the sequence matcher and the keymap of the
     /// current mode.
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
+        if let Some(vault) = &mut self.vault {
+            vault.on_input();
+        }
         if self.screen.handle_key(key) == KeyOutcome::Consumed {
             self.sequencer.reset();
+            for request in self.screen.take_vault_requests() {
+                self.vault_request(request);
+            }
             for next in self.screen.take_actions() {
                 self.action_tx.send(next)?;
             }
@@ -183,7 +285,7 @@ impl App {
                 .feed(&self.keybindings, mode, key, Instant::now())
             {
                 Feed::Action(action) => {
-                    info!("Got action: {action:?}");
+                    debug!("Got action: {action:?}");
                     self.action_tx.send(action)?;
                 }
                 Feed::Pending | Feed::Unbound => {}
@@ -195,6 +297,20 @@ impl App {
     }
 
     fn handle_action(&mut self, tui: &mut Tui, action: Action) -> color_eyre::Result<()> {
+        match &action {
+            Action::ClearScreen => tui.terminal.clear()?,
+            Action::Resize(w, h) => {
+                tui.resize(Rect::new(0, 0, *w, *h))?;
+                self.render(tui)?;
+            }
+            Action::Render => self.render(tui)?,
+            _ => {}
+        }
+        self.dispatch(action)
+    }
+
+    /// Apply an action that doesn't need the terminal.
+    fn dispatch(&mut self, action: Action) -> color_eyre::Result<()> {
         if !matches!(action, Action::Tick | Action::Render) {
             debug!("{action}");
         }
@@ -203,18 +319,61 @@ impl App {
                 self.sequencer.expire(Instant::now());
                 self.screen
                     .set_pending_keys(self.sequencer.pending_display());
+                if let Some(reason) = self.vault.as_mut().and_then(Vault::tick) {
+                    self.lock_vault(Some(reason));
+                }
+            }
+            Action::LockVault => match self.vault.as_ref().map(|v| v.phase) {
+                None => self.screen.flash("No vault"),
+                Some(Phase::Unlocked) => self.lock_vault(None),
+                Some(Phase::Opening) => {}
+                Some(_) => self.screen.show_vault(true),
+            },
+            Action::UnlockVault => match self.vault.as_ref().map(|v| v.phase) {
+                None => self.screen.flash("No vault"),
+                Some(Phase::Unlocked) => self.screen.flash("The vault is already unlocked"),
+                Some(_) => self.screen.show_vault(true),
+            },
+            Action::SiteManager | Action::Bookmarks
+                if self
+                    .vault
+                    .as_ref()
+                    .is_some_and(|v| v.phase != Phase::Unlocked) =>
+            {
+                self.offer_unlock(if matches!(action, Action::SiteManager) {
+                    "the Site Manager"
+                } else {
+                    "bookmarks"
+                });
             }
             // No transfers exist yet, so nothing needs confirming (T41 adds the
             // "transfers are running, quit anyway?" dialog).
             Action::Quit => self.should_quit = true,
             Action::Suspend => self.should_suspend = true,
             Action::Resume => self.should_suspend = false,
-            Action::ClearScreen => tui.terminal.clear()?,
-            Action::Resize(w, h) => {
-                tui.resize(Rect::new(0, 0, *w, *h))?;
-                self.render(tui)?;
+            Action::Connect { request, replace } => {
+                self.connect((**request).clone(), *replace);
             }
-            Action::Render => self.render(tui)?,
+            Action::Connected { session, result } => self.connected(*session, result),
+            Action::RemoteListingLoaded { session, result } => {
+                if self.current_session() == Some(*session) {
+                    self.action_tx.send(Action::ListingLoaded {
+                        side: Side::Remote,
+                        result: result.clone(),
+                    })?;
+                }
+            }
+            Action::Disconnect => {
+                if self.remote.is_some() {
+                    self.disconnect();
+                } else {
+                    self.screen.flash("Not connected");
+                }
+            }
+            Action::Reconnect => match self.last_connect.clone() {
+                Some(request) => self.start_connect(request),
+                None => self.screen.flash("No server to reconnect to"),
+            },
             Action::ListDir { side, dir, force } => {
                 self.list(*side, Some(dir.clone()), *force);
             }
@@ -244,7 +403,10 @@ impl App {
     /// [`Action::ListingLoaded`] arrives.
     fn list(&mut self, side: Side, dir: Option<RemotePath>, force: bool) {
         if side == Side::Remote {
-            return; // remote sessions arrive with T14/T22 and T58/T61
+            if let Some(dir) = dir {
+                self.list_remote(dir, force);
+            }
+            return;
         }
         self.screen.pane_mut(side).busy = true;
         let tx = self.action_tx.clone();
@@ -266,8 +428,405 @@ impl App {
         });
     }
 
+    fn current_session(&self) -> Option<SessionId> {
+        self.remote.as_ref().map(|r| r.session)
+    }
+
+    /// List `dir` on the remote connection, through the cache unless
+    /// `force`.
+    fn list_remote(&mut self, dir: RemotePath, force: bool) {
+        let Some(remote) = self.remote.as_ref().filter(|r| r.connected) else {
+            self.screen.pane_mut(Side::Remote).busy = false;
+            return;
+        };
+        let session = remote.session;
+        let handle = Arc::clone(&remote.handle);
+        let cancel = remote.cancel.clone();
+        let server = remote.info.address.clone();
+        let cache = self.cache.clone();
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let result = match cache.get(Some(&server), &dir).filter(|_| !force) {
+                Some(hit) => Ok(hit),
+                None => handle
+                    .list(&dir, &cancel)
+                    .await
+                    .inspect(|listing| cache.put(Some(&server), listing.clone())),
+            }
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Action::RemoteListingLoaded { session, result });
+        });
+    }
+
+    /// Quickconnect: connect the remote pane, asking first when that closes
+    /// a connection (unless `replace`).
+    fn connect(&mut self, request: ConnectRequest, replace: bool) {
+        let Some(remote) = self.remote.as_ref().filter(|_| !replace) else {
+            self.start_connect(request);
+            return;
+        };
+        let (modal, rx) = crate::ui::dialog::confirm(
+            "Replace connection",
+            &format!(
+                "Disconnect from {} and connect to {}?",
+                server_label(&remote.info.address),
+                server_label(&request.info.address)
+            ),
+            true,
+        );
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(true) = rx.await {
+                let _ = tx.send(Action::Connect {
+                    request: Box::new(request),
+                    replace: true,
+                });
+            }
+        });
+    }
+
+    /// Close any connection and open one for `request` in the background;
+    /// [`Action::Connected`] reports the result.
+    fn start_connect(&mut self, request: ConnectRequest) {
+        if self.remote.is_some() {
+            self.disconnect();
+        }
+        let session = SessionId::next();
+        let c = &self.settings.connection;
+        let keepalive = c
+            .keepalive
+            .then(|| Duration::from_secs(c.keepalive_interval_secs.max(1)));
+        let backend = self
+            .backends
+            .create(&request.info, session, self.events_tx.clone());
+        let handle = Arc::new(SessionHandle::new(backend, keepalive));
+        let cancel = CancellationToken::new();
+        self.remote = Some(Remote {
+            session,
+            info: request.info.clone(),
+            handle: Arc::clone(&handle),
+            cancel: cancel.clone(),
+            connected: false,
+        });
+        self.last_connect = Some(request.without_password());
+        self.screen
+            .remote_connecting(server_label(&request.info.address));
+
+        let tx = self.action_tx.clone();
+        let events = self.events_tx.clone();
+        let cache = self.cache.clone();
+        let server = request.info.address.clone();
+        let start = request.path;
+        tokio::spawn(async move {
+            let result = async {
+                handle.connect(cancel.clone()).await?;
+                let info = handle.lock().await.session_info();
+                let listing = match start {
+                    Some(dir) => match handle.list(&dir, &cancel).await {
+                        Ok(listing) => listing,
+                        Err(e) => {
+                            events.log(session, LogKind::Error, format!("{dir}: {e}"));
+                            first_listing(&handle, &cancel).await?
+                        }
+                    },
+                    None => first_listing(&handle, &cancel).await?,
+                };
+                cache.put(Some(&server), listing.clone());
+                Ok::<_, courier_ftp_core::Error>(Box::new(Connected { info, listing }))
+            }
+            .await
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Action::Connected { session, result });
+        });
+    }
+
+    /// A connection attempt finished; results of replaced attempts are
+    /// dropped.
+    fn connected(&mut self, session: SessionId, result: &Result<Box<Connected>, String>) {
+        let Some(remote) = self.remote.as_mut().filter(|r| r.session == session) else {
+            return;
+        };
+        match result {
+            Ok(connected) => {
+                remote.connected = true;
+                self.screen.remote_connected(connected);
+            }
+            Err(e) => {
+                let label = server_label(&remote.info.address);
+                self.events_tx.log(
+                    session,
+                    LogKind::Error,
+                    format!("Could not connect to {label}"),
+                );
+                self.remote = None;
+                self.screen.remote_disconnected(Some(e.clone()));
+            }
+        }
+    }
+
+    /// Close the remote connection (in the background) and empty the pane.
+    fn disconnect(&mut self) {
+        let Some(remote) = self.remote.take() else {
+            return;
+        };
+        remote.cancel.cancel();
+        self.cache.clear_server(Some(&remote.info.address));
+        self.events_tx.log(
+            remote.session,
+            LogKind::Status,
+            format!("Disconnected from {}", server_label(&remote.info.address)),
+        );
+        let handle = remote.handle;
+        tokio::spawn(async move {
+            let _ = handle.disconnect().await;
+        });
+        self.screen.remote_disconnected(None);
+    }
+
+    /// Open the vault database (at start).
+    pub(crate) fn start_vault(&mut self) {
+        if let Some(vault) = &mut self.vault {
+            vault.open(false);
+        }
+    }
+
+    fn vault_facts(&mut self) -> VaultFacts {
+        self.screen
+            .vault_view_mut()
+            .map(|v| v.facts())
+            .unwrap_or_default()
+    }
+
+    /// The vault view asked for something.
+    fn vault_request(&mut self, request: VaultRequest) {
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        match request {
+            VaultRequest::Create { password, keyring } => vault.create(password, keyring),
+            VaultRequest::Unlock(password) => vault.unlock(password),
+            VaultRequest::Reset(password) => vault.reset_with_keyring(password),
+            VaultRequest::Retry => {
+                vault.open(false);
+                if let Some(view) = self.screen.vault_view_mut() {
+                    view.set_busy(Some("Opening the vault…"));
+                }
+            }
+            VaultRequest::NewVault => vault.open(true),
+            VaultRequest::Skip => {
+                self.screen.show_vault(false);
+                self.events_tx.log(
+                    self.local_session,
+                    LogKind::Status,
+                    "Continuing without the vault: quickconnect only, nothing is saved. \
+                     Unlock with <Ctrl-x><u>.",
+                );
+            }
+            VaultRequest::Quit => self.should_quit = true,
+        }
+    }
+
+    /// A background vault call finished.
+    pub(crate) fn vault_message(&mut self, msg: VaultMsg) {
+        use courier_ftp_core::vault::VaultState;
+        let now = Instant::now();
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        match msg {
+            VaultMsg::Opened(Ok(opened)) => {
+                let crate::vault::Opened {
+                    engine,
+                    status,
+                    keyring_available,
+                    moved_aside,
+                } = *opened;
+                vault.opened(engine);
+                let facts = VaultFacts {
+                    keyring_enabled: status.keyring_enabled,
+                    keyring_available,
+                    sync_account: false,
+                };
+                let keyring_first = status.state == VaultState::Locked && status.keyring_enabled;
+                match status.state {
+                    VaultState::Uninitialised => vault.phase = Phase::Uninitialised,
+                    VaultState::Locked => vault.phase = Phase::Locked,
+                    VaultState::Unlocked => vault.on_unlocked(),
+                }
+                if keyring_first {
+                    vault.unlock_with_keyring();
+                }
+                if status.state == VaultState::Unlocked {
+                    self.vault_unlocked(None);
+                    return;
+                }
+                let Some(view) = self.screen.vault_view_mut() else {
+                    return;
+                };
+                if status.state == VaultState::Uninitialised {
+                    view.show_create(facts);
+                } else {
+                    view.show_unlock(facts, status.backoff.failures, status.retry_after, now);
+                }
+                view.set_note(
+                    moved_aside.map(|p| format!("The old database was moved to {}.", p.display())),
+                );
+                if keyring_first {
+                    view.set_busy(Some("Unlocking with the system keyring…"));
+                }
+            }
+            VaultMsg::Opened(Err(e)) => {
+                vault.phase = Phase::Unavailable;
+                tracing::warn!(error = %e, "vault unavailable");
+                if let Some(view) = self.screen.vault_view_mut() {
+                    view.show_unavailable(e.to_string());
+                }
+            }
+            VaultMsg::Created(result) => match result {
+                Ok(report) => {
+                    vault.on_unlocked();
+                    if let Some(reason) = report.keyring_error {
+                        self.events_tx.log(
+                            self.local_session,
+                            LogKind::Error,
+                            format!("Keyring unlock could not be enabled: {reason}"),
+                        );
+                    }
+                    self.vault_unlocked(Some("Vault created"));
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_error(Some(e.to_string()));
+                    }
+                }
+            },
+            VaultMsg::Unlocked { keyring, result } => match result {
+                Ok(report) => {
+                    vault.on_unlocked();
+                    if report.undecryptable > 0 {
+                        self.events_tx.log(
+                            self.local_session,
+                            LogKind::Error,
+                            format!(
+                                "{} vault items could not be decrypted and were skipped",
+                                report.undecryptable
+                            ),
+                        );
+                    }
+                    self.vault_unlocked(Some(if keyring {
+                        "Vault unlocked with the system keyring"
+                    } else {
+                        "Vault unlocked"
+                    }));
+                }
+                Err(e) if keyring => {
+                    tracing::info!(error = %e, "keyring unlock failed; asking for the password");
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_busy(None);
+                        view.set_note(Some(format!(
+                            "Keyring unavailable ({e}); enter the master password."
+                        )));
+                    }
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.unlock_failed(&e, now);
+                    }
+                }
+            },
+            VaultMsg::Reset(result) => match result {
+                Ok(_) => {
+                    vault.on_unlocked();
+                    self.vault_unlocked(Some("New master password set; vault unlocked"));
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_error(Some(e.to_string()));
+                    }
+                }
+            },
+        }
+    }
+
+    /// The vault is unlocked: hide the view, update the status bar.
+    fn vault_unlocked(&mut self, message: Option<&str>) {
+        self.screen.show_vault(false);
+        self.screen.set_vault_locked(false);
+        if let Some(view) = self.screen.vault_view_mut() {
+            view.set_busy(None);
+            view.set_note(None);
+        }
+        if let Some(message) = message {
+            self.events_tx
+                .log(self.local_session, LogKind::Status, message);
+            self.screen.flash(message);
+        }
+    }
+
+    /// Lock the vault (`<Ctrl-x><v>` or auto-lock): the unlock view covers
+    /// the panes; with `vault.lock_disconnects` the connection closes too.
+    fn lock_vault(&mut self, reason: Option<courier_ftp_core::vault::LockReason>) {
+        use courier_ftp_core::vault::LockReason;
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        vault.lock();
+        let facts = self.vault_facts();
+        let now = Instant::now();
+        let note = reason.map(|r| match r {
+            LockReason::Idle => format!(
+                "Locked after {} minutes without input.",
+                self.settings.vault.auto_lock_minutes
+            ),
+            LockReason::Suspend => "Locked because the system was suspended.".to_owned(),
+        });
+        if let Some(view) = self.screen.vault_view_mut() {
+            view.show_unlock(facts, 0, None, now);
+            view.set_note(note);
+        }
+        self.screen.show_vault(true);
+        self.screen.set_vault_locked(true);
+        self.events_tx
+            .log(self.local_session, LogKind::Status, "Vault locked");
+        self.screen.flash("Vault locked");
+        if self.settings.vault.lock_disconnects && self.remote.is_some() {
+            self.disconnect();
+        }
+    }
+
+    /// Site Manager, bookmarks and history need the vault: offer to unlock.
+    fn offer_unlock(&mut self, what: &str) {
+        let (modal, rx) = crate::ui::dialog::confirm(
+            "Vault locked",
+            &format!("The vault is locked. Unlock it to use {what}?"),
+            true,
+        );
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(true) = rx.await {
+                let _ = tx.send(Action::UnlockVault);
+            }
+        });
+    }
+
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| self.screen.draw(frame))?;
         Ok(())
     }
 }
+
+/// The home directory's listing.
+async fn first_listing(
+    handle: &SessionHandle,
+    cancel: &CancellationToken,
+) -> courier_ftp_core::Result<Listing> {
+    let home = handle.home_dir(cancel).await?;
+    handle.list(&home, cancel).await
+}
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod vault_tests;

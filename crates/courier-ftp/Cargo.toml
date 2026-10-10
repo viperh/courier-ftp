@@ -20,10 +20,13 @@ sync = ["dep:courier-ftp-sync"]
 
 [dependencies]
 courier-ftp-core = { workspace = true }
+courier-ftp-crypto = { workspace = true }
 courier-ftp-proto-ftp = { workspace = true }
 courier-ftp-proto-sftp = { workspace = true }
+courier-ftp-store = { workspace = true }
 courier-ftp-sync = { workspace = true, optional = true }
 
+async-trait = { workspace = true }
 better-panic = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
@@ -48,6 +51,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-error = { workspace = true }
 tracing-subscriber = { workspace = true }
+zeroize = { workspace = true }
 
 # `Tui::suspend` raises SIGTSTP, which only exists on unix.
 [target.'cfg(not(windows))'.dependencies]
@@ -58,6 +62,10 @@ anyhow = { workspace = true }
 vergen-gix = { workspace = true }
 
 [dev-dependencies]
+courier-ftp-core = { workspace = true, features = ["test-util"] }
+# Cheap Argon2 (`Argon2Cost::TEST`) for the vault UI tests. Dev-only: never
+# in a normal build.
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
 pretty_assertions = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }

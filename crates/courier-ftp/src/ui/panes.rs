@@ -1,5 +1,5 @@
-//! Shared pane helpers and the remaining T50 shells: the queue (T56),
-//! quickconnect bar (T58) and tab bar (T61) tasks replace their bodies.
+//! Shared pane helpers and the remaining T50 shells: the queue (T56) and
+//! tab bar (T61) tasks replace their bodies.
 
 use ratatui::{
     Frame,
@@ -23,24 +23,6 @@ pub(crate) fn block<'a>(title: impl Into<Line<'a>>, focused: bool, theme: &Theme
     } else {
         theme.border
     })
-}
-
-pub(crate) fn draw_quickconnect(frame: &mut Frame, area: Rect, focused: bool, theme: &Theme) {
-    let field = |label: &str| {
-        vec![
-            Span::styled(format!("{label}: "), theme.title),
-            Span::styled("________   ", theme.dim),
-        ]
-    };
-    let mut spans = Vec::new();
-    for label in ["Host", "User", "Pass", "Port"] {
-        spans.extend(field(label));
-    }
-    spans.push(Span::styled("[Connect]", theme.key_hint));
-    frame.render_widget(
-        Paragraph::new(Line::from(spans)).block(block(" Quickconnect ", focused, theme)),
-        area,
-    );
 }
 
 pub(crate) fn draw_tabs(frame: &mut Frame, area: Rect, theme: &Theme) {

@@ -3,8 +3,8 @@ name: Fuzz (nightly)
 # T00/T91: every fuzz target runs for 10 minutes each night (or `seconds` on a manual
 # run), starting from the seed corpus (fixtures) plus the corpus kept from earlier
 # runs. Crashes are uploaded as artifacts and fail the job. The target list is read
-# from `cargo fuzz list`, so a new target needs no change here. Until the first
-# target exists (T13 / T91) the matrix is empty and only `targets` runs.
+# from fuzz/Cargo.toml, so a new target needs no change here. Pull requests run
+# every target for 30 s in ci.yml (job `fuzz`).
 
 on:
   schedule:

@@ -8,15 +8,26 @@ mod layout;
 mod log;
 mod modal;
 mod panes;
+mod quickconnect;
 mod screen;
 mod status;
 mod theme;
+mod trust;
+mod vault;
 
 pub(crate) use courier_ftp_core::filters::Side;
 #[cfg(test)]
 pub(crate) use focus::Region;
 pub(crate) use screen::{KeyOutcome, MainScreen};
 pub(crate) use theme::Theme;
+#[cfg(test)]
+pub(crate) use vault::VaultPage;
+pub(crate) use vault::{VaultFacts, VaultRequest, VaultView};
 
 #[cfg(test)]
 mod tests;
+
+/// Whether the UI draws Unicode symbols (`interface.unicode_symbols`).
+pub(crate) fn unicode_symbols(settings: &courier_ftp_core::settings::Settings) -> bool {
+    status::unicode_enabled(settings.interface.unicode_symbols)
+}

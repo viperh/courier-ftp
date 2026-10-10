@@ -118,7 +118,11 @@
       "<Ctrl-x><d>": "Disconnect",
       "<Ctrl-x><i>": "ServerInfo",
       "<Ctrl-x><l>": "ToggleSpeedLimit",
+      "<Ctrl-x><p>": "OpenPrompt",
+      "<Ctrl-x><r>": "Reconnect",
       "<Ctrl-x><t>": "CycleTransferType",
+      "<Ctrl-x><u>": "UnlockVault",
+      "<Ctrl-x><v>": "LockVault",
       "<Ctrl-y>": "ToggleSyncBrowsing",
       "<Ctrl-z>": "Suspend",
       "<Delete>": "Delete",
@@ -378,6 +382,7 @@
       "show_hidden_local": false,
       "show_log": true,
       "show_queue": true,
+      "show_quickconnect": true,
       "show_splash": false,
       "show_tree": false,
       "size_format": "iec",
@@ -427,6 +432,12 @@
       "replace_invalid_chars": true,
       "speed_limit_enabled": false,
       "upload_limit_kib": 0
+    },
+    "vault": {
+      "auto_lock_minutes": 15,
+      "lock_disconnects": false,
+      "lock_on_suspend": true,
+      "store_passwords": true
     }
   },
   "styles": {

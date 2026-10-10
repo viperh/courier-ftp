@@ -41,8 +41,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     Result,
-    events::CertificateDetails,
-    model::{Entry, RemotePath, ServerAddress},
+    model::{CertificateDetails, Entry, RemotePath, ServerAddress},
 };
 
 /// A boxed reader returned by [`Backend::open_read`].

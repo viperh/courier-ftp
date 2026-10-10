@@ -233,3 +233,47 @@ fn unsafe_check_fails_outside_the_allowed_module() {
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::remove_dir_all(&clean);
 }
+
+/// Inside the allowed module, every `unsafe` block needs a `// SAFETY:`
+/// comment on its line or in the comment block right above it (T91 §2).
+#[test]
+fn unsafe_check_requires_safety_comments() {
+    // Each literal closed on its own line: the script strips string literals
+    // line by line before looking for the attribute.
+    let documented = concat!(
+        "#![allow(unsafe_code)]\n",
+        "pub fn a() -> i32 {\n",
+        "    // SAFETY: getpid has no preconditions.\n",
+        "    // (second comment line)\n",
+        "    unsafe { libc::getpid() }\n",
+        "}\n",
+        "pub fn b() -> i32 {\n",
+        "    unsafe { libc::getpid() } // SAFETY: as above.\n",
+        "}\n",
+    );
+    let dir = fake_repo("check-unsafe-safety-ok");
+    let file = dir.join("crates/courier-ftp-core/src/hardening/unix.rs");
+    fs::write(&file, documented).unwrap();
+    let Some((ok, stderr)) = check_unsafe(&dir) else {
+        eprintln!("SKIP: python3 not available");
+        return;
+    };
+    assert!(ok, "documented blocks were flagged: {stderr}");
+
+    let undocumented = concat!(
+        "#![allow(unsafe_code)]\n",
+        "pub fn a() -> i32 {\n",
+        "    // Just a comment.\n",
+        "    let pid = unsafe { libc::getpid() };\n",
+        "    pid\n",
+        "}\n",
+    );
+    fs::write(&file, undocumented).unwrap();
+    let (ok, stderr) = check_unsafe(&dir).unwrap();
+    assert!(!ok, "an undocumented unsafe block passed");
+    assert!(
+        stderr.contains("hardening/unix.rs:4") && stderr.contains("SAFETY"),
+        "{stderr}"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}

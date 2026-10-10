@@ -15,6 +15,8 @@ pub mod cache;
 pub mod compare;
 pub mod events;
 pub mod filters;
+pub mod hardening;
+pub mod listing;
 pub mod local;
 pub mod model;
 pub mod net;
@@ -23,6 +25,7 @@ pub mod search;
 pub mod settings;
 pub mod sites;
 pub mod transfer;
+pub mod trust;
 pub mod vault;
 
 pub use error::{Error, Result};

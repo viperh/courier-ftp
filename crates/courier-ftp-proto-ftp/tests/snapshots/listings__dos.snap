@@ -1,0 +1,17 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Dos)
+dir   "aspnet_client" size=- mtime=2024-01-31T12:00:00.000Z/Minute perms=- owner=- group=-
+file  "default.htm" size=1234 mtime=2024-01-31T00:05:00.000Z/Minute perms=- owner=- group=-
+file  "old page.html" size=45678 mtime=1998-12-25T15:30:00.000Z/Minute perms=- owner=- group=-
+dir   "Leap Folder" size=- mtime=2024-02-29T09:15:00.000Z/Minute perms=- owner=- group=-
+file  "web.config" size=7890 mtime=2024-06-15T23:59:00.000Z/Minute perms=- owner=- group=-
+file  "big.iso" size=1234567890 mtime=2024-01-31T13:05:00.000Z/Minute perms=- owner=- group=-
+file  "european.txt" size=1024 mtime=2024-01-31T08:00:00.000Z/Minute perms=- owner=- group=-
+dir   "spaced-ampm" size=- mtime=2024-01-31T23:00:00.000Z/Minute perms=- owner=- group=-
+link(-> "C:\\Users\\Public\\Documents" Dir) "Documents" size=- mtime=2024-01-31T12:00:00.000Z/Minute perms=- owner=- group=-
+link(-> "releases\\v2" Dir) "current" size=- mtime=2024-01-31T12:00:00.000Z/Minute perms=- owner=- group=-
+link(-> "logs\\2024.log") "latest.log" size=- mtime=2024-01-31T12:00:00.000Z/Minute perms=- owner=- group=-
+file  ".htaccess" size=0 mtime=2024-01-31T12:00:00.000Z/Minute perms=- owner=- group=- hidden

@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp/src/app/tests.rs
+expression: remote
+---
+┐┌ Remote: alice@mock.invalid:2222 /srv ────────────────────┐"
+││  Name▲                   Size Modified         Perms     │"
+││  ..                                                      │"
+││  logs/                        1970-01-01 00:00 drwxr-xr-x│"
+││  www/                         1970-01-01 00:00 drwxr-xr-x│"
+││  readme.txt               5 B 1970-01-01 00:00 -rw-r--r--│"
+││                                                          │"
+││                                                          │"
+││                                                          │"

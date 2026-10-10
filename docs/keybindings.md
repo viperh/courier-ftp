@@ -33,16 +33,19 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-k>` | FocusQuickconnect |
 | `<?>` | Help |
 | `<F1>` | Help |
+| `<Ctrl-x><v>` | LockVault |
 | `<F7>` | Mkdir |
 | `<Shift-F7>` | MkdirEnter |
 | `<F6>` | Move |
 | `<Ctrl-t>` | NewTab |
 | `<g><t>` | NextTab |
+| `<Ctrl-x><p>` | OpenPrompt |
 | `<g><T>` | PrevTab |
 | `<Ctrl-p>` | ProcessQueue |
 | `<Shift-F5>` | QueueSelection |
 | `<Ctrl-q>` | Quit |
 | `<F10>` | Quit |
+| `<Ctrl-x><r>` | Reconnect |
 | `<Ctrl-F5>` | Refresh |
 | `<Ctrl-r>` | Refresh |
 | `<F2>` | Rename |
@@ -68,6 +71,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-x><l>` | ToggleSpeedLimit |
 | `<Ctrl-y>` | ToggleSyncBrowsing |
 | `<Ctrl-e>` | ToggleTree |
+| `<Ctrl-x><u>` | UnlockVault |
 | `<F3>` | View |
 
 ## File lists

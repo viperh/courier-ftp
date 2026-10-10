@@ -11,17 +11,35 @@ rust-version.workspace = true
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
 # Everything here should be testable without a terminal.
 [features]
-# MockBackend / MockServer for other crates' tests (T03).
+# MockBackend / MockServer for other crates' tests (T03); MemItemVault (T30).
 test-util = []
 
 [dependencies]
 async-trait = { workspace = true }
+# Vault (T30): key wrapping, envelopes, Argon2 for backups; master-password
+# strength; zeroizing buffers; `.cftp-backup` compression.
+courier-ftp-crypto = { workspace = true }
+rand_core = { workspace = true }
+zeroize = { workspace = true }
+zstd = { workspace = true }
+zxcvbn = { workspace = true }
+# Host key trust (T21): hashed known_hosts hosts and key fingerprints.
+base64ct = { workspace = true }
+hmac = { workspace = true }
+md5 = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+# Item model (model::item, T81): CBOR bodies, HLC stamps, UUIDv7 ids.
+ciborium = { workspace = true }
+uhlc = { workspace = true }
+uuid = { workspace = true }
 encoding_rs = { workspace = true }
 fs4 = { workspace = true }
 regex = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+socket2 = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
@@ -30,12 +48,28 @@ tracing = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 uzers = { workspace = true }
+# Process hardening (hardening/unix.rs: prctl, setrlimit, mlock; T91).
+libc = { workspace = true }
+
+# Process hardening (hardening/windows.rs: SetErrorMode, WerSetFlags, VirtualLock; T91).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_ErrorReporting",
+    "Win32_System_Memory",
+    "Win32_System_SystemInformation",
+] }
 
 [dev-dependencies]
+# Cheap Argon2 (`Argon2Cost::TEST`) for the vault tests.
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
 criterion = { workspace = true }
 pretty_assertions = { workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+# The mlock fallback test captures the one debug line (tests/hardening.rs).
+tracing-subscriber = { workspace = true }
 
 [[bench]]
 name = "filters"

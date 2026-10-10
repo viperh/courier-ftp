@@ -58,12 +58,12 @@ first-run setup, recovery, and every other vault-related screen — matching sve
 
 ## Acceptance criteria
 
-- [ ] Without keyring: every start shows the unlock view.
-- [ ] With keyring enabled: start unlocks silently; keyring failure falls back to the prompt.
+- [x] Without keyring: every start shows the unlock view.
+- [x] With keyring enabled: start unlocks silently; keyring failure falls back to the prompt.
 - [ ] Forgot-password paths: keyring reset, sync recovery, and the no-recovery explanation.
-- [ ] Backoff countdown displayed and enforced.
-- [ ] First-run creates the vault only with a strong enough password.
-- [ ] Snapshot tests for unlock, first run, forgot password, backoff and lock overlay.
+- [x] Backoff countdown displayed and enforced.
+- [x] First-run creates the vault only with a strong enough password.
+- [x] Snapshot tests for unlock, first run, forgot password, backoff and lock overlay.
 
 ## Tests
 

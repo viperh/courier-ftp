@@ -1,0 +1,106 @@
+# cargo-fuzz targets (T91 §7). Its own workspace (nightly, libfuzzer-sys); the root
+# workspace excludes this directory. Every target's body is also a property test
+# in its crate, so `cargo test` covers it on stable.
+#
+#   cargo +nightly fuzz run listing
+[package]
+name = "courier-ftp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+courier-ftp-core = { path = "../crates/courier-ftp-core" }
+courier-ftp-crypto = { path = "../crates/courier-ftp-crypto" }
+courier-ftp-proto-ftp = { path = "../crates/courier-ftp-proto-ftp" }
+courier-ftp-proto-sftp = { path = "../crates/courier-ftp-proto-sftp" }
+libfuzzer-sys = "0.4.13"
+time = "0.3.55"
+
+# FTP LIST / MLSD listing parsers (T13); same body as
+# crates/courier-ftp-proto-ftp/tests/no_panic.rs.
+[[bin]]
+name = "listing"
+path = "fuzz_targets/listing.rs"
+test = false
+doc = false
+bench = false
+
+# Item envelopes (T80).
+[[bin]]
+name = "envelope_open"
+path = "fuzz_targets/envelope_open.rs"
+test = false
+doc = false
+bench = false
+
+# Account bundles (T80).
+[[bin]]
+name = "bundle_open"
+path = "fuzz_targets/bundle_open.rs"
+test = false
+doc = false
+bench = false
+
+# Vault-key grants (T80).
+[[bin]]
+name = "grant_open"
+path = "fuzz_targets/grant_open.rs"
+test = false
+doc = false
+bench = false
+
+# KDF parameter CBOR (T80).
+[[bin]]
+name = "kdf_params"
+path = "fuzz_targets/kdf_params.rs"
+test = false
+doc = false
+bench = false
+
+# Item body CBOR (T81).
+[[bin]]
+name = "item_body"
+path = "fuzz_targets/item_body.rs"
+test = false
+doc = false
+bench = false
+
+# `.cftp-backup` files (T30).
+[[bin]]
+name = "backup_decrypt"
+path = "fuzz_targets/backup_decrypt.rs"
+test = false
+doc = false
+bench = false
+
+# known_hosts parser (T21).
+[[bin]]
+name = "known_hosts_parse"
+path = "fuzz_targets/known_hosts_parse.rs"
+test = false
+doc = false
+bench = false
+
+# Private key files incl. PPK (T20).
+[[bin]]
+name = "key_parse"
+path = "fuzz_targets/key_parse.rs"
+test = false
+doc = false
+bench = false
+
+# HTTP CONNECT / SOCKS replies (T07).
+[[bin]]
+name = "proxy_reply"
+path = "fuzz_targets/proxy_reply.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

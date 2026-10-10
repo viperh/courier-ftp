@@ -1,8 +1,16 @@
 //! [`MainScreen`]: the courier-ftp main window (T50).
 
-use std::time::Instant;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
-use courier_ftp_core::{events::CoreEvent, filters::FilterEngine, settings::InterfaceSettings};
+use courier_ftp_core::{
+    backend::Listing,
+    events::{CoreEvent, PromptRequest},
+    filters::FilterEngine,
+    settings::InterfaceSettings,
+};
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
 use tokio::sync::mpsc::UnboundedSender;
@@ -15,11 +23,17 @@ use super::{
     log::LogPane,
     modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
     panes,
+    quickconnect::{QuickKey, Quickconnect},
     status::{self, StatusState},
     theme::Theme,
+    vault::{VaultRequest, VaultView},
 };
 use crate::{
-    action::Action, app::Mode, config::Config, keymap::key_to_string, ui::dialog::message,
+    action::{Action, Connected},
+    app::Mode,
+    config::Config,
+    keymap::key_to_string,
+    ui::dialog::message,
 };
 
 /// Actions the focused pane handles itself (navigation, search, selection).
@@ -115,6 +129,11 @@ fn hints(config: &Config) -> Vec<(String, String)> {
     .collect()
 }
 
+/// How long the user must not press a key before a queued prompt opens by
+/// itself, so a key meant for the file list can't answer a dialog that
+/// popped up under it.
+pub(crate) const PROMPT_IDLE: Duration = Duration::from_secs(1);
+
 /// What the screen did with a key.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum KeyOutcome {
@@ -133,6 +152,7 @@ pub(crate) struct MainScreen {
     pub(crate) local: FileList,
     pub(crate) remote: FileList,
     log: LogPane,
+    quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
     tick: u64,
     /// The regions of the last frame, for focus checks.
@@ -142,6 +162,17 @@ pub(crate) struct MainScreen {
     action_tx: Option<UnboundedSender<Action>>,
     /// Actions the panes asked for, taken by the app after each event.
     outbox: Vec<Action>,
+    /// Questions from the core waiting for their turn (T69). One prompt is
+    /// shown at a time; see [`MainScreen::pump_prompts`].
+    prompts: VecDeque<PromptRequest>,
+    /// When the user last pressed a key.
+    last_key: Option<Instant>,
+    /// The vault screens (T60), when this app has a vault.
+    vault: Option<VaultView>,
+    /// Whether the vault view covers the panes (unlock view, lock overlay).
+    vault_shown: bool,
+    /// What the vault view asked for, taken by the app after each key.
+    vault_requests: Vec<VaultRequest>,
 }
 
 impl MainScreen {
@@ -162,7 +193,7 @@ impl MainScreen {
             layout: ui.layout,
             swap_panes: ui.swap_panes,
             visible: Visibility {
-                quickconnect: true,
+                quickconnect: ui.show_quickconnect,
                 log: ui.show_log,
                 queue: ui.show_queue,
                 tree: ui.show_tree,
@@ -186,12 +217,18 @@ impl MainScreen {
             local,
             remote,
             log,
+            quickconnect: Quickconnect::new(),
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
             status,
             action_tx: None,
             outbox: Vec::new(),
+            prompts: VecDeque::new(),
+            last_key: None,
+            vault: None,
+            vault_shown: false,
+            vault_requests: Vec::new(),
         }
     }
 
@@ -220,9 +257,47 @@ impl MainScreen {
         }
     }
 
+    /// Install the vault view (shown, covering the panes).
+    pub(crate) fn set_vault_view(&mut self, view: VaultView) {
+        self.vault = Some(view);
+        self.vault_shown = true;
+    }
+
+    /// The vault view, if this app has a vault.
+    pub(crate) fn vault_view_mut(&mut self) -> Option<&mut VaultView> {
+        self.vault.as_mut()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn vault_view(&self) -> Option<&VaultView> {
+        self.vault.as_ref()
+    }
+
+    /// Show or hide the vault view (hidden: "Continue without vault" or
+    /// unlocked).
+    pub(crate) fn show_vault(&mut self, shown: bool) {
+        self.vault_shown = shown && self.vault.is_some();
+    }
+
+    /// Whether the vault view covers the panes.
+    #[cfg(test)]
+    pub(crate) fn vault_shown(&self) -> bool {
+        self.vault_shown
+    }
+
+    /// The status bar's `🔐 locked`.
+    pub(crate) fn set_vault_locked(&mut self, locked: bool) {
+        self.status.vault_locked = locked;
+    }
+
+    /// What the vault view asked for since the last call.
+    pub(crate) fn take_vault_requests(&mut self) -> Vec<VaultRequest> {
+        std::mem::take(&mut self.vault_requests)
+    }
+
     /// The current input mode, which selects the keymap.
     pub(crate) fn mode(&self) -> Mode {
-        if !self.modals.is_empty() {
+        if !self.modals.is_empty() || self.vault_shown {
             return Mode::Dialog;
         }
         if self.log.is_searching() {
@@ -268,6 +343,15 @@ impl MainScreen {
     /// Route a key: the top modal first, then the focused region. Keys nobody
     /// takes go to the keymap.
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> KeyOutcome {
+        self.last_key = Some(Instant::now());
+        if self.vault_shown {
+            if let Some(view) = self.vault.as_mut()
+                && let Some(request) = view.handle_key(key, Instant::now())
+            {
+                self.vault_requests.push(request);
+            }
+            return KeyOutcome::Consumed;
+        }
         if let Some(top) = self.modals.last_mut() {
             if top.handle_key(key) == ModalOutcome::Close {
                 self.modals.pop();
@@ -278,6 +362,16 @@ impl MainScreen {
         if self.focus == Region::Log && self.log.handle_search_key(key) {
             return KeyOutcome::Consumed;
         }
+        if self.focus == Region::Quickconnect {
+            match self.quickconnect.handle_key(key) {
+                QuickKey::Consumed => return KeyOutcome::Consumed,
+                QuickKey::Submit => {
+                    self.submit_quickconnect();
+                    return KeyOutcome::Consumed;
+                }
+                QuickKey::NotHandled => {}
+            }
+        }
         if let Some(list) = self.focused_list()
             && let Some(effect) = list.handle_key(key)
         {
@@ -287,21 +381,23 @@ impl MainScreen {
         KeyOutcome::NotHandled
     }
 
-    /// Pasted text goes to the top modal (T52); the quickconnect bar takes it
-    /// from T58.
+    /// Pasted text goes to the top modal (T52), the quickconnect bar or the
+    /// focused list's address bar.
     pub(crate) fn handle_paste(&mut self, text: &str) {
-        if let Some(top) = self.modals.last_mut() {
+        if self.vault_shown {
+            if let Some(view) = self.vault.as_mut() {
+                view.handle_paste(text);
+            }
+        } else if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
+        } else if self.focus == Region::Quickconnect {
+            self.quickconnect.handle_paste(text);
         } else if let Some(list) = self.focused_list() {
             list.handle_paste(text);
         }
     }
 
     /// Put a dialog on top of the modal stack.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "feature dialogs push themselves from T58 on")
-    )]
     pub(crate) fn push_modal(&mut self, modal: Box<dyn Modal>) {
         self.modals.push(modal);
     }
@@ -354,7 +450,19 @@ impl MainScreen {
             }
         }
         match action {
-            Action::Tick => self.tick = self.tick.wrapping_add(1),
+            Action::Tick => {
+                self.tick = self.tick.wrapping_add(1);
+                if let Some(view) = self.vault.as_mut() {
+                    view.tick();
+                }
+                self.pump_prompts(Instant::now(), false);
+            }
+            Action::OpenPrompt => {
+                if self.prompts.is_empty() {
+                    self.status.flash("No prompt waiting", Instant::now());
+                }
+                self.pump_prompts(Instant::now(), true);
+            }
             Action::Help => self.open_help(),
             Action::CloseDialog => {
                 self.modals.pop();
@@ -369,7 +477,10 @@ impl MainScreen {
             Action::FocusRemote => self.set_focus(Region::RemoteList),
             Action::FocusLog => self.set_focus(Region::Log),
             Action::FocusQueue => self.set_focus(Region::Queue),
-            Action::FocusQuickconnect => self.set_focus(Region::Quickconnect),
+            Action::FocusQuickconnect => {
+                self.set_focus(Region::Quickconnect);
+                self.quickconnect.focus_host();
+            }
             Action::ToggleLog => self.opts.visible.log = !self.opts.visible.log,
             Action::ToggleQueue => self.opts.visible.queue = !self.opts.visible.queue,
             Action::ToggleTree => self.opts.visible.tree = !self.opts.visible.tree,
@@ -411,6 +522,50 @@ impl MainScreen {
         }
     }
 
+    /// Connect with what the quickconnect bar holds, or say what is wrong.
+    /// Focus moves to the remote list so the prompts of the connection (host
+    /// key, password) can open: they wait while a text field has focus.
+    fn submit_quickconnect(&mut self) {
+        match self.quickconnect.request() {
+            Ok(request) => {
+                self.outbox.push(Action::Connect {
+                    request: Box::new(request),
+                    replace: false,
+                });
+                self.set_focus(Region::RemoteList);
+            }
+            Err(e) => self.status.flash(e, Instant::now()),
+        }
+    }
+
+    /// Show `text` in the status bar for a few seconds.
+    pub(crate) fn flash(&mut self, text: impl Into<String>) {
+        self.status.flash(text, Instant::now());
+    }
+
+    /// A connection to `server` is being opened in the remote pane.
+    pub(crate) fn remote_connecting(&mut self, server: String) {
+        self.status.session = None;
+        self.remote.connecting(server);
+    }
+
+    /// The remote pane's connection is up: show its first listing and its
+    /// security in the status bar.
+    pub(crate) fn remote_connected(&mut self, connected: &Connected) {
+        self.status.session = connected.info.clone();
+        self.remote.busy = false;
+        let result: Result<Listing, String> = Ok(connected.listing.clone());
+        let error = self.remote.listing_loaded(&result);
+        self.outbox.extend(error);
+    }
+
+    /// The remote pane is not connected (any more); `error` says why a
+    /// connection failed.
+    pub(crate) fn remote_disconnected(&mut self, error: Option<String>) {
+        self.status.session = None;
+        self.remote.disconnected(error);
+    }
+
     pub(crate) fn pane_mut(&mut self, side: Side) -> &mut FileList {
         match side {
             Side::Local => &mut self.local,
@@ -422,11 +577,48 @@ impl MainScreen {
     pub(crate) fn handle_core(&mut self, event: CoreEvent) {
         match event {
             CoreEvent::Log(msg) => self.log.push(msg),
-            CoreEvent::Prompt(request) => self.modals.push(prompt_modal(request)),
+            CoreEvent::Prompt(request) => {
+                self.prompts.push_back(request);
+                self.pump_prompts(Instant::now(), false);
+            }
             // Connection, listing, transfer and queue events get their UI in
             // T53/T56/T57/T61.
             _ => {}
         }
+    }
+
+    /// Show the next queued prompt when nothing else is in the way (T69).
+    ///
+    /// A prompt opens by itself only when no dialog is open, the user isn't
+    /// typing (input or filter mode) and no key was pressed for
+    /// [`PROMPT_IDLE`]. Until then the status bar shows `⚠ N prompts` and
+    /// `<Ctrl-x><p>` (`force`) opens the next one at once. Prompts the core
+    /// stopped waiting for are dropped.
+    pub(crate) fn pump_prompts(&mut self, now: Instant, force: bool) {
+        self.prompts.retain(|p| !p.reply.is_closed());
+        // Nothing opens over the vault view (input is blocked there).
+        let busy = !self.modals.is_empty()
+            || self.vault_shown
+            || (!force
+                && (matches!(self.mode(), Mode::Input | Mode::Filter)
+                    || self
+                        .last_key
+                        .is_some_and(|t| now.saturating_duration_since(t) < PROMPT_IDLE)));
+        if !busy && let Some(request) = self.prompts.pop_front() {
+            self.modals.push(prompt_modal(request, self.status.unicode));
+        }
+        self.status.pending_prompts = self.prompts.len();
+    }
+
+    /// Prompts waiting for their turn.
+    #[cfg(test)]
+    pub(crate) fn queued_prompts(&self) -> usize {
+        self.prompts.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_last_key(&mut self, at: Option<Instant>) {
+        self.last_key = at;
     }
 
     fn open_help(&mut self) {
@@ -440,7 +632,29 @@ impl MainScreen {
     pub(crate) fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
         self.modals.retain(|m| !m.is_done());
+        self.status.pending_prompts = self.prompts.len();
         let r = layout::compute(area, &self.opts);
+        if self.vault_shown
+            && let Some(view) = &self.vault
+        {
+            // Panes hidden, input blocked; the status bar stays so running
+            // transfers stay visible (T60 §4).
+            let status = r.status.unwrap_or(ratatui::layout::Rect::new(
+                area.x,
+                area.bottom().saturating_sub(1),
+                area.width,
+                1.min(area.height),
+            ));
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                status.y.saturating_sub(area.y),
+            );
+            view.draw(frame, above, &self.theme, Instant::now());
+            status::draw(frame, status, &self.status, &self.theme);
+            return;
+        }
         if !self.focus.visible_in(&r) {
             self.focus = Region::list(self.opts.compact_side);
             if !self.focus.visible_in(&r) {
@@ -452,7 +666,8 @@ impl MainScreen {
         let theme = &self.theme;
         let f = self.focus;
         if let Some(a) = r.quickconnect {
-            panes::draw_quickconnect(frame, a, f == Region::Quickconnect, theme);
+            self.quickconnect
+                .draw(frame, a, f == Region::Quickconnect, theme);
         }
         if let Some(a) = r.tabs {
             panes::draw_tabs(frame, a, theme);

@@ -1,4 +1,8 @@
-use courier_ftp_core::backend::Listing;
+use courier_ftp_core::{
+    backend::{ConnectInfo, Listing, SessionInfo},
+    events::SessionId,
+    model::{LogonType, RemotePath},
+};
 use serde::{Deserialize, Serialize};
 use strum::Display;
 
@@ -77,6 +81,9 @@ pub(crate) enum Action {
     /// Disconnect the current tab. Default `<Ctrl-x><d>`: `Ctrl-d` is the
     /// vim half-page-down key in file lists.
     Disconnect,
+    /// Connect again to the last server of this run (T58). The password is
+    /// asked for again: it isn't kept in the history.
+    Reconnect,
     /// Start or stop processing the queue (T41).
     ProcessQueue,
     ToggleLog,
@@ -91,6 +98,14 @@ pub(crate) enum Action {
     CycleTransferType,
     /// Protocol, software and encryption details of the current tab.
     ServerInfo,
+    /// Open the next waiting prompt (host key, certificate, password…) now
+    /// instead of when the user is idle (T69).
+    OpenPrompt,
+    /// Lock the vault now (T60): keys are dropped and the unlock view covers
+    /// the panes.
+    LockVault,
+    /// Show the unlock view after "Continue without vault" (T60).
+    UnlockVault,
 
     // --- focus ---
     /// `Tab`: switch between the two file lists (Midnight Commander style).
@@ -207,4 +222,64 @@ pub(crate) enum Action {
         side: Side,
         result: Result<Listing, String>,
     },
+    /// Connect the remote pane (quickconnect, T58). With `replace` an
+    /// existing connection is closed without asking.
+    #[serde(skip)]
+    Connect {
+        request: Box<ConnectRequest>,
+        replace: bool,
+    },
+    /// A connection attempt started by [`Action::Connect`] finished.
+    #[serde(skip)]
+    Connected {
+        session: SessionId,
+        result: Result<Box<Connected>, String>,
+    },
+    /// A remote listing finished; dropped when `session` is no longer the
+    /// current connection.
+    #[serde(skip)]
+    RemoteListingLoaded {
+        session: SessionId,
+        result: Result<Listing, String>,
+    },
+}
+
+/// What to connect to, from the quickconnect bar.
+#[derive(Debug, Clone)]
+pub(crate) struct ConnectRequest {
+    pub(crate) info: ConnectInfo,
+    /// The directory to open instead of the home directory.
+    pub(crate) path: Option<RemotePath>,
+}
+
+impl ConnectRequest {
+    /// The request with its password removed, for the reconnect history: the
+    /// password is asked for again (T58 §6; T33 stores it in the vault when
+    /// `vault.store_passwords` allows).
+    pub(crate) fn without_password(&self) -> Self {
+        let mut request = self.clone();
+        request.info.logon = match &self.info.logon {
+            LogonType::Normal { user, .. } | LogonType::Account { user, .. } => {
+                LogonType::AskForPassword { user: user.clone() }
+            }
+            other => other.clone(),
+        };
+        request
+    }
+}
+
+impl PartialEq for ConnectRequest {
+    /// Address, logon type (passwords are compared, never shown) and path.
+    fn eq(&self, other: &Self) -> bool {
+        self.info == other.info && self.path == other.path
+    }
+}
+
+impl Eq for ConnectRequest {}
+
+/// A successful connection: what the status bar shows and the first listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Connected {
+    pub(crate) info: Option<SessionInfo>,
+    pub(crate) listing: Listing,
 }

@@ -4,3 +4,10 @@
 *.snap text eol=lf
 *.json text eol=lf
 *.sh   text eol=lf
+# Listing fixtures are compared byte for byte (tabs, trailing spaces, CRLF,
+# non-UTF-8 names): never convert them.
+crates/courier-ftp-proto-ftp/tests/listings/* -text
+# Binary test fixtures (encrypted envelopes): never touch line endings.
+*.bin  binary
+# Test key fixtures are parsed byte for byte (T20).
+crates/*/tests/keys/** -text

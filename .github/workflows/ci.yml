@@ -7,10 +7,10 @@ name: CI # Continuous Integration
 #                        e2e job below already runs the container tests)
 #   server-db            T84  (Postgres tests of courier-ftp-server)
 #   server-docker        T86  (deploy/docker-compose.yml, /healthz, non-root image)
-#   vet                  T91  (supply-chain/, check-vet-crypto.py)
-#   fuzz                 T91  (fuzz/ workspace; first target lands with T13)
-#   canary --require-files and the server dump: T91 (canary fixture) and T84
+#   canary server dump   T84  (the Postgres dump scanned by the canary job)
 #   nix                  optional, only if a flake is added
+#
+# T91 (M2 pass) added `vet`, `fuzz` and `canary --require-files`.
 
 on:
   push:
@@ -176,6 +176,70 @@ jobs:
           command: check advisories bans licenses sources
           arguments: --all-features --locked
 
+  # T91 §6: every dependency audited (imported audits) or exempted; the
+  # crypto crates are still exempted, which check-vet-crypto.py reports as a
+  # warning until they are audited (VET_CRYPTO_STRICT=1 makes it fail).
+  vet:
+    name: cargo-vet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      # Pinned to the version that wrote supply-chain/imports.lock: older
+      # releases (taiki-e's prebuilt "latest" is 0.10.0) can't parse its
+      # `trusted-publisher` entries.
+      - name: Install cargo-vet
+        run: cargo install --locked cargo-vet --version 0.10.2
+      - name: Vet dependencies
+        run: cargo vet --locked
+      - name: Crypto crates (warns while they are exempted)
+        run: python3 scripts/check-vet-crypto.py
+
+  # T91 §7: every cargo-fuzz target for 30 s (the nightly fuzz.yml runs them
+  # 10 minutes each). Targets are read from `cargo fuzz list`.
+  fuzz:
+    name: Fuzz (30 s per target)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Seed corpus
+        run: fuzz/seed-corpus.sh
+      - name: Build every target
+        run: cargo +nightly fuzz build --target x86_64-unknown-linux-gnu
+      - name: Run every target for 30 s
+        run: |
+          status=0
+          for target in $(cargo +nightly fuzz list); do
+            echo "::group::$target"
+            mkdir -p "fuzz/corpus/$target"
+            if ! cargo +nightly fuzz run --target x86_64-unknown-linux-gnu "$target" "fuzz/corpus/$target" -- \
+                 -max_total_time=30 -rss_limit_mb=2048 -timeout=10; then
+              echo "::error::fuzz target $target crashed"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts
+          if-no-files-found: ignore
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest
@@ -258,12 +322,14 @@ jobs:
           TMPDIR: ${{ runner.temp }}/canary/tmp
           COURIER_FTP_HOME: ${{ runner.temp }}/canary/home
         run: cargo test --workspace --all-features --locked --no-fail-fast
-      # `--require-files` is added by T91 with the end-to-end canary fixture; until
-      # then the suite may write no artifacts at all.
+      # `--require-files`: the canary fixtures (courier-ftp-store
+      # `tests/canary_artifacts.rs`, courier-ftp-proto-sftp
+      # `ssh::tests::canary_secrets_stay_out_of_trace_logs`) always leave a vault
+      # database, WAL/SHM, a backup and trace logs in target/tmp.
       - name: Scan for canaries
         if: always()
         run: >-
-          scripts/canary-scan.sh
+          scripts/canary-scan.sh --require-files
           target/tmp "$RUNNER_TEMP/canary/tmp" "$RUNNER_TEMP/canary/home"
 
   # Release tooling that needs no secrets (the full release dry run is

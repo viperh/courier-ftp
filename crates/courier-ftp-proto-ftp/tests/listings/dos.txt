@@ -1,0 +1,12 @@
+01-31-24  12:00PM       <DIR>          aspnet_client
+01-31-24  12:05AM                 1234 default.htm
+12-25-98  03:30PM                45678 old page.html
+02-29-2024  09:15AM       <DIR>          Leap Folder
+06-15-2024  23:59                 7890 web.config
+2024-01-31  13:05    1,234,567,890 big.iso
+31.01.2024  08:00             1.024 european.txt
+01/31/2024  11:00 PM       <DIR>          spaced-ampm
+01-31-24  12:00PM  <JUNCTION>     Documents [C:\Users\Public\Documents]
+01-31-24  12:00PM  <SYMLINKD>     current [releases\v2]
+01-31-24  12:00PM  <SYMLINK>      latest.log [logs\2024.log]
+01-31-24  12:00PM                    0 .htaccess

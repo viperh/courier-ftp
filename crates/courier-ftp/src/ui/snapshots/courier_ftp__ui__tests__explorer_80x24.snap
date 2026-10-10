@@ -3,7 +3,7 @@ source: crates/courier-ftp/src/ui/tests.rs
 expression: terminal.backend()
 ---
 "┌ Quickconnect ────────────────────────────────────────────────────────────────┐"
-"│Host: ________   User: ________   Pass: ________   Port: ________   [Connect] │"
+"│Host: host or URL        User: _________ Pass: ________ Port: ______ [Connect]│"
 "└──────────────────────────────────────────────────────────────────────────────┘"
 " Tabs: [1 local]                                                                "
 "┌ Message log ─────────────────────────────────────────────────────────────────┐"
@@ -11,10 +11,10 @@ expression: terminal.backend()
 "│Response: 230 Login successful.                                               │"
 "└──────────────────────────────────────────────────────────────────────────────┘"
 "┌ Tree ──────┐┌ Local:  ───────────────┐┌ Tree ──────┐┌ Remote: not connected ─┐"
-"│(directory t││  Name▲                 ││(directory t││Not connected to any ser│"
-"│            ││  assets/               ││            ││Ctrl-s: Site Manager · C│"
-"│            ││  index.html            ││            ││                        │"
-"│            ││  style.css             ││            ││                        │"
+"│(directory t││  Name▲                 ││(directory t││Not connected to any    │"
+"│            ││  assets/               ││            ││server.                 │"
+"│            ││  index.html            ││            ││Ctrl-s: Site Manager ·  │"
+"│            ││  style.css             ││            ││Ctrl-k: quickconnect    │"
 "│            ││                        ││            ││                        │"
 "│            ││                        ││            ││                        │"
 "│            ││                        ││            ││                        │"

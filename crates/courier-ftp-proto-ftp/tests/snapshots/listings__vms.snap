@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Vms)
+dir   "BACKUP" size=512 mtime=2024-01-31T12:00:00.000Z/Second perms=raw:(RWE,RWE,RE,E) owner=ALICE group=STAFF
+file  "LOGIN.COM" size=2560 mtime=2023-02-02T08:15:30.000Z/Second perms=raw:(RWED,RWED,RE,) owner=ALICE group=STAFF
+file  "NOTES.TXT" size=6144 mtime=2024-06-15T09:00:00.000Z/Minute perms=raw:(RWED,RWED,,) owner=ALICE group=-
+file  "A_VERY_LONG_FILE_NAME_THAT_DOES_NOT_FIT.DAT" size=128000 mtime=2022-03-01T00:00:01.000Z/Second perms=raw:(RWED,RWED,RE,) owner=ALICE group=STAFF
+file  "SECRET.DAT" size=- mtime=- perms=- owner=- group=-
+file  "MINIMAL.LIS" size=1536 mtime=2024-02-29T00:00:00.000Z/Day perms=- owner=- group=-

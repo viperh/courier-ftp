@@ -46,10 +46,10 @@ everything that already exists.
 
 ## Acceptance criteria
 
-- [ ] Migrations apply on a fresh DB and refuse newer schemas.
-- [ ] Concurrent writers from two processes don't corrupt or deadlock (test with two store instances).
-- [ ] Item write + outbox row are atomic.
-- [ ] No plaintext item data in the DB file (grep test for a canary site name).
+- [x] Migrations apply on a fresh DB and refuse newer schemas.
+- [x] Concurrent writers from two processes don't corrupt or deadlock (test with two store instances).
+- [x] Item write + outbox row are atomic.
+- [x] No plaintext item data in the DB file (grep test for a canary site name).
 
 ## Tests
 

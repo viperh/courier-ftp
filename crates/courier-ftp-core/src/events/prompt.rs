@@ -10,7 +10,7 @@ use tokio::sync::oneshot;
 
 use super::SessionId;
 use crate::{
-    model::{Direction, Entry, LocalPath, RemotePath},
+    model::{CertificateDetails, Direction, Entry, HostKeyFingerprint, LocalPath, RemotePath},
     settings::ExistsAction,
 };
 
@@ -46,21 +46,32 @@ pub struct PromptRequest {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum PromptKind {
-    /// An SSH host key is not trusted yet (or changed).
+    /// An SSH host key is not trusted yet (T21), or differs from the trusted
+    /// one. Answered with [`PromptResponse::Trust`].
     TrustHostKey {
         /// `host:port`.
         host: String,
-        /// Key algorithm, e.g. `ssh-ed25519`.
-        key_type: String,
-        /// `SHA256:…` fingerprint of the offered key.
-        fingerprint_sha256: String,
-        /// The fingerprint trusted before, when the key changed.
-        known: Option<String>,
+        /// The key the server offered.
+        key: HostKeyFingerprint,
+        /// The key trusted before, when the server now offers a different
+        /// one (a possible man-in-the-middle attack). The UI then shows a
+        /// warning and makes *Cancel* the default.
+        known: Option<HostKeyFingerprint>,
+        /// Whether the answer can be remembered. `false` while the vault is
+        /// locked: the UI then never answers [`TrustDecision::Always`].
+        can_remember: bool,
     },
-    /// A TLS certificate is not trusted (T12, T69).
+    /// A TLS certificate is not trusted (T12), or differs from the trusted
+    /// one. Answered with [`PromptResponse::Trust`].
     TrustCertificate {
-        /// Subject, issuer, validity, fingerprints, rendered by the TLS code.
+        /// The chain, the TLS session and why verification failed.
         details: Box<CertificateDetails>,
+        /// SHA-256 fingerprint of the certificate trusted before for this
+        /// host, when it changed. The UI then shows a warning.
+        known_sha256: Option<String>,
+        /// Whether the answer can be remembered (`false` while the vault is
+        /// locked).
+        can_remember: bool,
     },
     /// A password is needed (logon type "ask for password").
     Password {
@@ -96,23 +107,6 @@ pub enum PromptKind {
     },
     /// Something to acknowledge.
     Message(String),
-}
-
-/// A certificate as shown in the trust prompt (filled in by T12).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CertificateDetails {
-    /// The host the certificate was presented for.
-    pub host: String,
-    /// Subject distinguished name.
-    pub subject: String,
-    /// Issuer distinguished name.
-    pub issuer: String,
-    /// Validity period, human readable.
-    pub validity: String,
-    /// `SHA256:…` fingerprint.
-    pub fingerprint_sha256: String,
-    /// Why verification failed (self-signed, expired, wrong host…).
-    pub problem: String,
 }
 
 /// The answer to a [`PromptKind`].

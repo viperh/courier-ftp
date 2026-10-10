@@ -61,6 +61,8 @@ futures = "0.3.32"
 pin-project-lite = "0.2.17"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
+# Socket options tokio does not expose (TCP keep-alive, T07).
+socket2 = "0.6.5"
 
 # --- tls (D9: rustls only) ---
 rustls = { version = "0.23.43", default-features = false, features = ["logging", "ring", "std", "tls12"] }
@@ -70,8 +72,17 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["logg
 x509-parser = "0.18.1"
 
 # --- ssh (D2) ---
-russh = "0.64.1"
+# `ring` instead of the default `aws-lc-rs`: one crypto provider for TLS and SSH
+# (rustls already uses ring, D9), and no aws-lc C/NASM build on Windows.
+russh = { version = "0.64.1", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "3.0.1"
+# Hashed known_hosts entries (`|1|salt|hash`, HMAC-SHA1) and host key
+# fingerprints (SHA-256, legacy MD5) in core's `trust` module (T21). All are
+# already in the tree through russh / ssh-key.
+base64ct = { version = "1.8.3", features = ["alloc"] }
+hmac = "0.13.0"
+md5 = "0.8.1"
+sha1 = "0.11.0"
 # russh 0.64 requires exactly this pre-release.
 ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "encryption"] }
 
@@ -87,6 +98,9 @@ opaque-ke = { version = "4.0.1", features = ["argon2"] }
 rand_core = "0.10.1"
 secrecy = { version = "0.10.3", features = ["serde"] }
 sha2 = "0.11.0"
+# opaque-ke 4 is on the digest 0.10 generation: its SHA-512 must come from sha2
+# 0.10 (courier-ftp-crypto `opaque`, T80).
+sha2_010 = { package = "sha2", version = "0.10.9", default-features = false }
 subtle = "2.6.1"
 x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1.9.1", features = ["derive"] }
@@ -142,12 +156,17 @@ thiserror = "2.0.17"
 tracing = "0.1.44"
 tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "serde"] }
+# `log` records (russh) into tracing, for the SSH canary test (T91).
+tracing-log = "0.2.0"
 
 # --- misc ---
 bytesize = "2.7.0"
 # Free disk space (T06).
 fs4 = "1.1.0"
 libc = "0.2.189"
+# Process hardening on Windows (courier-ftp-core `hardening`, T91); already in
+# Cargo.lock through tokio / rustls-platform-verifier.
+windows-sys = "0.61.2"
 # Owner/group names of local files on Unix (T06).
 uzers = "0.12.2"
 # Watching files opened in an external editor (T63).
@@ -167,6 +186,9 @@ cargo_metadata = "0.23.1"
 testcontainers = { version = "0.28.0", default-features = false }
 toml = "1.1.8"
 criterion = "0.8.2"
+# Deterministic RNG and hex for the crypto known-answer tests (T80).
+chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
+hex = "0.4.3"
 insta = "1.49.0"
 pretty_assertions = "1.4.1"
 proptest = "1.11.0"

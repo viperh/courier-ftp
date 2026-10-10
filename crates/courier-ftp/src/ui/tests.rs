@@ -3,8 +3,8 @@
 
 use courier_ftp_core::{
     backend::Listing,
-    events::{self, CoreEvent, LogKind, PromptKind, PromptResponse, SessionId},
-    model::{Entry, RemotePath},
+    events::{self, CoreEvent, LogKind, PromptKind, PromptResponse, SessionId, TrustDecision},
+    model::{Entry, HostKeyFingerprint, RemotePath},
     settings::Layout,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -60,6 +60,10 @@ fn text(terminal: &Terminal<TestBackend>) -> String {
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+fn alt(c: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)
 }
 
 #[test]
@@ -248,4 +252,173 @@ fn status_indicators_follow_actions() {
     );
     s.update(&Action::ServerInfo);
     assert!(text(&render(&mut s, 200, 40)).contains("Not connected."));
+}
+
+// --- T69: trust prompts and the prompt queue ---
+
+fn host_key_prompt(host: &str) -> PromptKind {
+    PromptKind::TrustHostKey {
+        host: host.into(),
+        key: HostKeyFingerprint {
+            algorithm: "ssh-ed25519".into(),
+            bits: Some(256),
+            sha256: "SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s".into(),
+            md5: None,
+        },
+        known: None,
+        can_remember: true,
+    }
+}
+
+/// Ask `kind` from a background task; the event is handed to the screen.
+async fn ask(
+    s: &mut MainScreen,
+    kind: PromptKind,
+    cancel: CancellationToken,
+) -> tokio::task::JoinHandle<courier_ftp_core::Result<PromptResponse>> {
+    let (tx, mut rx) = events::channel(2);
+    let asker = tokio::spawn(async move { tx.ask(Some(SessionId(1)), kind, &cancel).await });
+    s.handle_core(rx.recv().await.unwrap());
+    asker
+}
+
+fn trust(r: courier_ftp_core::Result<PromptResponse>) -> TrustDecision {
+    match r {
+        Ok(PromptResponse::Trust(d)) => d,
+        other => panic!("not a trust answer: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn host_key_prompt_opens_and_answers() {
+    let mut s = screen(Layout::Classic);
+    let asker = ask(
+        &mut s,
+        host_key_prompt("a.example:22"),
+        CancellationToken::new(),
+    )
+    .await;
+    assert!(s.has_modal());
+    let t = text(&render(&mut s, 120, 40));
+    assert!(
+        t.contains("Unknown host key") && t.contains("a.example:22"),
+        "{t}"
+    );
+    s.handle_key(key(KeyCode::Enter));
+    assert_eq!(trust(asker.await.unwrap()), TrustDecision::Always);
+}
+
+#[tokio::test]
+async fn concurrent_prompts_queue_one_at_a_time() {
+    let mut s = screen(Layout::Classic);
+    let first = ask(
+        &mut s,
+        host_key_prompt("a.example:22"),
+        CancellationToken::new(),
+    )
+    .await;
+    let second = ask(
+        &mut s,
+        host_key_prompt("b.example:22"),
+        CancellationToken::new(),
+    )
+    .await;
+    let third = ask(
+        &mut s,
+        host_key_prompt("c.example:22"),
+        CancellationToken::new(),
+    )
+    .await;
+    assert_eq!(s.queued_prompts(), 2);
+    let t = text(&render(&mut s, 200, 40));
+    assert!(
+        t.contains("a.example:22") && !t.contains("b.example"),
+        "{t}"
+    );
+    assert!(t.contains("⚠ 2 prompts"), "{t}");
+
+    // Answering doesn't open the next one under the user's fingers…
+    s.handle_key(key(KeyCode::Esc));
+    assert_eq!(trust(first.await.unwrap()), TrustDecision::Reject);
+    assert!(!s.has_modal());
+    s.update(&Action::Tick);
+    assert!(!s.has_modal(), "the user just pressed a key");
+    // …only once they are idle.
+    s.set_last_key(None);
+    s.update(&Action::Tick);
+    assert!(s.has_modal());
+    let t = text(&render(&mut s, 200, 40));
+    assert!(
+        t.contains("b.example:22") && t.contains("⚠ 1 prompt"),
+        "{t}"
+    );
+    s.handle_key(alt('o'));
+    assert_eq!(trust(second.await.unwrap()), TrustDecision::Always);
+
+    // `<Ctrl-x><p>` opens the next one right away.
+    s.update(&Action::OpenPrompt);
+    assert!(s.has_modal());
+    assert!(text(&render(&mut s, 200, 40)).contains("c.example:22"));
+    s.handle_key(key(KeyCode::Esc));
+    assert_eq!(trust(third.await.unwrap()), TrustDecision::Reject);
+    assert_eq!(s.queued_prompts(), 0);
+    assert!(!text(&render(&mut s, 200, 40)).contains("prompt"));
+}
+
+#[tokio::test]
+async fn prompts_wait_while_the_user_types() {
+    let mut s = screen(Layout::Classic);
+    s.update(&Action::FocusQuickconnect);
+    let asker = ask(
+        &mut s,
+        host_key_prompt("a.example:22"),
+        CancellationToken::new(),
+    )
+    .await;
+    s.update(&Action::Tick);
+    assert!(!s.has_modal(), "a prompt must not steal text input");
+    assert!(text(&render(&mut s, 200, 40)).contains("⚠ 1 prompt"));
+    s.update(&Action::FocusLocal);
+    s.update(&Action::Tick);
+    assert!(s.has_modal());
+    s.handle_key(key(KeyCode::Esc));
+    assert_eq!(trust(asker.await.unwrap()), TrustDecision::Reject);
+}
+
+#[tokio::test]
+async fn prompts_wait_for_an_open_dialog() {
+    let mut s = screen(Layout::Classic);
+    s.update(&Action::Help);
+    let asker = ask(
+        &mut s,
+        host_key_prompt("a.example:22"),
+        CancellationToken::new(),
+    )
+    .await;
+    s.update(&Action::OpenPrompt);
+    assert_eq!(s.queued_prompts(), 1, "never stacked over another dialog");
+    s.handle_key(key(KeyCode::Esc)); // close help
+    s.set_last_key(None);
+    s.update(&Action::Tick);
+    assert_eq!(s.queued_prompts(), 0);
+    s.handle_key(key(KeyCode::Enter));
+    assert_eq!(trust(asker.await.unwrap()), TrustDecision::Always);
+}
+
+#[tokio::test]
+async fn cancelled_prompts_leave_the_queue_and_the_screen() {
+    let mut s = screen(Layout::Classic);
+    let cancel_a = CancellationToken::new();
+    let cancel_b = CancellationToken::new();
+    let a = ask(&mut s, host_key_prompt("a.example:22"), cancel_a.clone()).await;
+    let b = ask(&mut s, host_key_prompt("b.example:22"), cancel_b.clone()).await;
+    assert_eq!(s.queued_prompts(), 1);
+    // The core gives up on both (connection cancelled).
+    cancel_a.cancel();
+    cancel_b.cancel();
+    assert!(a.await.unwrap().is_err() && b.await.unwrap().is_err());
+    s.update(&Action::Tick);
+    assert_eq!(s.queued_prompts(), 0);
+    render(&mut s, 120, 40);
+    assert!(!s.has_modal(), "the open dialog closed itself");
 }
