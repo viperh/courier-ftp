@@ -32,7 +32,7 @@ Additional:
 
 ## Acceptance criteria
 
-- [ ] Passes backend conformance suite against OpenSSH in Docker.
+- [x] Passes backend conformance suite against OpenSSH in Docker. *(CI `e2e`, `atmoz/sftp`.)*
   (`crates/courier-ftp-e2e/tests/sftp_backend.rs`, `atmoz/sftp`; awaiting the
   CI e2e job. Already passes in-process and against a local OpenSSH 10.5p1
   `sshd` via `scripts/bench-sftp.sh`.)
