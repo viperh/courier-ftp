@@ -1160,6 +1160,7 @@ name = "courier-ftp-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "ciborium",
  "criterion",
@@ -1167,6 +1168,7 @@ dependencies = [
  "encoding_rs",
  "filetime",
  "fs4",
+ "futures",
  "globset",
  "insta",
  "percent-encoding",
@@ -1178,6 +1180,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "socket2",
  "subtle",
  "tempfile",
  "thiserror 2.0.20",

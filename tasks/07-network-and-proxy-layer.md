@@ -251,27 +251,27 @@ Messages name the proxy or target host (shown to the user and in the session log
 
 ## Acceptance criteria
 
-- [ ] AC1 Direct connections work to `127.0.0.1`, `::1` (skipped with a message when the
+- [x] AC1 Direct connections work to `127.0.0.1`, `::1` (skipped with a message when the
   host has no IPv6 loopback) and `localhost`.
-- [ ] AC2 Address order: `prefer_ipv6 = false` → IPv4 first, interleaved; `true` → IPv6
+- [x] AC2 Address order: `prefer_ipv6 = false` → IPv4 first, interleaved; `true` → IPv6
   first; `ipv6 = false` → no IPv6 attempt (mock dialer records attempts).
-- [ ] AC3 Happy Eyeballs: with a first address that hangs, the second attempt starts at
+- [x] AC3 Happy Eyeballs: with a first address that hangs, the second attempt starts at
   250 ms and wins (paused time).
-- [ ] AC4 Timeout: a dial that never completes returns `Timeout` at `timeout` ± 100 ms; a
+- [x] AC4 Timeout: a dial that never completes returns `Timeout` at `timeout` ± 100 ms; a
   dial whose `cancel` token fires returns `Cancelled` within 100 ms; a dropped dial future
   leaves no task running.
-- [ ] AC5 HTTP CONNECT works against an in-process proxy with and without Basic auth,
+- [x] AC5 HTTP CONNECT works against an in-process proxy with and without Basic auth,
   replays early bytes, maps 407/403/malformed/oversized responses to the listed errors, and
   asks for a password once on 407 when none is stored.
-- [ ] AC6 SOCKS5 (no auth, user/password, domain target sent by name) and SOCKS4/4a work
+- [x] AC6 SOCKS5 (no auth, user/password, domain target sent by name) and SOCKS4/4a work
   against in-process proxies; SOCKS error replies give readable `Proxy` errors.
-- [ ] AC7 `allows_inbound()` is false for every proxy kind.
-- [ ] AC8 Canary proxy password never appears in session log lines, `tracing` output or
+- [x] AC7 `allows_inbound()` is false for every proxy kind.
+- [x] AC8 Canary proxy password never appears in session log lines, `tracing` output or
   `Debug` output during the proxy tests.
-- [ ] AC9 `fuzz_http_connect_response` and `fuzz_socks_reply` never panic (property tests,
+- [x] AC9 `fuzz_http_connect_response` and `fuzz_socks_reply` never panic (property tests,
   10 000 random inputs each) and the fuzz targets `http_connect_response` and `socks_reply`
   exist in `fuzz/` (T91 §7).
-- [ ] AC10 T00 CI gates pass.
+- [x] AC10 T00 CI gates pass.
 
 ## Tests
 
@@ -323,3 +323,48 @@ Not applicable.
 - Should courier-ftp also honour the `ALL_PROXY`/`HTTPS_PROXY` environment variables or the
   OS proxy configuration when `proxy.generic.kind = none`? FileZilla does not; this task
   does not.
+
+## Implementation notes
+
+- **Layout:** `net/{mod,dial,happy,proxy,http_connect,socks,stream,http_get}.rs` as
+  specified; tests in `net/tests/{unit,props,dial,http,socks,canary}.rs` (unit tests, not
+  `tests/`, because the mock-dialer tests drive the crate-private `dial::race` and
+  `dial::cancellable`). `CancellationToken` is re-exported from `net`.
+- **Extra public API:** `HostPort` also implements `Display` (= `authority()`);
+  `interleave(addrs, ipv6_first)` takes the start family; `DialFailure` and
+  `MAX_HEADER_BYTES` are exported; `ProxyConfig::proxy_addr()` returns the proxy address.
+- `NetOpts::from_settings` clamps `timeout_secs` to at least 1 s (validation already
+  enforces 5–600).
+- **Errors:** an I/O error while talking to a proxy (reset, write failure) is
+  `Connection("proxy connection failed: …")` (transient), not `Proxy`; the proxy closing
+  the connection mid-handshake is `Proxy("connection closed during …")`.
+- **407:** the prompt is `PasswordPrompt { purpose: Proxy, target: "<proxy host:port>",
+  attempt: 1, max_attempts: 1, can_save: false, cache_key: Proxy{..} }`; on success the
+  net layer sends `CredentialAccepted` for it. A 407 with a stored password, or with no
+  user configured, fails at once without prompting.
+- **SOCKS5:** with a user but no stored password, method 0x02 is offered with an empty
+  password (the spec asks for a prompt only for HTTP). The RFC 1929 reply accepts version
+  1 and 5 (some proxies answer 5). The "domain length overflow" case of
+  `socks_parsers_table` is a zero length or non-UTF-8 domain → `Malformed`. Field lengths
+  (user, password, host name > 255 bytes) are checked before any byte is sent.
+- **SOCKS4:** an IPv6 target is refused before the proxy is dialled. Rejections print the
+  code in decimal (`request rejected (91)`).
+- **Fuzz body `fuzz_http_connect_response`** is pure (no runtime): it parses the whole
+  input and checks, for every 2-way split, that the incremental `\r\n\r\n` search (the
+  one `read_head` uses) finds the same head end. The async read path is covered by the
+  in-process proxy tests.
+- **`http_get_small`:** non-200 → `Protocol { code: Some(code) }` (redirects included);
+  body over the cap or an invalid head → `Protocol { code: None }`; `http://` URLs with
+  user info are refused (`InvalidInput`).
+- **Cancellation tests:** `cancel_token_returns_cancelled` runs under paused time with the
+  mock dialer (via `dial::cancellable`, the wrapper `connect_tcp` uses);
+  `cancel_token_cancels_a_real_handshake` and `dropped_dial_leaves_no_tasks` use a real
+  proxy that never answers (real time; paused time would race the loopback connect).
+- **End-to-end:** `crates/courier-ftp-e2e/tests/net_proxies.rs` dials the sshd and vsftpd
+  fixtures through every squid/dante profile with `connect_tcp` and checks the banners and
+  auth failures (`#[ignore]`, `require_docker!`). Docker is not available here, so they
+  compile but were not run. The SFTP/FTP conformance subsets through the proxies
+  (`proxies.rs` in T76's table) need the backends (T14, T22).
+- The fuzz targets `http_connect_response` and `socks_reply` exist (`fuzz/`); nightly
+  `cargo fuzz` was not run here (the property tests run the same bodies, 10 000 cases).
+
