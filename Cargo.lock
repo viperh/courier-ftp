@@ -1319,6 +1319,7 @@ version = "0.1.0"
 dependencies = [
  "cargo_metadata",
  "courier-ftp-core",
+ "courier-ftp-proto-ftp",
  "courier-ftp-proto-sftp",
  "secrecy",
  "testcontainers",
@@ -1342,12 +1343,17 @@ name = "courier-ftp-proto-ftp"
 version = "0.1.0"
 dependencies = [
  "courier-ftp-core",
+ "encoding_rs",
  "insta",
  "pretty_assertions",
  "proptest",
+ "secrecy",
  "thiserror 2.0.20",
  "time",
+ "tokio",
+ "tokio-util",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
