@@ -152,3 +152,8 @@ the section matching the tag.
   (logging.log_to_file, size-rotated, masked commands), Show raw listing
   (<Ctrl-x><s>), and copy (Y) or save (S) of the message log; nothing at info
   and above names hosts, users or paths.
+- FTP and FTPS connections (T11, T12, T14): passive/active data connections
+  with fallback, ASCII/binary transfers with resume and abort,
+  explicit/implicit TLS with certificate trust prompts, synced trusted
+  certificates and TLS session reuse; quickconnect now connects to FTP
+  servers.
