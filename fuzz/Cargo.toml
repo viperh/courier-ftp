@@ -111,5 +111,13 @@ test = false
 doc = false
 bench = false
 
+# FileZilla sitemanager.xml import (T32).
+[[bin]]
+name = "filezilla_xml"
+path = "fuzz_targets/filezilla_xml.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
 members = ["."]

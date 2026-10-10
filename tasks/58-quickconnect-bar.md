@@ -23,7 +23,7 @@ connect button and a history dropdown.
 ## Acceptance criteria
 
 - [x] URL parsing populates fields correctly (snapshot of field state).
-- [ ] History selection connects.
+- [x] History selection connects. *(T33: `[▾]` button, history from the vault.)*
 - [x] Busy tab prompt works.
 - [x] Password never shown or logged.
 

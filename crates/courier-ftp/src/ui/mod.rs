@@ -1,6 +1,7 @@
 //! The terminal user interface (T50): the main screen, its layout, focus,
 //! theme and modal stack.
 
+mod compare;
 pub(crate) mod dialog;
 mod dir_tree;
 mod file_list;
@@ -19,6 +20,7 @@ mod vault;
 pub(crate) use courier_ftp_core::filters::Side;
 #[cfg(test)]
 pub(crate) use focus::Region;
+pub(crate) use quickconnect::HistoryItem;
 pub(crate) use screen::{KeyOutcome, MainScreen};
 pub(crate) use theme::Theme;
 #[cfg(test)]
