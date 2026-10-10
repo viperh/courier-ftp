@@ -106,3 +106,6 @@ the section matching the tag.
   a new empty vault with the old database moved aside), lock overlay with
   <Ctrl-x><v> and auto-lock, "Continue without vault", and a database-busy
   retry screen.
+- Security hardening (T91, M2 pass): no core dumps or same-user ptrace at
+  startup, vault keys in mlocked memory, nine new fuzz targets, cargo-vet,
+  canary fixtures for the vault and SSH, a threat model and SECURITY.md.

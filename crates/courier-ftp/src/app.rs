@@ -285,7 +285,7 @@ impl App {
                 .feed(&self.keybindings, mode, key, Instant::now())
             {
                 Feed::Action(action) => {
-                    info!("Got action: {action:?}");
+                    debug!("Got action: {action:?}");
                     self.action_tx.send(action)?;
                 }
                 Feed::Pending | Feed::Unbound => {}
