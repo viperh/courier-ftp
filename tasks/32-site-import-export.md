@@ -23,10 +23,12 @@ Let users move their sites in from FileZilla and between courier-ftp installs.
 
 ## Acceptance criteria
 
-- [ ] A real FileZilla 3.x `sitemanager.xml` with folders, all logon types, bookmarks and base64 passwords imports correctly (fixture in `tests/fixtures/`, using fake hosts).
-- [ ] Remote dir encoding decoded correctly (including names with spaces).
-- [ ] Encrypted export round-trips; wrong passphrase errors.
-- [ ] Plain export contains no secrets (`grep` test).
+- [x] A real FileZilla 3.x `sitemanager.xml` with folders, all logon types, bookmarks and base64 passwords imports correctly (fixture in `tests/fixtures/`, using fake hosts).
+- [x] Remote dir encoding decoded correctly (including names with spaces).
+- [x] Encrypted export round-trips; wrong passphrase errors.
+- [x] Plain export contains no secrets (`grep` test).
+
+*Status:* `encoding="crypt"` (FileZilla master password) passwords are skipped and reported; FileZilla's crypto is not implemented. The stretch FileZilla XML export is done, without passwords (the FTP account counts as a secret too). The import/export UI is T59's.
 
 ## Tests
 

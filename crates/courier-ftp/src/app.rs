@@ -5,6 +5,7 @@ use courier_ftp_core::{
     local::LocalBackend,
     model::{RemotePath, ServerAddress},
     settings::Settings,
+    sites::History,
 };
 use std::{
     sync::Arc,
@@ -63,6 +64,8 @@ pub(crate) struct App {
     vault: Option<Vault>,
     vault_tx: mpsc::UnboundedSender<VaultMsg>,
     vault_rx: mpsc::UnboundedReceiver<VaultMsg>,
+    /// The quickconnect history (T33); `None` while the vault is locked.
+    history: Option<History>,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -77,6 +80,10 @@ struct Remote {
     /// Turn synchronized browsing / directory comparison on once connected.
     sync_browsing: bool,
     compare: bool,
+    /// The login to add to the quickconnect history once connected (with
+    /// the typed password; the vault drops it unless
+    /// `vault.store_passwords`).
+    record: Option<ConnectInfo>,
 }
 
 /// `alice@host` (with the port when it isn't the protocol's default), for
@@ -206,6 +213,7 @@ impl App {
             vault: None,
             vault_tx,
             vault_rx,
+            history: None,
         }
     }
 
@@ -386,10 +394,27 @@ impl App {
                     self.screen.flash("Not connected");
                 }
             }
-            Action::Reconnect => match self.last_connect.clone() {
+            Action::Reconnect => match self.last_connect.clone().or_else(|| {
+                // Nothing this run: the most recent history entry.
+                let history = self.screen.quickconnect_mut().history()?;
+                history.first().map(|item| item.request.clone())
+            }) {
                 Some(request) => self.start_connect(request),
                 None => self.screen.flash("No server to reconnect to"),
             },
+            Action::QuickconnectHistory => self.show_history(),
+            Action::HistoryPicked(request) => {
+                self.screen.quickconnect_mut().fill(request);
+                self.connect((**request).clone(), false);
+            }
+            Action::ClearHistory => self.clear_history(),
+            Action::HistoryLoaded(items) => {
+                if self.history.is_some() {
+                    self.screen
+                        .quickconnect_mut()
+                        .set_history(Some(items.clone()));
+                }
+            }
             Action::ListDir { side, dir, force } => {
                 self.list(*side, Some(dir.clone()), *force, false);
             }
@@ -605,6 +630,7 @@ impl App {
             connected: false,
             sync_browsing: request.sync_browsing,
             compare: request.compare,
+            record: Some(request.info.clone()),
         });
         self.last_connect = Some(request.without_password());
         self.screen
@@ -652,8 +678,12 @@ impl App {
                     remote.info.server_type.unwrap_or_default(),
                     courier_ftp_core::model::item::ServerType::default(),
                 );
+                let record = remote.record.take();
                 self.screen.remote_connected(connected);
                 self.screen.connected_view(sync, compare, case_sensitive);
+                if let Some(info) = record {
+                    self.record_history(info);
+                }
             }
             Err(e) => {
                 let label = server_label(&remote.info.address);
@@ -685,6 +715,69 @@ impl App {
             let _ = handle.disconnect().await;
         });
         self.screen.remote_disconnected(None);
+    }
+
+    /// Add a successful quickconnect login to the history (vault unlocked
+    /// only), then reload the dropdown.
+    fn record_history(&mut self, info: ConnectInfo) {
+        let Some(history) = self.history.clone() else {
+            return;
+        };
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = history.record(&info).await {
+                debug!(error = %e, "quickconnect history not saved");
+            }
+            load_history(&history, &tx).await;
+        });
+    }
+
+    /// The `[▾]` button: pick a history entry or clear the history.
+    fn show_history(&mut self) {
+        let Some(items) = self.screen.quickconnect_mut().history().map(<[_]>::to_vec) else {
+            self.screen.flash(
+                "The connection history is kept in the vault: unlock it (<Ctrl-x><u>) to see it",
+            );
+            return;
+        };
+        if items.is_empty() {
+            self.screen.flash("No connection history yet");
+            return;
+        }
+        let mut options: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
+        options.push("Clear history".to_owned());
+        let (modal, rx) = crate::ui::dialog::choose("Connection history", options);
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(Some(i)) = rx.await {
+                let _ = tx.send(match items.get(i) {
+                    Some(item) => Action::HistoryPicked(Box::new(item.request.clone())),
+                    None => Action::ClearHistory,
+                });
+            }
+        });
+    }
+
+    /// "Clear history" in the history dropdown.
+    fn clear_history(&mut self) {
+        let Some(history) = self.history.clone() else {
+            return;
+        };
+        let tx = self.action_tx.clone();
+        let events = self.events_tx.clone();
+        let session = self.local_session;
+        tokio::spawn(async move {
+            match history.clear().await {
+                Ok(_) => events.log(session, LogKind::Status, "Connection history cleared"),
+                Err(e) => events.log(
+                    session,
+                    LogKind::Error,
+                    format!("Could not clear the connection history: {e}"),
+                ),
+            }
+            load_history(&history, &tx).await;
+        });
     }
 
     /// Open the vault database (at start).
@@ -854,6 +947,13 @@ impl App {
 
     /// The vault is unlocked: hide the view, update the status bar.
     fn vault_unlocked(&mut self, message: Option<&str>) {
+        if let Some(engine) = self.vault.as_ref().and_then(Vault::engine) {
+            let history = History::new(Arc::new(engine.clone()), Arc::new(engine.store().clone()));
+            let tx = self.action_tx.clone();
+            let loader = history.clone();
+            tokio::spawn(async move { load_history(&loader, &tx).await });
+            self.history = Some(history);
+        }
         self.screen.show_vault(false);
         self.screen.set_vault_locked(false);
         if let Some(view) = self.screen.vault_view_mut() {
@@ -875,6 +975,8 @@ impl App {
             return;
         };
         vault.lock();
+        self.history = None;
+        self.screen.quickconnect_mut().set_history(None);
         let facts = self.vault_facts();
         let now = Instant::now();
         let note = reason.map(|r| match r {
@@ -917,6 +1019,17 @@ impl App {
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| self.screen.draw(frame))?;
         Ok(())
+    }
+}
+
+/// Read the history and hand it to the quickconnect bar.
+async fn load_history(history: &History, tx: &mpsc::UnboundedSender<Action>) {
+    match history.list().await {
+        Ok(entries) => {
+            let items = entries.iter().map(crate::ui::HistoryItem::new).collect();
+            let _ = tx.send(Action::HistoryLoaded(items));
+        }
+        Err(e) => debug!(error = %e, "quickconnect history not loaded"),
     }
 }
 

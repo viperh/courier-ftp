@@ -36,6 +36,12 @@ for file in "$root"/crates/courier-ftp-proto-sftp/tests/keys/*.pub; do
         >"$corpus/known_hosts_parse/seed-$(basename "$file")"
 done
 
+# filezilla_xml (T32): the sitemanager.xml fixtures.
+mkdir -p "$corpus/filezilla_xml"
+for file in "$root"/crates/courier-ftp-core/tests/fixtures/filezilla/*.xml; do
+    cp "$file" "$corpus/filezilla_xml/seed-$(basename "$file")"
+done
+
 # proxy_reply (T07): one answer per handshake (first byte: kind and read size).
 mkdir -p "$corpus/proxy_reply"
 printf '\000HTTP/1.1 200 Connection established\r\n\r\nSSH-2.0-x\r\n' >"$corpus/proxy_reply/seed-http-200"

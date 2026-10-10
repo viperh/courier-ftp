@@ -273,6 +273,18 @@ pub(crate) enum Action {
         request: Box<ConnectRequest>,
         replace: bool,
     },
+    /// Open the quickconnect history (the bar's `[▾]`, T33).
+    #[serde(skip)]
+    QuickconnectHistory,
+    /// A quickconnect history entry was picked: fill the bar and connect.
+    #[serde(skip)]
+    HistoryPicked(Box<ConnectRequest>),
+    /// "Clear history" was picked in the quickconnect history.
+    #[serde(skip)]
+    ClearHistory,
+    /// The quickconnect history was (re)loaded from the vault.
+    #[serde(skip)]
+    HistoryLoaded(Vec<crate::ui::HistoryItem>),
     /// A connection attempt started by [`Action::Connect`] finished.
     #[serde(skip)]
     Connected {

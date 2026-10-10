@@ -243,7 +243,7 @@ impl MainScreen {
             local_tree,
             remote_tree,
             log,
-            quickconnect: Quickconnect::new(),
+            quickconnect: Quickconnect::new().with_unicode(unicode),
             modals: Vec::new(),
             tick: 0,
             last: Regions::default(),
@@ -394,6 +394,11 @@ impl MainScreen {
     }
 
     #[cfg(test)]
+    pub(crate) fn quickconnect(&self) -> &Quickconnect {
+        &self.quickconnect
+    }
+
+    #[cfg(test)]
     pub(crate) fn has_modal(&self) -> bool {
         !self.modals.is_empty()
     }
@@ -436,6 +441,10 @@ impl MainScreen {
                 QuickKey::Consumed => return KeyOutcome::Consumed,
                 QuickKey::Submit => {
                     self.submit_quickconnect();
+                    return KeyOutcome::Consumed;
+                }
+                QuickKey::History => {
+                    self.outbox.push(Action::QuickconnectHistory);
                     return KeyOutcome::Consumed;
                 }
                 QuickKey::NotHandled => {}
@@ -702,6 +711,11 @@ impl MainScreen {
             }
             Err(e) => self.status.flash(e, Instant::now()),
         }
+    }
+
+    /// The quickconnect bar (history, T33).
+    pub(crate) fn quickconnect_mut(&mut self) -> &mut Quickconnect {
+        &mut self.quickconnect
     }
 
     /// Show `text` in the status bar for a few seconds.

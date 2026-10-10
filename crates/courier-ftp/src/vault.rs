@@ -135,7 +135,7 @@ impl Vault {
         }
     }
 
-    #[cfg(test)]
+    /// The engine, once the database is open.
     pub(crate) fn engine(&self) -> Option<&VaultEngine> {
         self.engine.as_ref()
     }
