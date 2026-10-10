@@ -11,7 +11,9 @@ use crate::model::LocalPath;
 use crate::model::item::{self, ItemId, SshKey, UnixMillis};
 use crate::vault::{ItemVault, ItemVaultExt, VaultError, VaultItem};
 
-use super::{Folder, Site, SiteConnect, SiteError, SiteIssue, SiteLocal, SiteNode, SiteTree};
+use super::{
+    Folder, HistoryEntry, Site, SiteConnect, SiteError, SiteIssue, SiteLocal, SiteNode, SiteTree,
+};
 
 /// Device-local site data (the store's `device_local` table, T82):
 /// implemented by `courier_ftp_store::Store`; [`MemSiteLocalStore`] for
@@ -308,7 +310,8 @@ impl SiteManager {
     /// Deletes a site, or a folder with everything in it (the UI confirms
     /// first, showing [`SiteNode::count`]). Returns how many items were
     /// deleted. Children go before their folder, so a failure half way
-    /// leaves no orphans.
+    /// leaves no orphans. The deleted sites' bookmarks (T33) and device-local
+    /// rows go too, which also removes them from the recent servers.
     ///
     /// # Errors
     /// [`SiteError::NotFound`], [`SiteError::Vault`], [`SiteError::Local`].
@@ -320,7 +323,15 @@ impl SiteManager {
             .rev()
             .map(|n| (n.id(), n.is_folder()))
             .collect();
+        let sites: Vec<ItemId> = doomed
+            .iter()
+            .filter(|(_, folder)| !folder)
+            .map(|&(id, _)| id)
+            .collect();
         let result = async {
+            if !sites.is_empty() {
+                super::bookmarks::delete_site_bookmarks(&*self.vault, &*self.local, &sites).await?;
+            }
             for &(item, folder) in &doomed {
                 self.vault.delete(item).await?;
                 if !folder {
@@ -348,6 +359,31 @@ impl SiteManager {
         self.local.touch_connected(id, now).await?;
         site.last_connected_at = Some(now);
         self.tree.replace(SiteNode::Site(Box::new(site)))
+    }
+
+    /// "Convert quickconnect entry to site" (T33): saves
+    /// [`HistoryEntry::to_site`] at the top level under a free name (the
+    /// host, then "host (2)"…) and returns the new site's id.
+    ///
+    /// # Errors
+    /// As [`SiteManager::save_site`].
+    pub async fn add_from_history(&mut self, entry: &HistoryEntry) -> Result<ItemId, SiteError> {
+        let mut site = entry.to_site();
+        site.name = self.tree.unique_name(None, &site.name);
+        let id = site.id;
+        self.save_site(site).await?;
+        Ok(id)
+    }
+
+    /// The vault this manager reads (for [`Bookmarks`](super::Bookmarks)
+    /// and [`History`](super::History) over the same vault).
+    pub fn vault(&self) -> &Arc<dyn ItemVault> {
+        &self.vault
+    }
+
+    /// The device-local store this manager uses.
+    pub fn local_store(&self) -> &Arc<dyn SiteLocalStore> {
+        &self.local
     }
 
     /// What connecting to site `id` needs (T31 §3): the `ConnectInfo` with

@@ -19,6 +19,7 @@ mod vault;
 pub(crate) use courier_ftp_core::filters::Side;
 #[cfg(test)]
 pub(crate) use focus::Region;
+pub(crate) use quickconnect::HistoryItem;
 pub(crate) use screen::{KeyOutcome, MainScreen};
 pub(crate) use theme::Theme;
 #[cfg(test)]

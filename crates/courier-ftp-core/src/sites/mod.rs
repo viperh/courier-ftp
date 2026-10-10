@@ -50,11 +50,22 @@
 //!   passphrase already filled in) plus the default directories and modes
 //!   to apply. After the session is up, [`SiteManager::record_connected`].
 //!
-//! **Bookmarks and history (T33)**: site bookmarks reference
-//! [`Site::id`]; "convert quickconnect entry to site" builds a [`Site`]
-//! (`Site::new` + logon) and calls `save_site` with `parent = None`;
-//! "recent servers" reads `last_connected_at` ([`SiteLocalStore`]); when a
-//! site is deleted its device-local row is removed.
+//! **Bookmarks and history (T33)**
+//! - [`Bookmarks::load`]`(vault, local)`: global bookmarks
+//!   ([`Bookmarks::global`]) and site bookmarks ([`Bookmarks::for_site`]),
+//!   with `add`/`rename`/`edit`/`delete`/`reorder`. Applying one:
+//!   [`Bookmark::target`] (directories to open, synchronized browsing for
+//!   T66). A bookmark's local directory has a device-local override, like a
+//!   site's default local directory. Deleting a site deletes its bookmarks.
+//! - [`History::new`]`(vault, local)`: the quickconnect history
+//!   ([`History::list`], [`History::record`] after a successful quickconnect,
+//!   [`History::clear`]); [`HistoryEntry::to_connect_info`] to connect again.
+//!   Locked vault: every call fails with `VaultError::Locked`.
+//! - Recent servers: [`load_recent_servers`] (sites and quickconnect entries
+//!   by device-local `last_connected_at`; item 0 is "reconnect to last
+//!   server"). Deleting a site removes its device-local row, so it drops out.
+//! - "Convert quickconnect entry to site": [`SiteManager::add_from_history`]
+//!   (or [`HistoryEntry::to_site`] to prefill an editor).
 //!
 //! **Import/export (T32)**: build [`Folder`]/[`Site`] values, pick free names
 //! with [`SiteTree::unique_name`], create folders with `add_folder` and sites
@@ -77,16 +88,25 @@
 //! schema load read-only ([`Site::read_only`]). Device-local columns are
 //! added with a new store migration (`courier-ftp-store/migrations/`).
 
+mod bookmarks;
 mod error;
+mod history;
 mod site;
 mod store;
 mod tree;
 mod validate;
 
 #[cfg(test)]
+mod history_tests;
+#[cfg(test)]
 mod tests;
 
+pub use bookmarks::{Bookmark, BookmarkTarget, Bookmarks};
 pub use error::SiteError;
+pub use history::{
+    HISTORY_LIMIT, History, HistoryEntry, RECENT_LIMIT, RecentServer, RecentTarget,
+    load_recent_servers, recent_servers,
+};
 pub use site::{Site, SiteConnect, SiteKey, SiteLocal, SiteLogon, path_style};
 #[cfg(any(test, feature = "test-util"))]
 pub use store::MemSiteLocalStore;
