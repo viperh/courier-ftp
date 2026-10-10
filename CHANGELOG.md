@@ -118,3 +118,6 @@ the section matching the tag.
 - FTP control connection (T10): multi-line replies, login (normal, anonymous,
   ACCT, proxy-ready scripts), FEAT/SYST/UTF8 negotiation, keep-alive, raw
   commands, inactivity timeouts and cancellation.
+- Directory trees for the local and remote side (T54; Ctrl-e to show, T to
+  focus): listed lazily through the listing cache, they follow the file list,
+  with expand/collapse and Enter to open a folder in the list.
