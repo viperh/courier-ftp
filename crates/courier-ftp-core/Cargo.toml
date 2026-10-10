@@ -16,6 +16,10 @@ test-util = []
 
 [dependencies]
 async-trait = { workspace = true }
+# Item model (model::item, T81): CBOR bodies, HLC stamps, UUIDv7 ids.
+ciborium = { workspace = true }
+uhlc = { workspace = true }
+uuid = { workspace = true }
 encoding_rs = { workspace = true }
 fs4 = { workspace = true }
 regex = { workspace = true }
@@ -33,6 +37,8 @@ tracing = { workspace = true }
 uzers = { workspace = true }
 
 [dev-dependencies]
+# The item model's CBOR bytes are what the envelope seals (model::item tests).
+courier-ftp-crypto = { workspace = true }
 criterion = { workspace = true }
 pretty_assertions = { workspace = true }
 proptest = { workspace = true }

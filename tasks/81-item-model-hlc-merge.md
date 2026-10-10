@@ -45,10 +45,10 @@ devices editing offline converge to the same result.
 
 ## Acceptance criteria
 
-- [ ] Property tests (proptest) prove merge is commutative, associative, idempotent.
-- [ ] Clock-skew handling tested with an injected clock.
-- [ ] Round-trip of every kind's typed view ↔ ItemBody.
-- [ ] Unknown fields survive a load/save by an older schema.
+- [x] Property tests (proptest) prove merge is commutative, associative, idempotent.
+- [x] Clock-skew handling tested with an injected clock.
+- [x] Round-trip of every kind's typed view ↔ ItemBody.
+- [x] Unknown fields survive a load/save by an older schema.
 
 ## Tests
 
