@@ -473,7 +473,8 @@ Not applicable (no UI, no corpus).
   `ascii/tests.rs`, inline `active` tests, and `transfer/tests.rs` (every `FakeServer`
   integration test of the list plus extras: PORT→EPRT fallback, EPSV over IPv6, invalid
   227, 550 keeps the control ready, empty listing/`226` without `1xx`, cancel during a
-  listing, server never connects in active mode, port range exhausted). E2e:
+  listing, server never connects in active mode, port range exhausted, upload data
+  failure reporting the server's `452`). E2e:
   `crates/courier-ftp-e2e/tests/ftp_data.rs`. Fuzz: `fuzz/fuzz_targets/ftp_pasv.rs`
   (+ `[[bin]]`, an EPRT seed in `seed-corpus.sh`).
 - **Real time, not paused time,** in the `FakeServer` data tests: with loopback TCP the
@@ -507,6 +508,9 @@ Not applicable (no UI, no corpus).
     `close_notify` + FIN) when the caller did not.
   - Cancellation while waiting for the `1xx` reply, or while reading a listing, runs the
     abort sequence (control stays usable) instead of T10's "cancel mid-reply → Broken".
+  - A data socket error (not a timeout) first waits up to 2 s for the server's final
+    reply (e.g. `452`/`552` on a full disk → `Protocol { code }`) and only runs the
+    ABOR sequence when none comes.
   - ABOR reply reading stops at the first reply that is not `1xx`/`4xx` (`225`, `226`,
     `5xx`): later stray replies are skipped by the `NOOP` resync, so a responsive
     server costs no 2 s grace.

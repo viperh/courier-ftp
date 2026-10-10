@@ -1449,3 +1449,53 @@ async fn data_inactivity_timeout() {
     assert_eq!(d.ctrl.state(), ControlState::Ready);
     e.done().await;
 }
+
+#[tokio::test]
+async fn upload_data_failure_reports_server_reply() {
+    let mut e = Env::new(script(vec![
+        type_i(),
+        vec![
+            Step::EpsvListen,
+            Step::Expect("STOR full.bin"),
+            Step::Reply("150 Ok to send data."),
+            Step::SendData(Vec::new()), // accept, then close at once
+            Step::CloseData,
+            Step::Reply("452 Insufficient storage space."),
+        ],
+        pwd(),
+    ]))
+    .await;
+    let cfg = cfg();
+    let mut st = DataState::default();
+    let mut d = e.data(&cfg, &mut st);
+    let cmd = TransferCommand::Stor {
+        path: "full.bin".into(),
+        offset: 0,
+    };
+    let mut s = d
+        .open(cmd, TransferType::Binary, None, &token())
+        .await
+        .unwrap();
+    let chunk = pattern_bytes(0, 64 * 1024);
+    let mut failed = false;
+    for _ in 0..1024 {
+        if s.write_all(&chunk).await.is_err() {
+            failed = true;
+            break;
+        }
+    }
+    assert!(failed, "writes to a closed data connection must fail");
+    let err = d.finish(Some(s), &token()).await.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            Error::Protocol {
+                code: Some(452),
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+    assert_eq!(d.ctrl.pwd(&token()).await.unwrap(), "/");
+    e.done().await;
+}

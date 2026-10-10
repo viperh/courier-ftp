@@ -193,6 +193,27 @@ impl FtpData<'_> {
         if let Some(e) = s.failed.take() {
             drop(s);
             log.error(format!("Data connection failed: {e}"));
+            // The server usually explains (426, 451, 452, 552…): wait briefly for its
+            // final reply before falling back to ABOR.
+            let never = CancellationToken::new();
+            if let Ok(reply) = tokio::time::timeout(ABOR_GRACE, self.ctrl.read_reply(&never)).await
+            {
+                let reply = match reply {
+                    Ok(r) => r,
+                    Err(err) => {
+                        self.ctrl.mark_transfer_open(false);
+                        return Err(err);
+                    }
+                };
+                if !reply.is_preliminary() {
+                    self.ctrl.mark_transfer_open(false);
+                    return Err(if reply.is_ok() {
+                        Error::Connection(format!("data connection failed: {e}"))
+                    } else {
+                        protocol(&reply)
+                    });
+                }
+            }
             self.abort_sequence().await?;
             return Err(Error::Connection(format!("data connection failed: {e}")));
         }
