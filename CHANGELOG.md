@@ -112,3 +112,6 @@ the section matching the tag.
 - Directory comparison engine (T48): by size or modification time with a
   threshold, precision-aware, aligned rows, case-insensitive names on
   Windows-like sides, hide identical, warning when filters differ.
+- Sync protocol types (T83, courier-ftp-proto): auth, device, vault,
+  pull/push, org, invite, rotation and WebSocket messages with golden JSON
+  tests, version negotiation and size limits.
