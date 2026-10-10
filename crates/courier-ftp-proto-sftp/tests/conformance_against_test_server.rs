@@ -34,7 +34,16 @@ fn conformance_env() -> ConformanceEnv {
         make: Box::new(move || Ok(Box::new(make_server.backend_default()) as Box<dyn Backend>)),
         // Sparse files: ext4/xfs/APFS; NTFS would allocate 5 GiB.
         large_files: cfg!(any(target_os = "linux", target_os = "macos")),
-        skip: Vec::new(),
+        // The in-process server stores files on the local disk, and the Win32 file
+        // API strips trailing spaces from names.
+        skip: if cfg!(windows) {
+            vec![(
+                "names_with_spaces_unicode_and_leading_dash",
+                "Windows strips trailing spaces from file names",
+            )]
+        } else {
+            Vec::new()
+        },
         make_symlink,
     }
 }
