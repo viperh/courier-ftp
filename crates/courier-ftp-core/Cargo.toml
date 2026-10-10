@@ -20,6 +20,8 @@ bytes = { workspace = true, optional = true }
 ciborium = { workspace = true }
 directories = { workspace = true }
 encoding_rs = { workspace = true }
+filetime = { workspace = true }
+fs4 = { workspace = true }
 globset = { workspace = true }
 percent-encoding = { workspace = true }
 regex = { workspace = true }
@@ -36,6 +38,14 @@ tracing = { workspace = true }
 uhlc = { workspace = true }
 uuid = { workspace = true }
 zeroize = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# `fallocate(KEEP_SIZE)` for the local backend's preallocation (T06).
+rustix = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# Owner/group names in local listings (T06).
+uzers = { workspace = true }
 
 [dev-dependencies]
 bytes = { workspace = true }
