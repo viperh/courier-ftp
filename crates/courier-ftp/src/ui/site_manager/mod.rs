@@ -32,7 +32,7 @@ use tokio::sync::oneshot;
 
 pub(crate) use editor::FieldId;
 use editor::{EditorKey, color_style};
-pub(crate) use picker::{site_paths, site_picker};
+pub(crate) use picker::{score, site_paths, site_picker};
 
 use super::{
     dialog::{

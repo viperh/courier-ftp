@@ -312,6 +312,12 @@ pub(crate) enum Action {
     /// A Site Manager operation finished.
     #[serde(skip)]
     SitesReply(Shared<crate::sites::SitesReply>),
+    /// The bookmarks menu asks for an operation (T64).
+    #[serde(skip)]
+    BookmarkOp(Shared<crate::bookmarks::BookmarkOp>),
+    /// A bookmarks operation finished.
+    #[serde(skip)]
+    BookmarksReply(Shared<crate::bookmarks::BookmarksReply>),
     /// A connection attempt started by [`Action::Connect`] finished.
     #[serde(skip)]
     Connected {

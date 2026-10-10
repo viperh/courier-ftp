@@ -25,7 +25,7 @@ const FIXTURE: &str = concat!(
 );
 
 impl Rig {
-    fn ctrl(&mut self, code: KeyCode) {
+    pub(super) fn ctrl(&mut self, code: KeyCode) {
         self.app
             .handle_key_event(KeyEvent::new(code, KeyModifiers::CONTROL))
             .unwrap();
@@ -35,19 +35,19 @@ impl Rig {
         self.app.screen.site_manager().is_some()
     }
 
-    fn snapshot(&self) -> &crate::sites::Snapshot {
+    pub(super) fn snapshot(&self) -> &crate::sites::Snapshot {
         self.app.site_snapshot.as_ref().expect("sites loaded")
     }
 
     /// Replace the text of the focused path field with `path`.
-    fn replace_text(&mut self, path: &str) {
+    pub(super) fn replace_text(&mut self, path: &str) {
         self.ctrl(KeyCode::Char('e'));
         self.ctrl(KeyCode::Char('u'));
         self.app.screen.handle_paste(path);
     }
 
     /// A fresh vault with the sites loaded.
-    async fn fresh(dir: &Path, keyring: &MemKeyring) -> Self {
+    pub(super) async fn fresh(dir: &Path, keyring: &MemKeyring) -> Self {
         let mut rig = start(dir, keyring, config()).await;
         rig.create(STRONG, false).await;
         rig.until("sites loaded", |a| a.site_snapshot.is_some())
@@ -57,7 +57,7 @@ impl Rig {
 
     /// Create a site for the mock server in the Site Manager and save it:
     /// `mock`, SFTP, alice / s3cret, remote directory `/srv`.
-    async fn create_mock_site(&mut self) {
+    pub(super) async fn create_mock_site(&mut self) {
         self.ctrl(KeyCode::Char('s'));
         self.settle().await;
         assert!(self.manager_open());
@@ -86,14 +86,14 @@ impl Rig {
     }
 }
 
-fn server() -> MockServer {
+pub(super) fn server() -> MockServer {
     let server = MockServer::new();
     server.add_file("/srv/www/index.html", b"<html>");
     server.add_file("/srv/readme.txt", b"hello");
     server
 }
 
-async fn start_with(dir: &Path, keyring: &MemKeyring, server: &MockServer) -> Rig {
+pub(super) async fn start_with(dir: &Path, keyring: &MemKeyring, server: &MockServer) -> Rig {
     let host_keys = Arc::new(courier_ftp_core::trust::HostKeyStoreSlot::new(Arc::new(
         courier_ftp_core::trust::MemoryHostKeyStore::locked(),
     )));

@@ -29,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) type SitesSlot = Arc<tokio::sync::Mutex<Option<SiteManager>>>;
 
 /// What the Site Manager screen draws: the tree and each site's bookmark
-/// names (read-only list; editing is T64's).
+/// names (read-only there; the bookmarks menu edits them, T64).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Snapshot {
     pub(crate) tree: SiteTree,

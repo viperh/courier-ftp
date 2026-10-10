@@ -22,12 +22,14 @@ use tracing::debug;
 use crate::{
     action::{Action, ConnectRequest, Connected, Shared},
     backends::Backends,
+    bookmarks::BookmarkOp,
     config::Config,
     keymap::{Feed, KeyBindings, Sequencer},
     sites::{SiteOp, SitesSlot, Snapshot},
     tui::{Event, Tui},
     ui::{
         KeyOutcome, MainScreen, Side, Theme, VaultFacts, VaultRequest, VaultView,
+        bookmarks::{BookmarksMenu, MenuContext},
         site_manager::{SiteManagerView, ViewOpts, site_paths, site_picker},
     },
     vault::{Phase, Vault, VaultMsg},
@@ -418,6 +420,11 @@ impl App {
                     self.screen
                         .open_site_manager(SiteManagerView::locked(self.site_view_opts()));
                 }
+                if matches!(action, Action::Bookmarks) {
+                    // Bookmarks hidden; the menu offers to unlock (T64 §5).
+                    self.screen
+                        .open_bookmarks(BookmarksMenu::locked(self.bookmark_context()));
+                }
                 self.offer_unlock(match action {
                     Action::SiteManager => "the Site Manager",
                     Action::Bookmarks => "bookmarks",
@@ -425,12 +432,27 @@ impl App {
                 });
             }
             Action::SiteManager => self.open_site_manager(None),
+            Action::Bookmarks => self.open_bookmarks(),
+            Action::BookmarkOp(op) => self.bookmark_op((*op.0).clone()),
+            Action::BookmarksReply(reply) => {
+                if let Some(snapshot) = &reply.0.sites {
+                    self.site_snapshot = Some(snapshot.clone());
+                }
+            }
             Action::SaveAsSite => self.save_as_site(),
             Action::SitePicker => self.site_picker(),
             Action::SiteOp(op) => self.site_op((*op.0).clone()),
             Action::SitesReply(reply) => {
                 if let Some(snapshot) = &reply.0.snapshot {
                     self.site_snapshot = Some(snapshot.clone());
+                }
+                // A menu opened while the sites loaded reads the bookmarks
+                // now (or reports why it can't).
+                if let Some(menu) = self.screen.bookmarks_mut() {
+                    menu.sites_ready();
+                    for op in menu.take_requests() {
+                        self.bookmark_op(op);
+                    }
                 }
             }
             // No transfers exist yet, so nothing needs confirming (T41 adds the
@@ -1086,6 +1108,9 @@ impl App {
         {
             view.unlocked(self.site_snapshot.clone());
         }
+        if let Some(menu) = self.screen.bookmarks_mut() {
+            menu.unlocked();
+        }
         self.screen.show_vault(false);
         self.screen.set_vault_locked(false);
         if let Some(view) = self.screen.vault_view_mut() {
@@ -1110,6 +1135,7 @@ impl App {
         self.history = None;
         self.site_snapshot = None;
         self.screen.close_site_manager();
+        self.screen.close_bookmarks();
         let slot = Arc::clone(&self.sites);
         tokio::spawn(async move { *slot.lock().await = None });
         self.screen.quickconnect_mut().set_history(None);
@@ -1278,6 +1304,59 @@ impl App {
         });
     }
 
+    /// What the bookmarks menu needs: the saved site connected to (or
+    /// whether this is a quickconnect session) and the directories shown.
+    fn bookmark_context(&self) -> MenuContext {
+        let remote = self.remote.as_ref().filter(|r| r.connected);
+        let site = remote.and_then(|r| r.site).map(|id| {
+            let name = self
+                .site_snapshot
+                .as_ref()
+                .and_then(|s| s.tree.site(id))
+                .map_or_else(|| "this site".to_owned(), |s| s.name.clone());
+            (id, name)
+        });
+        MenuContext {
+            quickconnect: remote.is_some() && site.is_none(),
+            site,
+            local_dir: self
+                .screen
+                .local
+                .dir
+                .as_ref()
+                .map(courier_ftp_core::local::display_native),
+            remote_dir: remote
+                .and(self.screen.remote.dir.as_ref())
+                .map(ToString::to_string),
+        }
+    }
+
+    /// `<Ctrl-b>`: the bookmarks menu (vault unlocked).
+    fn open_bookmarks(&mut self) {
+        if self.vault.is_none() {
+            self.screen.flash("Bookmarks need the vault");
+            return;
+        }
+        let ctx = self.bookmark_context();
+        // Right after unlocking the sites may still be loading.
+        let menu = if self.site_snapshot.is_some() {
+            BookmarksMenu::new(ctx)
+        } else {
+            BookmarksMenu::waiting(ctx)
+        };
+        self.screen.open_bookmarks(menu);
+    }
+
+    /// Run a bookmarks operation in the background.
+    fn bookmark_op(&mut self, op: BookmarkOp) {
+        let slot = Arc::clone(&self.sites);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let reply = crate::bookmarks::run(&slot, op).await;
+            let _ = tx.send(Action::BookmarksReply(Shared::new(reply)));
+        });
+    }
+
     /// Connect the remote pane to a saved site: its default local directory
     /// opens first, then the connection with its remote directory, and
     /// synchronized browsing / comparison once connected (T66).
@@ -1342,6 +1421,8 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+#[cfg(test)]
+mod bookmark_tests;
 #[cfg(test)]
 mod log_tests;
 #[cfg(test)]

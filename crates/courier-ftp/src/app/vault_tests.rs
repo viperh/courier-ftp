@@ -86,7 +86,11 @@ impl Rig {
                         || app
                             .screen
                             .site_manager()
-                            .is_some_and(crate::ui::site_manager::SiteManagerView::is_busy);
+                            .is_some_and(crate::ui::site_manager::SiteManagerView::is_busy)
+                        || app
+                            .screen
+                            .bookmarks()
+                            .is_some_and(crate::ui::bookmarks::BookmarksMenu::is_busy);
                     assert!(
                         tokio::time::Instant::now() < deadline,
                         "vault operation still running after 30 s"

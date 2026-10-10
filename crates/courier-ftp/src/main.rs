@@ -12,6 +12,7 @@ use crate::app::App;
 mod action;
 mod app;
 mod backends;
+mod bookmarks;
 mod cli;
 mod clipboard;
 mod config;
