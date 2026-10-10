@@ -13,11 +13,19 @@ rust-version.workspace = true
 courier-ftp-core = { workspace = true }
 courier-ftp-crypto = { workspace = true }
 
+# SQLite (bundled: compiled from source with `cc`, so no system library is
+# needed on Linux, macOS or Windows), versioned migrations, async wrappers.
+rusqlite = { workspace = true }
+rusqlite_migration = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+# Site passwords in the no-plaintext canary test.
+secrecy = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,6 +1,9 @@
 //! Shared vocabulary every other module uses: paths, directory entries,
 //! permissions, timestamps, protocols, server addresses, credentials,
 //! charsets (T02) and server identities (host keys, certificates; T69).
+//! [`item`] is the mergeable record format of everything stored in the vault (T81).
+
+pub mod item;
 
 mod address;
 mod charset;
