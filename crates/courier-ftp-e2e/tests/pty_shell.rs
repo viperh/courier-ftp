@@ -10,7 +10,7 @@ use courier_ftp_e2e::{PtyApp, PtyOptions, Screen, TestHome};
 fn launch(home: &TestHome) -> PtyApp {
     let mut app = PtyApp::launch(home, PtyOptions::default()).unwrap();
     app.wait_for_text("Local").unwrap();
-    app.wait_for_text("NORMAL").unwrap();
+    app.wait_for_text("F1 help").unwrap();
     app
 }
 

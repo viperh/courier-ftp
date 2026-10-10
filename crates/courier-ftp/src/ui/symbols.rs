@@ -122,6 +122,32 @@ pub(crate) struct Symbols {
     pub bar_full: &'static str,
     /// Empty part of a progress bar.
     pub bar_empty: &'static str,
+    /// Encrypted connection (T57 status bar; ASCII segments use brackets instead).
+    pub lock: &'static str,
+    /// Unencrypted connection.
+    pub unlock: &'static str,
+    /// Locked vault.
+    pub vault_locked: &'static str,
+    /// Separator between status-bar segments, with its spaces.
+    pub sep: &'static str,
+    /// Speed-limit segment.
+    pub speed: &'static str,
+    /// Filters active.
+    pub filter: &'static str,
+    /// Synchronized browsing.
+    pub sync: &'static str,
+    /// Directory comparison.
+    pub compare: &'static str,
+    /// Sync status (T90).
+    pub sync_status: &'static str,
+    /// Not connected.
+    pub dash: &'static str,
+    /// Connecting.
+    pub connecting: &'static str,
+    /// Download rate.
+    pub rate_down: &'static str,
+    /// Upload rate.
+    pub rate_up: &'static str,
 }
 
 const ASCII_BORDER: border::Set<'static> = border::Set {
@@ -171,6 +197,19 @@ impl Symbols {
             scroll_down: "▼",
             bar_full: "█",
             bar_empty: "░",
+            lock: "🔒",
+            unlock: "🔓",
+            vault_locked: "🔐",
+            sep: " │ ",
+            speed: "⇅",
+            filter: "⚑",
+            sync: "⇄",
+            compare: "≠",
+            sync_status: "⟳",
+            dash: "–",
+            connecting: "◌",
+            rate_down: "↓",
+            rate_up: "↑",
         }
     }
 
@@ -198,6 +237,19 @@ impl Symbols {
             scroll_down: "v",
             bar_full: "#",
             bar_empty: "-",
+            lock: "[TLS]",
+            unlock: "[FTP!]",
+            vault_locked: "[L]",
+            sep: " | ",
+            speed: "lim",
+            filter: "[F]",
+            sync: "<>",
+            compare: "!=",
+            sync_status: "sync",
+            dash: "-",
+            connecting: "..",
+            rate_down: "v",
+            rate_up: "^",
         }
     }
 
@@ -307,6 +359,30 @@ mod tests {
             }
             .over_ssh()
         );
+    }
+
+    #[test]
+    fn status_glyphs_ascii_set_is_ascii() {
+        let a = Symbols::ascii();
+        for g in [
+            a.lock,
+            a.unlock,
+            a.vault_locked,
+            a.sep,
+            a.speed,
+            a.filter,
+            a.sync,
+            a.compare,
+            a.sync_status,
+            a.dash,
+            a.connecting,
+            a.rate_down,
+            a.rate_up,
+        ] {
+            assert!(!g.is_empty() && g.is_ascii(), "{g:?}");
+        }
+        let u = Symbols::unicode();
+        assert_eq!((u.lock, u.sep, u.rate_down), ("🔒", " │ ", "↓"));
     }
 
     #[test]

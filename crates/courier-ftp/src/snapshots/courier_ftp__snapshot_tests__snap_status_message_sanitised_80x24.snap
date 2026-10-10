@@ -25,4 +25,4 @@ expression: screen
 │(not available yet)                                                           │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
- NORMAL │ evil ^[[2J name<U+202E>txt.exe                      F1 help  F10 quit
+ – not connected │ Type: Auto │ ⇅ off            evil ^[[2J name<U+202E>txt.exe

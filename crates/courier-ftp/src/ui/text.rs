@@ -82,6 +82,7 @@ pub(crate) fn sanitize(s: &str) -> Cow<'_, str> {
 
 /// As [`sanitize`], but returns spans so escapes can be drawn in the `text.escape`
 /// style (`escape`); the rest uses `base`.
+#[cfg_attr(not(test), allow(dead_code, reason = "kept for T53-T71"))]
 pub(crate) fn sanitize_spans<'a>(s: &'a str, base: Style, escape: Style) -> Vec<Span<'a>> {
     if is_safe(s) {
         return vec![Span::styled(s, base)];
