@@ -141,3 +141,9 @@ the section matching the tag.
   threshold and hide identical, and select all yellow/green/red (m y / m g / m
   r); synchronized browsing (Ctrl-y) that follows directory changes in both
   panes and offers to create a missing directory.
+- Bookmarks and history (T33): global and per-site bookmarks with device-local
+  local directories, a quickconnect history kept in the vault with a dropdown
+  in the quickconnect bar, and a recent servers list.
+- Site import/export (T32): import FileZilla's sitemanager.xml (folders, all
+  logon types, bookmarks, passwords) and export as courier-ftp JSON
+  (optionally passphrase-encrypted with passwords) or FileZilla XML.
