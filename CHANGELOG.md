@@ -125,3 +125,9 @@ the section matching the tag.
   setting, stored encrypted in the vault (passwords included), device-local
   default directories and key paths, path lookup (Work/Production/web01), and
   saved SSH key passphrases and vault SSH keys used when connecting.
+- Transfer queue model (T40): priorities, reorder, pause, retry and requeue,
+  server grouping, stats; persisted encrypted in the vault under a device key,
+  with JSON export/import without passwords.
+- FTP proxies (T15): USER@HOST, SITE, OPEN and custom login scripts (%h %u %p
+  %a %s %w), with every password masked in the log; can't be combined with a
+  generic HTTP/SOCKS proxy.

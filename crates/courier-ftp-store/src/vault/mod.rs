@@ -1,6 +1,7 @@
 //! The vault engine (T30, D3): first run, password and keyring unlock, the
 //! persisted backoff, lock, password change, keyring enrolment, recovery
-//! through the keyring, and encrypted item CRUD.
+//! through the keyring, encrypted item CRUD, and device-local blobs (the
+//! transfer queue, T40) through `courier_ftp_core::vault::DeviceBlobVault`.
 //!
 //! Adapted from sverb's `sverb-tui::services::vault::engine` (D13). The pure
 //! parts (backoff, strength, keyring seam, auto-lock, errors) live in
@@ -32,8 +33,9 @@ use courier_ftp_core::model::item::{
 };
 use courier_ftp_core::vault::backup::{self, BackupItem};
 use courier_ftp_core::vault::{
-    BackoffState, ItemVault, ItemWrite, KeyringStore, UnlockMethod, VaultError, VaultItem,
-    VaultState, VaultStatus, check_strength, keyring_account, scrub, strip_passwords,
+    BackoffState, DeviceBlobVault, ItemVault, ItemWrite, KeyringStore, UnlockMethod, VaultError,
+    VaultItem, VaultState, VaultStatus, blob_id, check_strength, keyring_account, scrub,
+    strip_passwords,
 };
 use courier_ftp_crypto::envelope::{open_item, seal_item};
 use courier_ftp_crypto::kdf::{Argon2Cost, KdfParams, argon2id};
@@ -124,6 +126,8 @@ struct Unlocked {
     clock: HlcClock,
     method: UnlockMethod,
     items: BTreeMap<ItemId, Cached>,
+    /// The device data key for device blobs (T40), unwrapped on first use.
+    device_key: Option<TrackedKey>,
 }
 
 impl Unlocked {
@@ -494,6 +498,7 @@ impl VaultEngine {
             clock,
             method: UnlockMethod::Created,
             items: BTreeMap::new(),
+            device_key: None,
         });
         tracing::info!(vault = %vault_id.short(), "vault created");
         Ok(InitReport { keyring_error })
@@ -810,6 +815,7 @@ impl VaultEngine {
             clock,
             method,
             items: BTreeMap::new(),
+            device_key: None,
         };
         let mut report = UnlockReport {
             method,
@@ -1015,5 +1021,125 @@ impl ItemVault for VaultEngine {
         u.items.remove(&id);
         tracing::debug!(item = %id.short(), "item deleted");
         Ok(true)
+    }
+}
+
+/// Key version of every device-blob envelope (the device key is never rotated).
+const DEVICE_KEY_VERSION: u32 = 1;
+
+impl VaultEngine {
+    /// Runs `f` with the device data key and this device's id, unwrapping the
+    /// key from `meta.device_key_wrapped` on first use, or creating it there
+    /// (one transaction; a key another process stored first wins).
+    async fn with_device_key<T>(
+        &self,
+        f: impl FnOnce(&Key32, DeviceId) -> Result<T, VaultError>,
+    ) -> Result<T, VaultError> {
+        {
+            let state = self.inner.state.read().await;
+            let u = state.as_ref().ok_or(VaultError::Locked)?;
+            if let Some(k) = &u.device_key {
+                return f(&k.key, u.device);
+            }
+        }
+        let mut state = self.inner.state.write().await;
+        let u = state.as_mut().ok_or(VaultError::Locked)?;
+        if u.device_key.is_none() {
+            let mut rng = os_rng();
+            let fresh = random_key32(&mut rng);
+            let wrapped = wrap_key(
+                &u.lmk.key,
+                &WrapPurpose::Device,
+                fresh.expose_secret(),
+                &mut rng,
+            )
+            .map_err(|e| VaultError::from_crypto(e, "device key"))?;
+            drop(fresh);
+            let stored = self
+                .inner
+                .store
+                .write(move |w| {
+                    if let Some(existing) = w.as_read().get_meta(keys::DEVICE_KEY_WRAPPED)? {
+                        return Ok(existing);
+                    }
+                    w.set_meta(keys::DEVICE_KEY_WRAPPED, &wrapped)?;
+                    Ok(wrapped)
+                })
+                .await
+                .map_err(storage)?;
+            let key = unwrap_key32(&u.lmk.key, &WrapPurpose::Device, &stored)
+                .map_err(|e| VaultError::from_crypto(e, "meta.device_key_wrapped"))?;
+            u.device_key = Some(self.track(key));
+            tracing::debug!("device data key loaded");
+        }
+        match &u.device_key {
+            Some(k) => f(&k.key, u.device),
+            None => Err(VaultError::Locked),
+        }
+    }
+}
+
+/// Device blobs (T40): v1 envelopes under the LMK-wrapped device key, bound to
+/// this device's id and the blob name (see `courier_ftp_core::vault::device_blobs`).
+#[async_trait]
+impl DeviceBlobVault for VaultEngine {
+    async fn is_unlocked(&self) -> bool {
+        VaultEngine::is_unlocked(self).await
+    }
+
+    async fn load_blob(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>, VaultError> {
+        if !VaultEngine::is_unlocked(self).await {
+            return Err(VaultError::Locked);
+        }
+        let Some(envelope) = self
+            .inner
+            .store
+            .device_blobs()
+            .get(name)
+            .await
+            .map_err(storage)?
+        else {
+            return Ok(None);
+        };
+        let id = blob_id(name);
+        self.with_device_key(|key, device| {
+            let lookup = |v: u32| (v == DEVICE_KEY_VERSION).then_some(key);
+            open_item(lookup, device.as_bytes(), &id, &envelope)
+                .map(Some)
+                .map_err(|e| VaultError::from_crypto(e, "device blob"))
+        })
+        .await
+    }
+
+    async fn save_blob(&self, name: &str, plaintext: &[u8]) -> Result<(), VaultError> {
+        let id = blob_id(name);
+        let envelope = self
+            .with_device_key(|key, device| {
+                seal_item(
+                    key,
+                    device.as_bytes(),
+                    &id,
+                    DEVICE_KEY_VERSION,
+                    plaintext,
+                    &mut os_rng(),
+                )
+                .map_err(|e| VaultError::from_crypto(e, "device blob"))
+            })
+            .await?;
+        self.inner
+            .store
+            .device_blobs()
+            .put(name, envelope)
+            .await
+            .map_err(storage)
+    }
+
+    async fn delete_blob(&self, name: &str) -> Result<bool, VaultError> {
+        self.inner
+            .store
+            .device_blobs()
+            .delete(name)
+            .await
+            .map_err(storage)
     }
 }
