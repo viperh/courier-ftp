@@ -152,7 +152,8 @@ pub enum ExternalIp {
 pub struct ProxySettings {
     /// HTTP CONNECT or SOCKS proxy for every protocol.
     pub generic: GenericProxy,
-    /// FTP-level proxy (FTP only).
+    /// FTP-level proxy (FTP and FTPS only, T15). Can't be combined with a
+    /// generic proxy: validation turns it off when both are set.
     pub ftp_proxy: FtpProxy,
 }
 
@@ -199,7 +200,8 @@ pub enum FtpProxy {
     Site(ProxyServer),
     /// `OPEN host`.
     Open(ProxyServer),
-    /// A custom login script (`%h`, `%u`, `%p`, `%s`, `%w` placeholders, T15).
+    /// A custom login script (`%h`, `%u`, `%p`, `%a`, `%s`, `%w` placeholders,
+    /// T15).
     Custom {
         /// The proxy.
         server: ProxyServer,

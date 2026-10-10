@@ -12,7 +12,9 @@
 //!    Eyeballs, the generic HTTP/SOCKS proxy);
 //! 3. the greeting (`220`; `120` means "wait", the next reply is read);
 //! 4. the login script ([`LoginScript`], `USER` → `331` → `PASS` → `332` →
-//!    `ACCT`, `230` straight after `USER` accepted);
+//!    `ACCT`, `230` straight after `USER` accepted), or the FTP proxy's
+//!    script ([`crate::proxy`], T15; the TCP connection then goes to the
+//!    proxy);
 //! 5. `SYST`, `FEAT` (parsed into [`Features`]; `500` keeps the defaults),
 //!    `CLNT` when announced, `OPTS UTF8 ON` when `UTF8` is announced and the
 //!    charset is Auto or UTF-8 (its failure is ignored);
@@ -100,6 +102,7 @@ pub use self::{
     pwd::parse_quoted_path,
     reply::{MAX_LINE, MAX_REPLY_BYTES, Reply, ReplyError, ReplyParser},
 };
+use crate::proxy::FtpProxyConfig;
 
 /// How long [`ControlConnection::quit`] waits for the `221`.
 pub const QUIT_WAIT: Duration = Duration::from_secs(2);
@@ -169,19 +172,26 @@ pub struct FtpOptions {
     pub timeout: Duration,
     /// Sent with `CLNT` when the server announces it; `None` never sends it.
     pub client_name: Option<String>,
+    /// The FTP proxy (T15): the control connection goes to its server and
+    /// logs in with its script. `None` connects to `host` directly.
+    pub ftp_proxy: Option<FtpProxyConfig>,
 }
 
 impl FtpOptions {
-    /// Options for `host` and `logon` with the timeout and proxy from
-    /// `settings`.
+    /// Options for `host` and `logon` with the timeout and proxies from
+    /// `settings` (without proxy passwords: see
+    /// [`set_ftp_proxy_password`](Self::set_ftp_proxy_password)). An FTP proxy
+    /// wins over a generic one (settings validation never keeps both).
     pub fn new(host: HostPort, logon: LogonType, settings: &Settings) -> Self {
+        let ftp_proxy = FtpProxyConfig::from_settings(&settings.proxy.ftp_proxy);
         Self {
             host,
             logon,
             charset: Charset::Auto,
-            net: NetOpts::from_settings(settings),
+            net: NetOpts::from_settings(settings).bypass_proxy(ftp_proxy.is_some()),
             timeout: Duration::from_secs(settings.connection.timeout_secs.max(1)),
             client_name: Some(CLIENT_NAME.to_owned()),
+            ftp_proxy,
         }
     }
 
@@ -190,8 +200,37 @@ impl FtpOptions {
     pub fn from_connect_info(info: &ConnectInfo, settings: &Settings) -> Self {
         let mut opts = Self::new(HostPort::from(&info.address), info.logon.clone(), settings);
         opts.charset = info.charset;
-        opts.net = opts.net.bypass_proxy(info.proxy == ProxyChoice::Bypass);
+        if info.proxy == ProxyChoice::Bypass {
+            opts.net = opts.net.bypass_proxy(true);
+            opts.ftp_proxy = None;
+        }
         opts
+    }
+
+    /// Set the FTP proxy password (from the vault item
+    /// [`FtpProxyConfig::password_ref`]). Does nothing without an FTP proxy.
+    pub fn set_ftp_proxy_password(&mut self, password: SecretString) {
+        if let Some(proxy) = self.ftp_proxy.as_mut() {
+            proxy.password = Some(password);
+        }
+    }
+
+    /// Where the control connection goes: the FTP proxy, or the server.
+    pub fn control_target(&self) -> &HostPort {
+        self.ftp_proxy.as_ref().map_or(&self.host, |p| &p.server)
+    }
+
+    /// The login script: the FTP proxy's, or the normal one for the logon
+    /// type. `password` answers the password prompt.
+    ///
+    /// # Errors
+    ///
+    /// See [`LoginScript::for_logon`] and [`FtpProxyConfig::login_script`].
+    pub fn login_script(&self, password: Option<SecretString>) -> Result<LoginScript> {
+        match &self.ftp_proxy {
+            Some(proxy) => proxy.login_script(&self.host, &self.logon, password),
+            None => LoginScript::for_logon(&self.logon, password),
+        }
     }
 }
 
@@ -234,10 +273,16 @@ impl KeepaliveCommand {
 /// broken reply.
 pub async fn connect(opts: &FtpOptions, ctx: FtpContext) -> Result<ControlConnection> {
     let password = ask_password(opts, &ctx).await?;
-    let script = LoginScript::for_logon(&opts.logon, password)?;
+    let script = opts.login_script(password)?;
     let mut conn = ControlConnection::connect_tcp(opts, ctx).await?;
     conn.read_greeting().await?;
     // T12: explicit FTPS (`AUTH TLS`, `PBSZ 0`, `PROT P`) goes here.
+    if let Some(proxy) = &opts.ftp_proxy {
+        conn.log(
+            LogKind::Status,
+            format!("Logging in through the FTP proxy ({})", proxy.kind),
+        );
+    }
     conn.login(&script).await?;
     conn.negotiate(opts.client_name.as_deref()).await?;
     match conn.pwd().await {
@@ -345,7 +390,8 @@ impl ControlConnection {
         }
     }
 
-    /// Open the TCP connection to [`FtpOptions::host`] through
+    /// Open the TCP connection to [`FtpOptions::control_target`] (the
+    /// server, or the FTP proxy) through
     /// [`connect_tcp`] and wrap it. Records the socket's peer and local
     /// addresses for the data connections (T11).
     ///
@@ -353,7 +399,14 @@ impl ControlConnection {
     ///
     /// The errors of [`connect_tcp`].
     pub async fn connect_tcp(opts: &FtpOptions, ctx: FtpContext) -> Result<Self> {
-        let tcp = connect_tcp(&opts.host, &opts.net, &ctx.cancel, &ctx.events, ctx.session).await?;
+        let tcp = connect_tcp(
+            opts.control_target(),
+            &opts.net,
+            &ctx.cancel,
+            &ctx.events,
+            ctx.session,
+        )
+        .await?;
         let peer = tcp.peer_addr().ok();
         let local = tcp.local_addr().ok();
         let mut conn = Self::new(Box::new(tcp), ctx, opts.timeout, opts.charset);
