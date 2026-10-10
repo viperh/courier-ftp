@@ -67,7 +67,7 @@ pub struct SshConnectParams {
     pub key: Option<KeySource>,
     /// `LogonType::KeyFile` passphrase (stored in the vault). Tried before prompting.
     pub key_passphrase: Option<SecretString>,
-    /// Shown in passphrase prompts and the log: the path, or "vault key of <label>".
+    /// Shown in passphrase prompts and the log: the path, or "vault key of &lt;label&gt;".
     pub key_label: String,
     /// `ConnectInfo.try_agent_first` (FileZilla "try agent first"; the T91 §8 approval
     /// is already done by the binary).

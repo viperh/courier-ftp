@@ -1,7 +1,7 @@
 //! The russh client handler and the host-key seam (T20; adapted from sverb
 //! `ssh/handler.rs`, D13).
 //!
-//! [`ClientHandler`] runs inside russh's session task. It asks the
+//! `ClientHandler` runs inside russh's session task. It asks the
 //! [`HostKeyVerifier`] about the server's key (T21 plugs in the trust store and the
 //! prompt; the handshake is suspended meanwhile), records the negotiated algorithms,
 //! logs the authentication banner and records why the transport ended.

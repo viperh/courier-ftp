@@ -6,18 +6,18 @@
 //!
 //! | Logon type | Steps |
 //! |---|---|
-//! | `Normal` | [A] if `try_agent_first` → [P1] stored password → [K] keyboard-interactive (the stored password answers once) → [P2] password prompts |
-//! | `AskForPassword` | [A] → [P2] → [K] (the typed password answers once) |
-//! | `Interactive` | [A] → [K] (every info request is shown) → [P2] only if the server lists `password` but not `keyboard-interactive` |
-//! | `KeyFile` | [F] key file only |
-//! | `Agent` | [A] agent identities only |
+//! | `Normal` | \[A\] if `try_agent_first` → \[P1\] stored password → \[K\] keyboard-interactive (the stored password answers once) → \[P2\] password prompts |
+//! | `AskForPassword` | \[A\] → \[P2\] → \[K\] (the typed password answers once) |
+//! | `Interactive` | \[A\] → \[K\] (every info request is shown) → \[P2\] only if the server lists `password` but not `keyboard-interactive` |
+//! | `KeyFile` | \[F\] key file only |
+//! | `Agent` | \[A\] agent identities only |
 //!
 //! Every request after `none` counts against [`MAX_AUTH_ATTEMPTS`] (each key and each
 //! agent identity is one, each keyboard-interactive conversation is one). A cancelled
 //! prompt aborts the whole connect ([`SshError::Cancelled`]).
 //!
 //! The chain is written against two seams so unit tests can script both sides:
-//! [`AuthBackend`] (the server: russh's auth calls, [`RusshBackend`]) and [`AuthIo`]
+//! [`AuthBackend`] (the server: russh's auth calls, `RusshBackend`) and [`AuthIo`]
 //! (the user: log lines and prompts, [`PromptIo`] over the T04 event bus). Answers
 //! used in a successful (or partially successful) request are reported with
 //! [`AuthIo::accepted`] once the whole authentication succeeded, so the UI caches or
@@ -265,7 +265,7 @@ pub trait AuthIo: Send {
 pub struct KeyMaterial {
     /// The key text (OpenSSH, PEM, PKCS#8 or PuTTY), zeroized on drop.
     pub text: Zeroizing<String>,
-    /// The path, or "vault key of <site>" (prompts and log).
+    /// The path, or "vault key of &lt;site&gt;" (prompts and log).
     pub label: String,
     /// The stored passphrase, tried silently before prompting.
     pub passphrase: Option<SecretString>,
@@ -297,17 +297,17 @@ pub struct ChainTarget<'a> {
 /// One step of the chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
-    /// [A] agent identities.
+    /// \[A\] agent identities.
     Agent,
-    /// [P1] the stored password.
+    /// \[P1\] the stored password.
     StoredPassword,
-    /// [P2] password prompts.
+    /// \[P2\] password prompts.
     PasswordPrompts,
-    /// [P2] only if the server lists `password` but not `keyboard-interactive`.
+    /// \[P2\] only if the server lists `password` but not `keyboard-interactive`.
     PasswordPromptsIfNoKbd,
-    /// [K] keyboard-interactive; `auto`: the stored/typed password answers once.
+    /// \[K\] keyboard-interactive; `auto`: the stored/typed password answers once.
     Kbd { auto: bool },
-    /// [F] the key file.
+    /// \[F\] the key file.
     KeyFile,
 }
 
@@ -357,7 +357,7 @@ struct Chain<'t, 'x> {
     rsa: Option<RsaSigSupport>,
     /// A password for this connection was rejected (the next prompt says "try again").
     password_rejected: bool,
-    /// The password typed in [P2], for the keyboard-interactive auto-answer.
+    /// The password typed in \[P2\], for the keyboard-interactive auto-answer.
     typed_password: Option<(SecretString, PromptToken)>,
     kbd_auto_used: bool,
 }
@@ -512,7 +512,7 @@ impl Chain<'_, '_> {
         }
     }
 
-    // ------------------------------------------------------------ [A] agent
+    // ------------------------------------------------------------ \[A\] agent
 
     async fn agent_step(&mut self) -> Result<Flow, SshError> {
         if !self.allows(PUBLICKEY) {
@@ -570,7 +570,7 @@ impl Chain<'_, '_> {
         Ok(Flow::Next)
     }
 
-    // ------------------------------------------------------------ [P1], [P2] password
+    // ------------------------------------------------------------ \[P1\], \[P2\] password
 
     async fn stored_password_step(&mut self) -> Result<Flow, SshError> {
         let Some(stored) = self.t.password else {
@@ -624,7 +624,7 @@ impl Chain<'_, '_> {
         Ok(Flow::Next)
     }
 
-    // ------------------------------------------------------------ [K] keyboard-interactive
+    // ------------------------------------------------------------ \[K\] keyboard-interactive
 
     async fn kbd_step(&mut self, auto: bool) -> Result<Flow, SshError> {
         for _ in 0..KBD_ROUNDS {
@@ -734,7 +734,7 @@ impl Chain<'_, '_> {
         Ok(answer)
     }
 
-    // ------------------------------------------------------------ [F] key file
+    // ------------------------------------------------------------ \[F\] key file
 
     async fn key_step(&mut self) -> Result<Flow, SshError> {
         let Some(km) = self.t.key else {

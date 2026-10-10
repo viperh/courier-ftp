@@ -410,7 +410,7 @@ async fn normal_tries_stored_password_then_prompts_three_times() {
     assert!(user.prompts.is_empty());
 }
 
-/// AskForPassword: [P2] (no "try again" on the first prompt), then [K] where the typed
+/// AskForPassword: \[P2\] (no "try again" on the first prompt), then \[K\] where the typed
 /// password answers the password request once; the OTP is asked.
 #[tokio::test]
 async fn ask_for_password_typed_password_answers_kbd_once() {
