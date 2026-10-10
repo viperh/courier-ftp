@@ -78,7 +78,7 @@ impl Rig {
         loop {
             tokio::select! {
                 Some(action) = app.action_rx.recv() => app.dispatch(action).unwrap(),
-                Some(event) = app.events_rx.recv() => app.screen.handle_core(event),
+                Some(event) = app.events_rx.recv() => app.core_event(event),
                 Some(msg) = app.vault_rx.recv() => app.vault_message(msg),
                 () = tokio::time::sleep(Duration::from_millis(150)) => {
                     let busy = app.screen.vault_view().is_some_and(VaultView::is_busy)
@@ -600,6 +600,104 @@ async fn locked_vault_explains_the_missing_history() {
     rig.quickconnect("sftp://bob:pw@mock.invalid").await;
     rig.until("connected", Rig::connected).await;
     assert_eq!(Rig::history_len(&rig.app), None);
+}
+
+// ------------------------------------------------------------------ T56 queue
+
+impl Rig {
+    /// Queue a download from a quickconnect server, as the file lists do.
+    fn queue_item(&mut self, name: &str) {
+        use courier_ftp_core::{
+            model::{Direction, LocalPath, Protocol, RemotePath, ServerAddress},
+            queue::{NewItem, QueueServer},
+        };
+        let mut address = ServerAddress::new(Protocol::Sftp, "mock.invalid");
+        address.user = Some("alice".into());
+        let server = QueueServer::Quick {
+            address,
+            password: Some(secrecy::SecretString::from("s3cret")),
+        };
+        let item = NewItem::file(
+            server,
+            Direction::Download,
+            LocalPath::new(format!("/tmp/{name}")),
+            RemotePath::new(format!("/srv/{name}")),
+            Some(10),
+        );
+        courier_ftp_core::queue::lock_queue(&self.app.transfers.queue)
+            .add(item, time::OffsetDateTime::now_utc());
+        self.app.transfers.edited(&[], false);
+    }
+
+    fn queued(app: &App) -> usize {
+        courier_ftp_core::queue::lock_queue(&app.transfers.queue)
+            .count(courier_ftp_core::queue::QueueList::Queued)
+    }
+}
+
+#[tokio::test]
+async fn queue_is_saved_in_the_vault_and_restored_after_unlock() {
+    use courier_ftp_core::{
+        queue::{QUEUE_BLOB, QueueList, QueueServer, lock_queue},
+        vault::DeviceBlobVault,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    rig.create(STRONG, false).await;
+    rig.queue_item("a.txt");
+    rig.queue_item("b.txt");
+    // Quitting is safe: the queue is saved; the final write happens on
+    // shutdown.
+    rig.app.dispatch(Action::Quit).unwrap();
+    rig.until("quit", |a| a.should_quit).await;
+    rig.app.transfers.shutdown().await;
+    assert!(rig.engine().load_blob(QUEUE_BLOB).await.unwrap().is_some());
+    drop(rig);
+
+    // Next run, still locked: the saved queue isn't loaded, and quitting with
+    // a new item warns that it would be lost.
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    assert_eq!(Rig::queued(&rig.app), 0);
+    rig.alt('c');
+    rig.settle().await;
+    rig.queue_item("c.txt");
+    rig.app.dispatch(Action::Quit).unwrap();
+    rig.until("quit warning", |a| a.screen.has_modal()).await;
+    assert!(!rig.app.should_quit);
+    let text = rig.screen(120, 40);
+    assert!(text.contains("which is locked"), "{text}");
+    rig.key(KeyCode::Esc);
+    rig.settle().await;
+    assert!(!rig.app.should_quit);
+
+    // Unlocking merges the saved items in, not started, passwords kept.
+    rig.ctrl_x('u');
+    rig.settle().await;
+    rig.unlock(STRONG).await;
+    rig.until("queue restored", |a| Rig::queued(a) == 3).await;
+    {
+        let q = lock_queue(&rig.app.transfers.queue);
+        assert!(!q.is_processing());
+        let names: Vec<String> = q
+            .items(QueueList::Queued)
+            .map(|i| i.remote.file_name().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, ["c.txt", "a.txt", "b.txt"]);
+        assert!(q.items(QueueList::Queued).all(|i| matches!(
+            &i.server,
+            QueueServer::Quick {
+                password: Some(_),
+                ..
+            }
+        )));
+    }
+    assert!(
+        rig.screen(120, 40)
+            .contains("Restored the saved transfer queue (2 entries")
+    );
+    rig.app.transfers.shutdown().await;
 }
 
 #[tokio::test]

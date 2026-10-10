@@ -32,6 +32,17 @@ pub mod keys {
     /// The device data key (T40) wrapped under the LMK (`WrapPurpose::Device`),
     /// sealing the `device_blobs`. Created on first use; never synced.
     pub const DEVICE_KEY_WRAPPED: &str = "device_key_wrapped";
+    /// The sync account this device is signed in to (T87): JSON
+    /// `{user_id, email, key_version}`, not secret. Its presence makes
+    /// `VaultStatus::sync_account` true.
+    pub const ACCOUNT: &str = "account";
+    /// The account's X25519/Ed25519 keys sealed under a key derived from the
+    /// LMK (T87), so an unlocked device can open vault grants without the
+    /// password.
+    pub const ACCOUNT_KEYS: &str = "account_keys_enc";
+    /// UNIX ms of the last sync cycle that finished without an error (T88),
+    /// as decimal text.
+    pub const SYNC_LAST_OK: &str = "sync_last_ok";
 }
 
 impl ReadTx<'_> {

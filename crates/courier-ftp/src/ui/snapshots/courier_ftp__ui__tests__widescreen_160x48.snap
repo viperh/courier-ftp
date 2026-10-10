@@ -1,5 +1,6 @@
 ---
 source: crates/courier-ftp/src/ui/tests.rs
+assertion_line: 86
 expression: terminal.backend()
 ---
 "┌ Quickconnect ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐"
@@ -30,9 +31,9 @@ expression: terminal.backend()
 "│                                              ││                                              ││                                                              │"
 "│                                              ││                                              ││                                                              │"
 "│                                              ││                                              │└──────────────────────────────────────────────────────────────┘"
-"│                                              ││                                              │┌ Queue (0) · Failed (0) · Successful (0) ─────────────────────┐"
-"│                                              ││                                              ││The queue is empty.                                           │"
-"│                                              ││                                              ││                                                              │"
+"│                                              ││                                              │┌ Queued files (0) │ Failed transfers (0) │ Successful transfer┐"
+"│                                              ││                                              ││Local file      Remote file   Size       Priority Status      │"
+"│                                              ││                                              ││The queue is empty. F5 transfers the selected files.          │"
 "│                                              ││                                              ││                                                              │"
 "│                                              ││                                              ││                                                              │"
 "│                                              ││                                              ││                                                              │"
@@ -48,5 +49,5 @@ expression: terminal.backend()
 "│                                              ││                                              ││                                                              │"
 "│                                              ││                                              ││                                                              │"
 "│2 files and 1 directory. Total size: 4.9 KiB  ││                                              ││                                                              │"
-"└──────────────────────────────────────────────┘└──────────────────────────────────────────────┘└──────────────────────────────────────────────────────────────┘"
+"└──────────────────────────────────────────────┘└──────────────────────────────────────────────┘└ Queue: empty ────────────────────────────────────────────────┘"
 " — │ Auto │ ⇅ limit off │ Queue: empty │ F1 help  F5 copy  F7 mkdir  F8 delete  F10 quit                                                                        "

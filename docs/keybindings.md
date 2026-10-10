@@ -148,12 +148,19 @@ When the transfer queue has focus.
 | `<k>` | CursorUp |
 | `<Ctrl-d>` | HalfPageDown |
 | `<Ctrl-u>` | HalfPageUp |
+| `<b>` | MoveItemBottom |
 | `<J>` | MoveItemDown |
+| `<t>` | MoveItemTop |
 | `<K>` | MoveItemUp |
+| `<Enter>` | Open |
 | `<PageDown>` | PageDown |
 | `<PageUp>` | PageUp |
 | `<minus>` | PriorityDown |
 | `<+>` | PriorityUp |
+| `<C>` | QueueClear |
+| `<e>` | QueueExistsMenu |
+| `<s>` | QueueGroupByServer |
+| `<m>` | QueueMenu |
 | `<2>` | QueueTabFailed |
 | `<1>` | QueueTabQueued |
 | `<3>` | QueueTabSuccessful |
@@ -161,8 +168,12 @@ When the transfer queue has focus.
 | `<Delete>` | RemoveItem |
 | `<x>` | RemoveItem |
 | `<r>` | Requeue |
+| `<Ctrl-a>` | SelectAll |
+| `<Insert>` | ToggleSelect |
+| `<P>` | ToggleTransfersPaused |
 | `<Home>` | Top |
 | `<g><g>` | Top |
+| `<v>` | VisualSelect |
 
 ## Message log
 

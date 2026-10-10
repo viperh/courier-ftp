@@ -75,12 +75,21 @@ fn open_private_with(path: &Path, options: OpenOptions) -> io::Result<File> {
 /// # Errors
 /// The file can't be created or written.
 pub fn write_private(path: &Path, text: &str) -> io::Result<()> {
-    // Not `open_private`: on Windows an append-only handle can't be
-    // truncated (`set_len` is refused).
+    write_private_bytes(path, text.as_bytes())
+}
+
+/// Write `bytes` to `path` (replacing it), owner-only on Unix (exports,
+/// saved logs).
+///
+/// # Errors
+/// The file can't be created or written.
+pub fn write_private_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    // Not `open_private` + `set_len(0)`: on Windows an append-only handle
+    // can't be truncated ("Access is denied").
     let mut options = OpenOptions::new();
     options.create(true).write(true).truncate(true);
     let mut file = open_private_with(path, options)?;
-    file.write_all(text.as_bytes())?;
+    file.write_all(bytes)?;
     file.sync_all()
 }
 

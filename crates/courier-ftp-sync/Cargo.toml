@@ -19,8 +19,41 @@ courier-ftp-store = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
+# HTTP + WebSocket over rustls with the `ring` provider and the OS trust store
+# (D9); no aws-lc, no native-tls.
+reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+# Tokens and passwords (never logged).
+secrecy = { workspace = true }
+zeroize = { workspace = true }
+# Id remapping of imported item bodies (account::merge_local).
+ciborium = { workspace = true }
+# Reconnect jitter and the recovery-word check (from the OS RNG).
+rand_core = { workspace = true }
+
 [dev-dependencies]
+# The in-process sync server (in-memory store) the integration tests drive.
+# Path-only so `cargo package` strips it.
+courier-ftp-server = { path = "../courier-ftp-server" }
+# Cheap Argon2 / OPAQUE KSF for the tests.
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
+courier-ftp-core = { workspace = true, features = ["test-util"] }
+axum = { workspace = true }
+# The server's manual clock (tombstone GC in the resync test).
+chrono = { workspace = true }
 pretty_assertions = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

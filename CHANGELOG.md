@@ -188,3 +188,13 @@ the section matching the tag.
   validation and an unsaved-change guard, connect with saved credentials,
   FileZilla and courier-ftp import/export, a fuzzy site picker (Ctrl-x g) and
   Save as site from quickconnect (Ctrl-x a).
+- Sync client (T87): register a vault with a self-hosted courier-ftp server,
+  log in on more devices with a duplicate preview, change the password,
+  recover with the 24-word key, manage devices.
+- Sync engine (T88): a background engine keeps vaults in sync offline-first,
+  with field-level merges, conflict retries, 410 resync and live WebSocket
+  updates.
+- Queue pane (T56): queued/failed/successful tabs, server grouping, live
+  progress and full queue controls; F5/Shift-F5 transfer the selection through
+  the transfer engine, and the queue is saved in the vault and restored after
+  unlock.

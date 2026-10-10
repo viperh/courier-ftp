@@ -56,12 +56,12 @@ change the password, recover, and manage devices.
 
 ## Acceptance criteria
 
-- [ ] Register, log in from a second device (second data dir), see the same sites.
-- [ ] Duplicate preview and the three choices work.
-- [ ] Password change on device A logs out device B, which can log in with the new password.
-- [ ] Recovery restores access with the 24 words.
-- [ ] Token refresh race (two concurrent requests on expiry) results in one refresh.
-- [ ] Client builds and runs with `--no-default-features`.
+- [x] Register, log in from a second device (second data dir), see the same sites. *(`crates/courier-ftp-sync/tests/account.rs`, in-process server; the upload there is a bare test push, the engine is T88.)*
+- [x] Duplicate preview and the three choices work.
+- [x] Password change on device A logs out device B, which can log in with the new password.
+- [x] Recovery restores access with the 24 words. *(Library level: `account::recover_locked_device` re-keys a locked device; the screens are T90.)*
+- [x] Token refresh race (two concurrent requests on expiry) results in one refresh.
+- [x] Client builds and runs with `--no-default-features`.
 
 ## Tests
 

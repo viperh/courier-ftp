@@ -79,6 +79,8 @@ pub(crate) struct App {
     diag: crate::diagnostics::Diagnostics,
     /// Where `config.json` is saved (empty in tests: nothing is saved).
     config_dir: std::path::PathBuf,
+    /// The transfer queue, engine and persister (T56).
+    transfers: crate::transfers::Transfers,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -222,6 +224,14 @@ impl App {
         screen.set_action_tx(action_tx.clone());
         let (vault_tx, vault_rx) = mpsc::unbounded_channel();
         let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+        let transfers = crate::transfers::Transfers::start(
+            screen.queue_shared().clone(),
+            Arc::clone(&backends),
+            events_tx.clone(),
+            cache.clone(),
+            &config.settings,
+        );
+        screen.set_engine_status(transfers.engine.watch_status());
         let mut app = Self {
             keybindings: config.keybindings.clone(),
             tick_rate,
@@ -248,6 +258,7 @@ impl App {
             site_snapshot: None,
             diag: crate::diagnostics::Diagnostics::new(offset),
             config_dir: config.config.config_dir.clone(),
+            transfers,
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -318,6 +329,7 @@ impl App {
             }
         }
         tui.exit()?;
+        self.transfers.shutdown().await;
         if let Some(log) = self.diag.session_log() {
             log.flush_timeout(Duration::from_secs(1));
         }
@@ -389,6 +401,7 @@ impl App {
         if !matches!(action, Action::Tick | Action::Render) {
             debug!("{action}");
         }
+        self.transfer_action(&action);
         match &action {
             Action::Tick => {
                 self.sequencer.expire(Instant::now());
@@ -436,9 +449,8 @@ impl App {
                     self.site_snapshot = Some(snapshot.clone());
                 }
             }
-            // No transfers exist yet, so nothing needs confirming (T41 adds the
-            // "transfers are running, quit anyway?" dialog).
-            Action::Quit => self.should_quit = true,
+            Action::Quit => self.request_quit(),
+            Action::QuitNow => self.should_quit = true,
             Action::Suspend => self.should_suspend = true,
             Action::Resume => self.should_suspend = false,
             Action::Connect { request, replace } => {
@@ -712,6 +724,7 @@ impl App {
             };
             self.screen.tree_mut(side).invalidate(dir);
         }
+        self.transfer_event(&event);
         self.screen.handle_core(event);
     }
 
@@ -754,6 +767,7 @@ impl App {
         let keepalive = c
             .keepalive
             .then(|| Duration::from_secs(c.keepalive_interval_secs.max(1)));
+        self.transfers.resolver.remember(&request.info);
         let backend = self
             .backends
             .create(&request.info, session, self.events_tx.clone());
@@ -988,7 +1002,7 @@ impl App {
                 let facts = VaultFacts {
                     keyring_enabled: status.keyring_enabled,
                     keyring_available,
-                    sync_account: false,
+                    sync_account: status.sync_account,
                 };
                 let keyring_first = status.state == VaultState::Locked && status.keyring_enabled;
                 match status.state {
@@ -1109,6 +1123,7 @@ impl App {
         {
             view.unlocked(self.site_snapshot.clone());
         }
+        self.restore_queue();
         self.screen.show_vault(false);
         self.screen.set_vault_locked(false);
         if let Some(view) = self.screen.vault_view_mut() {
@@ -1130,6 +1145,7 @@ impl App {
             return;
         };
         vault.lock();
+        self.transfers.resolver.forget_passwords();
         self.history = None;
         self.site_snapshot = None;
         self.screen.close_site_manager();
@@ -1369,9 +1385,13 @@ async fn first_listing(
 mod filter_tests;
 #[cfg(test)]
 mod log_tests;
+mod transfers;
+
 #[cfg(test)]
 mod site_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_tests;
 #[cfg(test)]
 mod vault_tests;
