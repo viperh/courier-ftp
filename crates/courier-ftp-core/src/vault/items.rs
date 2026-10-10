@@ -294,6 +294,23 @@ impl VaultEngine {
         })
     }
 
+    /// Ids of every live item of `kind` (cache, no I/O), sorted. Read the bodies with
+    /// [`VaultEngine::get_body`].
+    ///
+    /// # Errors
+    /// [`VaultError::Locked`].
+    pub fn item_ids(&self, kind: ItemKind) -> Result<Vec<ItemId>, VaultError> {
+        self.with_session(|s| {
+            Ok(s.cache
+                .read()
+                .items
+                .iter()
+                .filter(|(_, i)| i.live_body().is_some_and(|b| b.kind == kind))
+                .map(|(id, _)| *id)
+                .collect())
+        })
+    }
+
     /// Reads, decrypts and migrates one item with its secrets. `None` when missing or
     /// deleted.
     ///

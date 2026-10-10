@@ -25,6 +25,11 @@ async fn t01_initialize_lock_unlock_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let e = engine(&db(&dir), MemKeyring::new()).await;
     assert_eq!(e.status().await.unwrap().state, VaultState::Uninitialised);
+    // AC8: a weak master password is refused with zxcvbn feedback.
+    match e.initialize(pw("password123"), false).await {
+        Err(VaultError::WeakPassword(w)) => assert!(!w.strength.feedback().is_empty()),
+        other => panic!("{other:?}"),
+    }
     let report = e.initialize(pw(PASSWORD), false).await.unwrap();
     assert_eq!(report.keyring_error, None);
     assert_eq!(

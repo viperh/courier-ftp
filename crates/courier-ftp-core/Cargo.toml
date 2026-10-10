@@ -91,5 +91,10 @@ harness = false
 name = "cache"
 harness = false
 
+# Vault unlock with 10 000 items, Argon2 excluded (T30, AC15).
+[[bench]]
+name = "vault_unlock"
+harness = false
+
 [lints]
 workspace = true

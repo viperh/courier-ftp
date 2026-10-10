@@ -520,6 +520,38 @@ mod tests {
         Ok(())
     }
 
+    const FIXTURE: &str = include_str!("../../tests/fixtures/backups/sample.cftp-backup");
+
+    /// Writes the committed fixture (also the fuzz seed):
+    /// `cargo test -p courier-ftp-core --lib vault::backup -- --ignored generate_fixture`.
+    #[test]
+    #[ignore = "regenerates tests/fixtures/backups/sample.cftp-backup"]
+    fn generate_fixture() -> Result<(), Box<dyn std::error::Error>> {
+        let params = Argon2Cost::TEST.with_salt([0x11; 16]).argon2();
+        let nonce = Nonce24::from_bytes([0x22; 24]);
+        let text = encrypt_raw(
+            &BACKUP,
+            &payload(),
+            &SecretString::from(PW),
+            params,
+            &nonce,
+            created(),
+        )?;
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/backups/sample.cftp-backup"
+        );
+        std::fs::write(path, text)?;
+        Ok(())
+    }
+
+    #[test]
+    fn fixture_decrypts() -> Result<(), BackupError> {
+        let back: BackupPayload = decrypt(FIXTURE, &SecretString::from(PW))?;
+        assert_eq!(back, payload());
+        Ok(())
+    }
+
     #[test]
     fn wrong_password() -> Result<(), BackupError> {
         let text = encrypt(

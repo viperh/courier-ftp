@@ -54,3 +54,8 @@ ci_max_ms = 2
 bench = "file_list/file_list_view_build_100k"  # T53 AC7
 max_ms = 80
 ci_max_ms = 160
+
+[[gate]]
+bench = "vault/vault_unlock_10k"            # T30 AC15
+max_ms = 500
+ci_max_ms = 1000

@@ -3,13 +3,29 @@
 //! Child processes get [`TestHome::env`]: this home, no OS keyring, debug logging, a
 //! UTF-8 xterm. The harness never touches the real home.
 //!
-//! The vault helpers of the spec (`with_vault`, `vault`, `add_site`, `add_bookmark`,
-//! `trust_host_key`, `trust_cert`, `list`) arrive with the vault and item tasks (T30,
-//! T31, T33, T21, T12); until then a home has no vault.
+//! Vault helpers (T30): [`TestHome::with_vault`], [`TestHome::vault`],
+//! [`TestHome::trust_host_key`] and [`TestHome::list`] use the real vault engine with
+//! `Argon2Cost::TEST`. `add_site`, `add_bookmark` and `trust_cert` arrive with their
+//! item views (T31, T33, T12).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use courier_ftp_core::model::item::{ItemBody, ItemId, ItemKind};
+use courier_ftp_core::secret::SecretString;
+use courier_ftp_core::trust::{
+    HostKeyStore as _, KnownHost, KnownHostId, MemoryHostKeyStore, SwitchableHostKeyStore,
+};
+use courier_ftp_core::vault::{Argon2Cost, LockReason, NoKeyring, VaultEngine, VaultOptions};
 
 use crate::{E2eError, Result, diag};
+
+/// The vault database inside the data directory.
+pub const VAULT_DB: &str = "courier-ftp.db";
+
+fn vault_err(e: impl std::fmt::Display) -> E2eError {
+    E2eError::new(format!("vault: {e}"))
+}
 
 /// The master password of every `TestHome` vault (from T30).
 pub const MASTER_PASSWORD: &str = "correct horse battery staple violin";
@@ -97,6 +113,111 @@ impl TestHome {
         ]
     }
 
+    /// `<data>/courier-ftp.db`.
+    pub fn vault_db(&self) -> PathBuf {
+        self.data_dir().join(VAULT_DB)
+    }
+
+    /// `new()` plus an initialised vault ([`MASTER_PASSWORD`], `Argon2Cost::TEST`),
+    /// locked again afterwards.
+    ///
+    /// # Errors
+    /// The directories or the vault could not be created.
+    pub async fn with_vault() -> Result<Self> {
+        let home = Self::new()?;
+        let engine = home.engine().await?;
+        engine
+            .initialize(SecretString::from(MASTER_PASSWORD), false)
+            .await
+            .map_err(vault_err)?;
+        engine.lock(LockReason::Shutdown).await;
+        Ok(home)
+    }
+
+    async fn engine(&self) -> Result<VaultEngine> {
+        let path = self.vault_db();
+        let store = tokio::task::spawn_blocking(move || courier_ftp_store::Store::open(path))
+            .await
+            .map_err(vault_err)?
+            .map_err(vault_err)?;
+        Ok(VaultEngine::new(
+            store,
+            Arc::new(NoKeyring),
+            VaultOptions {
+                cost: Argon2Cost::TEST,
+                ..VaultOptions::default()
+            },
+            Arc::new(SwitchableHostKeyStore::new(Arc::new(
+                MemoryHostKeyStore::new(),
+            ))),
+        ))
+    }
+
+    /// The vault of this home, unlocked with [`MASTER_PASSWORD`]. Drop it (or lock it)
+    /// before starting a child process that writes the vault.
+    ///
+    /// # Errors
+    /// No vault ([`TestHome::with_vault`]), or the vault could not be opened.
+    pub async fn vault(&self) -> Result<VaultEngine> {
+        let engine = self.engine().await?;
+        engine
+            .unlock(SecretString::from(MASTER_PASSWORD))
+            .await
+            .map_err(vault_err)?;
+        Ok(engine)
+    }
+
+    /// Trusts an OpenSSH public key line (`<type> <base64> [comment]`) for `host:port`
+    /// in the vault (a `known-host` item, T21).
+    ///
+    /// # Errors
+    /// A malformed key line, or a vault error.
+    pub async fn trust_host_key(
+        &self,
+        host: &str,
+        port: u16,
+        openssh_public: &str,
+    ) -> Result<ItemId> {
+        let mut parts = openssh_public.split_whitespace();
+        let (Some(key_type), Some(blob)) = (parts.next(), parts.next()) else {
+            return Err(E2eError::new("expected `<type> <base64> [comment]`"));
+        };
+        let engine = self.vault().await?;
+        let id = KnownHostId::new_v7();
+        let entry = KnownHost {
+            id,
+            host: courier_ftp_core::trust::normalize_host(host),
+            port,
+            key_type: key_type.to_owned(),
+            public_key: blob.to_owned(),
+            added_at: time_now(),
+            comment: Some("added by the e2e harness".into()),
+        };
+        engine
+            .host_key_store()
+            .add(entry, Vec::new())
+            .await
+            .map_err(vault_err)?;
+        engine.lock(LockReason::Shutdown).await;
+        Ok(ItemId::from_uuid(id.0))
+    }
+
+    /// Every live item of `kind` with its full body.
+    ///
+    /// # Errors
+    /// A vault error.
+    pub async fn list(&self, kind: ItemKind) -> Result<Vec<(ItemId, ItemBody)>> {
+        let engine = self.vault().await?;
+        let mut out = Vec::new();
+        for id in engine.item_ids(kind).map_err(vault_err)? {
+            if let Some(b) = engine.get_body(id).await.map_err(vault_err)? {
+                out.push((id, b.body));
+            }
+        }
+        engine.lock(LockReason::Shutdown).await;
+        Ok(out)
+    }
+
     /// Merge `json` (an object) over `<config>/config.json` (created when missing):
     /// objects merge recursively, everything else replaces.
     ///
@@ -121,6 +242,10 @@ impl TestHome {
         std::fs::write(&path, text)?;
         Ok(())
     }
+}
+
+fn time_now() -> time::OffsetDateTime {
+    time::OffsetDateTime::now_utc()
 }
 
 fn merge(into: &mut serde_json::Value, from: serde_json::Value) {
@@ -155,6 +280,27 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn vault_helpers() {
+        let home = TestHome::with_vault().await.unwrap();
+        assert!(home.vault_db().exists());
+        let id = home
+            .trust_host_key(
+                "Example.org",
+                2222,
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA user@host",
+            )
+            .await
+            .unwrap();
+        let hosts = home.list(ItemKind::KnownHost).await.unwrap();
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].0, id);
+        let engine = home.vault().await.unwrap();
+        let found = engine.host_key_store().lookup("example.org", 2222);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].key_type, "ssh-ed25519");
+    }
 
     #[test]
     fn new_home_has_dirs_and_is_removed() {

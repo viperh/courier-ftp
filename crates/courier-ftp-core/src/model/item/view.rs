@@ -245,7 +245,7 @@ impl<'a> FieldReader<'a> {
     }
 
     /// A secret text field: `Value` when stored, `Absent` otherwise, `Kept` in a body
-    /// from the T30 cache (secret values replaced by [`KEPT_SECRET_TAG`]).
+    /// from the T30 cache (secret values replaced by a crate-private CBOR tag).
     pub fn secret(&self, key: &str) -> Result<SecretField, ViewError> {
         if matches!(self.value(key), Some(Value::Tag(tag, _)) if *tag == KEPT_SECRET_TAG) {
             return Ok(SecretField::Kept);
