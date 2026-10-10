@@ -91,6 +91,9 @@ pub(crate) enum Action {
     CycleTransferType,
     /// Protocol, software and encryption details of the current tab.
     ServerInfo,
+    /// Open the next waiting prompt (host key, certificate, password…) now
+    /// instead of when the user is idle (T69).
+    OpenPrompt,
 
     // --- focus ---
     /// `Tab`: switch between the two file lists (Midnight Commander style).

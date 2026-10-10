@@ -11,6 +11,7 @@ mod panes;
 mod screen;
 mod status;
 mod theme;
+mod trust;
 
 pub(crate) use courier_ftp_core::filters::Side;
 #[cfg(test)]

@@ -38,6 +38,7 @@ Active everywhere except in text fields and dialogs.
 | `<F6>` | Move |
 | `<Ctrl-t>` | NewTab |
 | `<g><t>` | NextTab |
+| `<Ctrl-x><p>` | OpenPrompt |
 | `<g><T>` | PrevTab |
 | `<Ctrl-p>` | ProcessQueue |
 | `<Shift-F5>` | QueueSelection |

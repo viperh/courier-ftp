@@ -39,6 +39,8 @@ pub(crate) struct StatusState {
     pub(crate) queue_bytes: u64,
     pub(crate) queue_speed_bps: u64,
     pub(crate) pending_keys: String,
+    /// Prompts from the core waiting to be shown (T69).
+    pub(crate) pending_prompts: usize,
     message: Option<(String, Instant)>,
     /// Key hints, e.g. `("F5", "copy")`, from the keymap.
     pub(crate) hints: Vec<(String, String)>,
@@ -61,6 +63,7 @@ impl StatusState {
             queue_bytes: 0,
             queue_speed_bps: 0,
             pending_keys: String::new(),
+            pending_prompts: 0,
             message: None,
             hints: Vec::new(),
             unicode,
@@ -186,6 +189,24 @@ pub(crate) fn status_line(
 ) -> Line<'static> {
     let u = s.unicode;
     let mut segments = vec![security_segment(s, theme)];
+    if s.pending_prompts > 0 {
+        let n = s.pending_prompts;
+        let plural = if n == 1 { "" } else { "s" };
+        segments.insert(
+            0,
+            Segment {
+                spans: vec![Span::styled(
+                    if u {
+                        format!("⚠ {n} prompt{plural}")
+                    } else {
+                        format!("[! {n} prompt{plural}]")
+                    },
+                    theme.error,
+                )],
+                priority: 0,
+            },
+        );
+    }
     let tt = match s.transfer_type {
         TransferTypeChoice::Auto => "Auto",
         TransferTypeChoice::Ascii => "ASCII",
@@ -374,10 +395,14 @@ pub(crate) fn server_info_text(info: Option<&SessionInfo>) -> String {
             certificate,
         } => {
             out.push(format!("Security:   {version}, {cipher}"));
-            if let Some(c) = certificate {
+            if let Some(c) = certificate.as_ref().and_then(|c| c.leaf()) {
                 out.push(format!("Subject:    {}", c.subject));
                 out.push(format!("Issuer:     {}", c.issuer));
-                out.push(format!("Valid:      {}", c.validity));
+                out.push(format!(
+                    "Valid:      {} to {}",
+                    super::trust::format_date(c.not_before),
+                    super::trust::format_date(c.not_after)
+                ));
                 out.push(format!("SHA-256:    {}", c.fingerprint_sha256));
             }
         }
@@ -401,11 +426,9 @@ pub(crate) fn server_info_text(info: Option<&SessionInfo>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use courier_ftp_core::{
-        events::CertificateDetails,
-        model::{Protocol, ServerAddress},
-    };
+    use courier_ftp_core::model::{CertificateDetails, CertificateInfo, Protocol, ServerAddress};
     use pretty_assertions::assert_eq;
+    use time::macros::datetime;
 
     use super::*;
 
@@ -545,11 +568,22 @@ mod tests {
                 version: "TLS 1.2".into(),
                 cipher: "ECDHE-RSA-AES128-GCM-SHA256".into(),
                 certificate: Some(CertificateDetails {
-                    host: "secure.example.com".into(),
-                    subject: "CN=secure.example.com".into(),
-                    issuer: "CN=Example CA".into(),
-                    validity: "2026-01-01 to 2027-01-01".into(),
-                    fingerprint_sha256: "SHA256:xyz".into(),
+                    host: "secure.example.com:990".into(),
+                    chain: vec![CertificateInfo {
+                        subject: "CN=secure.example.com".into(),
+                        issuer: "CN=Example CA".into(),
+                        serial: "01".into(),
+                        not_before: datetime!(2026-01-01 0:00 UTC),
+                        not_after: datetime!(2027-01-01 0:00 UTC),
+                        subject_alt_names: vec![],
+                        public_key: "RSA 2048".into(),
+                        signature_algorithm: "sha256WithRSAEncryption".into(),
+                        fingerprint_sha256: "AB:CD".into(),
+                        fingerprint_sha1: "EF:01".into(),
+                    }],
+                    hostname_matches: true,
+                    tls_version: "TLS 1.2".into(),
+                    cipher: "ECDHE-RSA-AES128-GCM-SHA256".into(),
                     problem: String::new(),
                 }),
             },
@@ -559,6 +593,7 @@ mod tests {
             t.contains("FTPS (implicit)")
                 && t.contains("TLS 1.2")
                 && t.contains("CN=Example CA")
+                && t.contains("2026-01-01 00:00 UTC to 2027-01-01 00:00 UTC")
                 && t.contains("unknown"),
             "{t}"
         );

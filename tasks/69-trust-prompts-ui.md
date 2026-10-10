@@ -39,8 +39,24 @@ Each prompt type is built when its producer exists: host-key and password/keyboa
 ## Acceptance criteria
 
 - [ ] Snapshot tests for each prompt type and the changed-key/cert variants.
-- [ ] Dangerous defaults impossible (Enter on changed-key dialog = Cancel).
-- [ ] Prompt queueing works with concurrent transfers.
+- [x] Dangerous defaults impossible (Enter on changed-key dialog = Cancel).
+- [x] Prompt queueing works with concurrent transfers.
+
+## Status (M2 pass)
+
+Built: unknown/changed host key (1, 2), certificate and changed-certificate
+dialogs with the Details view (3; ready for T12), and the queue (7).
+Not yet: the "Remember for this session" / "Save in vault" options of the
+password prompt (4) and file-exists (6, T42). Password, passphrase and
+keyboard-interactive (5) prompts use the T52 dialogs. The first acceptance box
+stays open until (4) and (6) have their snapshots.
+
+Queue decision (7): one prompt at a time, never on top of another dialog. A
+prompt opens by itself when no dialog is open, the user isn't typing (input
+or filter mode) and no key was pressed for 1 s; until then the status bar
+shows `⚠ N prompt(s)` and `<Ctrl-x><p>` opens the next one at once. Prompts
+the core stopped waiting for leave the queue, and an open trust dialog closes
+itself.
 
 ## Tests
 
