@@ -64,6 +64,15 @@ impl Backends {
     }
 }
 
+impl Backends {
+    /// The settings screen saved new settings (T68): connections opened
+    /// from now on use them; open ones keep theirs.
+    pub(crate) fn set_settings(&self, settings: &Settings) {
+        self.sftp.set_settings(settings.clone());
+        self.ftp.set_settings(settings.clone());
+    }
+}
+
 impl BackendFactory for Backends {
     fn create(
         &self,

@@ -21,6 +21,7 @@ use courier_ftp_core::{
     settings::{Column, Settings, SizeFormat},
 };
 use crossterm::event::{KeyCode, KeyEvent};
+pub(crate) use format::{date as format_date, size as format_size};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -81,6 +82,34 @@ struct Display {
     columns: Vec<Column>,
     /// Width of a formatted modification time.
     date_width: usize,
+}
+
+impl Display {
+    fn new(side: Side, settings: &Settings, offset: UtcOffset) -> Self {
+        let ui = &settings.interface;
+        Self {
+            size_format: ui.size_format,
+            separators: ui.thousands_separator,
+            date_format: ui.date_format.clone(),
+            time_format: ui.time_format.clone(),
+            offset,
+            columns: match side {
+                Side::Local => ui.columns.local.clone(),
+                Side::Remote => ui.columns.remote.clone(),
+            },
+            date_width: format::date(
+                &courier_ftp_core::model::Timestamp::new(
+                    time::macros::datetime!(2000-12-31 23:59:59 UTC),
+                    courier_ftp_core::model::Precision::Second,
+                ),
+                &ui.date_format,
+                &ui.time_format,
+                UtcOffset::UTC,
+            )
+            .chars()
+            .count(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -196,28 +225,11 @@ impl FileList {
             forward: Vec::new(),
             remembered: HashMap::new(),
             address: None,
-            display: Display {
-                size_format: ui.size_format,
-                separators: ui.thousands_separator,
-                date_format: ui.date_format.clone(),
-                time_format: ui.time_format.clone(),
-                offset: UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC),
-                columns: match side {
-                    Side::Local => ui.columns.local.clone(),
-                    Side::Remote => ui.columns.remote.clone(),
-                },
-                date_width: format::date(
-                    &courier_ftp_core::model::Timestamp::new(
-                        time::macros::datetime!(2000-12-31 23:59:59 UTC),
-                        courier_ftp_core::model::Precision::Second,
-                    ),
-                    &ui.date_format,
-                    &ui.time_format,
-                    UtcOffset::UTC,
-                )
-                .chars()
-                .count(),
-            },
+            display: Display::new(
+                side,
+                settings,
+                UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC),
+            ),
             totals: Totals::default(),
             index: HashMap::new(),
             rows: 1,
@@ -258,6 +270,17 @@ impl FileList {
         self.server = None;
         self.compare = None;
         self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// The settings screen changed the file list settings (T68): formats,
+    /// columns and sort order apply at once; the cursor stays on its entry.
+    pub(crate) fn apply_settings(&mut self, settings: &Settings) {
+        let ui = &settings.interface;
+        self.display = Display::new(self.side, settings, self.display.offset);
+        self.sort.dirs_first = ui.dirs_first;
+        self.sort.case_sensitive = ui.sort_case_sensitive;
+        self.sort.natural = ui.natural_sort;
+        self.rebuild(None);
     }
 
     /// Use this offset for times instead of the local one (tests).

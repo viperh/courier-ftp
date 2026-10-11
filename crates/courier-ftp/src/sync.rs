@@ -211,6 +211,12 @@ impl SyncCtl {
         self.engine_cfg = engine;
     }
 
+    /// New `sync.*` settings: used from the next engine start (unlock,
+    /// login).
+    pub(crate) fn settings_changed(&mut self, settings: &courier_ftp_core::settings::SyncSettings) {
+        self.engine_cfg = EngineConfig::from_settings(settings);
+    }
+
     /// The name this device registers or logs in with by default.
     pub(crate) fn device_name(&self) -> &str {
         &self.cfg.device.name

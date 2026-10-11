@@ -379,6 +379,7 @@
     },
     "interface": {
       "check_updates": true,
+      "color_scheme": "default",
       "columns": {
         "local": [
           "name",

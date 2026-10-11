@@ -740,3 +740,66 @@ async fn password_changed_on_another_device_asks_to_log_in_again() {
         assert_eq!(rig.app.vault.as_ref().unwrap().phase, Phase::Unlocked);
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settings_sync_page_opens_the_panel_and_password_changes_go_through_sync() {
+    use crate::ui::settings::{Section, SettingsRequest};
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = device(dir.path(), "laptop", STRONG).await;
+    a.register(&server).await;
+    a.until_synced().await;
+    a.key(KeyCode::Esc);
+
+    // Settings → Sync → "Account, devices and recovery…".
+    a.app.dispatch(Action::Settings).unwrap();
+    a.settle().await;
+    for _ in 0..30 {
+        if a.app.screen.settings_view().unwrap().section() == Section::Sync {
+            break;
+        }
+        a.key(KeyCode::Down);
+    }
+    assert_eq!(
+        a.app.screen.settings_view().unwrap().section(),
+        Section::Sync
+    );
+    let text = a.screen(110, 36);
+    assert!(text.contains("Upload delay"), "{text}");
+    a.key(KeyCode::Enter);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.sync_page(), Some(SyncPage::Overview));
+    let text = a.screen(110, 36);
+    assert!(text.contains(EMAIL), "{text}");
+    // Esc goes back to the settings screen.
+    a.key(KeyCode::Esc);
+    assert_eq!(a.sync_page(), None);
+    assert!(a.app.screen.settings_view().is_some());
+
+    // A local-only password change would split the vault from the account.
+    a.app.settings_request(&SettingsRequest::ChangePassword {
+        old: secrecy::SecretString::from(STRONG.to_owned()),
+        new: secrecy::SecretString::from(NEW.to_owned()),
+    });
+    a.settle().await;
+    let (message, _) = a
+        .app
+        .screen
+        .settings_view()
+        .unwrap()
+        .message()
+        .cloned()
+        .unwrap();
+    assert!(message.contains("sync account"), "{message}");
+    a.key(KeyCode::Esc);
+    a.settle().await;
+    while a.app.screen.settings_view().is_some() {
+        a.key(KeyCode::Esc);
+        a.settle().await;
+    }
+    a.ctrl_x('v');
+    a.settle().await;
+    a.unlock(STRONG).await;
+    assert_eq!(a.app.vault.as_ref().unwrap().phase, Phase::Unlocked);
+}

@@ -44,6 +44,15 @@ impl App {
         self.vault.as_mut()?.sync.as_mut()
     }
 
+    /// This device has a sync account in this session (signed in, or
+    /// waiting for a new login).
+    pub(super) fn sync_account_active(&self) -> bool {
+        self.vault
+            .as_ref()
+            .and_then(|v| v.sync.as_ref())
+            .is_some_and(|s| s.status().is_some())
+    }
+
     /// `<Ctrl-x><y>`: the sync panel (the vault must be unlocked).
     pub(super) fn open_sync_panel(&mut self) {
         let device = self

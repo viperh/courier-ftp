@@ -40,8 +40,10 @@ Screens for everything sync-related, plus status and notifications.
   tested against the in-process server (`app/sync_tests.rs`). The team part waits for
   T89 (not in `next` when T90 was built): scope 5 (teams screens), scope 6 (vault roots,
   🔒 read-only items, copy/move to vault) and the team toasts are open; the panel has a
-  "Teams and shared vaults" placeholder page. Settings → Sync (scope 1 entry point) is
-  T68's; the panel is `<Ctrl-x><y>` (`SyncPanel`).
+  "Teams and shared vaults" placeholder page. The panel opens with `<Ctrl-x><y>`
+  (`SyncPanel`) or from Settings → Sync (which also edits the `sync.*` settings). A
+  first-run "log in to a sync server" shortcut isn't offered: create the local vault, then
+  log in from the panel.
 - [x] Recovery words never logged or kept in memory after the screen closes.
   (Held in `Zeroizing` strings only while the words/check pages are open; confirm inputs
   are zeroizing `TextInput::sensitive` fields; `SyncRequest`/`SyncMsg` `Debug` print names

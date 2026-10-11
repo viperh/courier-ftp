@@ -63,8 +63,7 @@ impl KeyBindings {
     }
 
     /// The bindings of `mode` itself (no fallback), sorted by action (for
-    /// the generated docs).
-    #[cfg(test)]
+    /// the generated docs and the settings screen).
     pub(crate) fn own(&self, mode: Mode) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = self
             .0
@@ -343,6 +342,11 @@ impl Sequencer {
             last: None,
             timeout,
         }
+    }
+
+    /// `interface.key_sequence_timeout_ms` changed (settings screen, T68).
+    pub(crate) fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = timeout;
     }
 
     /// Feed one key pressed at `now`.

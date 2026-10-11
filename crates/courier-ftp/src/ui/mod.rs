@@ -16,6 +16,7 @@ mod panes;
 mod queue;
 mod quickconnect;
 mod screen;
+pub(crate) mod settings;
 pub(crate) mod site_manager;
 mod status;
 #[cfg(feature = "sync")]

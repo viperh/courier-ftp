@@ -83,6 +83,9 @@ pub(crate) struct App {
     config_dir: std::path::PathBuf,
     /// The transfer queue, engine and persister (T56).
     transfers: crate::transfers::Transfers,
+    /// The production backends, told about new settings (T68); `None` in
+    /// tests with a mock server.
+    net: Option<Arc<Backends>>,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -171,7 +174,9 @@ impl App {
                 p.password_ref.clone()
             }
         };
-        let app = Self::with_backends(config, Arc::new(backends), tick_rate, frame_rate);
+        let backends = Arc::new(backends);
+        let mut app = Self::with_backends(config, backends.clone(), tick_rate, frame_rate);
+        app.net = Some(backends);
         let opener = crate::vault::opener(crate::config::get_data_dir());
         let mut app = app.with_vault(opener, host_keys, credentials);
         if let Some(vault) = app.vault.as_mut() {
@@ -217,7 +222,8 @@ impl App {
     ) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let (events_tx, events_rx) = events::channel(config.settings.logging.level);
-        let theme = Theme::new(
+        let theme = Theme::with_scheme(
+            config.settings.interface.color_scheme,
             config.styles.0.get(&Mode::Normal),
             Theme::no_color_requested(),
         );
@@ -268,6 +274,7 @@ impl App {
             diag: crate::diagnostics::Diagnostics::new(offset),
             config_dir: config.config.config_dir.clone(),
             transfers,
+            net: None,
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -476,6 +483,8 @@ impl App {
                     self.site_snapshot = Some(snapshot.clone());
                 }
             }
+            Action::Settings => self.open_settings(),
+            Action::SettingsRequest(request) => self.settings_request(&request.0),
             Action::SaveAsSite => self.save_as_site(),
             Action::SitePicker => self.site_picker(),
             Action::SiteOp(op) => self.site_op((*op.0).clone()),
@@ -1494,6 +1503,8 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+mod settings;
+
 #[cfg(test)]
 mod bookmark_tests;
 #[cfg(test)]
@@ -1502,6 +1513,8 @@ mod filter_tests;
 mod log_tests;
 mod transfers;
 
+#[cfg(test)]
+mod settings_tests;
 #[cfg(test)]
 mod site_tests;
 #[cfg(test)]
