@@ -102,7 +102,9 @@ async fn add_site_bookmark_from_the_current_dirs_and_apply_it_with_sync_browsing
     assert!(text.contains("Add bookmark"), "{text}");
     assert!(text.contains("(•) Site-specific"), "{text}");
     assert!(text.contains("/srv/www"), "{text}");
-    assert!(text.contains(&www.display().to_string()), "{text}");
+    // The field shows the end of a long path (temp dirs on CI are long).
+    let tail = std::path::Path::new("projects").join("www");
+    assert!(text.contains(&tail.display().to_string()), "{text}");
     // Down moves on (Tab completes the local path).
     rig.key(KeyCode::Down); // type
     rig.key(KeyCode::Tab); // local
