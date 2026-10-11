@@ -257,9 +257,12 @@ fn forgot_password_without_recovery_explains_and_offers_a_new_vault() {
         "{text}"
     );
     insta::assert_snapshot!("vault_forgot_none_80x24", text);
-    // Restore: not there yet.
+    // Restore (T73): asks to move the database aside first.
     v.handle_key(key(KeyCode::Enter), now);
-    assert!(render(&v, 80, 24, now).contains("not available in this build yet"));
+    assert_eq!(v.page(), VaultPage::NewVault);
+    assert!(render(&v, 80, 24, now).contains("Restore from a backup?"));
+    v.handle_key(key(KeyCode::Esc), now);
+    assert_eq!(v.page(), VaultPage::Forgot);
     // New vault: asks first, defaults to Back.
     v.handle_key(key(KeyCode::Down), now);
     v.handle_key(key(KeyCode::Enter), now);

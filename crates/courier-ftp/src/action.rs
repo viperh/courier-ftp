@@ -257,6 +257,9 @@ pub(crate) enum Action {
     /// The saved queue was merged in after unlock (how many items).
     #[serde(skip)]
     QueueRestored(Result<usize, String>),
+    /// A settings or vault backup was opened or restored (T73).
+    #[serde(skip)]
+    Archive(Shared<crate::archive::ArchiveMsg>),
     /// What quitting now would lose.
     #[serde(skip)]
     QuitChecked {

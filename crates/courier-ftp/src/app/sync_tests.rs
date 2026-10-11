@@ -302,7 +302,20 @@ impl Rig {
         );
         // The words are gone from the screens.
         assert_eq!(self.app.screen.sync_view().unwrap().shown_phrase(), None);
-        assert!(!self.screen(80, 24).contains(words[0]));
+        // No two consecutive recovery words side by side (numbers between
+        // them are ignored). Single words are no proof: "add" is part of
+        // "address", and "now" is an ordinary word in the app's own text.
+        let screen = self.screen(80, 24);
+        let tokens: Vec<&str> = screen
+            .split(|c: char| !c.is_ascii_alphabetic())
+            .filter(|t| !t.is_empty())
+            .collect();
+        for pair in words.windows(2) {
+            assert!(
+                !tokens.windows(2).any(|t| t == pair),
+                "recovery words {pair:?} still on screen:\n{screen}"
+            );
+        }
         phrase
     }
 

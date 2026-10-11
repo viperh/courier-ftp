@@ -96,6 +96,12 @@ pub(crate) struct App {
     update_opt_out: bool,
     /// Stops the update check when the app quits.
     update_cancel: CancellationToken,
+    /// The file opened by the settings screen's Import, until the user
+    /// chooses what to import (T73).
+    import_archive: Option<Box<courier_ftp_core::archive::Archive>>,
+    /// The backup opened on the first-run screen, restored once the new
+    /// vault is created (T73, T60).
+    restore_archive: Option<Box<courier_ftp_core::archive::Archive>>,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -290,6 +296,8 @@ impl App {
             update: None,
             update_opt_out: false,
             update_cancel: CancellationToken::new(),
+            import_archive: None,
+            restore_archive: None,
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -510,6 +518,7 @@ impl App {
             Action::SettingsRequest(request) => self.settings_request(&request.0),
             Action::SearchRequest(request) => self.search_request(&request.0),
             Action::SearchUpdate { run, update } => self.search_update(*run, &update.0),
+            Action::Archive(msg) => self.archive_message(&msg.0),
             Action::SaveAsSite => self.save_as_site(),
             Action::SitePicker => self.site_picker(),
             Action::SiteOp(op) => self.site_op((*op.0).clone()),
@@ -1048,6 +1057,9 @@ impl App {
                 }
             }
             VaultRequest::NewVault => vault.open(true),
+            VaultRequest::OpenBackup { path, passphrase } => {
+                self.open_import(crate::archive::Origin::FirstRun, path, Some(passphrase));
+            }
             VaultRequest::Skip => {
                 self.screen.show_vault(false);
                 self.events_tx.log(
@@ -1140,6 +1152,7 @@ impl App {
                         );
                     }
                     self.vault_unlocked(Some("Vault created"));
+                    self.restore_after_create();
                 }
                 Err(e) => {
                     if let Some(view) = self.screen.vault_view_mut() {
@@ -1528,6 +1541,9 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+mod archive;
+#[cfg(test)]
+mod archive_tests;
 mod search;
 mod settings;
 
