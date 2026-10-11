@@ -84,7 +84,9 @@
 //! **CLI `--site` (T70)**: [`SiteManager::find_site`]`("Work/Production/web01")`.
 //!
 //! **Team vaults (T89)**: nodes carry their [`VaultId`](crate::model::item::VaultId);
-//! new items go into their folder's vault, moving between vaults is refused
+//! new items go into their folder's vault (at the top level: the vault set
+//! on the new [`Site`], or [`SiteManager::add_folder_in`]; else the
+//! personal vault), moving between vaults is refused
 //! ([`SiteError::CrossVault`]). A team vault site can't log in with an SSH
 //! key of another vault ([`SiteError::CrossVaultKey`]); each member keeps
 //! their own login as a credential override in their personal vault

@@ -1,17 +1,15 @@
 ---
 source: crates/courier-ftp/src/ui/sync/tests.rs
-assertion_line: 416
+assertion_line: 522
 expression: "render(&v, 80, 24)"
 ---
 "┌ Sync: teams ─────────────────────────────────────────────────────────────────┐"
 "│                                                                              │"
-"│ Teams and shared vaults (organisations, members with roles and safety-number │"
-"│ verification, invites, vault permissions and the audit log) are not          │"
-"│ available in this version of courier-ftp yet.                                │"
+"│ Teams share sites through shared vaults, end-to-end encrypted: the server    │"
+"│ never sees them. Members are checked with safety numbers.                    │"
 "│                                                                              │"
-"│ Your personal vault syncs between your devices as usual.                     │"
-"│                                                                              │"
-"│                                                                              │"
+"│   Team                                     Your role                         │"
+"│ › Ops                                      owner                             │"
 "│                                                                              │"
 "│                                                                              │"
 "│                                                                              │"
@@ -25,5 +23,7 @@ expression: "render(&v, 80, 24)"
 "│                                                                              │"
 "│                                                                              │"
 "│                                                                              │"
-"│ Esc back                                                                     │"
+"│                                                                              │"
+"│                                                                              │"
+"│ Enter open · n new team · a join with a link · r refresh · Esc back          │"
 "└──────────────────────────────────────────────────────────────────────────────┘"

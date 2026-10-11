@@ -16,8 +16,13 @@ mod picker;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
+
 use courier_ftp_core::{
-    model::{Protocol, item::ItemId},
+    model::{
+        Protocol,
+        item::{CredentialOverride, ItemId, VaultId},
+    },
     sites::{Site, SiteNode, SiteTree, export::ExportScope},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -36,19 +41,24 @@ pub(crate) use picker::{score, site_paths, site_picker};
 
 use super::{
     dialog::{
-        ButtonRow, Form, FormDialog, LocalPathCompleter, PathInput, Select, TextInput, ask,
+        ButtonRow, Form, FormDialog, LocalPathCompleter, PathInput, Select, TextInput, ask, choose,
         confirm, message, prompt_password, prompt_text,
     },
     modal::{Modal, ModalOutcome},
     theme::Theme,
 };
-use crate::sites::{ExportFormat, SiteOp, SiteOutcome, SitesReply, Snapshot};
+use crate::sites::{
+    ExportFormat, OverrideForm, SiteOp, SiteOutcome, SitesReply, Snapshot, VaultRoot,
+};
 
 pub(crate) use editor::Editor;
 pub(crate) use editor::TextArea;
 
 /// Keys of the tree, shown at the bottom.
 pub(crate) const TREE_HINTS: &str = "n new · f folder · d dup · r rename · x delete · ^x/^v move · / search · Enter connect · Esc close";
+/// Keys of the tree with team vault roots (T90).
+pub(crate) const VAULT_TREE_HINTS: &str =
+    "n new · f folder · x delete · c/m copy/move to vault · o my login · Enter connect · Esc close";
 /// Keys of the editor, shown at the bottom.
 pub(crate) const EDITOR_HINTS: &str =
     "Tab next field · [ ] or ^PgUp/^PgDn tabs · ^s save · Alt-c connect · Esc back to the tree";
@@ -79,6 +89,8 @@ pub(crate) enum Pane {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Cmd {
     Select(Option<ItemId>),
+    /// A vault root row (T90).
+    SelectRoot(VaultId),
     Close,
     NewSite,
     NewFolder,
@@ -91,6 +103,22 @@ enum Cmd {
 }
 
 type Then = Box<dyn FnOnce(&mut SiteManagerView) + Send>;
+
+/// A row of the tree: a vault root (T90, only with team vaults) or a node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Row {
+    Root(VaultId),
+    Node { depth: usize, id: ItemId },
+}
+
+impl Row {
+    fn node(self) -> Option<ItemId> {
+        match self {
+            Self::Node { id, .. } => Some(id),
+            Self::Root(_) => None,
+        }
+    }
+}
 
 /// A dialog of the Site Manager and what to do with its answer.
 struct Overlay {
@@ -107,6 +135,12 @@ pub(crate) struct SiteManagerView {
     locked: bool,
     cursor: usize,
     selected: Option<ItemId>,
+    /// The vault roots (T90): empty without team vaults (a flat tree).
+    vaults: Vec<VaultRoot>,
+    /// Collapsed vault roots.
+    collapsed: HashSet<VaultId>,
+    /// A vault root row is selected (then `selected` is `None`).
+    root: Option<VaultId>,
     focus: Pane,
     buttons: ButtonRow,
     editor: Option<Editor>,
@@ -140,6 +174,9 @@ impl SiteManagerView {
             locked: false,
             cursor: 0,
             selected: None,
+            vaults: Vec::new(),
+            collapsed: HashSet::new(),
+            root: None,
             focus: Pane::Tree,
             buttons: ButtonRow::new(&BUTTONS, 0),
             editor: None,
@@ -243,20 +280,162 @@ impl SiteManagerView {
             .unwrap_or_default()
     }
 
-    /// The visible rows: (depth, id).
-    fn rows(&self) -> Vec<(usize, ItemId)> {
-        self.tree_ref()
-            .map(|t| {
-                t.visible_rows()
-                    .iter()
-                    .map(|r| (r.depth, r.node.id()))
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// The vaults to show as roots of the tree (T90): the personal vault
+    /// and the team vaults, or nothing (a flat tree) without team vaults.
+    pub(crate) fn set_vaults(&mut self, vaults: Vec<VaultRoot>) {
+        if vaults == self.vaults {
+            return;
+        }
+        self.vaults = vaults;
+        if self
+            .root
+            .is_some_and(|v| !self.root_list().iter().any(|r| r.id == v))
+        {
+            self.root = None;
+        }
+        if let Some(vault) = self.editor.as_ref().map(|e| e.site.vault) {
+            let lock = self.lock_note(vault);
+            if let Some(ed) = self.editor.as_mut() {
+                ed.set_vault_lock(lock);
+            }
+        }
+        if self.selected.is_none() && self.root.is_none() {
+            let rows = self.rows();
+            self.select_row(rows.get(self.cursor).copied());
+            self.rebuild_editor();
+        }
+        self.sync_cursor();
+    }
+
+    fn roots_mode(&self) -> bool {
+        !self.vaults.is_empty()
+    }
+
+    fn personal(&self) -> Option<VaultId> {
+        self.vaults.iter().find(|r| r.personal).map(|r| r.id)
+    }
+
+    /// The vault of `node` (an unsaved node without one: the personal).
+    fn vault_of_node(&self, node: &SiteNode) -> Option<VaultId> {
+        node.vault().or_else(|| self.personal())
+    }
+
+    /// The roots, with a fallback for vaults the list doesn't know yet.
+    fn root_list(&self) -> Vec<VaultRoot> {
+        let mut out = self.vaults.clone();
+        if !self.roots_mode() {
+            return out;
+        }
+        if let Some(tree) = self.tree_ref() {
+            for n in tree.roots() {
+                if let Some(v) = self.vault_of_node(n)
+                    && !out.iter().any(|r| r.id == v)
+                {
+                    let id = v.to_string();
+                    out.push(VaultRoot {
+                        id: v,
+                        name: format!("vault {}", id.chars().take(8).collect::<String>()),
+                        personal: false,
+                        read_only: false,
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    fn root_info(&self, vault: Option<VaultId>) -> Option<VaultRoot> {
+        let vault = vault.or_else(|| self.personal())?;
+        self.root_list().into_iter().find(|r| r.id == vault)
+    }
+
+    /// The vault root `vault` when it is read-only for this account.
+    fn locked_vault(&self, vault: Option<VaultId>) -> Option<VaultRoot> {
+        self.root_info(vault).filter(|r| r.read_only)
+    }
+
+    /// The editor's note for a site in vault `vault` when it is read-only.
+    fn lock_note(&self, vault: Option<VaultId>) -> Option<String> {
+        let root = self.locked_vault(vault)?;
+        let lock = if self.opts.unicode { "🔒" } else { "[ro]" };
+        Some(format!(
+            "{lock} read-only ({} is shared with you for reading)",
+            root.label()
+        ))
+    }
+
+    /// The visible rows.
+    fn rows(&self) -> Vec<Row> {
+        fn push(node: &SiteNode, depth: usize, out: &mut Vec<Row>) {
+            out.push(Row::Node {
+                depth,
+                id: node.id(),
+            });
+            if let SiteNode::Folder(f) = node
+                && f.expanded
+            {
+                for c in &f.children {
+                    push(c, depth + 1, out);
+                }
+            }
+        }
+        let Some(tree) = self.tree_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if !self.roots_mode() {
+            for n in tree.roots() {
+                push(n, 0, &mut out);
+            }
+            return out;
+        }
+        for root in self.root_list() {
+            out.push(Row::Root(root.id));
+            if self.collapsed.contains(&root.id) {
+                continue;
+            }
+            for n in tree.roots() {
+                if self.vault_of_node(n) == Some(root.id) {
+                    push(n, 1, &mut out);
+                }
+            }
+        }
+        out
+    }
+
+    /// Select `row` (nothing for `None`).
+    fn select_row(&mut self, row: Option<Row>) {
+        match row {
+            Some(Row::Root(v)) => {
+                self.root = Some(v);
+                self.selected = None;
+            }
+            Some(Row::Node { id, .. }) => {
+                self.root = None;
+                self.selected = Some(id);
+            }
+            None => {
+                self.root = None;
+                self.selected = None;
+            }
+        }
     }
 
     fn node(&self, id: ItemId) -> Option<&SiteNode> {
         self.tree_ref()?.get(id)
+    }
+
+    /// An editor for `site`, with the 🔒 note of a read-only team vault.
+    fn new_editor(&self, site: Site, new: bool) -> Editor {
+        let bookmarks = if new {
+            Vec::new()
+        } else {
+            self.bookmarks_of(site.id)
+        };
+        let lock = self.lock_note(site.vault);
+        let mut ed = Editor::new(site, new, self.opts.store_passwords, bookmarks);
+        ed.set_vault_lock(lock);
+        ed
     }
 
     fn info(&mut self, text: impl Into<String>) {
@@ -313,21 +492,21 @@ impl SiteManagerView {
         let first = self.snapshot.is_none();
         self.snapshot = Some(snapshot);
         // The editor follows what is stored.
-        let store_passwords = self.opts.store_passwords;
         if let Some(ed) = self.editor.as_ref() {
             let id = ed.id();
             let stored = self.tree_ref().and_then(|t| t.site(id)).cloned();
             let bookmarks = self.bookmarks_of(id);
             match stored {
                 Some(stored) if !ed.is_new() => {
+                    let dirty = ed.is_dirty();
+                    let fresh = (!dirty).then(|| self.new_editor(stored.clone(), false));
                     if let Some(ed) = self.editor.as_mut() {
-                        if ed.is_dirty() {
-                            ed.tree_changed(&stored.name, stored.parent);
-                            ed.set_bookmarks(bookmarks);
-                        } else {
-                            let mut fresh = Editor::new(stored, false, store_passwords, bookmarks);
+                        if let Some(mut fresh) = fresh {
                             fresh.keep_place(ed);
                             *ed = fresh;
+                        } else {
+                            ed.tree_changed(&stored.name, stored.parent);
+                            ed.set_bookmarks(bookmarks);
                         }
                     }
                 }
@@ -341,10 +520,10 @@ impl SiteManagerView {
         if self.selected.is_some_and(|id| self.node(id).is_none()) {
             self.selected = None;
         }
-        if self.selected.is_none() {
+        if self.selected.is_none() && self.root.is_none() {
             let rows = self.rows();
             let row = self.cursor.min(rows.len().saturating_sub(1));
-            self.selected = rows.get(row).map(|r| r.1);
+            self.select_row(rows.get(row).copied());
             self.rebuild_editor();
         }
         self.sync_cursor();
@@ -384,7 +563,11 @@ impl SiteManagerView {
             return;
         };
         self.selected = Some(id);
-        let mut editor = Editor::new(site, true, self.opts.store_passwords, Vec::new());
+        self.root = None;
+        if let Some(v) = site.vault {
+            self.collapsed.remove(&v);
+        }
+        let mut editor = self.new_editor(site, true);
         editor.focus_field(FieldId::Host);
         self.editor = Some(editor);
         self.focus = Pane::Editor;
@@ -410,17 +593,17 @@ impl SiteManagerView {
             .selected
             .and_then(|id| self.tree_ref().and_then(|t| t.site(id)))
             .cloned();
-        self.editor = site.map(|s| {
-            let bookmarks = self.bookmarks_of(s.id);
-            Editor::new(s, false, self.opts.store_passwords, bookmarks)
-        });
+        self.editor = site.map(|s| self.new_editor(s, false));
     }
 
     fn sync_cursor(&mut self) {
         let rows = self.rows();
-        if let Some(id) = self.selected
-            && let Some(i) = rows.iter().position(|r| r.1 == id)
-        {
+        let found = match (self.root, self.selected) {
+            (Some(v), _) => rows.iter().position(|r| *r == Row::Root(v)),
+            (None, Some(id)) => rows.iter().position(|r| r.node() == Some(id)),
+            (None, None) => None,
+        };
+        if let Some(i) = found {
             self.cursor = i;
             return;
         }
@@ -431,15 +614,41 @@ impl SiteManagerView {
         self.editor.as_ref().is_some_and(Editor::is_dirty)
     }
 
-    /// The folder new entries go into: the selected folder, or the selected
-    /// site's folder.
-    fn context_folder(&self) -> Option<ItemId> {
-        let node = self.node(self.selected?)?;
-        if node.is_folder() {
-            Some(node.id())
-        } else {
-            node.parent()
+    /// Where new entries go: the selected folder, the selected site's
+    /// folder, or the top level of the selected vault root; with the vault
+    /// (`None`: the personal vault, or a flat tree).
+    fn context(&self) -> (Option<ItemId>, Option<VaultId>) {
+        if let Some(v) = self.root {
+            return (None, Some(v));
         }
+        let Some(node) = self.selected.and_then(|id| self.node(id)) else {
+            return (None, self.personal());
+        };
+        let vault = self.vault_of_node(node);
+        if node.is_folder() {
+            (Some(node.id()), vault)
+        } else {
+            (node.parent(), vault)
+        }
+    }
+
+    /// Refuses (with a message) a change in a read-only team vault.
+    fn refuse_locked(&mut self, vault: Option<VaultId>) -> bool {
+        let Some(root) = self.locked_vault(vault) else {
+            return false;
+        };
+        let lock = if self.opts.unicode { "🔒" } else { "[ro]" };
+        self.error(format!(
+            "{lock} {} is read-only for you: it can't be changed here",
+            root.label()
+        ));
+        true
+    }
+
+    /// [`Self::refuse_locked`] for the vault of node `id`.
+    fn refuse_locked_node(&mut self, id: ItemId) -> bool {
+        let vault = self.node(id).and_then(|n| self.vault_of_node(n));
+        self.roots_mode() && self.refuse_locked(vault)
     }
 
     // ---- commands
@@ -492,17 +701,28 @@ impl SiteManagerView {
     fn run(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::Select(id) => {
+                self.root = None;
                 if id != self.editor.as_ref().map(Editor::id) {
                     self.selected = id;
                     self.rebuild_editor();
                 }
                 self.sync_cursor();
             }
+            Cmd::SelectRoot(v) => {
+                self.root = Some(v);
+                self.selected = None;
+                self.editor = None;
+                self.sync_cursor();
+            }
             Cmd::Close => self.closed = true,
             Cmd::NewSite => self.new_site(),
             Cmd::NewFolder => self.new_folder(),
             Cmd::Duplicate => match self.selected {
-                Some(id) => self.request(SiteOp::Duplicate(id)),
+                Some(id) => {
+                    if !self.refuse_locked_node(id) {
+                        self.request(SiteOp::Duplicate(id));
+                    }
+                }
                 None => self.error("Nothing selected"),
             },
             Cmd::Delete => self.delete(),
@@ -517,7 +737,11 @@ impl SiteManagerView {
     }
 
     fn new_site(&mut self) {
-        let parent = self.context_folder();
+        let (parent, vault) = self.context();
+        if self.refuse_locked(vault) {
+            return;
+        }
+        let vault = vault.filter(|_| self.roots_mode());
         let suggested = self
             .tree_ref()
             .map(|t| t.unique_name(parent, "New site"))
@@ -527,13 +751,18 @@ impl SiteManagerView {
             if let Some(name) = name {
                 let mut site = Site::new(name, Protocol::Sftp, "");
                 site.parent = parent;
+                site.vault = vault;
                 view.add_new_site(site);
             }
         });
     }
 
     fn new_folder(&mut self) {
-        let parent = self.context_folder();
+        let (parent, vault) = self.context();
+        if self.refuse_locked(vault) {
+            return;
+        }
+        let vault = vault.filter(|_| self.roots_mode());
         let suggested = self
             .tree_ref()
             .map(|t| t.unique_name(parent, "New folder"))
@@ -541,7 +770,14 @@ impl SiteManagerView {
         let (modal, rx) = prompt_text("New folder", "Name", &suggested);
         self.overlay(modal, rx, move |view, name| {
             if let Some(name) = name {
-                view.request(SiteOp::AddFolder { parent, name });
+                if let Some(v) = vault {
+                    view.collapsed.remove(&v);
+                }
+                view.request(SiteOp::AddFolder {
+                    parent,
+                    name,
+                    vault,
+                });
             }
         });
     }
@@ -558,8 +794,12 @@ impl SiteManagerView {
         {
             self.drop_new_site();
             self.sync_cursor();
-            self.selected = self.rows().get(self.cursor).map(|r| r.1);
+            let rows = self.rows();
+            self.select_row(rows.get(self.cursor).copied());
             self.rebuild_editor();
+            return;
+        }
+        if self.refuse_locked_node(id) {
             return;
         }
         let Some(node) = self.node(id) else {
@@ -602,6 +842,9 @@ impl SiteManagerView {
             self.error("Save the new site first");
             return;
         }
+        if self.refuse_locked_node(id) {
+            return;
+        }
         let name = self
             .node(id)
             .map(|n| n.name().to_owned())
@@ -617,14 +860,165 @@ impl SiteManagerView {
             self.error("Nothing to paste: cut a site or folder with Ctrl-x first");
             return;
         };
-        let parent = self.context_folder();
+        let (parent, vault) = self.context();
+        if self.roots_mode() {
+            let own = self.node(id).and_then(|n| self.vault_of_node(n));
+            if own != vault {
+                self.error(
+                    "That is another vault: use c (copy to vault) or m (move to vault) instead",
+                );
+                return;
+            }
+            if self.refuse_locked(vault) {
+                return;
+            }
+        }
         self.request(SiteOp::Move { id, parent });
+    }
+
+    /// "Copy to vault…" (`c`) / "Move to vault…" (`m`) of the selected
+    /// site (T90): pick a writable vault.
+    fn copy_to_vault(&mut self, remove: bool) {
+        let what = if remove { "Move" } else { "Copy" };
+        let Some(site) = self
+            .selected
+            .and_then(|id| self.tree_ref()?.site(id))
+            .cloned()
+        else {
+            self.error(format!("Select a site to {}", what.to_lowercase()));
+            return;
+        };
+        if self.editor.as_ref().is_some_and(|e| e.is_new()) {
+            self.error("Save the new site first");
+            return;
+        }
+        if !self.roots_mode() {
+            self.error("There is no other vault: teams are set up in the sync panel");
+            return;
+        }
+        if remove && self.refuse_locked(site.vault) {
+            return;
+        }
+        let own = site.vault.or_else(|| self.personal());
+        let targets: Vec<VaultRoot> = self
+            .root_list()
+            .into_iter()
+            .filter(|r| Some(r.id) != own && !r.read_only)
+            .collect();
+        if targets.is_empty() {
+            self.error("There is no other vault you can write to");
+            return;
+        }
+        let labels = targets.iter().map(VaultRoot::label).collect();
+        let (modal, rx) = choose(&format!("{what} “{}” to vault", site.name), labels);
+        let id = site.id;
+        self.overlay(modal, rx, move |view, picked: Option<usize>| {
+            if let Some(target) = picked.and_then(|i| targets.get(i)) {
+                view.collapsed.remove(&target.id);
+                view.request(SiteOp::CopyToVault {
+                    id,
+                    vault: target.id,
+                    remove,
+                });
+            }
+        });
+    }
+
+    /// `o`: this member's own login for the selected team vault site
+    /// (credential override, T89 §6).
+    fn edit_override(&mut self) {
+        let Some(site) = self
+            .selected
+            .and_then(|id| self.tree_ref()?.site(id))
+            .cloned()
+        else {
+            self.error("Select a team vault site");
+            return;
+        };
+        let team = self.roots_mode() && site.vault.is_some() && site.vault != self.personal();
+        if !team {
+            self.error("Your own login can only be set for sites in a team vault");
+            return;
+        }
+        if self.editor.as_ref().is_some_and(|e| e.is_new()) {
+            self.error("Save the new site first");
+            return;
+        }
+        self.request(SiteOp::LoadOverride(site.id));
+    }
+
+    /// The override editor over `form`.
+    fn override_dialog(&mut self, form: &OverrideForm) {
+        use secrecy::ExposeSecret;
+        let current = form.current.clone();
+        let user = current
+            .as_ref()
+            .and_then(|o| o.user.clone())
+            .unwrap_or_default();
+        let password = current.as_ref().and_then(|o| o.password.clone());
+        let passphrase = current.as_ref().and_then(|o| o.passphrase.clone());
+        let key_index = current
+            .as_ref()
+            .and_then(|o| o.key_id)
+            .and_then(|k| form.keys.iter().position(|(id, _)| *id == k))
+            .map_or(0, |i| i + 1);
+        let mut key_names = vec!["(none: the shared site's login)".to_owned()];
+        key_names.extend(form.keys.iter().map(|(_, label)| label.clone()));
+        let mut pw = TextInput::password("Password:");
+        if let Some(p) = &password {
+            pw = pw.with_value(p.expose_secret());
+        }
+        let mut pp = TextInput::password("Key passphrase:");
+        if let Some(p) = &passphrase {
+            pp = pp.with_value(p.expose_secret());
+        }
+        let ui = Form::new(&["Save", "Cancel"])
+            .field(
+                "user",
+                TextInput::new("User:")
+                    .with_value(&user)
+                    .with_placeholder("the shared site's user"),
+            )
+            .field("password", pw)
+            .field("key", Select::new("SSH key:", key_names, key_index))
+            .field("passphrase", pp);
+        let site = form.site;
+        let keys: Vec<ItemId> = form.keys.iter().map(|(id, _)| *id).collect();
+        let (dialog, rx) = FormDialog::new(
+            format!("My login for “{}” (only on your devices)", form.site_name),
+            64,
+            ui,
+            move |v| {
+                let mut ov = CredentialOverride::new(site);
+                let user = v.text("user").trim().to_owned();
+                ov.user = (!user.is_empty()).then_some(user);
+                ov.password = v
+                    .secret("password")
+                    .filter(|s| !s.expose_secret().is_empty());
+                ov.key_id = v
+                    .index("key")
+                    .and_then(|i| i.checked_sub(1))
+                    .and_then(|i| keys.get(i).copied());
+                ov.passphrase = v
+                    .secret("passphrase")
+                    .filter(|s| !s.expose_secret().is_empty());
+                Ok(ov)
+            },
+        );
+        self.overlay(Box::new(dialog), rx, |view, ov| {
+            if let Some(ov) = ov {
+                view.request(SiteOp::SetOverride(Box::new(ov)));
+            }
+        });
     }
 
     fn start_rename(&mut self) {
         let Some(id) = self.selected else {
             return;
         };
+        if self.refuse_locked_node(id) {
+            return;
+        }
         let Some(name) = self.node(id).map(|n| n.name().to_owned()) else {
             return;
         };
@@ -662,6 +1056,13 @@ impl SiteManagerView {
     fn save(&mut self, after: Option<Cmd>) {
         let Some(ed) = self.editor.as_mut() else {
             self.error("Select a site to save");
+            return;
+        };
+        let vault = ed.site.vault;
+        if self.refuse_locked(vault) {
+            return;
+        }
+        let Some(ed) = self.editor.as_mut() else {
             return;
         };
         if ed.site.read_only {
@@ -845,12 +1246,7 @@ impl SiteManagerView {
                 if let Some(ed) = self.editor.as_ref().filter(|e| e.id() == *id) {
                     let stored = self.tree_ref().and_then(|t| t.site(*id)).cloned();
                     if let Some(stored) = stored {
-                        let mut fresh = Editor::new(
-                            stored,
-                            false,
-                            self.opts.store_passwords,
-                            self.bookmarks_of(*id),
-                        );
+                        let mut fresh = self.new_editor(stored, false);
                         fresh.keep_place(ed);
                         self.editor = Some(fresh);
                     }
@@ -883,9 +1279,31 @@ impl SiteManagerView {
                 self.selected = None;
                 let rows = self.rows();
                 self.cursor = self.cursor.min(rows.len().saturating_sub(1));
-                self.selected = rows.get(self.cursor).map(|r| r.1);
+                self.select_row(rows.get(self.cursor).copied());
                 self.rebuild_editor();
                 self.info(format!("Deleted {}", plural(*n, "item")));
+            }
+            SiteOutcome::CopiedToVault { id, moved } => {
+                self.run(Cmd::Select(Some(*id)));
+                let vault = self
+                    .tree_ref()
+                    .and_then(|t| t.site(*id))
+                    .and_then(|s| s.vault);
+                let label = self
+                    .root_info(vault)
+                    .map_or_else(|| "the vault".to_owned(), |r| r.label());
+                self.info(if *moved {
+                    format!("Moved to {label}")
+                } else {
+                    format!("Copied to {label}")
+                });
+            }
+            SiteOutcome::Override(form) => self.override_dialog(form),
+            SiteOutcome::OverrideSaved(true) => {
+                self.info("Your own login for this site was saved (synced to your devices only)");
+            }
+            SiteOutcome::OverrideSaved(false) => {
+                self.info("Your own login was removed: the shared site's login is used");
             }
             SiteOutcome::Imported(report) => {
                 if let Some(root) = report.root {
@@ -1006,9 +1424,12 @@ impl SiteManagerView {
             return;
         }
         let row = row.min(rows.len() - 1);
-        let id = rows[row].1;
-        if Some(id) != self.selected {
-            self.guarded(Cmd::Select(Some(id)));
+        match rows[row] {
+            Row::Node { id, .. } if Some(id) != self.selected || self.root.is_some() => {
+                self.guarded(Cmd::Select(Some(id)));
+            }
+            Row::Root(v) if self.root != Some(v) => self.guarded(Cmd::SelectRoot(v)),
+            _ => {}
         }
     }
 
@@ -1019,17 +1440,56 @@ impl SiteManagerView {
         self.sync_cursor();
     }
 
+    fn set_root_expanded(&mut self, vault: VaultId, expanded: bool) {
+        if expanded {
+            self.collapsed.remove(&vault);
+        } else {
+            self.collapsed.insert(vault);
+        }
+        self.sync_cursor();
+    }
+
+    /// Keys on a vault root row.
+    fn root_key(&mut self, vault: VaultId, key: KeyEvent) -> bool {
+        let expanded = !self.collapsed.contains(&vault);
+        match key.code {
+            KeyCode::Right | KeyCode::Char('l') if expanded => self.move_to(self.cursor + 1),
+            KeyCode::Right | KeyCode::Char('l') => self.set_root_expanded(vault, true),
+            KeyCode::Left | KeyCode::Char('h') => self.set_root_expanded(vault, false),
+            KeyCode::Char(' ') | KeyCode::Enter => self.set_root_expanded(vault, !expanded),
+            KeyCode::Char('d' | 'r' | 'x' | 'c' | 'm' | 'o') | KeyCode::Delete | KeyCode::F(2) => {
+                self.error("Select a site or folder in the vault");
+            }
+            _ => return false,
+        }
+        true
+    }
+
     fn tree_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if !ctrl
+            && let Some(vault) = self.root
+            && self.root_key(vault, key)
+        {
+            return;
+        }
         let rows = self.rows();
         let current = self
             .selected
             .and_then(|id| self.node(id))
             .map(|n| (n.id(), n.as_folder().map(|f| f.expanded), n.parent()));
+        let top_vault = self
+            .selected
+            .and_then(|id| self.node(id))
+            .filter(|n| n.parent().is_none() && self.roots_mode())
+            .and_then(|n| self.vault_of_node(n));
         match key.code {
             KeyCode::Char('x') if ctrl => self.cut(),
             KeyCode::Char('v') if ctrl => self.guarded(Cmd::Paste),
             _ if ctrl => {}
+            KeyCode::Char('c') => self.copy_to_vault(false),
+            KeyCode::Char('m') => self.copy_to_vault(true),
+            KeyCode::Char('o') => self.edit_override(),
             KeyCode::Down | KeyCode::Char('j') => self.move_to(self.cursor + 1),
             KeyCode::Up | KeyCode::Char('k') => self.move_to(self.cursor.saturating_sub(1)),
             KeyCode::PageDown => self.move_to(self.cursor + 10),
@@ -1045,11 +1505,17 @@ impl SiteManagerView {
             KeyCode::Left | KeyCode::Char('h') => match current {
                 Some((id, Some(true), _)) => self.set_expanded(id, false),
                 Some((_, _, Some(parent))) => {
-                    if let Some(i) = rows.iter().position(|r| r.1 == parent) {
+                    if let Some(i) = rows.iter().position(|r| r.node() == Some(parent)) {
                         self.move_to(i);
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(v) = top_vault
+                        && let Some(i) = rows.iter().position(|r| *r == Row::Root(v))
+                    {
+                        self.move_to(i);
+                    }
+                }
             },
             KeyCode::Char(' ') => {
                 if let Some((id, Some(expanded), _)) = current {
@@ -1165,6 +1631,13 @@ impl SiteManagerView {
                 if let Some(s) = self.snapshot.as_mut() {
                     s.tree.reveal(id);
                 }
+                let top = self
+                    .tree_ref()
+                    .and_then(|t| t.ancestors(id).last().copied())
+                    .unwrap_or(id);
+                if let Some(v) = self.node(top).and_then(|n| self.vault_of_node(n)) {
+                    self.collapsed.remove(&v);
+                }
                 self.sync_cursor();
                 self.guarded(Cmd::Select(Some(id)));
             }
@@ -1225,6 +1698,7 @@ impl SiteManagerView {
             None => (
                 match self.focus {
                     Pane::Editor => EDITOR_HINTS,
+                    _ if self.roots_mode() => VAULT_TREE_HINTS,
                     _ => TREE_HINTS,
                 }
                 .to_owned(),
@@ -1264,7 +1738,7 @@ impl SiteManagerView {
                 Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
             );
         }
-        if tree.is_empty() {
+        if tree.is_empty() && !self.roots_mode() {
             frame.render_widget(
                 Paragraph::new(vec![
                     Line::styled("No sites yet.", theme.dim),
@@ -1275,63 +1749,92 @@ impl SiteManagerView {
             );
             return;
         }
-        let rows = tree.visible_rows();
+        let rows = self.rows();
         let height = usize::from(list_area.height.max(1));
         let start = self.cursor.saturating_sub(height - 1);
-        let (open, closed, dot) = if self.opts.unicode {
-            ("▾ ", "▸ ", "● ")
+        let (open, closed, dot, lock) = if self.opts.unicode {
+            ("▾ ", "▸ ", "● ", " 🔒")
         } else {
-            ("v ", "> ", "o ")
+            ("v ", "> ", "o ", " [ro]")
         };
         let dirty_id = self
             .editor
             .as_ref()
             .filter(|e| e.is_dirty())
             .map(Editor::id);
+        let roots = self.root_list();
         let lines: Vec<Line> = rows
             .iter()
             .enumerate()
             .skip(start)
             .take(height)
-            .map(|(i, row)| {
-                let id = row.node.id();
-                let mut spans = vec![Span::raw("  ".repeat(row.depth))];
-                if let Some((rid, input)) = self.rename.as_ref().filter(|(rid, _)| *rid == id) {
-                    let _ = rid;
-                    let text = input.text();
-                    spans.push(Span::raw(match row.node {
-                        SiteNode::Folder(_) => closed,
-                        SiteNode::Site(_) => dot,
-                    }));
-                    spans.push(Span::styled(format!("{text} "), theme.selection));
-                    return Line::from(spans);
-                }
-                match row.node {
-                    SiteNode::Folder(f) => {
-                        spans.push(Span::styled(
-                            if f.expanded { open } else { closed },
-                            theme.dim,
-                        ));
-                        spans.push(Span::styled(f.name.clone(), theme.dir));
+            .filter_map(|(i, row)| {
+                let line = match *row {
+                    Row::Root(v) => {
+                        let root = roots.iter().find(|r| r.id == v)?;
+                        let mut spans = vec![
+                            Span::styled(
+                                if self.collapsed.contains(&v) {
+                                    closed
+                                } else {
+                                    open
+                                },
+                                theme.dim,
+                            ),
+                            Span::styled(root.label(), theme.title),
+                        ];
+                        if root.read_only {
+                            spans.push(Span::styled(lock, theme.key_hint));
+                        }
+                        Line::from(spans)
                     }
-                    SiteNode::Site(s) => {
-                        let color = if s.color == courier_ftp_core::model::item::SiteColor::None {
-                            theme.dim
-                        } else {
-                            color_style(s.color)
+                    Row::Node { depth, id } => {
+                        let node = tree.get(id)?;
+                        let mut spans = vec![Span::raw("  ".repeat(depth))];
+                        if let Some((_, input)) = self.rename.as_ref().filter(|(rid, _)| *rid == id)
+                        {
+                            let text = input.text();
+                            spans.push(Span::raw(match node {
+                                SiteNode::Folder(_) => closed,
+                                SiteNode::Site(_) => dot,
+                            }));
+                            spans.push(Span::styled(format!("{text} "), theme.selection));
+                            return Some(Line::from(spans));
+                        }
+                        let read_only = match node {
+                            SiteNode::Folder(f) => {
+                                spans.push(Span::styled(
+                                    if f.expanded { open } else { closed },
+                                    theme.dim,
+                                ));
+                                spans.push(Span::styled(f.name.clone(), theme.dir));
+                                f.read_only || self.locked_vault(f.vault).is_some()
+                            }
+                            SiteNode::Site(s) => {
+                                let color =
+                                    if s.color == courier_ftp_core::model::item::SiteColor::None {
+                                        theme.dim
+                                    } else {
+                                        color_style(s.color)
+                                    };
+                                spans.push(Span::styled(dot, color));
+                                spans.push(Span::raw(s.name.clone()));
+                                s.read_only || self.locked_vault(s.vault).is_some()
+                            }
                         };
-                        spans.push(Span::styled(dot, color));
-                        spans.push(Span::raw(s.name.clone()));
+                        if read_only {
+                            spans.push(Span::styled(lock, theme.dim));
+                        }
+                        if dirty_id == Some(id) {
+                            spans.push(Span::styled(" *", theme.key_hint));
+                        }
+                        if self.cut == Some(id) {
+                            spans.push(Span::styled(" (cut)", theme.dim));
+                        }
+                        Line::from(spans)
                     }
-                }
-                if dirty_id == Some(id) {
-                    spans.push(Span::styled(" *", theme.key_hint));
-                }
-                if self.cut == Some(id) {
-                    spans.push(Span::styled(" (cut)", theme.dim));
-                }
-                let line = Line::from(spans);
-                if i == self.cursor {
+                };
+                Some(if i == self.cursor {
                     let style = if focused {
                         theme.selection
                     } else {
@@ -1340,7 +1843,7 @@ impl SiteManagerView {
                     line.style(style)
                 } else {
                     line
-                }
+                })
             })
             .collect();
         frame.render_widget(Paragraph::new(lines), list_area);
@@ -1357,6 +1860,29 @@ impl SiteManagerView {
         frame.render_widget(block, area);
         if let Some(ed) = &self.editor {
             ed.draw(frame, inner, focused, theme);
+            return;
+        }
+        if let Some(root) = self.root.and_then(|v| self.root_info(Some(v))) {
+            let mut text = vec![Line::styled(root.label(), theme.title), Line::raw("")];
+            if root.personal {
+                text.push(Line::raw("Your own sites: only your devices see them."));
+            } else {
+                text.push(Line::raw(
+                    "Shared with your team (sync panel → Teams), end-to-end encrypted.",
+                ));
+            }
+            text.push(Line::styled(
+                if root.read_only {
+                    "You can use these sites but not change them."
+                } else {
+                    "n adds a site here, f a folder; c/m copy or move a site to another vault."
+                },
+                theme.dim,
+            ));
+            frame.render_widget(
+                Paragraph::new(text).wrap(ratatui::widgets::Wrap { trim: true }),
+                inner,
+            );
             return;
         }
         let text = match self.selected.and_then(|id| self.node(id)) {

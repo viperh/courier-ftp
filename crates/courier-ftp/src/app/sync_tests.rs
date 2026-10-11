@@ -28,7 +28,10 @@ use pretty_assertions::assert_eq;
 
 use super::vault_tests::{Rig, STRONG, config, start};
 use super::*;
-use crate::ui::{VaultPage, sync::SyncPage};
+use crate::ui::{
+    VaultPage,
+    sync::{SyncPage, TeamPage},
+};
 
 const EMAIL: &str = "alice@example.test";
 /// The second device's own master password before it logs in.
@@ -43,6 +46,8 @@ struct Server {
     url: String,
     state: AppState,
     clock: Arc<ManualClock>,
+    /// The in-memory store (the teams test swaps a member's keys).
+    mem: Arc<MemStore>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -92,6 +97,7 @@ impl Server {
             url: format!("http://{addr}"),
             state,
             clock,
+            mem,
             task,
         }
     }
@@ -818,4 +824,472 @@ async fn settings_sync_page_opens_the_panel_and_password_changes_go_through_sync
     a.settle().await;
     a.unlock(STRONG).await;
     assert_eq!(a.app.vault.as_ref().unwrap().phase, Phase::Unlocked);
+}
+
+// ---------------------------------------------------------------- teams (T90 §5, §6)
+
+const BOB: &str = "bob@example.test";
+
+impl Rig {
+    fn team_page(&self) -> Option<TeamPage> {
+        self.app
+            .screen
+            .sync_view()
+            .and_then(crate::ui::sync::SyncView::team_page)
+    }
+
+    async fn close_panel(&mut self) {
+        for _ in 0..10 {
+            if self.sync_page().is_none() {
+                return;
+            }
+            self.key(KeyCode::Esc);
+            self.settle().await;
+        }
+        panic!("the sync panel did not close");
+    }
+
+    async fn close_site_manager(&mut self) {
+        for _ in 0..5 {
+            if self.app.screen.site_manager().is_none() {
+                return;
+            }
+            self.key(KeyCode::Esc);
+            self.settle().await;
+        }
+        panic!("the Site Manager did not close");
+    }
+
+    /// Move the selection (`› `) of the list on screen to the row with
+    /// `needle`.
+    fn select(&mut self, needle: &str) {
+        for _ in 0..20 {
+            self.key(KeyCode::Up);
+        }
+        for _ in 0..20 {
+            let text = self.screen(120, 40);
+            if text.contains(&format!("› {needle}")) {
+                return;
+            }
+            self.key(KeyCode::Down);
+        }
+        panic!("no row with {needle}: {}", self.screen(120, 40));
+    }
+
+    /// Sync panel → Teams and shared vaults.
+    async fn open_teams(&mut self) {
+        self.close_panel().await;
+        self.open_panel().await;
+        for _ in 0..3 {
+            self.key(KeyCode::Down);
+        }
+        self.key(KeyCode::Enter);
+        self.settle().await;
+        assert_eq!(
+            self.team_page(),
+            Some(TeamPage::Orgs),
+            "{:?}",
+            self.sync_error()
+        );
+    }
+
+    /// Teams → `team` → menu item `item` (0 members, 1 vaults, 2 invite,
+    /// 3 audit log).
+    async fn open_team_item(&mut self, team: &str, item: usize) {
+        self.open_teams().await;
+        self.select(team);
+        self.key(KeyCode::Enter);
+        assert_eq!(self.team_page(), Some(TeamPage::Org));
+        for _ in 0..item {
+            self.key(KeyCode::Down);
+        }
+        self.key(KeyCode::Enter);
+        self.settle().await;
+    }
+
+    /// Register with a team invite link as the token (the invite is
+    /// accepted with the registration).
+    async fn register_with_invite(&mut self, server: &Server, email: &str, link: &str) {
+        self.open_panel().await;
+        self.key(KeyCode::Enter);
+        assert_eq!(self.sync_page(), Some(SyncPage::Register));
+        self.app.screen.handle_paste(&server.url);
+        self.key(KeyCode::Tab);
+        self.typed(email);
+        self.key(KeyCode::Tab);
+        self.key(KeyCode::Tab);
+        self.typed(STRONG);
+        self.key(KeyCode::Tab);
+        self.key(KeyCode::Tab);
+        self.app.screen.handle_paste(link);
+        self.key(KeyCode::Enter);
+        self.settle().await;
+        assert_eq!(
+            self.sync_page(),
+            Some(SyncPage::Words),
+            "{:?}",
+            self.sync_error()
+        );
+        let (phrase, numbers) = self.app.screen.sync_view().unwrap().shown_phrase().unwrap();
+        let words: Vec<&str> = phrase.split_whitespace().collect();
+        self.key(KeyCode::Char(' '));
+        self.key(KeyCode::Tab);
+        self.key(KeyCode::Enter);
+        for n in numbers {
+            self.typed(words[n - 1]);
+            self.key(KeyCode::Tab);
+        }
+        self.key(KeyCode::Enter);
+        self.settle().await;
+        assert_eq!(
+            self.sync_page(),
+            Some(SyncPage::Overview),
+            "{:?}",
+            self.sync_error()
+        );
+        assert!(
+            self.sync_note().unwrap().contains("Account created"),
+            "{:?}",
+            self.sync_note()
+        );
+    }
+
+    fn has_site(app: &App, name: &str) -> bool {
+        app.site_snapshot
+            .as_ref()
+            .is_some_and(|s| s.tree.sites().any(|s| s.name == name))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn teams_share_a_vault_read_only_verify_keys_and_remove_a_member() {
+    use courier_ftp_crypto::{account::generate_account_keys, keys::os_rng};
+
+    let server = Server::start().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let mut a = device(dir_a.path(), "alice-laptop", STRONG).await;
+    a.register(&server).await;
+    a.until_synced().await;
+
+    // Alice creates a team…
+    a.open_teams().await;
+    assert!(a.screen(100, 30).contains("not in a team yet"));
+    a.key(KeyCode::Char('n'));
+    assert_eq!(a.team_page(), Some(TeamPage::NewOrg));
+    a.typed("Ops");
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.team_page(), Some(TeamPage::Orgs), "{:?}", a.sync_error());
+    assert!(a.sync_note().unwrap().contains("Team “Ops” created"));
+    let text = a.screen(100, 30);
+    assert!(text.contains("Ops") && text.contains("owner"), "{text}");
+
+    // …invites Bob by email (no mail server here: the link is shown)…
+    a.key(KeyCode::Enter);
+    assert_eq!(a.team_page(), Some(TeamPage::Org));
+    a.key(KeyCode::Down);
+    a.key(KeyCode::Down);
+    a.key(KeyCode::Enter);
+    assert_eq!(a.team_page(), Some(TeamPage::Invite));
+    a.typed(BOB);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(
+        a.team_page(),
+        Some(TeamPage::InviteLink),
+        "{:?}",
+        a.sync_error()
+    );
+    let link = a.app.screen.sync_view().unwrap().invite_link().unwrap();
+    assert!(link.contains("/invite/"), "{link}");
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.team_page(), Some(TeamPage::Members));
+    let text = a.screen(100, 30);
+    assert!(text.contains(EMAIL) && text.contains("(you)"), "{text}");
+
+    // …and creates a shared vault.
+    a.key(KeyCode::Esc);
+    a.key(KeyCode::Down);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.team_page(), Some(TeamPage::Vaults));
+    a.key(KeyCode::Char('n'));
+    a.typed("Ops servers");
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(
+        a.team_page(),
+        Some(TeamPage::Vaults),
+        "{:?}",
+        a.sync_error()
+    );
+    let text = a.screen(100, 30);
+    assert!(
+        text.contains("Ops servers") && text.contains("manage"),
+        "{text}"
+    );
+
+    // The Site Manager shows the vaults as roots; Alice adds a site to the
+    // team vault.
+    a.close_panel().await;
+    a.until("vault roots", |app| app.vault_roots.len() == 2)
+        .await;
+    let team_vault = a.app.vault_roots[1].id;
+    a.ctrl(KeyCode::Char('s'));
+    a.settle().await;
+    let text = a.screen(120, 30);
+    assert!(text.contains("Personal"), "{text}");
+    assert!(text.contains("Team: Ops servers"), "{text}");
+    a.key(KeyCode::Down);
+    a.key(KeyCode::Char('n'));
+    a.ctrl(KeyCode::Char('u'));
+    a.typed("deploy box");
+    a.key(KeyCode::Enter);
+    a.typed("deploy.example.com");
+    for _ in 0..3 {
+        a.key(KeyCode::Tab); // port, logon type, user
+    }
+    a.typed("deploy");
+    a.ctrl(KeyCode::Char('s'));
+    a.settle().await;
+    let text = a.screen(120, 30);
+    assert!(text.contains("Saved"), "{text}");
+    let site = a
+        .snapshot()
+        .tree
+        .sites()
+        .find(|s| s.name == "deploy box")
+        .cloned()
+        .unwrap();
+    assert_eq!(site.vault, Some(team_vault));
+    a.close_site_manager().await;
+
+    // Bob registers with the invite link: he is in the team at once.
+    let mut b = device(dir_b.path(), "bob-laptop", STRONG).await;
+    b.register_with_invite(&server, BOB, &link).await;
+    b.until_synced().await;
+    b.open_teams().await;
+    let text = b.screen(100, 30);
+    assert!(text.contains("Ops") && text.contains("member"), "{text}");
+
+    // A second team: Bob joins it with a pasted link.
+    a.open_teams().await;
+    a.key(KeyCode::Char('n'));
+    a.typed("Infra");
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    a.select("Infra");
+    a.key(KeyCode::Enter);
+    a.key(KeyCode::Down);
+    a.key(KeyCode::Down);
+    a.key(KeyCode::Enter);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    let infra_link = a.app.screen.sync_view().unwrap().invite_link().unwrap();
+    b.key(KeyCode::Char('a'));
+    assert_eq!(b.team_page(), Some(TeamPage::Accept));
+    b.app.screen.handle_paste(&infra_link);
+    b.key(KeyCode::Enter);
+    b.settle().await;
+    assert_eq!(b.team_page(), Some(TeamPage::Orgs), "{:?}", b.sync_error());
+    assert!(
+        b.sync_note().unwrap().contains("You joined “Infra”"),
+        "{:?}",
+        b.sync_note()
+    );
+    assert!(b.screen(100, 30).contains("Infra"));
+
+    // Alice gives Bob read access to the vault.
+    a.open_team_item("Ops", 1).await;
+    assert_eq!(a.team_page(), Some(TeamPage::Vaults));
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.team_page(), Some(TeamPage::VaultMembers));
+    a.select(BOB);
+    assert!(a.screen(120, 40).contains("no access"));
+    a.key(KeyCode::Right);
+    a.settle().await;
+    assert!(
+        a.sync_note()
+            .unwrap_or_default()
+            .contains("can now use (read only)"),
+        "{:?} {:?}",
+        a.sync_note(),
+        a.sync_error()
+    );
+    assert!(a.screen(120, 40).contains("‹ read ›"));
+
+    // The audit log has it all.
+    a.open_team_item("Ops", 3).await;
+    assert_eq!(a.team_page(), Some(TeamPage::Audit));
+    let text = a.screen(120, 40);
+    for kind in ["invite.sent", "invite.accepted", "vault.created"] {
+        assert!(text.contains(kind), "{kind}: {text}");
+    }
+
+    // Bob gets the vault (a toast says so) and sees the site with 🔒; he
+    // can't change it.
+    b.close_panel().await;
+    b.until("the shared site", |app| Rig::has_site(app, "deploy box"))
+        .await;
+    b.until("read-only vault root", |app| {
+        app.vault_roots.len() == 2 && app.vault_roots[1].read_only
+    })
+    .await;
+    assert!(b.screen(160, 48).contains("given access"));
+    b.ctrl(KeyCode::Char('s'));
+    b.settle().await;
+    let text = b.screen(140, 30);
+    assert!(text.contains("Team: Ops servers 🔒"), "{text}");
+    assert!(text.contains("deploy box 🔒"), "{text}");
+    // Personal (empty), the team root, the site.
+    b.key(KeyCode::Down);
+    b.key(KeyCode::Down);
+    let text = b.screen(140, 30);
+    assert!(
+        text.contains("🔒 read-only (Team: Ops servers is shared with you"),
+        "{text}"
+    );
+    b.key(KeyCode::Tab);
+    b.typed("zzz");
+    b.ctrl(KeyCode::Char('s'));
+    assert!(
+        b.screen(140, 30).contains("is read-only for you"),
+        "{}",
+        b.screen(140, 30)
+    );
+    b.key(KeyCode::Esc);
+    b.key(KeyCode::Char('x'));
+    assert!(b.screen(140, 30).contains("is read-only for you"));
+    b.settle().await;
+    let shared = b
+        .snapshot()
+        .tree
+        .sites()
+        .find(|s| s.name == "deploy box")
+        .cloned()
+        .unwrap();
+    assert_eq!(shared.host, "deploy.example.com");
+    assert!(b.engine().is_vault_read_only(shared.vault.unwrap()).await);
+    b.close_site_manager().await;
+
+    // Safety numbers: the same on both sides; Alice marks Bob verified.
+    a.open_team_item("Ops", 0).await;
+    a.select(BOB);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(
+        a.team_page(),
+        Some(TeamPage::Safety),
+        "{:?}",
+        a.sync_error()
+    );
+    let number_a = a.app.screen.sync_view().unwrap().safety_number().unwrap();
+    b.open_team_item("Ops", 0).await;
+    b.select(EMAIL);
+    b.key(KeyCode::Enter);
+    b.settle().await;
+    let number_b = b.app.screen.sync_view().unwrap().safety_number().unwrap();
+    assert_eq!(number_a, number_b);
+    assert_eq!(number_a.chars().filter(char::is_ascii_digit).count(), 60);
+    b.close_panel().await;
+    a.key(KeyCode::Left);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.team_page(), Some(TeamPage::Members));
+    assert!(a.sync_note().unwrap().contains("marked verified"));
+    assert!(a.screen(120, 40).contains("✔ verified"));
+
+    // The server swaps Bob's keys: Alice's member list warns, and raising
+    // his access is refused with the key-change warning until she accepts.
+    let fake = generate_account_keys(&mut os_rng()).public();
+    server.mem.with_data(|d| {
+        let bob = *d.users.iter().find(|(_, u)| u.email == BOB).unwrap().0;
+        let row = d.account_keys.get_mut(&bob).unwrap();
+        row.x25519_pub = fake.x25519.to_vec();
+        row.ed25519_pub = fake.ed25519.to_vec();
+    });
+    a.key(KeyCode::Char('r'));
+    a.settle().await;
+    let text = a.screen(120, 40);
+    assert!(text.contains("⚠ key changed"), "{text}");
+    assert!(text.contains("A member's key changed"), "{text}");
+    a.key(KeyCode::Esc);
+    a.key(KeyCode::Down);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    a.select(BOB);
+    a.key(KeyCode::Right);
+    a.settle().await;
+    assert_eq!(
+        a.team_page(),
+        Some(TeamPage::KeyChanged),
+        "{:?}",
+        a.sync_error()
+    );
+    let text = a.screen(120, 40);
+    assert!(
+        text.contains("changed since this device first saw them"),
+        "{text}"
+    );
+    assert_ne!(
+        a.app.screen.sync_view().unwrap().safety_number().unwrap(),
+        number_a,
+        "the new key's number"
+    );
+    a.key(KeyCode::Left);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.team_page(), Some(TeamPage::VaultMembers));
+    assert!(
+        a.sync_note().unwrap().contains("is accepted"),
+        "{:?}",
+        a.sync_note()
+    );
+
+    // Removing Bob rotates the vault key (toasts say so); the vault leaves
+    // Bob's device.
+    a.key(KeyCode::Esc);
+    a.settle().await;
+    a.key(KeyCode::Esc);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert_eq!(a.team_page(), Some(TeamPage::Members));
+    a.select(BOB);
+    a.key(KeyCode::Char('x'));
+    assert!(
+        a.screen(120, 40)
+            .contains("Remove bob@example.test from “Ops”?")
+    );
+    a.key(KeyCode::Left);
+    a.key(KeyCode::Enter);
+    a.settle().await;
+    assert!(
+        a.sync_note()
+            .unwrap()
+            .contains("the key of 1 vault was rotated"),
+        "{:?} {:?}",
+        a.sync_note(),
+        a.sync_error()
+    );
+    let text = a.screen(120, 40);
+    assert!(
+        !text
+            .lines()
+            .any(|l| l.contains(BOB) && l.contains("member")),
+        "{text}"
+    );
+    a.close_panel().await;
+    let text = a.screen(160, 48);
+    assert!(text.contains("was rotated"), "{text}");
+    b.until("the vault left Bob's device", |app| {
+        !Rig::has_site(app, "deploy box") && app.vault_roots.is_empty()
+    })
+    .await;
+    let text = b.screen(160, 48);
+    assert!(text.contains("was revoked"), "{text}");
 }
