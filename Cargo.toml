@@ -175,6 +175,9 @@ notify = "8.2.0"
 quick-xml = "0.42.0"
 strum = { version = "0.28.0", features = ["derive"] }
 uuid = { version = "1.27.0", features = ["v4", "v7", "serde"] }
+# The sync account screens (T90): the default device name and the TOTP QR code.
+hostname = "0.4.2"
+qrcodegen = "1.8.0"
 
 # --- build scripts ---
 anyhow = "1.0.103"

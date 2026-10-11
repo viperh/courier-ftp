@@ -1,0 +1,6 @@
+---
+source: crates/courier-ftp/src/ui/status.rs
+assertion_line: 523
+expression: "line_text(&status_line(&s, 120, now, &theme))"
+---
+ 🔒 TLS 1.3 │ Auto │ ⇅ limit ↓500K ↑100K │ ⚑ filters │ ⇄ sync │ ⟳ offline (3) │ Queue: 2 files, 8.0 KiB, ↓1.2 MiB/s

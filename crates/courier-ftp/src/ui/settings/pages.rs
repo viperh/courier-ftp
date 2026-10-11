@@ -43,10 +43,11 @@ pub(crate) enum Section {
     Queue,
     Logging,
     Security,
+    Sync,
 }
 
 /// The sections in the order of the list, with their title and indent.
-pub(crate) const SECTIONS: [(Section, &str, u16); 17] = [
+pub(crate) const SECTIONS: [(Section, &str, u16); 18] = [
     (Section::Connection, "Connection", 0),
     (Section::Ftp, "FTP", 1),
     (Section::FtpProxy, "FTP proxy", 1),
@@ -63,6 +64,7 @@ pub(crate) const SECTIONS: [(Section, &str, u16); 17] = [
     (Section::Editing, "Editing", 0),
     (Section::Queue, "Queue", 0),
     (Section::Logging, "Logging", 0),
+    (Section::Sync, "Sync", 0),
     (Section::Security, "Security", 0),
 ];
 
@@ -99,6 +101,8 @@ pub(crate) enum Command {
     ChangePassword,
     ToggleKeyring,
     LockNow,
+    /// The sync panel (T90): account, devices, recovery.
+    OpenSync,
 }
 
 pub(crate) enum RowKind {
@@ -381,6 +385,7 @@ pub(crate) fn build(section: Section, s: &Settings, ctx: &Ctx<'_>) -> Page {
         Section::Queue => queue(s),
         Section::Logging => logging(s, ctx.opts),
         Section::Security => security(s, ctx),
+        Section::Sync => sync(s),
     };
     if section.network() {
         rows.push(note(""));
@@ -1348,6 +1353,49 @@ pub(crate) type Problems = Vec<(&'static str, String)>;
 
 /// Write the values of `section`'s page into `s`. Values that don't parse
 /// leave the setting unchanged and are reported.
+fn sync(s: &Settings) -> Vec<Row> {
+    let y = &s.sync;
+    let mut rows = Vec::new();
+    if cfg!(feature = "sync") {
+        rows.push(note(
+            "Your vault syncs end-to-end encrypted through a courier-ftp server.",
+        ));
+        rows.push(button(
+            Command::OpenSync,
+            "Account, devices and recovery…",
+            "Create or log in to a sync account, manage devices, two-factor, password, log out.",
+        ));
+    } else {
+        rows.push(note("This build of courier-ftp has no sync support."));
+    }
+    rows.push(note(""));
+    rows.extend([
+        num(
+            "sync.push_debounce_ms",
+            "Upload delay (ms)",
+            "Upload this long after the last local change (0-60000). Applies from the next unlock.",
+            u64::from(y.push_debounce_ms),
+            0,
+            60_000,
+        ),
+        num(
+            "sync.poll_fallback_secs",
+            "Check every (s)",
+            "Pull changes this often even without live notifications (30-86400). Applies from the next unlock.",
+            u64::from(y.poll_fallback_secs),
+            30,
+            86_400,
+        ),
+        check(
+            "sync.history",
+            "Sync the connection history",
+            "Also sync the quickconnect history between your devices.",
+            y.history,
+        ),
+    ]);
+    rows
+}
+
 pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Problems {
     let mut problems = Problems::new();
     match section {
@@ -1544,6 +1592,12 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
             s.lock_on_suspend = v.bool("vault.lock_on_suspend");
             s.lock_disconnects = v.bool("vault.lock_disconnects");
             s.store_passwords = v.bool("vault.store_passwords");
+        }
+        Section::Sync => {
+            let y = &mut s.sync;
+            y.push_debounce_ms = number(v, "sync.push_debounce_ms", y.push_debounce_ms);
+            y.poll_fallback_secs = number(v, "sync.poll_fallback_secs", y.poll_fallback_secs);
+            y.history = v.bool("sync.history");
         }
     }
     problems

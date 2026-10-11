@@ -60,15 +60,16 @@ first-run setup, recovery, and every other vault-related screen — matching sve
 
 - [x] Without keyring: every start shows the unlock view.
 - [x] With keyring enabled: start unlocks silently; keyring failure falls back to the prompt.
-- [ ] Forgot-password paths: keyring reset, sync recovery, and the no-recovery explanation.
+- [x] Forgot-password paths: keyring reset, sync recovery, and the no-recovery explanation.
+  (Sync recovery done in T90: recovery code + 24 words + new password, prefilled from the
+  device's account; builds without `sync` explain that they can't.)
 - [x] Backoff countdown displayed and enforced.
 - [x] First-run creates the vault only with a strong enough password.
 - [x] Snapshot tests for unlock, first run, forgot password, backoff and lock overlay.
 
 **Status (T73):** *Restore from a `.cftp-backup`* now works, on the first-run screen
 (*Restore backup…*) and under *Forgot password?* (old database moved aside first): the backup
-is opened with its passphrase, then restored in full once the new vault is created. Sync
-recovery and sync sign-in remain T90.
+is opened with its passphrase, then restored in full once the new vault is created.
 
 ## Tests
 

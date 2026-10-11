@@ -147,6 +147,8 @@ pub(crate) enum SettingsRequest {
     },
     SetKeyring(bool),
     LockNow,
+    /// Open the sync panel over the settings screen (T90).
+    OpenSync,
     /// Write a backup or plain settings file (T73).
     Export(Box<crate::archive::ExportJob>),
     /// Open an import file (the app keeps what it holds).
@@ -863,6 +865,7 @@ impl SettingsView {
                 }
             }
             Command::LockNow => self.requests.push(SettingsRequest::LockNow),
+            Command::OpenSync => self.requests.push(SettingsRequest::OpenSync),
         }
     }
 
