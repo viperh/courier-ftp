@@ -210,3 +210,7 @@ the section matching the tag.
   SFTP host keys and trusted TLS certificates; vault security actions (change
   master password, keyring unlock, lock now, auto-lock); built-in colour
   schemes (default, high contrast, monochrome).
+- Update check and splash (T74): weekly background check for new releases (opt
+  out with interface.check_updates, --no-update-check or
+  COURIER_FTP_NO_UPDATE_CHECK; interface.check_prereleases includes
+  prereleases) and an optional splash screen (interface.show_splash).
