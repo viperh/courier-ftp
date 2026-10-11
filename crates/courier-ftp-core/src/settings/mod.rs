@@ -508,6 +508,25 @@ pub struct InterfaceSettings {
     /// The built-in colour scheme; the `styles` config section refines it
     /// (T68).
     pub color_scheme: ColorScheme,
+    /// Reopen the last run's tabs (their sites and directories) at start
+    /// (T61). The tabs are kept in the vault.
+    pub restore_tabs: bool,
+    /// Connecting while the current tab has a connection: ask, open a new
+    /// tab, or replace the connection (T61).
+    pub connect_in_tab: TabConnect,
+}
+
+/// What connecting does while the current tab is connected (T61).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabConnect {
+    /// Ask each time (open in a new tab or replace).
+    #[default]
+    Ask,
+    /// Open the connection in a new tab.
+    NewTab,
+    /// Close the current connection and connect in its place.
+    Replace,
 }
 
 /// A built-in colour scheme (T68).
@@ -607,6 +626,8 @@ impl Default for InterfaceSettings {
             natural_sort: true,
             columns: ColumnSettings::default(),
             color_scheme: ColorScheme::Default,
+            restore_tabs: false,
+            connect_in_tab: TabConnect::Ask,
         }
     }
 }
@@ -684,6 +705,9 @@ pub struct EditingSettings {
     pub associations: Vec<FileAssociation>,
     /// Watch edited files and offer to upload them when they change.
     pub watch_and_prompt_upload: bool,
+    /// Ask before downloading a remote file larger than this (MiB) to view
+    /// or edit it; 0 never asks.
+    pub max_size_mib: u64,
 }
 
 impl Default for EditingSettings {
@@ -692,6 +716,7 @@ impl Default for EditingSettings {
             editor: EditorChoice::Auto,
             associations: Vec::new(),
             watch_and_prompt_upload: true,
+            max_size_mib: 50,
         }
     }
 }

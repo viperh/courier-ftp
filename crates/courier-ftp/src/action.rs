@@ -39,6 +39,8 @@ pub(crate) enum Action {
     View,
     /// Edit the file under the cursor in an external editor (T63).
     Edit,
+    /// The files being edited: upload now, stop watching, discard (T63).
+    EditedFiles,
     /// Transfer the selection to the other pane (T62).
     Copy,
     /// Add the selection to the queue without starting it (T62).
@@ -67,10 +69,18 @@ pub(crate) enum Action {
     /// Show the raw listing (LIST/MLSD text, SFTP long names) of the focused
     /// pane's directory (T71).
     ShowRawListing,
+    /// Open a new tab, disconnected, showing the current local directory
+    /// (T61).
     NewTab,
+    /// Close the current tab (asks first when it is connected). Closing the
+    /// last tab leaves an empty one.
     CloseTab,
     NextTab,
     PrevTab,
+    /// Give the current tab a title of its own (empty: automatic again).
+    RenameTab,
+    /// Open a new tab connected to the current tab's server and directory.
+    DuplicateTab,
     Tab1,
     Tab2,
     Tab3,
@@ -347,6 +357,13 @@ pub(crate) enum Action {
     /// A step or result of a file operation (T62).
     #[serde(skip)]
     FileOp(Shared<crate::app::FileOpMsg>),
+    /// A step or result of viewing / editing a file (T63).
+    #[serde(skip)]
+    EditMsg(Shared<crate::app::EditMsg>),
+    /// Run a program in the terminal: the event loop suspends the TUI,
+    /// waits for it and restores the TUI (T63).
+    #[serde(skip)]
+    RunForeground(Shared<crate::edit::Foreground>),
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),
@@ -365,12 +382,38 @@ pub(crate) enum Action {
         side: Side,
         result: Result<Listing, String>,
     },
-    /// Connect the remote pane (quickconnect, T58). With `replace` an
-    /// existing connection is closed without asking.
+    /// Connect a tab's remote pane (quickconnect, T58; sites, T59): where is
+    /// up to `target` (T61).
     #[serde(skip)]
     Connect {
         request: Box<ConnectRequest>,
-        replace: bool,
+        target: ConnectTarget,
+    },
+    /// Close tab `tab` (the user confirmed, T61).
+    #[serde(skip)]
+    CloseTabNow {
+        tab: u64,
+    },
+    /// The title typed for tab `tab` (empty: automatic).
+    #[serde(skip)]
+    TabRenamed {
+        tab: u64,
+        title: String,
+    },
+    /// "Remember my choice" in the connect-while-connected question.
+    #[serde(skip)]
+    SetConnectChoice(courier_ftp_core::settings::TabConnect),
+    /// The tabs saved by the last run were read from the vault (T61).
+    #[serde(skip)]
+    TabsLoaded(Shared<Vec<crate::app::SavedTab>>),
+    /// A local listing for tab `tab` finished: for its file list, or for
+    /// its directory tree when `tree_dir` is set; dropped when the tab is
+    /// gone.
+    #[serde(skip)]
+    LocalListingLoaded {
+        tab: u64,
+        tree_dir: Option<RemotePath>,
+        result: Result<Listing, String>,
     },
     /// Open the quickconnect history (the bar's `[▾]`, T33).
     #[serde(skip)]
@@ -424,8 +467,8 @@ pub(crate) enum Action {
         result: Result<Box<Connected>, String>,
     },
     /// A remote listing of `dir` finished, for the file list or (with
-    /// `tree`) the directory tree; dropped when `session` is no longer the
-    /// current connection.
+    /// `tree`) the directory tree of the tab connected as `session`;
+    /// dropped when no tab is (T61).
     #[serde(skip)]
     RemoteListingLoaded {
         session: SessionId,
@@ -446,6 +489,21 @@ pub(crate) enum SyncChoice {
     Stay,
 }
 
+/// Which tab a connection opens in (T61).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConnectTarget {
+    /// The current tab when it isn't connected; otherwise as
+    /// `interface.connect_in_tab` says (asking by default).
+    Ask,
+    /// The current tab, closing its connection without asking.
+    Current,
+    /// A new tab.
+    NewTab,
+    /// Tab `id` (a restored tab), closing its connection without asking;
+    /// dropped when the tab was closed meanwhile.
+    Tab(u64),
+}
+
 /// What to connect to, from the quickconnect bar.
 #[derive(Debug, Clone)]
 pub(crate) struct ConnectRequest {
@@ -458,6 +516,9 @@ pub(crate) struct ConnectRequest {
     pub(crate) compare: bool,
     /// The Site Manager entry connected to (`None` for quickconnect).
     pub(crate) site: Option<courier_ftp_core::model::item::ItemId>,
+    /// The local directory to show in the tab (a site's default local
+    /// directory, a restored tab's).
+    pub(crate) local_dir: Option<RemotePath>,
 }
 
 impl ConnectRequest {

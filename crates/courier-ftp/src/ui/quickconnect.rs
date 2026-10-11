@@ -88,6 +88,7 @@ impl HistoryItem {
                 sync_browsing: false,
                 compare: false,
                 site: None,
+                local_dir: None,
             },
         }
     }
@@ -332,6 +333,7 @@ impl Quickconnect {
             sync_browsing: false,
             compare: false,
             site: None,
+            local_dir: None,
         })
     }
 

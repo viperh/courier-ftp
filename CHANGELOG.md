@@ -248,3 +248,13 @@ the section matching the tag.
   changes, share vaults with read/write/manage access, and see the audit log;
   the Site Manager shows vault roots, locks read-only items 🔒, copies or moves
   sites between vaults and keeps your own login for shared sites.
+- Connection tabs (T61): several connections at once, each with its own panes,
+  history, sync browsing and comparison; a tab bar with each tab's state; keys
+  to open, close, switch, rename and duplicate tabs; an open-in-new-tab or
+  replace question (rememberable) and a Site Manager New tab button; optional
+  interface.restore_tabs reopens the last run's tabs from the vault.
+- View and edit files (T63): F3/F4 open files in external programs; remote
+  files open through a private temporary copy, saved changes are offered for
+  upload (with a warning when the server copy changed meanwhile), Ctrl-x e
+  lists the files being edited, and terminal editors run with the TUI
+  suspended.

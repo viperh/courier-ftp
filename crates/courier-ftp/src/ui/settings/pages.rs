@@ -9,7 +9,7 @@ use courier_ftp_core::{
     settings::{
         BurstTolerance, ColorScheme, Column, EditorChoice, EmptyDirs, ExistsAction, ExternalIp,
         FileAssociation, FtpProxy, FtpTransferMode, GenericProxy, Layout, NotifyMethod, OnComplete,
-        ProxyServer, Settings, SizeFormat, SymbolMode, TransferTypeChoice,
+        ProxyServer, Settings, SizeFormat, SymbolMode, TabConnect, TransferTypeChoice,
     },
     trust::{KnownHost, TrustedCertificate},
 };
@@ -322,6 +322,11 @@ const SYMBOLS: [(SymbolMode, &str); 3] = [
     (SymbolMode::Auto, "Auto"),
     (SymbolMode::Unicode, "Unicode"),
     (SymbolMode::Ascii, "ASCII"),
+];
+const TAB_CONNECT: [(TabConnect, &str); 3] = [
+    (TabConnect::Ask, "Ask"),
+    (TabConnect::NewTab, "Open a new tab"),
+    (TabConnect::Replace, "Replace the connection"),
 ];
 const SIZE_FORMATS: [(SizeFormat, &str); 3] = [
     (SizeFormat::Bytes, "Bytes"),
@@ -1003,6 +1008,19 @@ fn interface(s: &Settings) -> Vec<Row> {
             10_000,
         ),
         check(
+            "interface.restore_tabs",
+            "Restore tabs",
+            "Reopen the last run's tabs (sites and directories) at start; kept in the vault.",
+            i.restore_tabs,
+        ),
+        select(
+            "interface.connect_in_tab",
+            "Connecting while connected",
+            "What connecting does when the current tab already has a connection.",
+            &labels(&TAB_CONNECT),
+            pos(&TAB_CONNECT, &i.connect_in_tab),
+        ),
+        check(
             "interface.show_splash",
             "Splash screen",
             "Show the splash screen at startup.",
@@ -1202,6 +1220,14 @@ fn editing(s: &Settings) -> Vec<Row> {
             "Offer upload on change",
             "Watch edited files and offer to upload them when they change.",
             e.watch_and_prompt_upload,
+        ),
+        num(
+            "editing.max_size_mib",
+            "Ask above (MiB)",
+            "Ask before downloading a larger remote file to view or edit it (0: never ask).",
+            e.max_size_mib,
+            0,
+            1_000_000,
         ),
     ]
 }
@@ -1562,6 +1588,13 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
                 "interface.key_sequence_timeout_ms",
                 i.key_sequence_timeout_ms,
             );
+            i.restore_tabs = v.bool("interface.restore_tabs");
+            i.connect_in_tab = pick(
+                v,
+                "interface.connect_in_tab",
+                &TAB_CONNECT,
+                i.connect_in_tab,
+            );
             i.show_splash = v.bool("interface.show_splash");
             i.check_updates = v.bool("interface.check_updates");
             i.check_prereleases = v.bool("interface.check_prereleases");
@@ -1619,6 +1652,7 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
                 Err(err) => problems.push(("editing.associations", err)),
             }
             e.watch_and_prompt_upload = v.bool("editing.watch_and_prompt_upload");
+            e.max_size_mib = number(v, "editing.max_size_mib", e.max_size_mib);
         }
         Section::Queue => {
             let q = &mut s.queue;

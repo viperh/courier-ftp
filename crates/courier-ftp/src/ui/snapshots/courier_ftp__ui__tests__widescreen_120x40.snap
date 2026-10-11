@@ -6,7 +6,7 @@ expression: terminal.backend()
 "┌ Quickconnect ────────────────────────────────────────────────────────────────────────────────────────────────────────┐"
 "│Host: host or URL                          User: ___________________ Pass: ________________ Port: ______ [Connect] [▾]│"
 "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
-" Tabs: [1 local]                                                                                                        "
+" [1 local ○]                                                                                                            "
 "┌ Local:  ─────────────────────────┐┌ Remote: not connected ───────────┐┌ Message log ─────────────────────────────────┐"
 "│  Name▲                       Size││Not connected to any server.      ││Status:   Connecting to example.com:21...     │"
 "│  assets/                         ││Ctrl-s: Site Manager · Ctrl-k:    ││Response: 230 Login successful.               │"

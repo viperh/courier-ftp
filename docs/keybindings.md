@@ -28,7 +28,9 @@ Active everywhere except in text fields and dialogs.
 | `<Delete>` | Delete |
 | `<F8>` | Delete |
 | `<Ctrl-x><d>` | Disconnect |
+| `<Ctrl-x><T>` | DuplicateTab |
 | `<F4>` | Edit |
+| `<Ctrl-x><e>` | EditedFiles |
 | `<Ctrl-x><f>` | Filters |
 | `<Tab>` | FocusNext |
 | `<BackTab>` | FocusPrev |
@@ -41,8 +43,10 @@ Active everywhere except in text fields and dialogs.
 | `<F6>` | Move |
 | `<Ctrl-x><n>` | NewFile |
 | `<Ctrl-t>` | NewTab |
+| `<Ctrl-PageDown>` | NextTab |
 | `<g><t>` | NextTab |
 | `<Ctrl-x><p>` | OpenPrompt |
+| `<Ctrl-PageUp>` | PrevTab |
 | `<g><T>` | PrevTab |
 | `<Ctrl-p>` | ProcessQueue |
 | `<Shift-F5>` | QueueSelection |
@@ -52,6 +56,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-F5>` | Refresh |
 | `<Ctrl-r>` | Refresh |
 | `<F2>` | Rename |
+| `<Ctrl-x><R>` | RenameTab |
 | `<Ctrl-x><a>` | SaveAsSite |
 | `<Ctrl-f>` | Search |
 | `<Ctrl-x><i>` | ServerInfo |

@@ -24,6 +24,7 @@ mod splash;
 mod status;
 #[cfg(feature = "sync")]
 pub(crate) mod sync;
+pub(crate) mod tabs;
 mod text_viewer;
 mod theme;
 mod trust;
@@ -38,7 +39,7 @@ pub(crate) use quickconnect::HistoryItem;
 pub(crate) mod file_list_effect {
     pub(crate) use super::file_list::Effect;
 }
-pub(crate) use screen::{KeyOutcome, MainScreen};
+pub(crate) use screen::{KeyOutcome, MainScreen, TabView};
 #[cfg(test)]
 pub(crate) use splash::MAX_SHOWN as SPLASH_MAX_SHOWN;
 #[cfg(feature = "sync")]

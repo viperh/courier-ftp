@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp/src/app/tab_tests.rs
+assertion_line: 413
+expression: "dialog.join(\"\\n\")"
+---
+┌ Connect to bob@backup.invalid ─────────────────────────────────────────────┐
+│Connect in          (•) a new tab  ( ) this tab (closes alice@web.invalid)  │
+│Remember my choice  [ ]                                                     │
+│                                                                            │
+│                          [ Connect ]  [ Cancel ]                           │
+└────────────────────────────────────────────────────────────────────────────┘

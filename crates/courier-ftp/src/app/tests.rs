@@ -169,34 +169,52 @@ async fn a_missing_start_directory_falls_back_to_home() {
 }
 
 #[tokio::test]
-async fn replacing_a_connection_asks_first() {
+async fn connecting_while_connected_asks_new_tab_or_replace() {
     let server = server();
     let mut app = app(&server);
     quickconnect(&mut app, "sftp://alice@mock.invalid").await;
     assert_eq!(server.connects(), 1);
 
-    // No: the connection stays.
+    // Cancel: the connection stays.
     quickconnect(&mut app, "sftp://bob@mock.invalid/srv").await;
     assert!(app.screen.has_modal());
     let text = screen_text(&mut app, 120, 40);
     assert!(
-        text.contains("Disconnect from alice@mock.invalid and connect to")
-            && text.contains("bob@mock.invalid?"),
+        text.contains("Connect to bob@mock.invalid")
+            && text.contains("(•) a new tab")
+            && text.contains("this tab (closes alice@mock.invalid)"),
         "{text}"
     );
     app.handle_key_event(key(KeyCode::Esc)).unwrap();
     settle(&mut app).await;
     assert_eq!(server.connects(), 1);
     assert_eq!(remote_dir(&app).as_deref(), Some("/"));
+    assert_eq!(app.tabs.len(), 1);
 
-    // Yes: replaced.
+    // "This tab": replaced.
     quickconnect(&mut app, "sftp://bob@mock.invalid/srv").await;
     assert!(app.screen.has_modal());
+    app.handle_key_event(key(KeyCode::Right)).unwrap();
     app.handle_key_event(key(KeyCode::Enter)).unwrap();
     settle(&mut app).await;
     assert_eq!(server.connects(), 2);
+    assert_eq!(app.tabs.len(), 1);
     assert_eq!(remote_dir(&app).as_deref(), Some("/srv"));
     assert!(screen_text(&mut app, 120, 40).contains("Remote: bob@mock.invalid /srv"));
+
+    // "A new tab" (the default): the first tab keeps its connection.
+    quickconnect(&mut app, "sftp://carol@mock.invalid/srv/logs").await;
+    app.handle_key_event(key(KeyCode::Enter)).unwrap();
+    settle(&mut app).await;
+    assert_eq!(server.connects(), 3);
+    assert_eq!(app.tabs.len(), 2);
+    assert_eq!(app.tabs.active, 1);
+    assert_eq!(remote_dir(&app).as_deref(), Some("/srv/logs"));
+    let text = screen_text(&mut app, 120, 40);
+    assert!(
+        text.contains("[1 bob@mock.invalid ●] [2 carol@mock.invalid ●]"),
+        "{text}"
+    );
 }
 
 #[tokio::test]

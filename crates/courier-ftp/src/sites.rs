@@ -169,6 +169,8 @@ pub(crate) enum SiteOp {
     SetOverride(Box<CredentialOverride>),
     /// Connect the remote pane to a site (the app handles it).
     Connect(ItemId),
+    /// Connect to a site in a new tab (T61; the app handles it).
+    ConnectInNewTab(ItemId),
     /// Import a FileZilla `sitemanager.xml` or a courier-ftp export.
     Import {
         path: PathBuf,
@@ -331,7 +333,9 @@ async fn apply(
                 .map_err(text)?;
             SiteOutcome::OverrideSaved(kept)
         }
-        SiteOp::Connect(_) => return Err("connect is handled by the app".to_owned()),
+        SiteOp::Connect(_) | SiteOp::ConnectInNewTab(_) => {
+            return Err("connect is handled by the app".to_owned());
+        }
         SiteOp::Import { path, passphrase } => import_file(sites, path, passphrase, today).await?,
         SiteOp::Export {
             scope,
