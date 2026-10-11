@@ -1,6 +1,6 @@
 ---
 source: crates/courier-ftp/src/ui/site_manager/tests.rs
-assertion_line: 379
+assertion_line: 415
 expression: text
 ---
 "┌ Site Manager ──────────────────────────────────────────────────────────────────────────────────────────────┐"
@@ -30,6 +30,6 @@ expression: text
 "││                                   ││                                                                     ││"
 "││                                   ││                                                                     ││"
 "│└───────────────────────────────────┘└─────────────────────────────────────────────────────────────────────┘│"
-"│                        [ Connect ]  [ Save ]  [ Import… ]  [ Export… ]  [ Close ]                          │"
+"│                  [ Connect ]  [ New tab ]  [ Save ]  [ Import… ]  [ Export… ]  [ Close ]                   │"
 "│Can't save: the host is empty; the user is empty                                                            │"
 "└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"

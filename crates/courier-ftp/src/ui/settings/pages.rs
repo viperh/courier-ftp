@@ -9,7 +9,7 @@ use courier_ftp_core::{
     settings::{
         BurstTolerance, ColorScheme, Column, EditorChoice, EmptyDirs, ExistsAction, ExternalIp,
         FileAssociation, FtpProxy, FtpTransferMode, GenericProxy, Layout, NotifyMethod, OnComplete,
-        ProxyServer, Settings, SizeFormat, SymbolMode, TransferTypeChoice,
+        ProxyServer, Settings, SizeFormat, SymbolMode, TabConnect, TransferTypeChoice,
     },
     trust::{KnownHost, TrustedCertificate},
 };
@@ -322,6 +322,11 @@ const SYMBOLS: [(SymbolMode, &str); 3] = [
     (SymbolMode::Auto, "Auto"),
     (SymbolMode::Unicode, "Unicode"),
     (SymbolMode::Ascii, "ASCII"),
+];
+const TAB_CONNECT: [(TabConnect, &str); 3] = [
+    (TabConnect::Ask, "Ask"),
+    (TabConnect::NewTab, "Open a new tab"),
+    (TabConnect::Replace, "Replace the connection"),
 ];
 const SIZE_FORMATS: [(SizeFormat, &str); 3] = [
     (SizeFormat::Bytes, "Bytes"),
@@ -954,6 +959,19 @@ fn interface(s: &Settings) -> Vec<Row> {
             10_000,
         ),
         check(
+            "interface.restore_tabs",
+            "Restore tabs",
+            "Reopen the last run's tabs (sites and directories) at start; kept in the vault.",
+            i.restore_tabs,
+        ),
+        select(
+            "interface.connect_in_tab",
+            "Connecting while connected",
+            "What connecting does when the current tab already has a connection.",
+            &labels(&TAB_CONNECT),
+            pos(&TAB_CONNECT, &i.connect_in_tab),
+        ),
+        check(
             "interface.show_splash",
             "Splash screen",
             "Show the splash screen at startup.",
@@ -1503,6 +1521,13 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
                 v,
                 "interface.key_sequence_timeout_ms",
                 i.key_sequence_timeout_ms,
+            );
+            i.restore_tabs = v.bool("interface.restore_tabs");
+            i.connect_in_tab = pick(
+                v,
+                "interface.connect_in_tab",
+                &TAB_CONNECT,
+                i.connect_in_tab,
             );
             i.show_splash = v.bool("interface.show_splash");
             i.check_updates = v.bool("interface.check_updates");

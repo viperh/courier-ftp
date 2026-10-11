@@ -54,8 +54,9 @@ pub(crate) struct LogPane {
     wrap: bool,
     hscroll: usize,
     errors_only: bool,
-    /// The sessions of the current tab (T61); `None` shows everything.
-    sessions: Option<HashSet<SessionId>>,
+    /// The browsing sessions of the other tabs (T61), hidden unless "all"
+    /// is on. Everything else (local, transfers, searches) always shows.
+    hidden: HashSet<SessionId>,
     show_all: bool,
     /// Rows of the last frame, for paging.
     rows: usize,
@@ -82,7 +83,7 @@ impl LogPane {
             wrap: false,
             hscroll: 0,
             errors_only: false,
-            sessions: None,
+            hidden: HashSet::new(),
             show_all: false,
             rows: 1,
         }
@@ -136,10 +137,12 @@ impl LogPane {
         self.cursor.is_none()
     }
 
-    /// Show only these sessions (the current tab's), unless "all" is on.
-    #[cfg_attr(not(test), expect(dead_code, reason = "per-tab logs arrive with T61"))]
-    pub(crate) fn set_sessions(&mut self, sessions: Option<HashSet<SessionId>>) {
-        self.sessions = sessions;
+    /// Hide these sessions (the other tabs' connections) unless "all" is
+    /// on.
+    pub(crate) fn set_hidden(&mut self, hidden: HashSet<SessionId>) {
+        if hidden != self.hidden {
+            self.hidden = hidden;
+        }
     }
 
     pub(crate) fn is_searching(&self) -> bool {
@@ -150,10 +153,7 @@ impl LogPane {
         if self.errors_only && msg.kind != LogKind::Error {
             return false;
         }
-        match (&self.sessions, self.show_all) {
-            (Some(set), false) => set.contains(&msg.session),
-            _ => true,
-        }
+        self.show_all || !self.hidden.contains(&msg.session)
     }
 
     /// Indices (into `lines`) of the lines currently shown.
@@ -383,7 +383,7 @@ impl LogPane {
         if self.errors_only {
             title.push(Span::styled("(errors) ", theme.key_hint));
         }
-        if self.show_all && self.sessions.is_some() {
+        if self.show_all && !self.hidden.is_empty() {
             title.push(Span::styled("(all sessions) ", theme.key_hint));
         }
         if let Some(s) = &self.search {
@@ -769,7 +769,7 @@ mod tests {
         other.session = SessionId(2);
         p.push(msg(LogKind::Status, "this tab"));
         p.push(other);
-        p.set_sessions(Some(HashSet::from([SessionId(1)])));
+        p.set_hidden(HashSet::from([SessionId(2)]));
         let shown = render(&mut p, 40, 5, &theme).backend().to_string();
         assert!(shown.contains("this tab") && !shown.contains("other tab"));
         p.update(&Action::ToggleLogAll);

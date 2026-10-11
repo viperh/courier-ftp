@@ -1,10 +1,9 @@
-//! Shared pane helpers and the remaining T50 shell: the tab bar (T61 replaces
-//! its body).
+//! Shared pane helpers.
 
 use ratatui::{
     Frame,
     layout::Rect,
-    text::{Line, Span},
+    text::Line,
     widgets::{Block, Paragraph},
 };
 
@@ -23,16 +22,6 @@ pub(crate) fn block<'a>(title: impl Into<Line<'a>>, focused: bool, theme: &Theme
     } else {
         theme.border
     })
-}
-
-pub(crate) fn draw_tabs(frame: &mut Frame, area: Rect, theme: &Theme) {
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" Tabs: ", theme.dim),
-            Span::styled("[1 local]", theme.title),
-        ])),
-        area,
-    );
 }
 
 pub(crate) fn draw_hint(frame: &mut Frame, area: Rect, theme: &Theme) {

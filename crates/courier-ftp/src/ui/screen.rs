@@ -37,6 +37,7 @@ use super::{
     site_manager::SiteManagerView,
     splash::Splash,
     status::{self, StatusState},
+    tabs::TabBar,
     theme::Theme,
     vault::{VaultRequest, VaultView},
 };
@@ -236,6 +237,8 @@ pub(crate) struct MainScreen {
     splash: Option<Splash>,
     /// "Update available: …" (T74), shown at the top of Help.
     update_notice: Option<String>,
+    /// The tab bar's labels (T61), set by the app.
+    tab_bar: TabBar,
     /// The sync screens (T90), when open. They cover the panes like the
     /// Site Manager.
     #[cfg(feature = "sync")]
@@ -243,6 +246,37 @@ pub(crate) struct MainScreen {
     /// What the sync screens asked for, taken by the app after each key.
     #[cfg(feature = "sync")]
     sync_requests: Vec<super::sync::SyncRequest>,
+}
+
+/// The per-tab part of the screen (T61) while its tab is in the background:
+/// both file lists and trees, synchronized browsing and comparison, and the
+/// connection details of the status bar. The current tab's state lives in
+/// [`MainScreen`]'s own fields; switching tabs swaps the two
+/// ([`MainScreen::swap_tab`]).
+pub(crate) struct TabView {
+    local: FileList,
+    remote: FileList,
+    local_tree: DirTree,
+    remote_tree: DirTree,
+    sync: Option<SyncBase>,
+    sync_nav: Option<SyncNav>,
+    compare: Option<CompareState>,
+    compare_opts: CompareOpts,
+    compare_warned: bool,
+    bookmark_modes: Option<PendingModes>,
+    session: Option<courier_ftp_core::backend::SessionInfo>,
+}
+
+impl TabView {
+    /// The directory the local list shows.
+    pub(crate) fn local_dir(&self) -> Option<&RemotePath> {
+        self.local.dir.as_ref()
+    }
+
+    /// The directory the remote list shows.
+    pub(crate) fn remote_dir(&self) -> Option<&RemotePath> {
+        self.remote.dir.as_ref()
+    }
 }
 
 /// Synchronized browsing / comparison to turn on once the panes show a
@@ -333,11 +367,77 @@ impl MainScreen {
             bookmark_modes: None,
             splash: None,
             update_notice: None,
+            tab_bar: TabBar::default(),
             #[cfg(feature = "sync")]
             sync_view: None,
             #[cfg(feature = "sync")]
             sync_requests: Vec::new(),
         }
+    }
+
+    // --- T61: tabs ---
+
+    /// A fresh tab: empty file lists and trees with the current settings and
+    /// filters, nothing synchronized.
+    pub(crate) fn new_tab_view(&self) -> TabView {
+        let settings = &self.config.settings;
+        let (local_filters, remote_filters) = engines(&settings.filters);
+        let local = FileList::new(Side::Local, settings, local_filters);
+        let remote = FileList::new(Side::Remote, settings, remote_filters);
+        let unicode = self.status.unicode;
+        let local_tree = DirTree::new(Side::Local, unicode, local.show_hidden());
+        let remote_tree = DirTree::new(Side::Remote, unicode, remote.show_hidden());
+        TabView {
+            local,
+            remote,
+            local_tree,
+            remote_tree,
+            sync: None,
+            sync_nav: None,
+            compare: None,
+            compare_opts: CompareOpts {
+                case_sensitive_names: false,
+                ..self.compare_opts.clone()
+            },
+            compare_warned: false,
+            bookmark_modes: None,
+            session: None,
+        }
+    }
+
+    /// Exchange the current tab's state with `view` (switching tabs).
+    pub(crate) fn swap_tab(&mut self, view: &mut TabView) {
+        std::mem::swap(&mut self.local, &mut view.local);
+        std::mem::swap(&mut self.remote, &mut view.remote);
+        std::mem::swap(&mut self.local_tree, &mut view.local_tree);
+        std::mem::swap(&mut self.remote_tree, &mut view.remote_tree);
+        std::mem::swap(&mut self.sync, &mut view.sync);
+        std::mem::swap(&mut self.sync_nav, &mut view.sync_nav);
+        std::mem::swap(&mut self.compare, &mut view.compare);
+        std::mem::swap(&mut self.compare_opts, &mut view.compare_opts);
+        std::mem::swap(&mut self.compare_warned, &mut view.compare_warned);
+        std::mem::swap(&mut self.bookmark_modes, &mut view.bookmark_modes);
+        std::mem::swap(&mut self.status.session, &mut view.session);
+    }
+
+    /// The labels of the tab bar.
+    pub(crate) fn set_tab_bar(&mut self, bar: TabBar) {
+        self.tab_bar = bar;
+    }
+
+    /// Hide the other tabs' connections in the message log.
+    pub(crate) fn set_log_hidden(
+        &mut self,
+        hidden: std::collections::HashSet<courier_ftp_core::events::SessionId>,
+    ) {
+        self.log.set_hidden(hidden);
+    }
+
+    /// Put actions back in the outbox (after running something for a
+    /// background tab).
+    pub(crate) fn restore_actions(&mut self, mut actions: Vec<Action>) {
+        actions.append(&mut self.outbox);
+        self.outbox = actions;
     }
 
     /// Cover the screen with the splash (T74) for `version`.
@@ -1293,7 +1393,7 @@ impl MainScreen {
             Ok(request) => {
                 self.outbox.push(Action::Connect {
                     request: Box::new(request),
-                    replace: false,
+                    target: crate::action::ConnectTarget::Ask,
                 });
                 self.set_focus(Region::RemoteList);
             }
@@ -1907,7 +2007,7 @@ impl MainScreen {
                 .draw(frame, a, f == Region::Quickconnect, theme);
         }
         if let Some(a) = r.tabs {
-            panes::draw_tabs(frame, a, theme);
+            super::tabs::draw(frame, a, &self.tab_bar, self.status.unicode, theme);
         }
         if let Some(a) = r.log {
             self.log.draw(frame, a, f == Region::Log, theme);

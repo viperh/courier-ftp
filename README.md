@@ -75,6 +75,14 @@ cargo run -p courier-ftp --no-default-features   # local-only build, without syn
 `F10` quits and `Ctrl-z` suspends. All keys are in
 [`docs/keybindings.md`](docs/keybindings.md).
 
+Each connection can have its own tab: `Ctrl-t` opens one, `Ctrl-w` closes it,
+`Alt-1`…`Alt-9` or `Ctrl-PgUp`/`Ctrl-PgDn` switch, `Ctrl-x R` renames and
+`Ctrl-x T` duplicates. Connecting while the tab is connected asks whether to
+open a new tab or replace the connection (`interface.connect_in_tab`). The queue
+is shared by all tabs. With `interface.restore_tabs` the tabs (their sites or
+servers and directories, never passwords) are kept in the vault and reopened
+after the next unlock.
+
 ## Configuration
 
 Defaults are compiled in from `crates/courier-ftp/config/default.json`. At startup

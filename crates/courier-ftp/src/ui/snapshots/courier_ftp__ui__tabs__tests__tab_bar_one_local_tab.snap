@@ -1,0 +1,6 @@
+---
+source: crates/courier-ftp/src/ui/tabs.rs
+assertion_line: 222
+expression: "render(&TabBar::default(), 40, true)"
+---
+" [1 local ○]                            "

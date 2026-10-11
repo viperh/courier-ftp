@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    action::{Action, ConnectRequest, Connected, Shared},
+    action::{Action, ConnectRequest, ConnectTarget, Connected, Shared},
     backends::Backends,
     bookmarks::BookmarkOp,
     config::Config,
@@ -106,9 +106,13 @@ pub(crate) struct App {
     file_ops: file_ops::FileOps,
     /// The action after the queue finishes (T45).
     completion: completion::Completion,
+    /// The connection tabs (T61). The current tab's connection is
+    /// [`App::remote`] and its panes are the screen's; the others are parked
+    /// here.
+    tabs: tabs::Tabs,
 }
 
-/// The remote pane's connection (one tab until T61).
+/// A tab's connection.
 struct Remote {
     session: SessionId,
     info: ConnectInfo,
@@ -306,6 +310,7 @@ impl App {
             restore_archive: None,
             file_ops: file_ops::FileOps::default(),
             completion: completion::Completion::default(),
+            tabs: tabs::Tabs::default(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -381,6 +386,7 @@ impl App {
             }
         }
         tui.exit()?;
+        self.save_tabs().await;
         self.update_cancel.cancel();
         self.transfers.shutdown().await;
         if let Some(log) = self.diag.session_log() {
@@ -459,6 +465,7 @@ impl App {
         self.transfer_action(&action);
         self.file_op_action(&action);
         self.completion_action(&action);
+        self.tab_action(&action);
         match &action {
             Action::Tick => {
                 self.expire_splash(Instant::now());
@@ -549,29 +556,60 @@ impl App {
             Action::QuitNow => self.should_quit = true,
             Action::Suspend => self.should_suspend = true,
             Action::Resume => self.should_suspend = false,
-            Action::Connect { request, replace } => {
-                self.connect((**request).clone(), *replace);
+            Action::Connect { request, target } => {
+                self.connect((**request).clone(), *target);
             }
-            Action::Connected { session, result } => self.connected(*session, result),
+            Action::Connected { session, result } => {
+                // A late result for a closed tab (or a replaced attempt) is
+                // dropped.
+                if let Some(i) = self.tab_of_session(*session) {
+                    self.with_tab(i, |app| app.connected(*session, result));
+                }
+            }
             Action::RemoteListingLoaded {
                 session,
                 dir,
                 tree,
                 result,
             } => {
-                if self.current_session() == Some(*session) {
-                    self.action_tx.send(if *tree {
-                        Action::TreeListingLoaded {
-                            side: Side::Remote,
-                            dir: dir.clone(),
-                            result: result.clone(),
-                        }
-                    } else {
-                        Action::ListingLoaded {
-                            side: Side::Remote,
-                            result: result.clone(),
-                        }
-                    })?;
+                if let Some(i) = self.tab_of_session(*session) {
+                    self.deliver_to_tab(
+                        i,
+                        if *tree {
+                            Action::TreeListingLoaded {
+                                side: Side::Remote,
+                                dir: dir.clone(),
+                                result: result.clone(),
+                            }
+                        } else {
+                            Action::ListingLoaded {
+                                side: Side::Remote,
+                                result: result.clone(),
+                            }
+                        },
+                    );
+                }
+            }
+            Action::LocalListingLoaded {
+                tab,
+                tree_dir,
+                result,
+            } => {
+                if let Some(i) = self.tab_index(*tab) {
+                    self.deliver_to_tab(
+                        i,
+                        match tree_dir {
+                            Some(dir) => Action::TreeListingLoaded {
+                                side: Side::Local,
+                                dir: dir.clone(),
+                                result: result.clone(),
+                            },
+                            None => Action::ListingLoaded {
+                                side: Side::Local,
+                                result: result.clone(),
+                            },
+                        },
+                    );
                 }
             }
             Action::Disconnect => {
@@ -587,14 +625,16 @@ impl App {
                 history.first().map(|item| item.request.clone())
             }) {
                 // A site: its saved credentials, read again.
-                Some(ConnectRequest { site: Some(id), .. }) => self.connect_site(id),
+                Some(ConnectRequest { site: Some(id), .. }) => {
+                    self.connect_site(id, ConnectTarget::Current);
+                }
                 Some(request) => self.start_connect(request),
                 None => self.screen.flash("No server to reconnect to"),
             },
             Action::QuickconnectHistory => self.show_history(),
             Action::HistoryPicked(request) => {
                 self.screen.quickconnect_mut().fill(request);
-                self.connect((**request).clone(), false);
+                self.connect((**request).clone(), ConnectTarget::Ask);
             }
             Action::ClearHistory => self.clear_history(),
             Action::HistoryLoaded(items) => {
@@ -664,6 +704,7 @@ impl App {
         for next in self.screen.take_actions() {
             self.action_tx.send(next)?;
         }
+        self.refresh_tabs();
         Ok(())
     }
 
@@ -699,6 +740,7 @@ impl App {
         }
         let tx = self.action_tx.clone();
         let cache = self.cache.clone();
+        let tab = self.tabs.current_id();
         tokio::spawn(async move {
             let mut backend = LocalBackend::new();
             let cancel = CancellationToken::new();
@@ -713,9 +755,10 @@ impl App {
             }
             .await
             .map_err(|e| e.to_string());
-            let _ = tx.send(match requested.filter(|_| tree) {
-                Some(dir) => Action::TreeListingLoaded { side, dir, result },
-                None => Action::ListingLoaded { side, result },
+            let _ = tx.send(Action::LocalListingLoaded {
+                tab,
+                tree_dir: requested.filter(|_| tree),
+                result,
             });
         });
     }
@@ -768,45 +811,20 @@ impl App {
             self.diag.record(msg);
         }
         if let events::CoreEvent::ListingUpdated { session, dir } = &event {
-            let side = if self.current_session() == Some(*session) {
-                Side::Remote
-            } else {
-                Side::Local
+            let side = match self.tab_of_session(*session) {
+                // A background tab catches up from the cache when shown.
+                Some(i) if i != self.tabs.active => None,
+                Some(_) => Some(Side::Remote),
+                None => Some(Side::Local),
             };
-            self.screen.tree_mut(side).invalidate(dir);
-            self.listing_patched(side, dir);
+            if let Some(side) = side {
+                self.screen.tree_mut(side).invalidate(dir);
+                self.listing_patched(side, dir);
+            }
         }
         self.file_op_event(&event);
         self.transfer_event(&event);
         self.screen.handle_core(event);
-    }
-
-    /// Quickconnect: connect the remote pane, asking first when that closes
-    /// a connection (unless `replace`).
-    fn connect(&mut self, request: ConnectRequest, replace: bool) {
-        let Some(remote) = self.remote.as_ref().filter(|_| !replace) else {
-            self.start_connect(request);
-            return;
-        };
-        let (modal, rx) = crate::ui::dialog::confirm(
-            "Replace connection",
-            &format!(
-                "Disconnect from {} and connect to {}?",
-                server_label(&remote.info.address),
-                server_label(&request.info.address)
-            ),
-            true,
-        );
-        self.screen.push_modal(modal);
-        let tx = self.action_tx.clone();
-        tokio::spawn(async move {
-            if let Ok(true) = rx.await {
-                let _ = tx.send(Action::Connect {
-                    request: Box::new(request),
-                    replace: true,
-                });
-            }
-        });
     }
 
     /// Close any connection and open one for `request` in the background;
@@ -815,7 +833,11 @@ impl App {
         if self.remote.is_some() {
             self.disconnect();
         }
+        if let Some(dir) = request.local_dir.clone() {
+            self.list(Side::Local, Some(dir), false, false);
+        }
         let session = SessionId::next();
+        self.tabs.connecting(session);
         let c = &self.settings.connection;
         let keepalive = c
             .keepalive
@@ -907,6 +929,7 @@ impl App {
                 }
             }
             Err(e) => {
+                self.tabs.failed();
                 let label = server_label(&remote.info.address);
                 self.events_tx.log(
                     session,
@@ -1200,6 +1223,7 @@ impl App {
             view.unlocked(self.site_snapshot.clone());
         }
         self.restore_queue();
+        self.restore_tabs();
         if let Some(menu) = self.screen.bookmarks_mut() {
             menu.unlocked();
         }
@@ -1252,8 +1276,8 @@ impl App {
         self.events_tx
             .log(self.local_session, LogKind::Status, "Vault locked");
         self.screen.flash("Vault locked");
-        if self.settings.vault.lock_disconnects && self.remote.is_some() {
-            self.disconnect();
+        if self.settings.vault.lock_disconnects {
+            self.disconnect_all();
         }
     }
 
@@ -1380,9 +1404,10 @@ impl App {
 
     /// Run a Site Manager operation in the background.
     fn site_op(&mut self, op: SiteOp) {
-        if let SiteOp::Connect(id) = op {
-            self.connect_site(id);
-            return;
+        match op {
+            SiteOp::Connect(id) => return self.connect_site(id, ConnectTarget::Ask),
+            SiteOp::ConnectInNewTab(id) => return self.connect_site(id, ConnectTarget::NewTab),
+            _ => {}
         }
         let slot = Arc::clone(&self.sites);
         let cost = self
@@ -1452,35 +1477,31 @@ impl App {
         });
     }
 
-    /// Connect the remote pane to a saved site: its default local directory
-    /// opens first, then the connection with its remote directory, and
-    /// synchronized browsing / comparison once connected (T66).
-    fn connect_site(&mut self, id: ItemId) {
+    /// Connect a tab (as `target` says) to a saved site: its default local
+    /// directory opens first, then the connection with its remote
+    /// directory, and synchronized browsing / comparison once connected
+    /// (T66).
+    fn connect_site(&mut self, id: ItemId, target: ConnectTarget) {
         self.screen.close_site_manager();
         let slot = Arc::clone(&self.sites);
         let tx = self.action_tx.clone();
         tokio::spawn(async move {
             match crate::sites::connect(&slot, id).await {
                 Ok(site) => {
-                    if let Some(local) = &site.local_dir
-                        && let Ok(dir) = courier_ftp_core::local::local_to_remote(local.as_path())
-                    {
-                        let _ = tx.send(Action::ListDir {
-                            side: Side::Local,
-                            dir,
-                            force: false,
-                        });
-                    }
+                    let local_dir = site.local_dir.as_ref().and_then(|local| {
+                        courier_ftp_core::local::local_to_remote(local.as_path()).ok()
+                    });
                     let request = ConnectRequest {
                         info: site.info,
                         path: site.remote_dir,
                         sync_browsing: site.sync_browsing,
                         compare: site.directory_comparison,
                         site: Some(id),
+                        local_dir,
                     };
                     let _ = tx.send(Action::Connect {
                         request: Box::new(request),
-                        replace: false,
+                        target,
                     });
                 }
                 Err(e) => {
@@ -1523,7 +1544,9 @@ mod completion;
 mod file_ops;
 mod search;
 mod settings;
+mod tabs;
 pub(crate) use file_ops::FileOpMsg;
+pub(crate) use tabs::SavedTab;
 
 #[cfg(test)]
 mod bookmark_tests;
@@ -1551,6 +1574,8 @@ mod site_tests;
 mod sync_tests;
 #[cfg(feature = "sync")]
 mod sync_ui;
+#[cfg(test)]
+mod tab_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

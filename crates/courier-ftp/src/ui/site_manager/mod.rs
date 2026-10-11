@@ -30,8 +30,9 @@ use ratatui::{
 use secrecy::SecretString;
 use tokio::sync::oneshot;
 
+use editor::EditorKey;
 pub(crate) use editor::FieldId;
-use editor::{EditorKey, color_style};
+pub(crate) use editor::color_style;
 pub(crate) use picker::{score, site_paths, site_picker};
 
 use super::{
@@ -53,7 +54,7 @@ pub(crate) const TREE_HINTS: &str = "n new · f folder · d dup · r rename · x
 pub(crate) const EDITOR_HINTS: &str =
     "Tab next field · [ ] or ^PgUp/^PgDn tabs · ^s save · Alt-c connect · Esc back to the tree";
 
-const BUTTONS: [&str; 5] = ["Connect", "Save", "Import…", "Export…", "Close"];
+const BUTTONS: [&str; 6] = ["Connect", "New tab", "Save", "Import…", "Export…", "Close"];
 
 /// What the screen needs from the settings and the system.
 #[derive(Debug, Clone, Default)]
@@ -87,7 +88,8 @@ enum Cmd {
     Paste,
     Import,
     Export,
-    Connect(ItemId),
+    /// Connect; `true`: in a new tab (T61).
+    Connect(ItemId, bool),
 }
 
 type Then = Box<dyn FnOnce(&mut SiteManagerView) + Send>;
@@ -268,7 +270,7 @@ impl SiteManagerView {
     }
 
     fn request(&mut self, op: SiteOp) {
-        if !matches!(op, SiteOp::Connect(_)) {
+        if !matches!(op, SiteOp::Connect(_) | SiteOp::ConnectInNewTab(_)) {
             self.busy = true;
         }
         self.requests.push(op);
@@ -452,7 +454,7 @@ impl SiteManagerView {
             Cmd::Select(id) => id == editing,
             // Deleting the unsaved new site just drops it.
             Cmd::Delete => pending_new && self.selected == editing,
-            Cmd::Import | Cmd::Export | Cmd::Connect(_) | Cmd::NewFolder => true,
+            Cmd::Import | Cmd::Export | Cmd::Connect(..) | Cmd::NewFolder => true,
             _ => false,
         };
         if keeps_editor || !self.dirty() {
@@ -509,8 +511,12 @@ impl SiteManagerView {
             Cmd::Paste => self.paste(),
             Cmd::Import => self.import(),
             Cmd::Export => self.export(),
-            Cmd::Connect(id) => {
-                self.request(SiteOp::Connect(id));
+            Cmd::Connect(id, new_tab) => {
+                self.request(if new_tab {
+                    SiteOp::ConnectInNewTab(id)
+                } else {
+                    SiteOp::Connect(id)
+                });
                 self.closed = true;
             }
         }
@@ -690,8 +696,9 @@ impl SiteManagerView {
         self.request(SiteOp::Save(Box::new(site)));
     }
 
-    /// Connect to the selected site, saving first when it has changes.
-    fn connect(&mut self) {
+    /// Connect to the selected site (`new_tab`: in a new tab), saving first
+    /// when it has changes.
+    fn connect(&mut self, new_tab: bool) {
         let Some(id) = self.selected else {
             self.error("Select a site to connect to");
             return;
@@ -701,9 +708,9 @@ impl SiteManagerView {
             return;
         }
         if self.dirty() {
-            self.save(Some(Cmd::Connect(id)));
+            self.save(Some(Cmd::Connect(id, new_tab)));
         } else {
-            self.run(Cmd::Connect(id));
+            self.run(Cmd::Connect(id, new_tab));
         }
     }
 
@@ -992,10 +999,11 @@ impl SiteManagerView {
 
     fn press(&mut self, button: usize) {
         match button {
-            0 => self.connect(),
-            1 => self.save(None),
-            2 => self.guarded(Cmd::Import),
-            3 => self.guarded(Cmd::Export),
+            0 => self.connect(false),
+            1 => self.connect(true),
+            2 => self.save(None),
+            3 => self.guarded(Cmd::Import),
+            4 => self.guarded(Cmd::Export),
             _ => self.guarded(Cmd::Close),
         }
     }
@@ -1058,7 +1066,7 @@ impl SiteManagerView {
             }
             KeyCode::Enter => match current {
                 Some((id, Some(expanded), _)) => self.set_expanded(id, !expanded),
-                Some(_) => self.connect(),
+                Some(_) => self.connect(false),
                 None => {}
             },
             KeyCode::Tab => self.focus_editor(false),

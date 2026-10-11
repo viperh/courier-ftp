@@ -68,6 +68,8 @@ pub(crate) enum SiteOp {
     Delete(ItemId),
     /// Connect the remote pane to a site (the app handles it).
     Connect(ItemId),
+    /// Connect to a site in a new tab (T61; the app handles it).
+    ConnectInNewTab(ItemId),
     /// Import a FileZilla `sitemanager.xml` or a courier-ftp export.
     Import {
         path: PathBuf,
@@ -190,7 +192,9 @@ async fn apply(
         }
         SiteOp::Duplicate(id) => SiteOutcome::Created(sites.duplicate(id).await.map_err(text)?),
         SiteOp::Delete(id) => SiteOutcome::Deleted(sites.delete(id).await.map_err(text)?),
-        SiteOp::Connect(_) => return Err("connect is handled by the app".to_owned()),
+        SiteOp::Connect(_) | SiteOp::ConnectInNewTab(_) => {
+            return Err("connect is handled by the app".to_owned());
+        }
         SiteOp::Import { path, passphrase } => import_file(sites, path, passphrase, today).await?,
         SiteOp::Export {
             scope,

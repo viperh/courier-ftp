@@ -73,11 +73,8 @@ impl App {
                 });
             }
             Action::QueueAfterDue(action) => match action {
-                OnComplete::Disconnect => {
-                    if self.remote.is_some() {
-                        self.disconnect();
-                    }
-                }
+                // Every tab's connection; the tabs stay.
+                OnComplete::Disconnect => self.disconnect_all(),
                 OnComplete::CloseApp => self.request_quit(),
                 _ => {}
             },
@@ -154,7 +151,7 @@ impl App {
     /// Disconnect or quit after a countdown the user can cancel.
     fn countdown(&mut self, action: OnComplete) {
         let what = match action {
-            OnComplete::Disconnect if self.remote.is_none() => return,
+            OnComplete::Disconnect if !self.any_connection() => return,
             OnComplete::Disconnect => "Disconnecting",
             _ => "Closing courier-ftp",
         };
