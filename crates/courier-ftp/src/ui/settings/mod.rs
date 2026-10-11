@@ -11,15 +11,26 @@
 //! password, keyring, stored host keys and certificates) also goes to the
 //! app as requests, answered with a [`SettingsReply`].
 //!
+//! *Import…* and *Export…* (T73) move the whole setup between machines:
+//! the dialogs pick the sections and the file, the app does the work
+//! (`crate::archive`) and answers with [`SettingsReply::ImportReady`] /
+//! [`SettingsReply::Imported`].
+//!
 //! Keys are fixed, like the dialogs': see [`HINTS`].
+//!
+//! The FTP page opens the network configuration wizard ([`wizard`], T72)
+//! over the screen. Its *Apply* saves only the `ftp.*` settings it set;
+//! other unsaved edits stay unsaved.
 
 mod pages;
 #[cfg(test)]
 mod tests;
+pub(crate) mod wizard;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use courier_ftp_core::{
+    archive::{ExportChoice, ImportChoice, Section as ArchiveSection, SettingsMode, SitesMode},
     settings::Settings,
     trust::{KnownHost, TrustedCertificate},
     vault::estimate,
@@ -37,9 +48,13 @@ use tokio::sync::oneshot;
 
 pub(crate) use pages::Section;
 use pages::{Command, Ctx, Page, RowKind, SECTIONS};
+use wizard::{NetworkWizard, WizardOutcome, WizardReply, WizardRequest};
 
 use super::{
-    dialog::{ButtonRow, FieldOutcome, Form, FormDialog, TextInput, confirm, message},
+    dialog::{
+        ButtonRow, FieldOutcome, Form, FormDialog, LocalPathCompleter, PathInput, Select,
+        TextInput, confirm, message, prompt_password,
+    },
     modal::{Modal, ModalOutcome},
     theme::Theme,
 };
@@ -48,7 +63,14 @@ use super::{
 pub(crate) const HINTS: &str =
     "↑↓ sections · Tab next field · Esc back · ^s apply · Alt-o OK · Alt-c cancel";
 
-const BUTTONS: [&str; 4] = ["OK", "Apply", "Reset section", "Cancel"];
+const BUTTONS: [&str; 6] = [
+    "OK",
+    "Apply",
+    "Reset section",
+    "Import…",
+    "Export…",
+    "Cancel",
+];
 
 /// What the screen needs from the app besides the settings.
 #[derive(Debug, Clone, Default)]
@@ -59,6 +81,8 @@ pub(crate) struct SettingsOpts {
     pub(crate) default_log_file: String,
     /// Every binding: mode, keys, action.
     pub(crate) keybindings: Vec<(String, String, String)>,
+    /// The file the export and import dialogs suggest (T73).
+    pub(crate) backup_default: String,
 }
 
 /// The vault as the Security page shows it.
@@ -129,6 +153,21 @@ pub(crate) enum SettingsRequest {
     },
     SetKeyring(bool),
     LockNow,
+    /// The network configuration wizard needs something (T72).
+    Wizard(WizardRequest),
+    /// Open the sync panel over the settings screen (T90).
+    OpenSync,
+    /// Write a backup or plain settings file (T73).
+    Export(Box<crate::archive::ExportJob>),
+    /// Open an import file (the app keeps what it holds).
+    OpenImport {
+        path: PathBuf,
+        passphrase: Option<SecretString>,
+    },
+    /// Import these parts of the opened file.
+    Import(ImportChoice),
+    /// The user didn't import the opened file.
+    CancelImport,
 }
 
 /// The app's answer to a [`SettingsRequest`].
@@ -145,6 +184,30 @@ pub(crate) enum SettingsReply {
         certs: Trust<TrustedCertificate>,
     },
     Security(SecurityInfo),
+    /// For the network configuration wizard.
+    Wizard(WizardReply),
+    /// An import file is open: ask what to import.
+    ImportReady(Box<ImportPreview>),
+    /// The import file is a `.cftp-backup`: ask for its passphrase.
+    NeedPassphrase(PathBuf),
+    /// An import finished. `settings` are the new settings when they were
+    /// imported; `text` says what happened.
+    Imported {
+        settings: Option<Box<Settings>>,
+        text: String,
+        failed: bool,
+    },
+}
+
+/// What an opened import file holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImportPreview {
+    /// Each section with what it holds ("3 sites, 1 folder, …").
+    pub(crate) sections: Vec<(ArchiveSection, String)>,
+    /// What was skipped while reading (newer format).
+    pub(crate) warnings: Vec<String>,
+    /// The folder sites go into when not restored in place.
+    pub(crate) folder: String,
 }
 
 /// Which part of the screen has the keys.
@@ -191,6 +254,10 @@ pub(crate) struct SettingsView {
     message: Option<(String, bool)>,
     /// A save is running: the draft it saves, and whether to close after.
     saving: Option<(Box<Settings>, bool)>,
+    /// The running save includes the typed proxy passwords.
+    saving_passwords: bool,
+    /// The network configuration wizard, when open.
+    wizard: Option<Box<NetworkWizard>>,
     closed: bool,
 }
 
@@ -215,6 +282,8 @@ impl SettingsView {
             requests: Vec::new(),
             message: None,
             saving: None,
+            saving_passwords: false,
+            wizard: None,
             closed: false,
         };
         view.rebuild();
@@ -301,7 +370,9 @@ impl SettingsView {
                     self.saved = *settings;
                     self.closed = close;
                 }
-                self.proxy_passwords.clear();
+                if std::mem::take(&mut self.saving_passwords) {
+                    self.proxy_passwords.clear();
+                }
                 self.message = Some(("Settings saved".to_owned(), false));
                 self.rebuild_keep_focus();
             }
@@ -323,7 +394,105 @@ impl SettingsView {
                     self.rebuild_keep_focus();
                 }
             }
+            SettingsReply::Wizard(reply) => {
+                if let Some(w) = self.wizard.as_mut() {
+                    w.apply_reply(reply.clone());
+                }
+                self.pump_wizard();
+            }
+            SettingsReply::ImportReady(preview) => self.choose_import(preview),
+            SettingsReply::NeedPassphrase(path) => {
+                let path = path.clone();
+                let (modal, rx) = prompt_password("Encrypted backup", "Passphrase");
+                self.overlay(modal, rx, move |view, pass: Option<SecretString>| {
+                    if let Some(passphrase) = pass {
+                        view.requests.push(SettingsRequest::OpenImport {
+                            path,
+                            passphrase: Some(passphrase),
+                        });
+                        view.message = Some(("Opening the backup…".to_owned(), false));
+                    } else {
+                        view.message = None;
+                    }
+                });
+            }
+            SettingsReply::Imported {
+                settings,
+                text,
+                failed,
+            } => {
+                if let Some(settings) = settings {
+                    self.saved = (**settings).clone();
+                    self.draft = (**settings).clone();
+                    self.proxy_passwords.clear();
+                    self.rebuild_keep_focus();
+                }
+                let first = text.lines().next().unwrap_or_default().to_owned();
+                self.message = Some((first, *failed));
+                let (modal, rx) = message("Import", text);
+                self.overlay(modal, rx, |_, ()| {});
+            }
         }
+    }
+
+    /// The wizard, when open.
+    #[cfg(test)]
+    pub(crate) fn wizard(&self) -> Option<&NetworkWizard> {
+        self.wizard.as_deref()
+    }
+
+    fn open_wizard(&mut self) {
+        self.refresh();
+        self.wizard = Some(Box::new(NetworkWizard::new(&self.draft)));
+        self.pump_wizard();
+    }
+
+    /// Pass the wizard's requests on and handle how it ended.
+    fn pump_wizard(&mut self) {
+        let Some(w) = self.wizard.as_mut() else {
+            return;
+        };
+        let requests = w.take_requests();
+        let outcome = w.take_outcome();
+        self.requests
+            .extend(requests.into_iter().map(SettingsRequest::Wizard));
+        match outcome {
+            None => {}
+            Some(WizardOutcome::Cancel) => self.wizard = None,
+            Some(WizardOutcome::Apply(ftp)) => {
+                self.wizard = None;
+                self.save_network(ftp);
+            }
+        }
+    }
+
+    /// The wizard's *Apply*: the `ftp.*` settings go into the draft and are
+    /// saved on their own (other unsaved edits stay unsaved).
+    fn save_network(&mut self, ftp: courier_ftp_core::settings::FtpSettings) {
+        self.draft.ftp = ftp.clone();
+        if self.section == Section::Ftp {
+            self.rebuild_keep_focus();
+        }
+        if self.saving.is_some() {
+            self.message = Some((
+                "A save is running; save again (Ctrl+S) to keep the network settings".to_owned(),
+                true,
+            ));
+            return;
+        }
+        let mut settings = self.saved.clone();
+        settings.ftp = ftp;
+        if settings == self.saved {
+            self.message = Some(("The network settings are unchanged".to_owned(), false));
+            return;
+        }
+        let settings = Box::new(settings);
+        self.saving = Some((settings.clone(), false));
+        self.saving_passwords = false;
+        self.requests.push(SettingsRequest::Save {
+            settings,
+            proxy_passwords: Vec::new(),
+        });
     }
 
     // ---- page state
@@ -477,6 +646,7 @@ impl SettingsView {
             .collect();
         proxy_passwords.sort_by_key(|(t, _)| *t == ProxyTarget::Ftp);
         self.saving = Some((settings.clone(), close));
+        self.saving_passwords = true;
         self.requests.push(SettingsRequest::Save {
             settings,
             proxy_passwords,
@@ -522,8 +692,220 @@ impl SettingsView {
             0 => self.save(true),
             1 => self.save(false),
             2 => self.reset_section(),
+            3 => self.import(),
+            4 => self.export(),
             _ => self.cancel(),
         }
+    }
+
+    // ---- import / export (T73)
+
+    /// Import and export work on saved settings.
+    fn refuse_while_dirty(&mut self, what: &str) -> bool {
+        if self.is_dirty() {
+            self.message = Some((format!("Apply or cancel your changes before {what}"), true));
+        }
+        self.is_dirty()
+    }
+
+    fn export(&mut self) {
+        if self.refuse_while_dirty("exporting") {
+            return;
+        }
+        let form = Form::new(&["Export", "Cancel"])
+            .field(
+                "settings",
+                Toggle::on("Settings, keybindings, styles, filters"),
+            )
+            .field("sites", Toggle::on("Sites and bookmarks"))
+            .field("passwords", Toggle::on("  with passwords and SSH keys"))
+            .field("history", Toggle::on("Connection history"))
+            .field("trust", Toggle::on("Trusted host keys and certificates"))
+            .field("queue", Toggle::on("Transfer queue"))
+            .field(
+                "format",
+                Select::new(
+                    "Format:",
+                    vec![
+                        "Encrypted backup (.cftp-backup)".to_owned(),
+                        "Plain JSON: settings only, no secrets".to_owned(),
+                    ],
+                    0,
+                ),
+            )
+            .field(
+                "file",
+                PathInput::new("File:", Box::new(LocalPathCompleter))
+                    .with_value(&self.opts.backup_default),
+            )
+            .field("pass", TextInput::password("Passphrase:"))
+            .field("repeat", TextInput::password("Repeat:"))
+            .validate_with(|v| {
+                if v.text("file").trim().is_empty() {
+                    return Err("Choose a file".to_owned());
+                }
+                if v.index("format") == Some(1) {
+                    return Ok(());
+                }
+                let any = ["settings", "sites", "history", "trust", "queue"]
+                    .iter()
+                    .any(|k| v.bool(k));
+                if !any {
+                    return Err("Choose something to export".to_owned());
+                }
+                let pass = v.secret("pass");
+                let repeat = v.secret("repeat");
+                let pass = pass.as_ref().map(ExposeSecret::expose_secret);
+                if pass.is_none_or(str::is_empty) {
+                    return Err("The backup needs a passphrase".to_owned());
+                }
+                if pass != repeat.as_ref().map(ExposeSecret::expose_secret) {
+                    return Err("The passphrases don't match".to_owned());
+                }
+                Ok(())
+            });
+        let (dialog, rx) = FormDialog::new("Export settings and data", 72, form, |v| {
+            let plain = v.index("format") == Some(1);
+            let mut path = crate::diagnostics::expand_home(v.text("file").trim());
+            if plain
+                && path
+                    .extension()
+                    .is_some_and(|e| e == courier_ftp_core::vault::backup::EXTENSION)
+            {
+                path.set_extension("json");
+            }
+            let choice = if plain {
+                ExportChoice {
+                    settings: true,
+                    ..ExportChoice::default()
+                }
+            } else {
+                ExportChoice {
+                    settings: v.bool("settings"),
+                    sites: v.bool("sites"),
+                    passwords: v.bool("passwords"),
+                    history: v.bool("history"),
+                    trust: v.bool("trust"),
+                    queue: v.bool("queue"),
+                }
+            };
+            Ok(crate::archive::ExportJob {
+                choice,
+                plain,
+                path,
+                passphrase: (!plain).then(|| v.secret("pass")).flatten(),
+            })
+        });
+        self.overlay(Box::new(dialog), rx, |view, job| {
+            if let Some(job) = job {
+                view.message = Some(("Exporting…".to_owned(), false));
+                view.requests.push(SettingsRequest::Export(Box::new(job)));
+            }
+        });
+    }
+
+    fn import(&mut self) {
+        if self.refuse_while_dirty("importing") {
+            return;
+        }
+        let form = Form::new(&["Open", "Cancel"])
+            .field(
+                "file",
+                PathInput::new("File:", Box::new(LocalPathCompleter))
+                    .with_value(&self.opts.backup_default),
+            )
+            .field("pass", TextInput::password("Passphrase:"));
+        let (dialog, rx) = FormDialog::new(
+            "Import a .cftp-backup or a settings export",
+            72,
+            form,
+            |v| {
+                let file = v.text("file");
+                if file.trim().is_empty() {
+                    return Err("Choose a file".to_owned());
+                }
+                let pass = v.secret("pass").filter(|p| !p.expose_secret().is_empty());
+                Ok((crate::diagnostics::expand_home(file.trim()), pass))
+            },
+        );
+        self.overlay(Box::new(dialog), rx, |view, answer| {
+            if let Some((path, passphrase)) = answer {
+                view.message = Some(("Opening…".to_owned(), false));
+                view.requests
+                    .push(SettingsRequest::OpenImport { path, passphrase });
+            }
+        });
+    }
+
+    /// The file is open: choose the sections and how they come in.
+    fn choose_import(&mut self, preview: &ImportPreview) {
+        let mut form = Form::new(&["Import", "Cancel"]);
+        let mut sections = Vec::new();
+        for (section, text) in &preview.sections {
+            sections.push(*section);
+            form = form.field(
+                section.key(),
+                Toggle {
+                    text: format!("{}: {text}", section.title()),
+                    checked: true,
+                },
+            );
+            let how = match section {
+                ArchiveSection::Settings => vec![
+                    "Merge into the current settings".to_owned(),
+                    "Replace the current settings".to_owned(),
+                ],
+                ArchiveSection::Sites => vec![
+                    format!("Into a new folder “{}”", preview.folder),
+                    "Restore in place (same sites; newer changes win)".to_owned(),
+                ],
+                _ => continue,
+            };
+            form = form.field(
+                &format!("{}_mode", section.key()),
+                Select::new("    how:", how, 0),
+            );
+        }
+        let form = form.validate_with(|v| {
+            if ArchiveSection::ALL.iter().any(|s| v.bool(s.key())) {
+                Ok(())
+            } else {
+                Err("Choose something to import".to_owned())
+            }
+        });
+        let folder = preview.folder.clone();
+        let (dialog, rx) = FormDialog::new("Import", 76, form, move |v| {
+            let has = |s: ArchiveSection| sections.contains(&s) && v.bool(s.key());
+            Ok(ImportChoice {
+                settings: has(ArchiveSection::Settings).then(|| {
+                    if v.index("settings_mode") == Some(1) {
+                        SettingsMode::Replace
+                    } else {
+                        SettingsMode::Merge
+                    }
+                }),
+                sites: has(ArchiveSection::Sites).then(|| {
+                    if v.index("sites_mode") == Some(1) {
+                        SitesMode::Merge
+                    } else {
+                        SitesMode::NewFolder(folder.clone())
+                    }
+                }),
+                history: has(ArchiveSection::History),
+                trust: has(ArchiveSection::Trust),
+                queue: has(ArchiveSection::Queue),
+            })
+        });
+        self.message = preview.warnings.first().map(|w| (w.clone(), true));
+        self.overlay(Box::new(dialog), rx, |view, choice| {
+            if let Some(choice) = choice {
+                view.message = Some(("Importing…".to_owned(), false));
+                view.requests.push(SettingsRequest::Import(choice));
+            } else {
+                view.message = None;
+                view.requests.push(SettingsRequest::CancelImport);
+            }
+        });
     }
 
     fn overlay<T: Send + 'static>(
@@ -568,6 +950,8 @@ impl SettingsView {
                 }
             }
             Command::LockNow => self.requests.push(SettingsRequest::LockNow),
+            Command::NetworkWizard => self.open_wizard(),
+            Command::OpenSync => self.requests.push(SettingsRequest::OpenSync),
         }
     }
 
@@ -688,6 +1072,10 @@ impl SettingsView {
     // ---- keys
 
     pub(crate) fn handle_paste(&mut self, text: &str) {
+        if let Some(w) = self.wizard.as_mut() {
+            w.handle_paste(text);
+            return;
+        }
         if let Some(o) = self.overlay.as_mut() {
             o.modal.handle_paste(text);
             return;
@@ -701,6 +1089,11 @@ impl SettingsView {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
+        if let Some(w) = self.wizard.as_mut() {
+            w.handle_key(key);
+            self.pump_wizard();
+            return;
+        }
         if let Some(o) = self.overlay.as_mut() {
             if o.modal.handle_key(key) == ModalOutcome::Close
                 && let Some(o) = self.overlay.take()
@@ -882,6 +1275,9 @@ impl SettingsView {
         if let Some(o) = self.overlay.as_mut() {
             o.modal.draw(frame, area, theme);
         }
+        if let Some(w) = &self.wizard {
+            w.draw(frame, area, theme);
+        }
     }
 
     fn draw_sections(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -1029,6 +1425,57 @@ impl SettingsView {
         {
             widget.draw_overlay(frame, rect, theme);
         }
+    }
+}
+
+/// A checkbox drawn as `[x] text` in the field column, for labels too long
+/// for the form's label column (the import dialog's section lines).
+struct Toggle {
+    text: String,
+    checked: bool,
+}
+
+impl Toggle {
+    fn on(text: &str) -> Self {
+        Self {
+            text: text.to_owned(),
+            checked: true,
+        }
+    }
+}
+
+impl super::dialog::Field for Toggle {
+    fn label(&self) -> &str {
+        ""
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> FieldOutcome {
+        if key.code == KeyCode::Char(' ') {
+            self.checked = !self.checked;
+            FieldOutcome::Consumed
+        } else {
+            FieldOutcome::Ignored
+        }
+    }
+
+    fn draw(&self, frame: &mut Frame, area: Rect, focused: bool, theme: &Theme) {
+        let mark = if self.checked { "[x]" } else { "[ ]" };
+        let style = if focused {
+            theme.selection
+        } else {
+            ratatui::style::Style::new()
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(mark, style),
+                Span::raw(format!(" {}", self.text)),
+            ])),
+            area,
+        );
+    }
+
+    fn value(&self) -> super::dialog::FieldValue {
+        super::dialog::FieldValue::Bool(self.checked)
     }
 }
 

@@ -210,3 +210,41 @@ the section matching the tag.
   SFTP host keys and trusted TLS certificates; vault security actions (change
   master password, keyring unlock, lock now, auto-lock); built-in colour
   schemes (default, high contrast, monochrome).
+- Update check and splash (T74): weekly background check for new releases (opt
+  out with interface.check_updates, --no-update-check or
+  COURIER_FTP_NO_UPDATE_CHECK; interface.check_prereleases includes
+  prereleases) and an optional splash screen (interface.show_splash).
+- Teams and shared vaults (T89): organisations, members and invites (also at
+  registration), shared team vaults with signed key grants, read-only members,
+  key rotation on member removal (resumes after a crash), safety numbers with
+  key pinning, per-member credential overrides for shared sites, and copy/move
+  between vaults.
+- Sync screens (T90): sync panel (Ctrl-x y, or Settings → Sync) to register,
+  log in on another device with a duplicate preview, manage devices, change
+  the password, enable TOTP, recover and log out; sync status in the status
+  bar; vault recovery through the sync account on the Forgot-password page.
+- Search screen (T65): local and remote file search with FileZilla-style
+  conditions, live results as they are found, cancel, and result actions
+  (download or upload keeping the folder structure or flattened, delete with
+  confirmation, open the folder in the file list).
+- Network configuration wizard (T72, Settings → FTP): set up passive and
+  active mode step by step and test them against a saved site or an address,
+  with a ✔/✘ and a suggested fix for every step.
+- Settings import/export (T73): Settings → Import/Export moves a whole setup
+  between machines as an encrypted .cftp-backup (settings, sites and bookmarks
+  with optional passwords, history, trusted host keys and certificates,
+  transfer queue) or a plain settings JSON without secrets; imports can be
+  partial, and the first-run and Forgot-password screens can restore a backup.
+- File operations (T62): create folders, rename (asks before overwriting),
+  delete recursively with progress and change permissions (recursively,
+  files/folders only, per-bit) on local and remote panes, with listings and
+  directory trees kept up to date.
+- Queue completion actions (T45): show a message (with bell or desktop
+  notification), run a command (without a shell, totals in COURIER_FTP_*
+  variables), or disconnect or quit after a cancellable countdown, plus a
+  one-off override from the queue pane (a).
+- Teams UI (T90): create teams, invite people (email or link, also usable when
+  registering), verify members by safety number with a warning when a key
+  changes, share vaults with read/write/manage access, and see the audit log;
+  the Site Manager shows vault roots, locks read-only items 🔒, copies or moves
+  sites between vaults and keeps your own login for shared sites.

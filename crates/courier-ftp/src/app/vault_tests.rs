@@ -67,6 +67,20 @@ pub(super) async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> R
     rig
 }
 
+/// The sync screens wait for a background call (T90).
+fn sync_busy(app: &App) -> bool {
+    #[cfg(feature = "sync")]
+    return app
+        .screen
+        .sync_view()
+        .is_some_and(crate::ui::sync::SyncView::is_busy);
+    #[cfg(not(feature = "sync"))]
+    {
+        let _ = app;
+        false
+    }
+}
+
 impl Rig {
     /// Run actions, core events and vault results until nothing happens for
     /// a moment and no vault operation is still running. Opening the store
@@ -90,7 +104,8 @@ impl Rig {
                         || app
                             .screen
                             .bookmarks()
-                            .is_some_and(crate::ui::bookmarks::BookmarksMenu::is_busy);
+                            .is_some_and(crate::ui::bookmarks::BookmarksMenu::is_busy)
+                        || sync_busy(app);
                     assert!(
                         tokio::time::Instant::now() < deadline,
                         "vault operation still running after 30 s"
@@ -224,7 +239,7 @@ async fn first_run_then_every_start_asks_for_the_password() {
     }
 }
 
-async fn initialised(dir: &Path, keyring: &MemKeyring, enable_keyring: bool) {
+pub(super) async fn initialised(dir: &Path, keyring: &MemKeyring, enable_keyring: bool) {
     let rig = start(dir, keyring, config()).await;
     rig.engine()
         .initialize(&secrecy::SecretString::from(STRONG), enable_keyring)

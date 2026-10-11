@@ -13,12 +13,6 @@ use courier_ftp_core::{
 use super::App;
 use crate::{action::Action, ui::Side};
 
-/// `00:01:02`.
-fn hms(d: std::time::Duration) -> String {
-    let s = d.as_secs();
-    format!("{:02}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
-}
-
 impl App {
     /// The transfer-related part of [`App::dispatch`].
     pub(super) fn transfer_action(&mut self, action: &Action) {
@@ -120,23 +114,7 @@ impl App {
                     }
                 }
             }
-            CoreEvent::QueueFinished { stats } => {
-                let mut text = format!(
-                    "Queue finished: {} file{} transferred",
-                    stats.files_ok,
-                    if stats.files_ok == 1 { "" } else { "s" }
-                );
-                if stats.files_failed > 0 {
-                    text.push_str(&format!(", {} failed", stats.files_failed));
-                }
-                if stats.files_skipped > 0 {
-                    text.push_str(&format!(", {} skipped", stats.files_skipped));
-                }
-                text.push_str(&format!(" in {}", hms(stats.elapsed)));
-                self.events_tx
-                    .log(self.local_session, LogKind::Status, text.clone());
-                self.screen.flash(text);
-            }
+            CoreEvent::QueueFinished { stats } => self.queue_finished(stats),
             _ => {}
         }
     }

@@ -20,8 +20,22 @@ Guide users through FTP passive/active settings and test that they work.
 
 ## Acceptance criteria
 
-- [ ] Wizard steps navigable back/forward, cancel discards.
+- [x] Wizard steps navigable back/forward, cancel discards.
 - [ ] Test against vsftpd container reports passive ✔, active ✔ (local) and a blocked active port ✘ correctly.
+
+**Status (T72):** the test target is a saved FTP site or a typed address
+(no probe server is contacted). The probe is `courier_ftp_proto_ftp::probe`
+(connect, PASV address / server NAT check, passive LIST, external address /
+client NAT check, active LIST), tested against the in-process server; the
+Docker tests are `crates/courier-ftp-e2e/tests/network_wizard.rs` (written,
+not yet run: Docker isn't available locally; the box stays open until CI's
+e2e job passes them). The same three outcomes are verified against the
+in-process server. The wizard opens
+from the button at the end of Settings → FTP; *Apply* saves only `ftp.*`.
+With *Get from URL* the lookup runs against the user's URL (also for a
+LAN server, so the URL is checked); its tests use an in-process fake
+lookup server on 127.0.0.1. A real-terminal run (pyte, pyftpdlib) went
+through all five pages with passive ✔ and active ✔.
 
 ## Tests
 

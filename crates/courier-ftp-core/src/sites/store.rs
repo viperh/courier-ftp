@@ -217,6 +217,28 @@ impl SiteManager {
         self.add_folder_as(parent, name, ItemId::new()).await
     }
 
+    /// [`SiteManager::add_folder`] at the top level of `vault` (a team
+    /// vault root in the Site Manager, T90). Inside a folder the folder's
+    /// vault wins; `None` is the personal vault.
+    ///
+    /// # Errors
+    /// As [`SiteManager::add_folder`].
+    pub async fn add_folder_in(
+        &mut self,
+        parent: Option<ItemId>,
+        name: &str,
+        vault: Option<crate::model::item::VaultId>,
+    ) -> Result<ItemId, SiteError> {
+        let id = ItemId::new();
+        let mut folder = Folder::new(name);
+        folder.id = id;
+        folder.vault = self.vault_of(parent).or(vault);
+        let mut next = self.tree.clone();
+        next.insert(parent, SiteNode::Folder(folder))?;
+        self.commit(next, &[id]).await?;
+        Ok(id)
+    }
+
     /// [`SiteManager::add_folder`] with a given id (imports keep ids).
     pub(super) async fn add_folder_as(
         &mut self,
@@ -260,12 +282,16 @@ impl SiteManager {
             site.name = super::validate_name(&name)?;
             next.replace(SiteNode::Site(Box::new(site.clone())))?;
         } else {
-            site.vault = self.vault_of(site.parent);
+            // Inside a folder the folder's vault; at the top level the
+            // vault the caller chose (a team vault root, T90), else the
+            // personal vault.
+            site.vault = self.vault_of(site.parent).or(site.vault);
             site.created_at.get_or_insert_with(UnixMillis::now);
             site.read_only = false;
             let parent = site.parent;
             next.insert(parent, SiteNode::Site(Box::new(site.clone())))?;
         }
+        self.check_team_key(&site).await?;
         self.commit(next, &[site.id]).await?;
         Ok(issues)
     }
@@ -403,13 +429,115 @@ impl SiteManager {
     /// # Errors
     /// [`SiteError::NotFound`], [`SiteError::KeyMissing`],
     /// [`SiteError::Invalid`], [`SiteError::Vault`].
+    ///
+    /// A site in a team vault uses this member's credential override
+    /// ([`Self::credential_override`], [`Site::with_override`]) when there is
+    /// one.
     pub async fn connect(&self, id: ItemId) -> Result<SiteConnect, SiteError> {
         let site = self.tree.site(id).ok_or(SiteError::NotFound(id))?;
+        let overridden = self
+            .credential_override(id)
+            .await?
+            .map(|(_, ov)| site.with_override(&ov));
+        let site = overridden.as_ref().unwrap_or(site);
         let key = match site.vault_key_id() {
             Some(key_id) => Some(self.ssh_key(key_id).await?),
             None => None,
         };
         site.to_connect(key.as_ref())
+    }
+
+    /// Whether `vault` is a team vault (T89): known and not the personal
+    /// vault. `false` when the personal vault is unknown.
+    async fn is_team_vault(&self, vault: Option<crate::model::item::VaultId>) -> bool {
+        match (vault, self.vault.personal_vault().await) {
+            (Some(v), Some(p)) => v != p,
+            _ => false,
+        }
+    }
+
+    /// Refuses a team vault site that logs in with a vault SSH key of
+    /// another vault (T89 §6).
+    async fn check_team_key(&self, site: &Site) -> Result<(), SiteError> {
+        let Some(key) = site.vault_key_id() else {
+            return Ok(());
+        };
+        if !self.is_team_vault(site.vault).await {
+            return Ok(());
+        }
+        match self.vault.get(key).await? {
+            Some(item) if Some(item.vault_id) != site.vault => Err(SiteError::CrossVaultKey),
+            _ => Ok(()),
+        }
+    }
+
+    /// This member's credential override for the team vault site `site`
+    /// (T89 §6), with its item id: a `credential-override` item in the
+    /// personal vault keyed by the site's id. `None` for a site outside a
+    /// team vault or without one.
+    ///
+    /// # Errors
+    /// [`SiteError::Vault`].
+    pub async fn credential_override(
+        &self,
+        site: ItemId,
+    ) -> Result<Option<(ItemId, item::CredentialOverride)>, SiteError> {
+        let Some(node) = self.tree.site(site) else {
+            return Ok(None);
+        };
+        if !self.is_team_vault(node.vault).await {
+            return Ok(None);
+        }
+        let personal = self.vault.personal_vault().await;
+        Ok(self
+            .vault
+            .list_views::<item::CredentialOverride>()
+            .await?
+            .into_iter()
+            .find(|(it, ov)| ov.shared_site_id == site && Some(it.vault_id) == personal)
+            .map(|(it, ov)| (it.id, ov)))
+    }
+
+    /// Saves (or, when [`item::CredentialOverride::is_empty`], deletes) this
+    /// member's credential override for the team vault site `site`: kept in
+    /// the personal vault, so it syncs only to this account's devices. Its
+    /// `shared_site_id` is set to `site`; a key must be an `ssh-key` of the
+    /// personal vault.
+    ///
+    /// # Errors
+    /// [`SiteError::NotFound`], [`SiteError::NotShared`] (not a team vault
+    /// site, or a key from another vault), [`SiteError::KeyMissing`],
+    /// [`SiteError::Vault`].
+    pub async fn set_credential_override(
+        &mut self,
+        site: ItemId,
+        mut ov: item::CredentialOverride,
+    ) -> Result<(), SiteError> {
+        let node = self.tree.site(site).ok_or(SiteError::NotFound(site))?;
+        if !self.is_team_vault(node.vault).await {
+            return Err(SiteError::NotShared);
+        }
+        let existing = self.credential_override(site).await?.map(|(id, _)| id);
+        if ov.is_empty() {
+            if let Some(id) = existing {
+                self.vault.delete(id).await?;
+            }
+            return Ok(());
+        }
+        if let Some(key) = ov.key_id {
+            let item = self
+                .vault
+                .get(key)
+                .await?
+                .ok_or(SiteError::KeyMissing(key))?;
+            if Some(item.vault_id) != self.vault.personal_vault().await {
+                return Err(SiteError::NotShared);
+            }
+        }
+        ov.shared_site_id = site;
+        let id = existing.unwrap_or_else(ItemId::new);
+        self.vault.put_view(id, None, ov).await?;
+        Ok(())
     }
 
     /// The `ssh-key` items a key login can use (id and view), for the key

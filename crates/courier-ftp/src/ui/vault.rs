@@ -25,7 +25,7 @@ use ratatui::{
 use secrecy::SecretString;
 
 use super::{
-    dialog::{ButtonRow, Checkbox, Field, TextInput},
+    dialog::{ButtonRow, Checkbox, Field, Form, FormOutcome, FormValues, TextInput},
     modal::centered,
     theme::Theme,
 };
@@ -47,8 +47,27 @@ pub(crate) enum VaultRequest {
     Retry,
     /// Move the database aside and start a new empty vault.
     NewVault,
+    /// Open a `.cftp-backup` to restore once the vault is created (T73).
+    OpenBackup {
+        path: std::path::PathBuf,
+        passphrase: SecretString,
+    },
     /// Quit courier-ftp.
     Quit,
+    /// "Forgot password?" on a device with a sync account: mail a recovery
+    /// code (T90). Never sent without feature `sync`.
+    #[cfg_attr(not(feature = "sync"), allow(dead_code))]
+    SendRecoveryCode { server: String, email: String },
+    /// Reset the account and master password with the recovery code and
+    /// the 24-word recovery key, re-keying this vault (T87/T90).
+    #[cfg_attr(not(feature = "sync"), allow(dead_code))]
+    Recover {
+        server: String,
+        email: String,
+        code: SecretString,
+        words: SecretString,
+        password: SecretString,
+    },
 }
 
 impl std::fmt::Debug for VaultRequest {
@@ -61,7 +80,10 @@ impl std::fmt::Debug for VaultRequest {
             Self::Skip => "Skip",
             Self::Retry => "Retry",
             Self::NewVault => "NewVault",
+            Self::OpenBackup { .. } => "OpenBackup",
             Self::Quit => "Quit",
+            Self::SendRecoveryCode { .. } => "SendRecoveryCode",
+            Self::Recover { .. } => "Recover",
         })
     }
 }
@@ -75,7 +97,7 @@ pub(crate) struct VaultFacts {
     pub(crate) keyring_available: bool,
     /// This device is signed in to a sync account (`VaultStatus::sync_account`,
     /// T87): a forgotten password can be reset with the recovery code and the
-    /// 24 words (the screens are T90).
+    /// 24 words (T90).
     pub(crate) sync_account: bool,
 }
 
@@ -90,6 +112,28 @@ pub(crate) enum VaultPage {
     Forgot,
     Reset,
     NewVault,
+    Recover,
+    Restore,
+}
+
+/// "Restore from a .cftp-backup": the file and its passphrase (T73).
+struct RestoreForm {
+    file: TextInput,
+    passphrase: TextInput,
+    buttons: ButtonRow,
+    /// 0 file, 1 passphrase, 2 buttons.
+    focus: usize,
+}
+
+impl RestoreForm {
+    fn new() -> Self {
+        Self {
+            file: TextInput::new("Backup file"),
+            passphrase: TextInput::password("Passphrase"),
+            buttons: ButtonRow::new(&["Open backup", "Back"], 0),
+            focus: 0,
+        }
+    }
 }
 
 /// The two-password form of first run and the keyring reset.
@@ -165,6 +209,7 @@ impl PasswordForm {
 /// Up/down list of the recovery options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ForgotOption {
+    SyncRecovery,
     KeyringReset,
     RestoreBackup,
     NewVault,
@@ -174,6 +219,7 @@ enum ForgotOption {
 impl ForgotOption {
     fn label(self) -> &'static str {
         match self {
+            Self::SyncRecovery => "Reset it with the sync account's recovery key (24 words)",
             Self::KeyringReset => "Unlock with the system keyring and set a new password",
             Self::RestoreBackup => "Restore from a .cftp-backup file",
             Self::NewVault => "Start a new empty vault (the old database is moved aside)",
@@ -200,6 +246,13 @@ enum Page {
     },
     Reset(PasswordForm),
     NewVault(ButtonRow),
+    /// Recovery with the sync account's recovery code and 24 words.
+    Recover {
+        form: Form,
+        buttons: ButtonRow,
+        on_buttons: bool,
+    },
+    Restore(RestoreForm),
 }
 
 /// The vault screens (see the module docs).
@@ -219,6 +272,14 @@ pub(crate) struct VaultView {
     retry_at: Option<Instant>,
     unicode: bool,
     tick: u64,
+    /// The sync account's server and email, to prefill recovery.
+    recovery_server: String,
+    recovery_email: String,
+    /// What the opened backup holds, restored once the vault is created.
+    backup: Option<Vec<String>>,
+    /// "Forgot password? → Restore": show the restore form after the old
+    /// database is moved aside.
+    restore_next: bool,
 }
 
 const LABEL_W: u16 = 18;
@@ -239,7 +300,54 @@ impl VaultView {
             retry_at: None,
             unicode,
             tick: 0,
+            recovery_server: String::new(),
+            recovery_email: String::new(),
+            backup: None,
+            restore_next: false,
         }
+    }
+
+    /// The sync account this locked device belongs to (prefills recovery).
+    #[cfg(feature = "sync")]
+    pub(crate) fn set_recovery_defaults(&mut self, server: Option<String>, email: Option<String>) {
+        self.recovery_server = server.unwrap_or_default();
+        self.recovery_email = email.unwrap_or_default();
+    }
+
+    /// Whether this device has a sync account changed while it ran (a
+    /// registration, login or logout): "Forgot password?" follows.
+    #[cfg(feature = "sync")]
+    pub(crate) fn set_sync_account(&mut self, account: bool) {
+        self.facts.sync_account = account;
+    }
+
+    fn recover_page(&mut self) {
+        let form = Form::new(&[])
+            .field(
+                "server",
+                TextInput::new("Server URL").with_value(&self.recovery_server),
+            )
+            .field(
+                "email",
+                TextInput::new("Email").with_value(&self.recovery_email),
+            )
+            .field(
+                "code",
+                TextInput::sensitive("Recovery code").with_placeholder("from the email"),
+            )
+            .field(
+                "words",
+                TextInput::sensitive("Recovery key").with_placeholder("the 24 words"),
+            )
+            .field("password", TextInput::password("New password"))
+            .field("confirm", TextInput::password("Confirm"));
+        self.page = Page::Recover {
+            form,
+            buttons: ButtonRow::new(&["Send code", "Reset password", "Back"], 0),
+            on_buttons: false,
+        };
+        self.error = None;
+        self.note = None;
     }
 
     #[cfg(test)]
@@ -252,6 +360,8 @@ impl VaultView {
             Page::Forgot { .. } => VaultPage::Forgot,
             Page::Reset(_) => VaultPage::Reset,
             Page::NewVault(_) => VaultPage::NewVault,
+            Page::Recover { .. } => VaultPage::Recover,
+            Page::Restore(_) => VaultPage::Restore,
         }
     }
 
@@ -277,12 +387,34 @@ impl VaultView {
     /// First run.
     pub(crate) fn show_create(&mut self, facts: VaultFacts) {
         self.facts = facts;
-        self.page = Page::Create(PasswordForm::new(
-            facts.keyring_available,
-            &["Set password", "Continue without vault"],
-        ));
+        self.create_page();
+        if std::mem::take(&mut self.restore_next) {
+            self.page = Page::Restore(RestoreForm::new());
+        }
         self.busy = None;
         self.error = None;
+    }
+
+    fn create_page(&mut self) {
+        self.page = Page::Create(PasswordForm::new(
+            self.facts.keyring_available,
+            &["Set password", "Restore backup…", "Continue without vault"],
+        ));
+    }
+
+    /// The backup chosen on the restore page opened: back to the first-run
+    /// form, which now says what will be restored.
+    pub(crate) fn backup_ready(&mut self, contents: &[String]) {
+        self.backup = Some(contents.to_vec());
+        self.create_page();
+        self.busy = None;
+        self.error = None;
+    }
+
+    /// A backup is waiting for the vault to be created.
+    #[cfg(test)]
+    pub(crate) fn has_backup(&self) -> bool {
+        self.backup.is_some()
     }
 
     /// The unlock view (also the lock overlay). `retry_after` is the backoff
@@ -312,6 +444,9 @@ impl VaultView {
 
     fn forgot_page(&mut self) {
         let mut options = Vec::new();
+        if self.facts.sync_account && cfg!(feature = "sync") {
+            options.push(ForgotOption::SyncRecovery);
+        }
         if self.facts.keyring_enabled {
             options.push(ForgotOption::KeyringReset);
         }
@@ -391,6 +526,16 @@ impl VaultView {
                 ..
             } => password.handle_paste(text),
             Page::Create(form) | Page::Reset(form) => form.handle_paste(text),
+            Page::Recover {
+                form,
+                on_buttons: false,
+                ..
+            } => form.handle_paste(text),
+            Page::Restore(form) => match form.focus {
+                0 => form.file.handle_paste(text),
+                1 => form.passphrase.handle_paste(text),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -425,6 +570,7 @@ impl VaultView {
                     }
                     KeyCode::Esc => self.unlock_page(),
                     KeyCode::Enter => match options.get(*cursor).copied() {
+                        Some(ForgotOption::SyncRecovery) => self.recover_page(),
                         Some(ForgotOption::KeyringReset) => {
                             self.page = Page::Reset(PasswordForm::new(
                                 false,
@@ -432,17 +578,14 @@ impl VaultView {
                             ));
                             self.error = None;
                         }
-                        Some(ForgotOption::RestoreBackup) => {
-                            self.error = Some(
-                                "Restoring a .cftp-backup is not available in this build yet (T73)."
-                                    .to_owned(),
-                            );
-                        }
-                        Some(ForgotOption::NewVault) => {
-                            self.page = Page::NewVault(ButtonRow::new(
-                                &["Move it aside and start over", "Back"],
-                                1,
-                            ));
+                        Some(option @ (ForgotOption::RestoreBackup | ForgotOption::NewVault)) => {
+                            self.restore_next = option == ForgotOption::RestoreBackup;
+                            let yes = if self.restore_next {
+                                "Move it aside and restore"
+                            } else {
+                                "Move it aside and start over"
+                            };
+                            self.page = Page::NewVault(ButtonRow::new(&[yes, "Back"], 1));
                             self.error = None;
                         }
                         Some(ForgotOption::Back) | None => self.unlock_page(),
@@ -451,8 +594,10 @@ impl VaultView {
                 }
                 None
             }
+            Page::Recover { .. } => self.recover_key(key),
             Page::NewVault(buttons) => {
                 if key.code == KeyCode::Esc {
+                    self.restore_next = false;
                     self.forgot_page();
                     return None;
                 }
@@ -462,11 +607,71 @@ impl VaultView {
                         Some(VaultRequest::NewVault)
                     }
                     Some(_) => {
+                        self.restore_next = false;
                         self.forgot_page();
                         None
                     }
                     None => None,
                 }
+            }
+            Page::Restore(_) => self.restore_key(key),
+        }
+    }
+
+    fn restore_key(&mut self, key: KeyEvent) -> Option<VaultRequest> {
+        let Page::Restore(form) = &mut self.page else {
+            return None;
+        };
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let pressed = if alt {
+            form.buttons.handle_key(key)
+        } else {
+            match key.code {
+                KeyCode::Tab | KeyCode::Down => {
+                    form.focus = (form.focus + 1) % 3;
+                    None
+                }
+                KeyCode::BackTab | KeyCode::Up => {
+                    form.focus = (form.focus + 2) % 3;
+                    None
+                }
+                KeyCode::Esc => Some(1),
+                _ if form.focus == 2 => form.buttons.handle_key(key),
+                KeyCode::Enter => Some(0),
+                _ => {
+                    if form.focus == 0 {
+                        form.file.handle_key(key);
+                    } else {
+                        form.passphrase.handle_key(key);
+                    }
+                    None
+                }
+            }
+        };
+        match pressed? {
+            0 => {
+                let file = form.file.text();
+                if file.trim().is_empty() {
+                    self.error = Some("Enter the backup file.".to_owned());
+                    return None;
+                }
+                if form.passphrase.is_empty() {
+                    self.error = Some("Enter the backup's passphrase.".to_owned());
+                    return None;
+                }
+                let passphrase = form.passphrase.secret();
+                form.passphrase.clear();
+                self.busy = Some("Opening the backup…".to_owned());
+                self.error = None;
+                Some(VaultRequest::OpenBackup {
+                    path: crate::diagnostics::expand_home(file.trim()),
+                    passphrase,
+                })
+            }
+            _ => {
+                self.create_page();
+                self.error = None;
+                None
             }
         }
     }
@@ -522,6 +727,79 @@ impl VaultView {
                 Some(VaultRequest::Unlock(secret))
             }
             1 => Some(VaultRequest::Skip),
+            _ => {
+                self.forgot_page();
+                None
+            }
+        }
+    }
+
+    fn recover_key(&mut self, key: KeyEvent) -> Option<VaultRequest> {
+        let Page::Recover {
+            form,
+            buttons,
+            on_buttons,
+        } = &mut self.page
+        else {
+            return None;
+        };
+        if key.code == KeyCode::Esc {
+            self.forgot_page();
+            return None;
+        }
+        let pressed = if key.modifiers.contains(KeyModifiers::ALT) {
+            buttons.handle_key(key)
+        } else if *on_buttons {
+            match key.code {
+                KeyCode::Tab | KeyCode::Down => {
+                    *on_buttons = false;
+                    form.enter(false);
+                    None
+                }
+                KeyCode::BackTab | KeyCode::Up => {
+                    *on_buttons = false;
+                    form.enter(true);
+                    None
+                }
+                _ => buttons.handle_key(key),
+            }
+        } else {
+            match form.handle_key(key) {
+                FormOutcome::Submit => Some(1),
+                FormOutcome::LeaveForward | FormOutcome::LeaveBackward => {
+                    *on_buttons = true;
+                    None
+                }
+                _ => None,
+            }
+        };
+        let pressed = pressed?;
+        let v = form.values();
+        let server = v.text("server").trim().to_owned();
+        let email = v.text("email").trim().to_owned();
+        let check = recovery_check(&v, pressed == 0);
+        match pressed {
+            0 | 1 => {
+                if let Err(e) = check {
+                    self.error = Some(e);
+                    return None;
+                }
+                self.error = None;
+                self.note = None;
+                if pressed == 0 {
+                    self.busy = Some("Requesting a recovery code…".to_owned());
+                    return Some(VaultRequest::SendRecoveryCode { server, email });
+                }
+                let empty = || SecretString::from(String::new());
+                self.busy = Some("Resetting the password with the recovery key…".to_owned());
+                Some(VaultRequest::Recover {
+                    server,
+                    email,
+                    code: v.secret("code").unwrap_or_else(empty),
+                    words: v.secret("words").unwrap_or_else(empty),
+                    password: v.secret("password").unwrap_or_else(empty),
+                })
+            }
             _ => {
                 self.forgot_page();
                 None
@@ -593,6 +871,11 @@ impl VaultView {
                     self.busy = Some("Setting the new password…".to_owned());
                     Some(VaultRequest::Reset(password))
                 }
+            }
+            1 if create => {
+                self.page = Page::Restore(RestoreForm::new());
+                self.error = None;
+                None
             }
             _ if create => Some(VaultRequest::Skip),
             _ => {
@@ -666,8 +949,30 @@ impl VaultView {
                 },
                 Mark::Buttons,
             ) => buttons.draw(frame, full, idle && *on_buttons, theme),
+            (Page::Recover { form, .. }, Mark::Form) => form.draw(
+                frame,
+                Rect::new(full.x, full.y, full.width, form.height()),
+                theme,
+            ),
+            (
+                Page::Recover {
+                    buttons,
+                    on_buttons,
+                    ..
+                },
+                Mark::Buttons,
+            ) => buttons.draw(frame, full, idle && *on_buttons, theme),
             (Page::Unavailable { buttons, .. }, Mark::Buttons)
             | (Page::NewVault(buttons), Mark::Buttons) => buttons.draw(frame, full, idle, theme),
+            (Page::Restore(form), mark) => {
+                let focused = |i: usize| idle && form.focus == i;
+                match mark {
+                    Mark::File => form.file.draw(frame, field, focused(0), theme),
+                    Mark::Password => form.passphrase.draw(frame, field, focused(1), theme),
+                    Mark::Buttons => form.buttons.draw(frame, full, focused(2), theme),
+                    _ => {}
+                }
+            }
             (Page::Create(form) | Page::Reset(form), mark) => {
                 let focused = |i: usize| idle && form.focus == i;
                 match mark {
@@ -683,6 +988,7 @@ impl VaultView {
                         form.buttons
                             .draw(frame, full, idle && form.on_buttons(), theme);
                     }
+                    Mark::Form | Mark::File => {}
                 }
             }
             _ => {}
@@ -755,10 +1061,24 @@ impl VaultView {
                 body.text(&format!("{warn} {NO_RECOVERY_WARNING}"), theme.key_hint);
                 body.blank();
                 body.mark(Mark::Buttons, Line::default());
-                body.text(
-                    "Restore from a .cftp-backup (T73) or sign in to a sync server (T90): not available yet.",
-                    theme.dim,
-                );
+                match &self.backup {
+                    Some(contents) => {
+                        body.text(
+                            "Backup opened. Once the vault is created this is restored \
+                             (its settings replace the current ones):",
+                            theme.key_hint,
+                        );
+                        for line in contents {
+                            body.indented(2, line, theme.dim);
+                        }
+                    }
+                    None => body.text(
+                        "Moving from another computer? Choose “Restore backup…” to bring a \
+                         .cftp-backup along. For a sync account, create the vault, then log in \
+                         from the sync panel.",
+                        theme.dim,
+                    ),
+                }
                 " Create your vault "
             }
             Page::Reset(form) => {
@@ -780,14 +1100,21 @@ impl VaultView {
                          vault, then you choose a new master password.",
                         Style::new(),
                     );
-                } else if self.facts.sync_account {
+                }
+                if self.facts.sync_account && cfg!(feature = "sync") {
                     body.text(
-                        "This device is signed in to a sync account. Resetting the master \
-                         password with the account's recovery code and 24-word recovery key \
-                         is not available on this screen yet.",
+                        "This device is signed in to a sync account: the account's recovery \
+                         code (sent by email) and your 24-word recovery key set a new master \
+                         password, which is also the new account password.",
                         Style::new(),
                     );
-                } else {
+                } else if self.facts.sync_account {
+                    body.text(
+                        "This device is signed in to a sync account, but this build of \
+                         courier-ftp has no sync support: recover with a build that has it.",
+                        Style::new(),
+                    );
+                } else if !self.facts.keyring_enabled {
                     body.text(
                         "There is no way to recover a forgotten master password on this device: \
                          keyring unlock is off and there is no sync account with a recovery key.",
@@ -813,17 +1140,55 @@ impl VaultView {
                 body.text("↑/↓ choose · Enter select · Esc back", theme.dim);
                 " Forgot password? "
             }
+            Page::Recover { form, .. } => {
+                body.blank();
+                body.text(
+                    "1. Send a recovery code to the account's email.  2. Enter the code, your \
+                     24-word recovery key and a new master password. Every other device of the \
+                     account is signed out and logs in again with the new password.",
+                    Style::new(),
+                );
+                body.blank();
+                body.mark(Mark::Form, Line::default());
+                for _ in 1..form.height() {
+                    body.blank();
+                }
+                body.blank();
+                body.mark(Mark::Buttons, Line::default());
+                " Reset with the recovery key "
+            }
             Page::NewVault(_) => {
                 body.blank();
                 body.text(
-                    "Start a new empty vault? The current database is renamed (moved aside) in \
-                     the data directory, not deleted: you can move it back later if you remember \
-                     the password.",
+                    if self.restore_next {
+                        "Restore from a backup? The current database is renamed (moved aside) in \
+                         the data directory, not deleted: you can move it back later if you \
+                         remember the password. Then you choose the backup and a new master \
+                         password."
+                    } else {
+                        "Start a new empty vault? The current database is renamed (moved aside) in \
+                         the data directory, not deleted: you can move it back later if you \
+                         remember the password."
+                    },
                     Style::new(),
                 );
                 body.blank();
                 body.mark(Mark::Buttons, Line::default());
                 " Start a new vault "
+            }
+            Page::Restore(_) => {
+                body.text(
+                    "Restore from a .cftp-backup made with Settings → Export. Enter the file and \
+                     the passphrase it was made with; next you choose the master password for \
+                     this device.",
+                    Style::new(),
+                );
+                body.blank();
+                body.mark(Mark::File, label_line("Backup file:", theme));
+                body.mark(Mark::Password, label_line("Passphrase:", theme));
+                body.blank();
+                body.mark(Mark::Buttons, Line::default());
+                " Restore from a backup "
             }
         };
         if let Some(note) = &self.note
@@ -898,6 +1263,46 @@ impl VaultView {
     }
 }
 
+/// Checks the recovery form: the account for "Send code" (`code_only`),
+/// everything for "Reset password".
+fn recovery_check(v: &FormValues, code_only: bool) -> Result<(), String> {
+    use secrecy::ExposeSecret;
+    if v.text("server").trim().is_empty() {
+        return Err("Enter the sync server's URL.".to_owned());
+    }
+    if !v.text("email").contains('@') {
+        return Err("Enter the account's email address.".to_owned());
+    }
+    if code_only {
+        return Ok(());
+    }
+    if v.secret("code")
+        .is_none_or(|s| s.expose_secret().trim().is_empty())
+    {
+        return Err("Enter the recovery code from the email.".to_owned());
+    }
+    let words = v
+        .secret("words")
+        .map_or(0, |s| s.expose_secret().split_whitespace().count());
+    if words != 24 {
+        return Err(format!("The recovery key has 24 words; {words} entered."));
+    }
+    let (Some(pw), Some(confirm)) = (v.secret("password"), v.secret("confirm")) else {
+        return Err("Choose a new master password.".to_owned());
+    };
+    let strength = estimate(pw.expose_secret(), &[]);
+    if !strength.acceptable() {
+        return Err(format!(
+            "Too weak ({}): a strong password is required.",
+            strength.label()
+        ));
+    }
+    if pw.expose_secret() != confirm.expose_secret() {
+        return Err("The passwords don't match.".to_owned());
+    }
+    Ok(())
+}
+
 fn attempts(n: u32) -> String {
     if n == 1 {
         "1 failed attempt".to_owned()
@@ -906,7 +1311,7 @@ fn attempts(n: u32) -> String {
     }
 }
 
-fn capitalised(s: &str) -> String {
+pub(super) fn capitalised(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
@@ -924,10 +1329,13 @@ fn label_line(label: &str, theme: &Theme) -> Line<'static> {
 /// Where a widget goes in the body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mark {
+    File,
     Password,
     Confirm,
     Keyring,
     Buttons,
+    /// A whole form, as tall as it needs.
+    Form,
 }
 
 /// The lines of a page plus the rows widgets are drawn on.
@@ -975,7 +1383,7 @@ impl Body {
 }
 
 /// Greedy word wrap to `width` columns (characters).
-fn wrap(text: &str, width: usize) -> Vec<String> {
+pub(super) fn wrap(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut out = Vec::new();
     let mut line = String::new();

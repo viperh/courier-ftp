@@ -22,8 +22,11 @@
 //!   Offline edits stay queued indefinitely; the status shows
 //!   `offline (N pending)`.
 //!
-//! Adapted from sverb's `sverb-sync/src/engine.rs` (D13), without key
-//! rotation and shared-vault adoption (T89).
+//! Team vaults (T89): every vault list refresh also adopts vaults shared
+//! with the account, installs rotated keys, applies read-only permissions
+//! and removes vaults the account lost access to (`crate::shared`).
+//!
+//! Adapted from sverb's `sverb-sync/src/engine.rs` (D13).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -152,6 +155,12 @@ pub(crate) struct Ctx {
     pub(crate) skew_warned: HashSet<DeviceId>,
     pub(crate) needs_login: bool,
     pub(crate) errors: Arc<Mutex<BTreeMap<ItemId, String>>>,
+    /// This account and its keys (team grants), loaded on first use.
+    pub(crate) account: Option<(uuid::Uuid, Arc<courier_ftp_crypto::account::AccountKeys>)>,
+    /// Team vaults whose grant was refused (reported once).
+    pub(crate) rejected_grants: HashMap<VaultId, String>,
+    /// Vaults whose abandoned rotation was reported.
+    pub(crate) abandoned_reported: HashSet<VaultId>,
 }
 
 impl std::fmt::Debug for Ctx {
@@ -236,6 +245,7 @@ impl Ctx {
         let views = self
             .call(|api, t| async move { api.list_vaults(&t).await })
             .await?;
+        self.reconcile_vaults(&views).await?;
         for vault in self.vault.loaded_vaults().await {
             match views.iter().find(|v| v.id == vault.uuid()) {
                 None => {
@@ -246,7 +256,7 @@ impl Ctx {
                 Some(view) => {
                     self.unknown_vaults.remove(&vault);
                     if view.rotation.is_some() {
-                        tracing::info!(vault = %vault.short(), "vault key rotation in progress (T89)");
+                        tracing::debug!(vault = %vault.short(), "vault key rotation in progress");
                     }
                 }
             }
@@ -418,6 +428,9 @@ impl SyncEngine {
                 skew_warned: HashSet::new(),
                 needs_login: false,
                 errors: Arc::new(Mutex::new(BTreeMap::new())),
+                account: None,
+                rejected_grants: HashMap::new(),
+                abandoned_reported: HashSet::new(),
             },
         }
     }

@@ -11,19 +11,25 @@ use crate::app::App;
 
 mod action;
 mod app;
+mod archive;
 mod backends;
 mod bookmarks;
 mod cli;
 mod clipboard;
+mod completion;
 mod config;
 mod diagnostics;
 mod errors;
+mod file_ops;
 mod keymap;
 mod logging;
 mod sites;
+#[cfg(feature = "sync")]
+mod sync;
 mod transfers;
 mod tui;
 mod ui;
+mod update;
 mod vault;
 
 #[tokio::main]
@@ -52,14 +58,18 @@ async fn main() -> color_eyre::Result<()> {
     );
 
     let result = async {
-        let mut app = App::new(args.tick_rate, args.frame_rate)?;
+        // Boxed: `App` is large, and this future would hold it inline.
+        let mut app = Box::new(App::new(args.tick_rate, args.frame_rate)?);
+        if args.no_update_check || crate::update::env_opt_out() {
+            app.disable_update_check();
+        }
         if let Some(level) = args.debug_level {
             app.set_debug_level(level);
         }
         if args.debug {
             app.log_status(&format!("Warning: {}", crate::logging::DEBUG_WARNING));
         }
-        app.run().await
+        Box::pin(app.run()).await
     }
     .await;
     // The log is written by a background thread: write it out before exiting.

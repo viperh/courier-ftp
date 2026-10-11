@@ -147,11 +147,13 @@
 //!   recursive delete/chmod.
 //! - **T44**: [`RateLimiter`] (`acquire`, `chunk_size`, `settings_changed`),
 //!   implemented by [`SpeedLimiter`] (global token buckets, see [`ratelimit`]).
-//! - **T45**: `QueueFinished { stats }`.
+//! - **T45**: `QueueFinished { stats }`; [`completion`] picks the action
+//!   (one-shot override or `queue.on_complete`) and the command line.
 //! - **T41b**: done (see "Fast transfers"); [`Capabilities::write_at`],
 //!   `QueueItem::segments`, [`EngineStatus::slots`].
 //! - **T56/T62**: [`EngineHandle`] commands and [`EngineStatus`].
 
+pub mod completion;
 mod engine;
 mod exists;
 mod hooks;

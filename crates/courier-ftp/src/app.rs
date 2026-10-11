@@ -77,6 +77,8 @@ pub(crate) struct App {
     /// The last tree the Site Manager loaded, for the screen and the site
     /// picker; `None` while locked or loading.
     site_snapshot: Option<Snapshot>,
+    /// The Site Manager's vault roots (T90): empty without team vaults.
+    vault_roots: Vec<crate::sites::VaultRoot>,
     /// Session log file and raw listings (T71).
     diag: crate::diagnostics::Diagnostics,
     /// Where `config.json` is saved (empty in tests: nothing is saved).
@@ -86,6 +88,26 @@ pub(crate) struct App {
     /// The production backends, told about new settings (T68); `None` in
     /// tests with a mock server.
     net: Option<Arc<Backends>>,
+    /// The last search started (T65), running or finished: what its
+    /// result actions need.
+    search: Option<search::SearchRun>,
+    /// The update check (T74); `None` in tests that don't set one, so they
+    /// never touch the network.
+    update: Option<crate::update::Hook>,
+    /// `--no-update-check` or `COURIER_FTP_NO_UPDATE_CHECK`.
+    update_opt_out: bool,
+    /// Stops the update check when the app quits.
+    update_cancel: CancellationToken,
+    /// The file opened by the settings screen's Import, until the user
+    /// chooses what to import (T73).
+    import_archive: Option<Box<courier_ftp_core::archive::Archive>>,
+    /// The backup opened on the first-run screen, restored once the new
+    /// vault is created (T73, T60).
+    restore_archive: Option<Box<courier_ftp_core::archive::Archive>>,
+    /// File operations in progress (T62).
+    file_ops: file_ops::FileOps,
+    /// The action after the queue finishes (T45).
+    completion: completion::Completion,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -106,6 +128,8 @@ struct Remote {
     record: Option<ConnectInfo>,
     /// The Site Manager entry connected to (`None`: quickconnect).
     site: Option<ItemId>,
+    /// What the backend supports, once connected.
+    capabilities: Option<courier_ftp_core::backend::Capabilities>,
 }
 
 /// `alice@host` (with the port when it isn't the protocol's default), for
@@ -177,6 +201,7 @@ impl App {
         let backends = Arc::new(backends);
         let mut app = Self::with_backends(config, backends.clone(), tick_rate, frame_rate);
         app.net = Some(backends);
+        app.update = Some(crate::update::Hook::github(crate::config::get_data_dir()));
         let opener = crate::vault::opener(crate::config::get_data_dir());
         let mut app = app.with_vault(opener, host_keys, credentials);
         if let Some(vault) = app.vault.as_mut() {
@@ -200,6 +225,13 @@ impl App {
             &self.settings.vault,
             self.vault_tx.clone(),
         ));
+        #[cfg(feature = "sync")]
+        if let Some(vault) = self.vault.as_mut() {
+            vault.sync = Some(crate::sync::SyncCtl::new(
+                self.action_tx.clone(),
+                &self.settings,
+            ));
+        }
         let unicode = crate::ui::unicode_symbols(&self.settings);
         self.screen.set_vault_view(VaultView::opening(unicode));
         self.screen.set_vault_locked(true);
@@ -264,10 +296,19 @@ impl App {
             history: None,
             sites: Arc::new(tokio::sync::Mutex::new(None)),
             site_snapshot: None,
+            vault_roots: Vec::new(),
             diag: crate::diagnostics::Diagnostics::new(offset),
             config_dir: config.config.config_dir.clone(),
             transfers,
             net: None,
+            search: None,
+            update: None,
+            update_opt_out: false,
+            update_cancel: CancellationToken::new(),
+            import_archive: None,
+            restore_archive: None,
+            file_ops: file_ops::FileOps::default(),
+            completion: completion::Completion::default(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -309,8 +350,13 @@ impl App {
             LogKind::Status,
             format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
         );
+        if self.settings.interface.show_splash {
+            self.screen
+                .show_splash(env!("CARGO_PKG_VERSION"), Instant::now());
+        }
         self.list(Side::Local, None, false, false);
         self.start_vault();
+        self.start_update_check();
 
         loop {
             tokio::select! {
@@ -338,6 +384,7 @@ impl App {
             }
         }
         tui.exit()?;
+        self.update_cancel.cancel();
         self.transfers.shutdown().await;
         if let Some(log) = self.diag.session_log() {
             log.flush_timeout(Duration::from_secs(1));
@@ -371,6 +418,8 @@ impl App {
             for request in self.screen.take_vault_requests() {
                 self.vault_request(request);
             }
+            #[cfg(feature = "sync")]
+            self.drain_sync_requests();
             for next in self.screen.take_actions() {
                 self.action_tx.send(next)?;
             }
@@ -411,8 +460,11 @@ impl App {
             debug!("{action}");
         }
         self.transfer_action(&action);
+        self.file_op_action(&action);
+        self.completion_action(&action);
         match &action {
             Action::Tick => {
+                self.expire_splash(Instant::now());
                 self.sequencer.expire(Instant::now());
                 self.screen
                     .set_pending_keys(self.sequencer.pending_display());
@@ -455,6 +507,18 @@ impl App {
                 });
             }
             Action::SiteManager => self.open_site_manager(None),
+            #[cfg(feature = "sync")]
+            Action::SyncPanel => self.open_sync_panel(),
+            #[cfg(not(feature = "sync"))]
+            Action::SyncPanel => self
+                .screen
+                .flash("This build of courier-ftp has no sync support"),
+            #[cfg(feature = "sync")]
+            Action::Sync(msg) => {
+                if let Some(msg) = msg.0.take() {
+                    self.sync_message(msg);
+                }
+            }
             Action::Bookmarks => self.open_bookmarks(),
             Action::BookmarkOp(op) => self.bookmark_op((*op.0).clone()),
             Action::BookmarksReply(reply) => {
@@ -462,8 +526,12 @@ impl App {
                     self.site_snapshot = Some(snapshot.clone());
                 }
             }
+            Action::UpdateAvailable(info) => self.update_available(info),
             Action::Settings => self.open_settings(),
             Action::SettingsRequest(request) => self.settings_request(&request.0),
+            Action::SearchRequest(request) => self.search_request(&request.0),
+            Action::SearchUpdate { run, update } => self.search_update(*run, &update.0),
+            Action::Archive(msg) => self.archive_message(&msg.0),
             Action::SaveAsSite => self.save_as_site(),
             Action::SitePicker => self.site_picker(),
             Action::SiteOp(op) => self.site_op((*op.0).clone()),
@@ -543,7 +611,6 @@ impl App {
                 self.list(*side, Some(dir.clone()), *force, false);
             }
             Action::TreeListDir { side, dir } => self.list(*side, Some(dir.clone()), false, true),
-            Action::MakeDir { side, dir } => self.make_dir(*side, dir.clone()),
             Action::CopyToClipboard(text) => {
                 if let Err(e) = crate::clipboard::copy(text) {
                     tracing::warn!("clipboard: {e}");
@@ -656,51 +723,6 @@ impl App {
         });
     }
 
-    /// Create `dir` on `side` in the background; [`Action::DirMade`] reports
-    /// the result. The parent's cached listing is dropped.
-    fn make_dir(&mut self, side: Side, dir: RemotePath) {
-        let tx = self.action_tx.clone();
-        let cache = self.cache.clone();
-        match side {
-            Side::Local => {
-                tokio::spawn(async move {
-                    let mut backend = LocalBackend::new();
-                    let cancel = CancellationToken::new();
-                    let result = async {
-                        backend.connect(cancel).await?;
-                        backend.mkdir(&dir).await
-                    }
-                    .await
-                    .map_err(|e| e.to_string());
-                    if let Some(parent) = dir.parent() {
-                        cache.invalidate(None, &parent);
-                    }
-                    let _ = tx.send(Action::DirMade { side, dir, result });
-                });
-            }
-            Side::Remote => {
-                let Some(remote) = self.remote.as_ref().filter(|r| r.connected) else {
-                    let _ = tx.send(Action::DirMade {
-                        side,
-                        dir,
-                        result: Err("Not connected".to_owned()),
-                    });
-                    return;
-                };
-                let handle = Arc::clone(&remote.handle);
-                let cancel = remote.cancel.clone();
-                let server = remote.info.address.clone();
-                tokio::spawn(async move {
-                    let result = handle.mkdir(&dir, &cancel).await.map_err(|e| e.to_string());
-                    if let Some(parent) = dir.parent() {
-                        cache.invalidate(Some(&server), &parent);
-                    }
-                    let _ = tx.send(Action::DirMade { side, dir, result });
-                });
-            }
-        }
-    }
-
     fn current_session(&self) -> Option<SessionId> {
         self.remote.as_ref().map(|r| r.session)
     }
@@ -755,7 +777,9 @@ impl App {
                 Side::Local
             };
             self.screen.tree_mut(side).invalidate(dir);
+            self.listing_patched(side, dir);
         }
+        self.file_op_event(&event);
         self.transfer_event(&event);
         self.screen.handle_core(event);
     }
@@ -816,6 +840,7 @@ impl App {
             // Sites are not quickconnect history.
             record: request.site.is_none().then(|| request.info.clone()),
             site: request.site,
+            capabilities: None,
         });
         self.last_connect = Some(request.without_password());
         self.screen
@@ -829,7 +854,10 @@ impl App {
         tokio::spawn(async move {
             let result = async {
                 handle.connect(cancel.clone()).await?;
-                let info = handle.lock().await.session_info();
+                let (info, capabilities) = {
+                    let backend = handle.lock().await;
+                    (backend.session_info(), backend.capabilities())
+                };
                 let listing = match start {
                     Some(dir) => match handle.list(&dir, &cancel).await {
                         Ok(listing) => listing,
@@ -841,7 +869,11 @@ impl App {
                     None => first_listing(&handle, &cancel).await?,
                 };
                 cache.put(Some(&server), listing.clone());
-                Ok::<_, courier_ftp_core::Error>(Box::new(Connected { info, listing }))
+                Ok::<_, courier_ftp_core::Error>(Box::new(Connected {
+                    info,
+                    listing,
+                    capabilities,
+                }))
             }
             .await
             .map_err(|e| e.to_string());
@@ -858,6 +890,7 @@ impl App {
         match result {
             Ok(connected) => {
                 remote.connected = true;
+                remote.capabilities = Some(connected.capabilities);
                 let (sync, compare) = (remote.sync_browsing, remote.compare);
                 let case_sensitive = courier_ftp_core::compare::names_case_sensitive(
                     remote.info.server_type.unwrap_or_default(),
@@ -1002,6 +1035,9 @@ impl App {
                 }
             }
             VaultRequest::NewVault => vault.open(true),
+            VaultRequest::OpenBackup { path, passphrase } => {
+                self.open_import(crate::archive::Origin::FirstRun, path, Some(passphrase));
+            }
             VaultRequest::Skip => {
                 self.screen.show_vault(false);
                 self.events_tx.log(
@@ -1012,6 +1048,12 @@ impl App {
                 );
             }
             VaultRequest::Quit => self.should_quit = true,
+            #[cfg(feature = "sync")]
+            request @ (VaultRequest::SendRecoveryCode { .. } | VaultRequest::Recover { .. }) => {
+                self.vault_sync_request(request);
+            }
+            #[cfg(not(feature = "sync"))]
+            VaultRequest::SendRecoveryCode { .. } | VaultRequest::Recover { .. } => {}
         }
     }
 
@@ -1044,6 +1086,10 @@ impl App {
                 }
                 if keyring_first {
                     vault.unlock_with_keyring();
+                }
+                #[cfg(feature = "sync")]
+                if status.sync_account && status.state == VaultState::Locked {
+                    self.sync_recovery_defaults();
                 }
                 if status.state == VaultState::Unlocked {
                     self.vault_unlocked(None);
@@ -1084,6 +1130,7 @@ impl App {
                         );
                     }
                     self.vault_unlocked(Some("Vault created"));
+                    self.restore_after_create();
                 }
                 Err(e) => {
                     if let Some(view) = self.screen.vault_view_mut() {
@@ -1180,9 +1227,12 @@ impl App {
             return;
         };
         vault.lock();
+        #[cfg(feature = "sync")]
+        self.sync_locked();
         self.transfers.resolver.forget_passwords();
         self.history = None;
         self.site_snapshot = None;
+        self.vault_roots.clear();
         self.screen.close_site_manager();
         self.screen.close_bookmarks();
         let slot = Arc::clone(&self.sites);
@@ -1230,6 +1280,16 @@ impl App {
     /// Load the Site Manager over the unlocked vault; the tree arrives as
     /// [`Action::SitesReply`].
     fn load_sites(&mut self, engine: courier_ftp_store::vault::VaultEngine) {
+        // The team vault roots (T90), next to the tree.
+        #[cfg(feature = "sync")]
+        {
+            let engine = engine.clone();
+            let tx = self.action_tx.clone();
+            tokio::spawn(async move {
+                let roots = crate::sites::vault_roots(&engine).await;
+                let _ = tx.send(crate::sync::action(crate::sync::SyncMsg::VaultRoots(roots)));
+            });
+        }
         let slot = Arc::clone(&self.sites);
         let tx = self.action_tx.clone();
         tokio::spawn(async move {
@@ -1289,6 +1349,7 @@ impl App {
             return;
         }
         let mut view = SiteManagerView::new(self.site_snapshot.clone(), self.site_view_opts());
+        view.set_vaults(self.vault_roots.clone());
         if let Some(site) = new_site {
             view = view.with_new_site(site);
         }
@@ -1470,20 +1531,41 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+mod archive;
+#[cfg(test)]
+mod archive_tests;
+mod completion;
+mod file_ops;
+mod search;
 mod settings;
+pub(crate) use file_ops::FileOpMsg;
 
 #[cfg(test)]
 mod bookmark_tests;
 #[cfg(test)]
+mod completion_tests;
+#[cfg(test)]
+mod file_op_tests;
+#[cfg(test)]
 mod filter_tests;
 #[cfg(test)]
 mod log_tests;
+#[cfg(test)]
+mod search_tests;
 mod transfers;
+mod update;
+#[cfg(test)]
+mod update_tests;
+mod wizard;
 
 #[cfg(test)]
 mod settings_tests;
 #[cfg(test)]
 mod site_tests;
+#[cfg(test)]
+mod sync_tests;
+#[cfg(feature = "sync")]
+mod sync_ui;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

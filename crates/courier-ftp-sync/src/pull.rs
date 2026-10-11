@@ -3,6 +3,12 @@
 //! (`VaultEngine::apply_incoming`, which decrypts, observes HLC stamps,
 //! replaces clean items and merges dirty ones). Loops while `more`.
 //!
+//! A page with items sealed under a newer key version than the local one
+//! (the vault's key was rotated, T89) is not applied: the vault list is
+//! refreshed first (installing the rotated key from the new grant), then the
+//! page is fetched again. If the new key can't be installed (grant not
+//! trusted), the vault stops pulling without moving its cursor.
+//!
 //! Resync on `410 gone` (the cursor is below the server's tombstone GC
 //! floor): everything is pulled from 0 and applied at once; clean local items
 //! the server no longer has are deleted, dirty ones are re-queued as new
@@ -33,6 +39,7 @@ pub(crate) fn incoming(item: WireItem) -> Incoming {
 impl Ctx {
     /// Pulls `vault` until the server has no more pages.
     pub(crate) async fn pull_vault(&mut self, vault: VaultId) -> Result<(), SyncError> {
+        let mut refreshed = false;
         loop {
             let Some(row) = self.vault.store().vaults().get(vault).await? else {
                 return Ok(());
@@ -54,6 +61,16 @@ impl Ctx {
                 }
                 other => other?,
             };
+            if page.items.iter().any(|i| i.key_version > row.key_version) {
+                if refreshed {
+                    tracing::warn!(vault = %vault.short(), "items under a newer vault key this device can't install; not pulled");
+                    return Ok(());
+                }
+                tracing::info!(vault = %vault.short(), "vault key rotated; refreshing the vault keys");
+                self.refresh_vaults().await?;
+                refreshed = true;
+                continue;
+            }
             let more = page.more && !page.items.is_empty();
             let cursor = page.next_cursor(since);
             if page.items.is_empty() && cursor == since {

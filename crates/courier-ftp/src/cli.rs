@@ -27,6 +27,11 @@ pub(crate) struct Cli {
     /// 3 verbose (adds raw listings and TLS/SSH details), 4 debug
     #[arg(long, value_name = "0-4", value_parser = clap::value_parser!(u8).range(0..=4))]
     pub(crate) debug_level: Option<u8>,
+
+    /// Don't check for new releases this run (also:
+    /// COURIER_FTP_NO_UPDATE_CHECK=1, for packagers)
+    #[arg(long)]
+    pub(crate) no_update_check: bool,
 }
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]

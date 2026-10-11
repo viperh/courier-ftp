@@ -95,6 +95,15 @@ impl MockServer {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The same server reporting `address` from
+    /// [`Backend::address`] (the listing cache's key), e.g. with the user
+    /// name of the connection the application made.
+    #[must_use]
+    pub fn with_address(mut self, address: ServerAddress) -> Self {
+        self.address = address;
+        self
+    }
+
     /// A new, disconnected connection to this server.
     pub fn backend(&self) -> MockBackend {
         MockBackend {
@@ -522,6 +531,7 @@ impl Backend for MockBackend {
     }
 
     async fn mkdir(&mut self, path: &RemotePath) -> Result<()> {
+        self.server.delay().await;
         let mut st = self.begin()?;
         if st.nodes.contains_key(path) {
             return Err(Error::AlreadyExists);
@@ -532,6 +542,7 @@ impl Backend for MockBackend {
     }
 
     async fn rmdir(&mut self, path: &RemotePath) -> Result<()> {
+        self.server.delay().await;
         let mut st = self.begin()?;
         match st.nodes.get(path) {
             Some(n) if n.is_dir => {}
@@ -546,6 +557,7 @@ impl Backend for MockBackend {
     }
 
     async fn remove_file(&mut self, path: &RemotePath) -> Result<()> {
+        self.server.delay().await;
         let mut st = self.begin()?;
         match st.nodes.get(path) {
             Some(n) if !n.is_dir => {
@@ -558,6 +570,7 @@ impl Backend for MockBackend {
     }
 
     async fn rename(&mut self, from: &RemotePath, to: &RemotePath) -> Result<()> {
+        self.server.delay().await;
         let mut st = self.begin()?;
         if !st.nodes.contains_key(from) {
             return Err(not_found(from));
@@ -587,6 +600,7 @@ impl Backend for MockBackend {
     }
 
     async fn chmod(&mut self, path: &RemotePath, mode: u32) -> Result<()> {
+        self.server.delay().await;
         let mut st = self.begin()?;
         let node = st.nodes.get_mut(path).ok_or_else(|| not_found(path))?;
         node.mode = (node.mode & !0o7777) | (mode & 0o7777);
@@ -594,6 +608,7 @@ impl Backend for MockBackend {
     }
 
     async fn set_mtime(&mut self, path: &RemotePath, time: OffsetDateTime) -> Result<()> {
+        self.server.delay().await;
         let mut st = self.begin()?;
         let node = st.nodes.get_mut(path).ok_or_else(|| not_found(path))?;
         node.modified = time;

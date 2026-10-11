@@ -53,7 +53,7 @@
 
 pub mod addr;
 pub mod ascii;
-mod external_ip;
+pub(crate) mod external_ip;
 mod stream;
 
 use std::{

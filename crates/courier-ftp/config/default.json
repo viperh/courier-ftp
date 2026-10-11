@@ -127,6 +127,7 @@
       "<Ctrl-x><g>": "SitePicker",
       "<Ctrl-x><i>": "ServerInfo",
       "<Ctrl-x><l>": "ToggleSpeedLimit",
+      "<Ctrl-x><n>": "NewFile",
       "<Ctrl-x><o>": "CompareOptions",
       "<Ctrl-x><p>": "OpenPrompt",
       "<Ctrl-x><r>": "Reconnect",
@@ -134,6 +135,7 @@
       "<Ctrl-x><t>": "CycleTransferType",
       "<Ctrl-x><u>": "UnlockVault",
       "<Ctrl-x><v>": "LockVault",
+      "<Ctrl-x><y>": "SyncPanel",
       "<Ctrl-y>": "ToggleSyncBrowsing",
       "<Ctrl-z>": "Suspend",
       "<Delete>": "Delete",
@@ -176,6 +178,7 @@
       "<PageUp>": "PageUp",
       "<Space>": "QueueToggleItem",
       "<Up>": "CursorUp",
+      "<a>": "QueueAfterMenu",
       "<b>": "MoveItemBottom",
       "<e>": "QueueExistsMenu",
       "<g><g>": "Top",
@@ -377,6 +380,7 @@
       "use_mlsd": true
     },
     "interface": {
+      "check_prereleases": false,
       "check_updates": true,
       "color_scheme": "default",
       "columns": {

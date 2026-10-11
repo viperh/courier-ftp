@@ -97,12 +97,14 @@ struct Built {
     collapse: u64,
 }
 
-/// Whether the engine processes the queue, and whether it holds every
-/// transfer (pause all), for the pane's bottom line.
+/// Whether the engine processes the queue, whether it holds every
+/// transfer (pause all), and the one-shot action after the queue finishes
+/// (T45), for the pane's bottom line.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct RunState {
     pub(crate) processing: bool,
     pub(crate) paused: bool,
+    pub(crate) after: Option<&'static str>,
 }
 
 /// See the module docs.
@@ -847,6 +849,7 @@ impl QueuePane {
             }
         }
         v.extend([
+            ("Action after queue completion…", Action::QueueAfterMenu),
             ("Group by server on/off", Action::QueueGroupByServer),
             ("Queued files", Action::QueueTabQueued),
             ("Failed transfers", Action::QueueTabFailed),
@@ -1159,7 +1162,11 @@ impl QueuePane {
         theme: &Theme,
         now: Instant,
     ) {
-        let RunState { processing, paused } = run;
+        let RunState {
+            processing,
+            paused,
+            after,
+        } = run;
         self.refresh();
         let (stats, _) = self.stats(now);
         let queue = self.queue.clone();
@@ -1174,6 +1181,9 @@ impl QueuePane {
         } else {
             ""
         });
+        if let Some(after) = after {
+            summary.push_str(&format!(" · then: {after}"));
+        }
         if !self.unicode {
             summary = summary.replace('·', "-");
         }

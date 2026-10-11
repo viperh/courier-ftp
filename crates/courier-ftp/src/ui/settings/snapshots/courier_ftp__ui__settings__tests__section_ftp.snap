@@ -1,6 +1,6 @@
 ---
 source: crates/courier-ftp/src/ui/settings/tests.rs
-assertion_line: 149
+assertion_line: 153
 expression: text
 ---
 "┌ Settings ────────────┐┌ FTP ───────────────────────────────────────────────────────────────────────────────┐"
@@ -12,16 +12,16 @@ expression: text
 "│    TLS               ││ Ignore private PASV address  [x]                                                   │"
 "│  Transfers           ││ Use MLSD                     [x]                                                   │"
 "│    File types        ││ Keep-alive command           NOOP ▾                                                │"
-"│    File exists action││                                                                                    │"
-"│  Interface           ││ Changes here apply to new connections.                                             │"
-"│    File lists        ││                                                                                    │"
+"│    File exists action││ [ Network configuration wizard… ]                                                  │"
+"│  Interface           ││                                                                                    │"
+"│    File lists        ││ Changes here apply to new connections.                                             │"
 "│    Theme             ││                                                                                    │"
 "│    Keybindings       ││                                                                                    │"
 "│  Editing             ││                                                                                    │"
 "│  Queue               ││                                                                                    │"
 "│  Logging             ││                                                                                    │"
+"│  Sync                ││                                                                                    │"
 "│  Security            ││                                                                                    │"
-"│                      ││                                                                                    │"
 "│                      ││                                                                                    │"
 "│                      ││                                                                                    │"
 "│                      ││                                                                                    │"
@@ -37,5 +37,5 @@ expression: text
 "│                      ││                                                                                    │"
 "└──────────────────────┘└────────────────────────────────────────────────────────────────────────────────────┘"
 " Settings are saved to /home/me/.config/courier-ftp/config.json                                               "
-"                              [ OK ]  [ Apply ]  [ Reset section ]  [ Cancel ]                                "
+"                 [ OK ]  [ Apply ]  [ Reset section ]  [ Import… ]  [ Export… ]  [ Cancel ]                   "
 " ↑↓ sections · Tab next field · Esc back · ^s apply · Alt-o OK · Alt-c cancel                                 "

@@ -45,6 +45,7 @@ fn opts() -> SettingsOpts {
             ("Normal".into(), "<Ctrl-s>".into(), "SiteManager".into()),
             ("FileList".into(), "<j>".into(), "CursorDown".into()),
         ],
+        backup_default: "/home/me/courier-ftp.cftp-backup".into(),
     }
 }
 
@@ -145,7 +146,10 @@ fn snapshot_of_every_section() {
                 .collect::<Vec<_>>()
                 .join("\n");
         }
-        let name = format!("section_{section:?}").to_lowercase();
+        let mut name = format!("section_{section:?}").to_lowercase();
+        if section == Section::Sync && !cfg!(feature = "sync") {
+            name.push_str("_without_feature");
+        }
         insta::assert_snapshot!(name, text);
     }
 }
@@ -635,4 +639,200 @@ fn small_terminal_does_not_panic() {
     for (w, h) in [(10, 3), (40, 10), (60, 12)] {
         let _ = render(&mut view, w, h);
     }
+}
+
+/// Focus the FTP page's wizard button and press it.
+fn open_wizard(view: &mut SettingsView) {
+    if view.focus() == Pane::Page {
+        press(view, KeyCode::Esc);
+    }
+    while view.section().index() > Section::Ftp.index() {
+        press(view, KeyCode::Up);
+    }
+    go_to(view, Section::Ftp);
+    press(view, KeyCode::Enter);
+    for _ in 0..20 {
+        if matches!(
+            view.page.rows.get(view.row).map(|r| &r.kind),
+            Some(RowKind::Button(Command::NetworkWizard))
+        ) {
+            press(view, KeyCode::Enter);
+            assert!(view.wizard().is_some());
+            return;
+        }
+        press(view, KeyCode::Tab);
+    }
+    panic!("no wizard button");
+}
+
+#[test]
+fn the_wizard_saves_only_the_network_settings() {
+    let mut view = view();
+    // An unsaved edit elsewhere.
+    go_to(&mut view, Section::Transfers);
+    press(&mut view, KeyCode::Enter);
+    press(&mut view, KeyCode::Up);
+    assert_eq!(view.draft().transfers.max_concurrent, 5);
+    open_wizard(&mut view);
+    assert!(matches!(
+        view.take_requests().as_slice(),
+        [SettingsRequest::Wizard(wizard::WizardRequest::LoadSites)]
+    ));
+    let text = render(&mut view, 100, 32);
+    assert!(text.contains("Network configuration wizard"), "{text}");
+    // Esc discards: nothing saved, nothing changed.
+    press(&mut view, KeyCode::Esc);
+    assert!(view.wizard().is_none());
+    assert!(view.take_requests().is_empty());
+
+    open_wizard(&mut view);
+    view.take_requests();
+    let alt = |view: &mut SettingsView, c| {
+        view.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT));
+    };
+    for _ in 0..4 {
+        alt(&mut view, 'n');
+    }
+    // Summary: active mode, Apply.
+    press(&mut view, KeyCode::Right);
+    alt(&mut view, 'a');
+    assert!(view.wizard().is_none());
+    let requests = view.take_requests();
+    let [
+        SettingsRequest::Save {
+            settings,
+            proxy_passwords,
+        },
+    ] = requests.as_slice()
+    else {
+        panic!("expected a save, got {requests:?}");
+    };
+    assert!(proxy_passwords.is_empty());
+    let mut expected = Settings::default();
+    expected.ftp.transfer_mode = courier_ftp_core::settings::FtpTransferMode::Active;
+    assert_eq!(**settings, expected, "only ftp.* is saved");
+    assert_eq!(
+        view.draft().ftp.transfer_mode,
+        courier_ftp_core::settings::FtpTransferMode::Active
+    );
+    // After the save only the transfers edit is unsaved.
+    view.apply_reply(&SettingsReply::Saved);
+    assert!(!view.is_closed());
+    assert!(view.is_dirty());
+    assert_eq!(view.draft().transfers.max_concurrent, 5);
+}
+
+fn alt(view: &mut SettingsView, c: char) {
+    view.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT));
+}
+
+#[test]
+fn plain_export_is_settings_only_without_a_passphrase() {
+    let mut v = view();
+    alt(&mut v, 'e');
+    assert!(v.has_overlay());
+    // settings, sites, passwords, history, trust, queue, format
+    for _ in 0..6 {
+        press(&mut v, KeyCode::Tab);
+    }
+    press(&mut v, KeyCode::Right);
+    press(&mut v, KeyCode::Tab);
+    alt(&mut v, 'e');
+    let requests = v.take_requests();
+    let [SettingsRequest::Export(job)] = requests.as_slice() else {
+        panic!("{requests:?}");
+    };
+    assert!(job.plain);
+    assert!(job.passphrase.is_none());
+    assert_eq!(
+        job.choice,
+        ExportChoice {
+            settings: true,
+            ..ExportChoice::default()
+        }
+    );
+    assert_eq!(job.path, std::path::Path::new("/home/me/courier-ftp.json"));
+}
+
+#[test]
+fn a_backup_needs_matching_passphrases_and_unsaved_edits_block_export() {
+    let mut v = view();
+    alt(&mut v, 'e');
+    alt(&mut v, 'e');
+    assert!(v.take_requests().is_empty(), "no passphrase");
+    for _ in 0..8 {
+        press(&mut v, KeyCode::Tab);
+    }
+    typed(&mut v, "one");
+    press(&mut v, KeyCode::Tab);
+    typed(&mut v, "two");
+    alt(&mut v, 'e');
+    assert!(v.take_requests().is_empty(), "mismatch");
+    press(&mut v, KeyCode::Esc);
+    assert!(!v.has_overlay());
+
+    // An unsaved edit: export and import ask to apply first.
+    press(&mut v, KeyCode::Enter);
+    clear(&mut v);
+    typed(&mut v, "33");
+    assert!(v.is_dirty());
+    alt(&mut v, 'e');
+    assert!(!v.has_overlay());
+    assert!(v.message().unwrap().0.contains("before exporting"));
+    alt(&mut v, 'i');
+    assert!(!v.has_overlay());
+}
+
+#[test]
+fn import_choices_and_the_result() {
+    let mut v = view();
+    v.apply_reply(&SettingsReply::ImportReady(Box::new(ImportPreview {
+        sections: vec![
+            (ArchiveSection::Settings, "2 changed groups".into()),
+            (
+                ArchiveSection::Sites,
+                "1 site, 0 folders, 0 bookmarks".into(),
+            ),
+            (ArchiveSection::Queue, "1 item".into()),
+        ],
+        warnings: vec!["Skipped section “macros” (from a newer courier-ftp)".into()],
+        folder: "Imported 2026-10-11".into(),
+    })));
+    assert!(v.has_overlay());
+    assert!(v.message().unwrap().0.contains("macros"));
+    let text = render(&mut v, 100, 30);
+    assert!(
+        text.contains("Into a new folder “Imported 2026-10-11”"),
+        "{text}"
+    );
+    // Untick the queue, keep the defaults otherwise.
+    for _ in 0..4 {
+        press(&mut v, KeyCode::Tab);
+    }
+    press(&mut v, KeyCode::Char(' '));
+    alt(&mut v, 'i');
+    let requests = v.take_requests();
+    let [SettingsRequest::Import(choice)] = requests.as_slice() else {
+        panic!("{requests:?}");
+    };
+    assert_eq!(
+        *choice,
+        ImportChoice {
+            settings: Some(SettingsMode::Merge),
+            sites: Some(SitesMode::NewFolder("Imported 2026-10-11".into())),
+            ..ImportChoice::default()
+        }
+    );
+
+    let mut imported = Settings::default();
+    imported.connection.timeout_secs = 45;
+    v.apply_reply(&SettingsReply::Imported {
+        settings: Some(Box::new(imported.clone())),
+        text: "Settings merged\nVault items: 2 added".into(),
+        failed: false,
+    });
+    assert_eq!(v.draft(), &imported);
+    assert!(!v.is_dirty());
+    assert_eq!(v.message().unwrap().0, "Settings merged");
+    assert!(v.has_overlay(), "summary dialog");
 }

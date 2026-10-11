@@ -1,6 +1,6 @@
 ---
 source: crates/courier-ftp/src/ui/settings/tests.rs
-assertion_line: 149
+assertion_line: 153
 expression: text
 ---
 "┌ Settings ────────────┐┌ Transfers ─────────────────────────────────────────────────────────────────────────┐"
@@ -20,8 +20,8 @@ expression: text
 "│  Editing             ││                                                                                    │"
 "│  Queue               ││ Split large files           [x]                                                    │"
 "│  Logging             ││ From file size (MiB)        32                                                     │"
-"│  Security            ││ Connections per file        4                                                      │"
-"│                      ││ Smallest range (MiB)        8                                                      │"
+"│  Sync                ││ Connections per file        4                                                      │"
+"│  Security            ││ Smallest range (MiB)        8                                                      │"
 "│                      ││                                                                                    │"
 "│                      ││                                                                                    │"
 "│                      ││                                                                                    │"
@@ -37,5 +37,5 @@ expression: text
 "│                      ││                                                                                    │"
 "└──────────────────────┘└────────────────────────────────────────────────────────────────────────────────────┘"
 " Settings are saved to /home/me/.config/courier-ftp/config.json                                               "
-"                              [ OK ]  [ Apply ]  [ Reset section ]  [ Cancel ]                                "
+"                 [ OK ]  [ Apply ]  [ Reset section ]  [ Import… ]  [ Export… ]  [ Cancel ]                   "
 " ↑↓ sections · Tab next field · Esc back · ^s apply · Alt-o OK · Alt-c cancel                                 "

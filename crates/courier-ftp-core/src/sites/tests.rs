@@ -913,3 +913,224 @@ async fn new_items_go_into_their_folders_vault() {
     m.save_site(s).await.unwrap();
     assert_eq!(m.site(id).unwrap().vault, folder_vault);
 }
+
+// ------------------------------------------------------------ team vaults (T89)
+
+#[tokio::test]
+async fn new_top_level_items_can_go_into_a_chosen_vault() {
+    let env = Env::new();
+    let mut m = env.open().await;
+    let team = item::VaultId::new();
+    // A site and a folder at the top level of a team vault root (T90).
+    let mut s = sftp("shared");
+    s.vault = Some(team);
+    let id = s.id;
+    m.save_site(s).await.unwrap();
+    assert_eq!(m.site(id).unwrap().vault, Some(team));
+    let f = m.add_folder_in(None, "Ops", Some(team)).await.unwrap();
+    assert_eq!(m.tree().folder(f).unwrap().vault, Some(team));
+    // Inside a folder its vault wins over the chosen one.
+    let mut inner = sftp("inner");
+    inner.parent = Some(f);
+    inner.vault = None;
+    let inner_id = inner.id;
+    m.save_site(inner).await.unwrap();
+    assert_eq!(m.site(inner_id).unwrap().vault, Some(team));
+    // No choice: the personal vault.
+    let plain = sftp("plain");
+    let plain_id = plain.id;
+    m.save_site(plain).await.unwrap();
+    assert_ne!(m.site(plain_id).unwrap().vault, Some(team));
+}
+
+/// A site stored in a team vault (another vault than the personal one).
+async fn team_site(env: &Env, logon: SiteLogon) -> (item::VaultId, ItemId) {
+    let team = item::VaultId::new();
+    let mut s = sftp("shared");
+    s.logon = logon;
+    let id = s.id;
+    env.vault
+        .put_view(id, Some(team), s.to_item())
+        .await
+        .unwrap();
+    (team, id)
+}
+
+#[tokio::test]
+async fn credential_overrides_apply_to_team_vault_sites() {
+    let env = Env::new();
+    let (_, id) = team_site(
+        &env,
+        SiteLogon::Normal {
+            user: "shared-user".into(),
+            password: Some(secret("shared-pw")),
+        },
+    )
+    .await;
+    let mut m = env.open().await;
+    assert!(m.credential_override(id).await.unwrap().is_none());
+    let info = m.connect(id).await.unwrap().info;
+    assert_eq!(
+        info.logon,
+        LogonType::Normal {
+            user: "shared-user".into(),
+            password: secret("shared-pw")
+        }
+    );
+
+    // My own user and password.
+    let mut ov = item::CredentialOverride::new(ItemId::new());
+    ov.user = Some("me".into());
+    ov.password = Some(secret("my-pw"));
+    m.set_credential_override(id, ov).await.unwrap();
+    let (ov_id, stored) = m.credential_override(id).await.unwrap().unwrap();
+    assert_eq!(stored.shared_site_id, id);
+    let ov_item = env.vault.get(ov_id).await.unwrap().unwrap();
+    assert_eq!(
+        Some(ov_item.vault_id),
+        env.vault.personal_vault().await,
+        "kept in the personal vault"
+    );
+    let info = m.connect(id).await.unwrap().info;
+    assert_eq!(
+        info.logon,
+        LogonType::Normal {
+            user: "me".into(),
+            password: secret("my-pw")
+        }
+    );
+    // The shared site itself is unchanged.
+    assert_eq!(m.site(id).unwrap().logon.user(), "shared-user");
+
+    // My own vault key instead: a key login; updating keeps one item.
+    let key_id = ItemId::new();
+    env.vault
+        .put_view(key_id, None, ssh_key("my key", None))
+        .await
+        .unwrap();
+    let mut ov = item::CredentialOverride::new(id);
+    ov.key_id = Some(key_id);
+    ov.passphrase = Some(secret("pp"));
+    m.set_credential_override(id, ov).await.unwrap();
+    assert_eq!(
+        env.vault
+            .list(item::ItemKind::CredentialOverride)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let info = m.connect(id).await.unwrap().info;
+    assert!(matches!(&info.key, Some(KeySource::Vault(k)) if k.label == "my key"));
+    assert_eq!(
+        info.key_passphrase
+            .as_ref()
+            .map(|p| p.secret().expose_secret().to_owned()),
+        Some("pp".to_owned())
+    );
+    assert_eq!(info.address.user.as_deref(), Some("shared-user"));
+
+    // Empty: deleted, the shared login is back.
+    m.set_credential_override(id, item::CredentialOverride::new(id))
+        .await
+        .unwrap();
+    assert!(m.credential_override(id).await.unwrap().is_none());
+    assert!(matches!(
+        m.connect(id).await.unwrap().info.logon,
+        LogonType::Normal { ref user, .. } if user == "shared-user"
+    ));
+}
+
+#[tokio::test]
+async fn overrides_are_only_for_team_sites_and_team_sites_cant_use_personal_keys() {
+    let env = Env::new();
+    let personal_key = ItemId::new();
+    env.vault
+        .put_view(personal_key, None, ssh_key("personal", None))
+        .await
+        .unwrap();
+    let (team, id) = team_site(&env, SiteLogon::Interactive { user: "u".into() }).await;
+    let mut m = env.open().await;
+
+    // A personal site takes no override.
+    let mut mine = sftp("mine");
+    let mine_id = mine.id;
+    mine.logon = SiteLogon::KeyFile {
+        user: "u".into(),
+        key: Some(SiteKey::Vault(personal_key)),
+        passphrase: None,
+    };
+    m.save_site(mine).await.unwrap();
+    let mut ov = item::CredentialOverride::new(mine_id);
+    ov.user = Some("x".into());
+    assert!(matches!(
+        m.set_credential_override(mine_id, ov).await,
+        Err(SiteError::NotShared)
+    ));
+
+    // An override's key must come from the personal vault.
+    let team_key = ItemId::new();
+    env.vault
+        .put_view(team_key, Some(team), ssh_key("team", None))
+        .await
+        .unwrap();
+    let mut ov = item::CredentialOverride::new(id);
+    ov.key_id = Some(team_key);
+    assert!(matches!(
+        m.set_credential_override(id, ov).await,
+        Err(SiteError::NotShared)
+    ));
+
+    // The team site can't reference the personal key, but can use a key
+    // of its own vault.
+    let mut shared = m.site(id).unwrap().clone();
+    shared.logon = SiteLogon::KeyFile {
+        user: "u".into(),
+        key: Some(SiteKey::Vault(personal_key)),
+        passphrase: None,
+    };
+    assert!(matches!(
+        m.save_site(shared.clone()).await,
+        Err(SiteError::CrossVaultKey)
+    ));
+    shared.logon = SiteLogon::KeyFile {
+        user: "u".into(),
+        key: Some(SiteKey::Vault(team_key)),
+        passphrase: None,
+    };
+    m.save_site(shared).await.unwrap();
+}
+
+#[test]
+fn with_override_keeps_what_it_does_not_set() {
+    let site = full_site();
+    let mut ov = item::CredentialOverride::new(site.id);
+    assert_eq!(site.with_override(&ov), site);
+    // An account logon keeps its ACCT and takes the password.
+    let mut acct = sftp("a");
+    acct.logon = SiteLogon::Account {
+        user: "u".into(),
+        password: None,
+        account: "acct".into(),
+    };
+    ov.password = Some(secret("pw"));
+    match acct.with_override(&ov).logon {
+        SiteLogon::Account {
+            user,
+            password,
+            account,
+        } => {
+            assert_eq!((user.as_str(), account.as_str()), ("u", "acct"));
+            assert_eq!(password.unwrap().expose_secret(), "pw");
+        }
+        other => panic!("{other:?}"),
+    }
+    // Anonymous with a user becomes a normal login.
+    let mut anon = sftp("n");
+    anon.logon = SiteLogon::Anonymous;
+    ov.user = Some("me".into());
+    assert!(matches!(
+        anon.with_override(&ov).logon,
+        SiteLogon::Normal { ref user, password: Some(_) } if user == "me"
+    ));
+}

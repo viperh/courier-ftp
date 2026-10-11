@@ -7,6 +7,7 @@ pub(crate) mod dialog;
 mod dir_tree;
 mod file_exists;
 mod file_list;
+pub(crate) mod file_ops;
 mod filters;
 mod focus;
 mod layout;
@@ -16,9 +17,13 @@ mod panes;
 mod queue;
 mod quickconnect;
 mod screen;
+pub(crate) mod search;
 pub(crate) mod settings;
 pub(crate) mod site_manager;
+mod splash;
 mod status;
+#[cfg(feature = "sync")]
+pub(crate) mod sync;
 mod text_viewer;
 mod theme;
 mod trust;
@@ -34,6 +39,11 @@ pub(crate) mod file_list_effect {
     pub(crate) use super::file_list::Effect;
 }
 pub(crate) use screen::{KeyOutcome, MainScreen};
+#[cfg(test)]
+pub(crate) use splash::MAX_SHOWN as SPLASH_MAX_SHOWN;
+#[cfg(feature = "sync")]
+pub(crate) use status::SyncLevel;
+pub(crate) use status::human_bytes;
 pub(crate) use text_viewer::TextViewer;
 pub(crate) use theme::Theme;
 #[cfg(test)]

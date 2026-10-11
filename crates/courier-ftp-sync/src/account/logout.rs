@@ -44,6 +44,13 @@ pub async fn logout_local(vault: &VaultEngine) -> Result<LogoutReport, AccountEr
                 match row.kind {
                     VaultKind::Shared => {
                         w.delete_vault(row.id)?;
+                        w.delete_meta(&courier_ftp_store::meta::keys::vault_read_only(row.id))?;
+                        w.delete_meta(&crate::teams::name_key(row.id))?;
+                        w.delete_meta(&format!(
+                            "{}{}",
+                            crate::rotation::META_ROTATION_PREFIX,
+                            row.id.uuid()
+                        ))?;
                         removed += 1;
                     }
                     VaultKind::Personal => kept += w.reset_sync(row.id)?,

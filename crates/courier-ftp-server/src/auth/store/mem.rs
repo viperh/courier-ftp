@@ -180,14 +180,25 @@ pub struct MemInvite {
     pub token_hash: [u8; 32],
     /// Bound email.
     pub email: Option<String>,
-    /// The org of an org invite (T89); `None` for an instance invite.
+    /// The org of an org invite; `None` for an instance invite.
     pub org_id: Option<Uuid>,
+    /// Granted role (org invites).
+    pub role: Option<courier_ftp_proto::orgs::Role>,
     /// Creator.
     pub created_by: Option<Uuid>,
     /// Expiry.
     pub expires_at: Option<DateTime<Utc>>,
     /// Accepted.
     pub accepted: bool,
+}
+
+/// An `orgs` row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemOrg {
+    /// Name.
+    pub name: String,
+    /// Creation time.
+    pub created_at: DateTime<Utc>,
 }
 
 /// A `recovery_codes` row.
@@ -253,6 +264,10 @@ pub struct MemData {
     pub setup_token_hash: Option<[u8; 32]>,
     /// `invites`.
     pub invites: Vec<MemInvite>,
+    /// `orgs`.
+    pub orgs: BTreeMap<Uuid, MemOrg>,
+    /// `org_members`: (org, user) → role.
+    pub org_members: BTreeMap<(Uuid, Uuid), courier_ftp_proto::orgs::Role>,
     /// Failure injection: the personal-vault insert of the next
     /// registrations fails.
     pub fail_vault_insert: bool,
@@ -279,6 +294,8 @@ impl Default for MemData {
             registration_mode: RegistrationMode::InviteOnly,
             setup_token_hash: None,
             invites: Vec::new(),
+            orgs: BTreeMap::new(),
+            org_members: BTreeMap::new(),
             fail_vault_insert: false,
             rotation_staging: BTreeMap::new(),
         }
@@ -298,6 +315,7 @@ impl MemData {
             token_hash: hash_token(token),
             email: email.map(str::to_lowercase),
             org_id: None,
+            role: None,
             created_by: None,
             expires_at: None,
             accepted: false,
@@ -357,18 +375,27 @@ impl MemData {
                 let email = email.to_lowercase();
                 let found = self.invites.iter().position(|i| {
                     i.token_hash == hash
-                        && i.org_id.is_none()
                         && !i.accepted
                         && i.expires_at.is_none_or(|e| e > now)
                         && i.email.as_deref().is_none_or(|e| e.to_lowercase() == email)
                 });
                 match found {
-                    Some(i) => Ok((
+                    Some(i) if self.invites[i].org_id.is_none() => Ok((
                         RegistrationGrant {
                             instance_invite: Some(self.invites[i].id),
                             ..RegistrationGrant::default()
                         },
                         Some(i),
+                        false,
+                    )),
+                    // An org invite: the membership is added once the
+                    // account exists (`OrgStore::accept_invite_id`).
+                    Some(i) => Ok((
+                        RegistrationGrant {
+                            org_invite: Some(self.invites[i].id),
+                            ..RegistrationGrant::default()
+                        },
+                        None,
                         false,
                     )),
                     None => Err(ApiError::Forbidden(
@@ -981,6 +1008,7 @@ impl MemStore {
         d.rotation_staging.retain(|(v, _), _| !personal.contains(v));
         d.vault_members
             .retain(|m| !personal.contains(&m.vault_id) && m.user_id != user_id);
+        d.org_members.retain(|(_, u), _| *u != user_id);
         d.vaults.retain(|id, _| !personal.contains(id));
         let devices = d.user_devices(user_id);
         d.delete_device_tokens(|dev| devices.contains(&dev));

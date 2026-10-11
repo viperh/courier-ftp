@@ -32,8 +32,10 @@ use super::{
     panes,
     queue::QueuePane,
     quickconnect::{QuickKey, Quickconnect},
+    search::{Fmt, SearchOpts, SearchUpdate, SearchView},
     settings::SettingsView,
     site_manager::SiteManagerView,
+    splash::Splash,
     status::{self, StatusState},
     theme::Theme,
     vault::{VaultRequest, VaultView},
@@ -183,6 +185,9 @@ pub(crate) struct MainScreen {
     /// The transfer engine's state (processing, paused), once the app runs
     /// one.
     engine_status: Option<tokio::sync::watch::Receiver<courier_ftp_core::transfer::EngineStatus>>,
+    /// The one-shot action after the queue finishes, for the queue pane
+    /// (T45).
+    queue_after: Option<&'static str>,
     quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
     tick: u64,
@@ -210,6 +215,9 @@ pub(crate) struct MainScreen {
     /// The settings screen (T68), when open. It covers the panes (and the
     /// Site Manager); dialogs open over it.
     settings: Option<SettingsView>,
+    /// The search view (T65). It stays for the session once opened, hidden
+    /// or shown, so the last query and results come back with `Ctrl-f`.
+    search: Option<SearchView>,
     /// Synchronized browsing (T66): the base directories, when on.
     sync: Option<SyncBase>,
     /// A synchronized directory change waiting for the other side.
@@ -224,6 +232,17 @@ pub(crate) struct MainScreen {
     /// A bookmark being applied waits for its listings before turning
     /// synchronized browsing / comparison on.
     bookmark_modes: Option<PendingModes>,
+    /// The splash screen (T74), while shown. It covers everything.
+    splash: Option<Splash>,
+    /// "Update available: …" (T74), shown at the top of Help.
+    update_notice: Option<String>,
+    /// The sync screens (T90), when open. They cover the panes like the
+    /// Site Manager.
+    #[cfg(feature = "sync")]
+    sync_view: Option<super::sync::SyncView>,
+    /// What the sync screens asked for, taken by the app after each key.
+    #[cfg(feature = "sync")]
+    sync_requests: Vec<super::sync::SyncRequest>,
 }
 
 /// Synchronized browsing / comparison to turn on once the panes show a
@@ -289,6 +308,7 @@ impl MainScreen {
             log,
             queue,
             engine_status: None,
+            queue_after: None,
             quickconnect: Quickconnect::new().with_unicode(unicode),
             modals: Vec::new(),
             tick: 0,
@@ -303,6 +323,7 @@ impl MainScreen {
             vault_requests: Vec::new(),
             sites: None,
             settings: None,
+            search: None,
             sync: None,
             sync_nav: None,
             compare: None,
@@ -310,7 +331,41 @@ impl MainScreen {
             compare_warned: false,
             bookmarks: None,
             bookmark_modes: None,
+            splash: None,
+            update_notice: None,
+            #[cfg(feature = "sync")]
+            sync_view: None,
+            #[cfg(feature = "sync")]
+            sync_requests: Vec::new(),
         }
+    }
+
+    /// Cover the screen with the splash (T74) for `version`.
+    pub(crate) fn show_splash(&mut self, version: &str, now: Instant) {
+        self.splash = Some(Splash::new(version, now));
+    }
+
+    /// Whether the splash screen is up.
+    pub(crate) fn splash_shown(&self) -> bool {
+        self.splash.is_some()
+    }
+
+    /// Take the splash down once it has been up long enough (`starting`:
+    /// the app is still opening the vault).
+    pub(crate) fn expire_splash(&mut self, now: Instant, starting: bool) {
+        if self
+            .splash
+            .as_ref()
+            .is_some_and(|s| s.expired(now, starting))
+        {
+            self.splash = None;
+        }
+    }
+
+    /// A newer release exists (T74): say so in the status bar and in Help.
+    pub(crate) fn set_update_notice(&mut self, notice: String) {
+        self.flash(notice.clone());
+        self.update_notice = Some(notice);
     }
 
     /// Where dialogs send their results.
@@ -321,6 +376,12 @@ impl MainScreen {
     /// The queue the pane shows (shared with the engine and persister).
     pub(crate) fn queue_shared(&self) -> &courier_ftp_core::queue::SharedQueue {
         self.queue.shared()
+    }
+
+    /// Show the one-shot action after the queue finishes in the queue
+    /// pane's bottom line (`None`: the setting applies).
+    pub(crate) fn set_queue_after(&mut self, after: Option<&'static str>) {
+        self.queue_after = after;
     }
 
     /// Follow the transfer engine's status (processing, paused).
@@ -353,6 +414,30 @@ impl MainScreen {
         let tx = self.action_tx.clone();
         let effect = self.pane_mut(side).update(&Action::Refresh, tx.as_ref());
         self.apply(effect);
+    }
+
+    /// A cached listing was patched by our own change (T46/T62): redraw
+    /// `side`'s list (keeping cursor and selection) and tree when they show
+    /// that directory. A list waiting for another listing is left alone.
+    pub(crate) fn listing_patched(&mut self, side: Side, listing: &Listing) {
+        let pane = self.pane_mut(side);
+        if pane.dir.as_ref() == Some(&listing.dir) && !pane.busy {
+            let result: Result<Listing, String> = Ok(listing.clone());
+            let _ = pane.listing_loaded(&result);
+        }
+        self.tree_mut(side).listing(listing);
+        self.after_change();
+    }
+
+    /// Show `dir` in `side`'s list (a directory just created and entered).
+    pub(crate) fn go_to(&mut self, side: Side, dir: RemotePath) {
+        let effect = self.pane_mut(side).go_to(dir);
+        self.apply(effect);
+    }
+
+    /// The side of the focused file list or directory tree.
+    pub(crate) fn focused_side(&self) -> Option<Side> {
+        self.focused_list_side().or(self.focused_tree_side())
     }
 
     /// The actions the panes asked for since the last call.
@@ -466,6 +551,56 @@ impl MainScreen {
         self.sites = None;
     }
 
+    /// Open the sync screens (replacing ones already open).
+    #[cfg(feature = "sync")]
+    pub(crate) fn open_sync_view(&mut self, view: super::sync::SyncView) {
+        self.sync_view = Some(view);
+        self.pump_sync();
+    }
+
+    /// The sync screens, when open.
+    #[cfg(feature = "sync")]
+    pub(crate) fn sync_view_mut(&mut self) -> Option<&mut super::sync::SyncView> {
+        self.sync_view.as_mut()
+    }
+
+    /// The sync screens, when open.
+    #[cfg(all(test, feature = "sync"))]
+    pub(crate) fn sync_view(&self) -> Option<&super::sync::SyncView> {
+        self.sync_view.as_ref()
+    }
+
+    /// Close the sync screens (vault locked).
+    #[cfg(feature = "sync")]
+    pub(crate) fn close_sync_view(&mut self) {
+        self.sync_view = None;
+    }
+
+    /// What the sync screens asked for since the last call.
+    #[cfg(feature = "sync")]
+    pub(crate) fn take_sync_requests(&mut self) -> Vec<super::sync::SyncRequest> {
+        self.pump_sync();
+        std::mem::take(&mut self.sync_requests)
+    }
+
+    /// Collect the sync screens' requests and drop them once closed.
+    #[cfg(feature = "sync")]
+    fn pump_sync(&mut self) {
+        let Some(view) = self.sync_view.as_mut() else {
+            return;
+        };
+        self.sync_requests.extend(view.take_requests());
+        if view.is_closed() {
+            self.sync_view = None;
+        }
+    }
+
+    /// The status bar's device sync segment (T90).
+    #[cfg(feature = "sync")]
+    pub(crate) fn set_sync_status(&mut self, sync: Option<(String, status::SyncLevel)>) {
+        self.status.sync = sync;
+    }
+
     /// Open the bookmarks menu (replacing one already open).
     pub(crate) fn open_bookmarks(&mut self, menu: BookmarksMenu) {
         self.bookmarks = Some(menu);
@@ -551,6 +686,79 @@ impl MainScreen {
         }
     }
 
+    /// Whether the search view covers the panes.
+    pub(crate) fn search_shown(&self) -> bool {
+        self.search.as_ref().is_some_and(|v| !v.is_hidden())
+    }
+
+    /// The search view, when one was opened this session.
+    #[cfg(test)]
+    pub(crate) fn search_view_mut(&mut self) -> Option<&mut SearchView> {
+        self.search.as_mut()
+    }
+
+    /// `Ctrl-f`: show the search view, searching the focused pane's side
+    /// from its current directory (the remote side only when connected).
+    fn open_search(&mut self) {
+        let side = match self.opts.compact_side {
+            Side::Remote if self.remote.dir.is_some() => Side::Remote,
+            _ => Side::Local,
+        };
+        let opts = SearchOpts {
+            side,
+            dirs: [
+                self.local
+                    .dir
+                    .as_ref()
+                    .map(display_native)
+                    .unwrap_or_default(),
+                self.remote
+                    .dir
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            ],
+            unicode: self.status.unicode,
+            fmt: Fmt::new(
+                &self.config.settings,
+                time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC),
+            ),
+        };
+        match self.search.as_mut() {
+            Some(view) => view.reopen(opts),
+            None => self.search = Some(SearchView::new(opts)),
+        }
+    }
+
+    /// Something from the running search (or a result action) for the view.
+    pub(crate) fn search_update(&mut self, update: &SearchUpdate) {
+        if let Some(view) = self.search.as_mut() {
+            view.apply_update(update);
+        }
+    }
+
+    /// Pass the search view's requests on.
+    fn pump_search(&mut self) {
+        let Some(view) = self.search.as_mut() else {
+            return;
+        };
+        for request in view.take_requests() {
+            self.outbox
+                .push(Action::SearchRequest(crate::action::Shared::new(request)));
+        }
+    }
+
+    /// "Go to" a search result: hide the search view, show `dir` in the
+    /// `side` pane with the cursor on `name`, and focus that pane.
+    pub(crate) fn reveal(&mut self, side: Side, dir: RemotePath, name: String) {
+        if let Some(view) = self.search.as_mut() {
+            view.hide();
+        }
+        self.set_focus(Region::list(side));
+        let effect = self.pane_mut(side).go_to_entry(dir, name);
+        self.apply(effect);
+    }
+
     /// Settings changed on the settings screen (T68): apply what the screen
     /// shows at once (layout, visibility, formats, sort order, colours, log
     /// pane, status bar).
@@ -616,6 +824,8 @@ impl MainScreen {
             || self.sites.is_some()
             || self.bookmarks.is_some()
             || self.settings.is_some()
+            || self.sync_open()
+            || self.search_shown()
         {
             return Mode::Dialog;
         }
@@ -642,6 +852,14 @@ impl MainScreen {
             Region::Log => Mode::Log,
             Region::Queue => Mode::Queue,
         }
+    }
+
+    /// Whether the sync screens are open.
+    fn sync_open(&self) -> bool {
+        #[cfg(feature = "sync")]
+        return self.sync_view.is_some();
+        #[cfg(not(feature = "sync"))]
+        false
     }
 
     #[cfg(test)]
@@ -674,6 +892,10 @@ impl MainScreen {
 
     fn route_key(&mut self, key: KeyEvent) -> KeyOutcome {
         self.last_key = Some(Instant::now());
+        // Any key skips the splash, and does nothing else.
+        if self.splash.take().is_some() {
+            return KeyOutcome::Consumed;
+        }
         if self.vault_shown {
             if let Some(view) = self.vault.as_mut()
                 && let Some(request) = view.handle_key(key, Instant::now())
@@ -688,9 +910,21 @@ impl MainScreen {
             }
             return KeyOutcome::Consumed;
         }
+        // Over the settings screen when opened from its Sync page.
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_mut() {
+            view.handle_key(key);
+            self.pump_sync();
+            return KeyOutcome::Consumed;
+        }
         if let Some(view) = self.settings.as_mut() {
             view.handle_key(key);
             self.pump_settings();
+            return KeyOutcome::Consumed;
+        }
+        if let Some(view) = self.search.as_mut().filter(|v| !v.is_hidden()) {
+            view.handle_key(key);
+            self.pump_search();
             return KeyOutcome::Consumed;
         }
         if let Some(view) = self.sites.as_mut() {
@@ -748,7 +982,10 @@ impl MainScreen {
             }
         } else if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
+        } else if self.paste_sync(text) {
         } else if let Some(view) = self.settings.as_mut() {
+            view.handle_paste(text);
+        } else if let Some(view) = self.search.as_mut().filter(|v| !v.is_hidden()) {
             view.handle_paste(text);
         } else if let Some(view) = self.sites.as_mut() {
             view.handle_paste(text);
@@ -759,6 +996,17 @@ impl MainScreen {
         } else if let Some(list) = self.focused_list() {
             list.handle_paste(text);
         }
+    }
+
+    /// Paste into the sync screens; `false` when they aren't open.
+    fn paste_sync(&mut self, text: &str) -> bool {
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_mut() {
+            view.handle_paste(text);
+            return true;
+        }
+        let _ = text;
+        false
     }
 
     /// The side of the file list or tree that last had focus.
@@ -889,6 +1137,10 @@ impl MainScreen {
                 if let Some(view) = self.vault.as_mut() {
                     view.tick();
                 }
+                #[cfg(feature = "sync")]
+                if let Some(view) = self.sync_view.as_mut() {
+                    view.tick();
+                }
                 self.pump_prompts(Instant::now(), false);
             }
             Action::OpenPrompt => {
@@ -970,6 +1222,7 @@ impl MainScreen {
                 self.modals.push(Box::new(dialog));
             }
             Action::SetFilters(filters) => self.set_filters(filters),
+            Action::Search => self.open_search(),
             Action::SelectCompareLonely => self.select_by_status(Highlight::Lonely),
             Action::SelectCompareNewer => self.select_by_status(Highlight::Newer),
             Action::SelectCompareDifferent => self.select_by_status(Highlight::Different),
@@ -1056,6 +1309,15 @@ impl MainScreen {
     /// Show `text` in the status bar for a few seconds.
     pub(crate) fn flash(&mut self, text: impl Into<String>) {
         self.status.flash(text, Instant::now());
+    }
+
+    /// The transient status bar message (tests).
+    #[cfg(test)]
+    pub(crate) fn status_text(&self) -> String {
+        self.status
+            .message(Instant::now())
+            .unwrap_or_default()
+            .to_owned()
     }
 
     /// A connection to `server` is being opened in the remote pane.
@@ -1557,6 +1819,7 @@ impl MainScreen {
             || self.vault_shown
             || self.sites.is_some()
             || self.settings.is_some()
+            || self.sync_open()
             || (!force
                 && (matches!(self.mode(), Mode::Input | Mode::Filter)
                     || self
@@ -1582,13 +1845,19 @@ impl MainScreen {
     fn open_help(&mut self) {
         let mode = self.mode();
         let bindings = self.config.keybindings.describe(mode);
-        self.modals
-            .push(Box::new(HelpOverlay::new(&format!("{mode:?}"), bindings)));
+        self.modals.push(Box::new(
+            HelpOverlay::new(&format!("{mode:?}"), bindings)
+                .with_notice(self.update_notice.clone()),
+        ));
     }
 
     /// Draw everything.
     pub(crate) fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
+        if let Some(splash) = &self.splash {
+            splash.draw(frame, area, &self.theme);
+            return;
+        }
         self.modals.retain(|m| !m.is_done());
         self.status.pending_prompts = self.prompts.len();
         let r = layout::compute(area, &self.opts);
@@ -1684,6 +1953,7 @@ impl MainScreen {
                 super::queue::RunState {
                     processing,
                     paused: status.paused,
+                    after: self.queue_after,
                 },
                 theme,
                 now,
@@ -1717,6 +1987,28 @@ impl MainScreen {
                 bottom.saturating_sub(area.y),
             );
             view.draw(frame, above, theme);
+        }
+        // Over the settings screen when opened from its Sync page.
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_ref() {
+            let bottom = r.status.map_or(area.bottom(), |s| s.y);
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                bottom.saturating_sub(area.y),
+            );
+            view.draw(frame, above, theme);
+        }
+        if let Some(view) = self.search.as_mut().filter(|v| !v.is_hidden()) {
+            let bottom = r.status.map_or(area.bottom(), |s| s.y);
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                bottom.saturating_sub(area.y),
+            );
+            view.draw(frame, above, self.tick, theme);
         }
         for modal in &mut self.modals {
             modal.draw(frame, area, theme);

@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/ui/sync/tests.rs
+assertion_line: 401
+expression: small
+---
+"┌ Sync: two-factor authentication ─────────────────────────────────────────────┐"
+"│                                                                              │"
+"│ Scan the code with an authenticator app, or type the secret, then enter the  │"
+"│ 6-digit code it shows.                                                       │"
+"│                                                                              │"
+"│ (The window is too small for the QR code: enlarge it, or type the secret     │"
+"│ into the app.)                                                               │"
+"│                                                                              │"
+"│ Secret: JBSW Y3DP EHPK 3PXP                                                  │"
+"│                                                                              │"
+"│ Code from the app                                                            │"
+"│                                                                              │"
+"│                           [ Enable ]  [ Cancel ]                             │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│ Enter enable · Esc cancel                                                    │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

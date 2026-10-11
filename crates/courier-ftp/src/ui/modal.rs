@@ -53,6 +53,8 @@ pub(crate) fn centered(area: Rect, width: u16, height: u16) -> Rect {
 pub(crate) struct HelpOverlay {
     title: String,
     lines: Vec<(String, String)>,
+    /// "Update available: …" above the keys (T74).
+    notice: Option<String>,
     scroll: u16,
 }
 
@@ -63,27 +65,44 @@ impl HelpOverlay {
         Self {
             title: format!(" Keys: {mode} mode "),
             lines: bindings,
+            notice: None,
             scroll: 0,
         }
+    }
+
+    /// Show `notice` (an available update) above the keys.
+    pub(crate) fn with_notice(mut self, notice: Option<String>) -> Self {
+        self.notice = notice;
+        self
     }
 }
 
 impl Modal for HelpOverlay {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let key_width = self.lines.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-        let height = u16::try_from(self.lines.len())
+        // "Update available: v1.3.0" and the release page on its own line
+        // (too long for one), then a blank line.
+        let notice: Vec<Line> = self
+            .notice
+            .iter()
+            .flat_map(|n| {
+                n.split(" — ")
+                    .map(|part| Line::styled(part.to_owned(), theme.key_hint))
+            })
+            .chain(self.notice.as_ref().map(|_| Line::raw("")))
+            .collect();
+        let height = u16::try_from(self.lines.len() + notice.len())
             .unwrap_or(u16::MAX)
             .saturating_add(3);
         let rect = centered(area, 60, height);
-        let body: Vec<Line> = self
-            .lines
-            .iter()
-            .map(|(key, action)| {
+        let body: Vec<Line> = notice
+            .into_iter()
+            .chain(self.lines.iter().map(|(key, action)| {
                 Line::from(vec![
                     Span::styled(format!("{key:<key_width$}  "), theme.key_hint),
                     Span::raw(action.clone()),
                 ])
-            })
+            }))
             .chain(std::iter::once(Line::styled(
                 "Esc closes · ↑/↓ scroll",
                 theme.dim,

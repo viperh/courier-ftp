@@ -54,6 +54,7 @@ struct Inner {
     auth: AuthRuntime,
     sync: SyncRuntime,
     ws: WsRuntime,
+    orgs: crate::orgs::OrgStore,
     mailer: std::sync::RwLock<crate::mail::Mailer>,
 }
 
@@ -106,6 +107,8 @@ impl AppState {
         // Push commits publish `vault_changed` on the bus.
         let ws = WsRuntime::new(bus, WsTiming::default());
         sync.set_notifier(ws.notifier());
+        // Orgs on the same backend as auth.
+        let orgs = crate::orgs::OrgStore::for_auth(auth.store());
         // Recovery-code and invite mail when SMTP is configured.
         let mailer = std::sync::RwLock::new(crate::mail::Mailer::from_config(config.smtp.as_ref()));
         Self(Arc::new(Inner {
@@ -118,6 +121,7 @@ impl AppState {
             auth,
             sync,
             ws,
+            orgs,
             mailer,
         }))
     }
@@ -168,6 +172,12 @@ impl AppState {
     #[must_use]
     pub fn ws(&self) -> &WsRuntime {
         &self.0.ws
+    }
+
+    /// Orgs, members, invites, the audit log.
+    #[must_use]
+    pub fn orgs(&self) -> &crate::orgs::OrgStore {
+        &self.0.orgs
     }
 
     /// The mailer (recovery codes, invites).

@@ -9,6 +9,12 @@ pub mod devices;
 pub mod ops;
 // Vault list, pull and push (T85).
 pub mod vaults;
+// Orgs, members, invites, the audit log, user public keys (T89).
+pub mod orgs;
+// Shared vault members and org vault listings (T89).
+pub mod shared_vaults;
+// Vault key rotation (T89).
+pub mod rotate;
 
 use axum::Router;
 
@@ -22,4 +28,7 @@ pub fn api_v1() -> Router<AppState> {
         .merge(devices::router())
         .merge(vaults::router())
         .merge(crate::ws::router())
+        .merge(orgs::router())
+        .merge(shared_vaults::router())
+        .merge(rotate::router())
 }

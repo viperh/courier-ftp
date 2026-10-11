@@ -70,6 +70,7 @@ pub(crate) use opaque_flow::{finish_registration_record as finish_record, opaque
 pub use recovery::{
     Recovered, recover_account, recover_device, recover_locked_device, request_recovery_code,
 };
+pub(crate) use register::seal_vault_name;
 pub use register::{
     PERSONAL_VAULT_NAME, PreparedRegistration, Registered, RegistrationToken, finish_registration,
     prepare_registration,

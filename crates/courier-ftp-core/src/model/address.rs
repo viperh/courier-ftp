@@ -121,6 +121,36 @@ impl fmt::Display for ServerUrl {
     }
 }
 
+impl ServerUrl {
+    /// The URL as text for copying (T62): the port only when `port` is set
+    /// or it isn't the protocol's default, and the password only when
+    /// `password` is set. Unlike [`Display`](fmt::Display) this can expose
+    /// the password: use it only on the user's explicit request.
+    pub fn to_text(&self, port: bool, password: bool) -> String {
+        use secrecy::ExposeSecret;
+
+        let a = &self.address;
+        let mut out = format!("{}://", a.protocol.scheme());
+        if let Some(user) = &a.user {
+            out.push_str(&encode(user, USERINFO_SAFE));
+            if let Some(pw) = self.password.as_ref().filter(|_| password) {
+                out.push(':');
+                out.push_str(&encode(pw.expose_secret(), USERINFO_SAFE));
+            }
+            out.push('@');
+        }
+        if port || a.port != a.protocol.default_port() {
+            out.push_str(&a.host_port());
+        } else {
+            out.push_str(&bracket_host(&a.host));
+        }
+        if let Some(path) = &self.path {
+            out.push_str(&encode(path.as_str(), PATH_SAFE));
+        }
+        out
+    }
+}
+
 impl FromStr for ServerUrl {
     type Err = Error;
 
@@ -389,6 +419,28 @@ mod tests {
         assert_eq!(url.to_string(), "sftp://bob@h:2200/var/www/my%20site");
         assert_eq!(url.to_string().parse::<ServerUrl>().unwrap(), url);
         assert!(!format!("{url:?}").contains("s:cret"));
+    }
+
+    #[test]
+    fn url_text_for_copying() {
+        let url: ServerUrl = "sftp://al%20ice:p@ss@example.com/srv/a b".parse().unwrap();
+        assert_eq!(
+            url.to_text(false, false),
+            "sftp://al%20ice@example.com/srv/a%20b"
+        );
+        assert_eq!(
+            url.to_text(true, false),
+            "sftp://al%20ice@example.com:22/srv/a%20b"
+        );
+        assert_eq!(
+            url.to_text(false, true),
+            "sftp://al%20ice:p%40ss@example.com/srv/a%20b"
+        );
+        // A non-default port is always kept; IPv6 hosts get brackets.
+        let url: ServerUrl = "ftp://[::1]:2121/".parse().unwrap();
+        assert_eq!(url.to_text(false, true), "ftp://[::1]:2121/");
+        let url: ServerUrl = "ftp://[::1]".parse().unwrap();
+        assert_eq!(url.to_text(false, false), "ftp://[::1]");
     }
 
     #[test]

@@ -49,6 +49,8 @@ pub(crate) enum Action {
     Mkdir,
     /// Make a directory and enter it (T62).
     MkdirEnter,
+    /// Create an empty file (T62).
+    NewFile,
     /// Delete the selection, with confirmation (T62).
     Delete,
     /// Open the settings screen (T68).
@@ -126,6 +128,10 @@ pub(crate) enum Action {
     LockVault,
     /// Show the unlock view after "Continue without vault" (T60).
     UnlockVault,
+    /// The device sync panel (T90): status, "sync now", the account and
+    /// devices screens, or the wizard that connects this device to a sync
+    /// server. Builds without the `sync` feature say so.
+    SyncPanel,
 
     // --- focus ---
     /// `Tab`: switch between the two file lists (Midnight Commander style).
@@ -229,10 +235,15 @@ pub(crate) enum Action {
     QueueMenu,
     /// Set the "file exists" action of the selected items.
     QueueExistsMenu,
+    /// Choose what happens when the queue finishes this time (T45).
+    QueueAfterMenu,
     /// Hold every running transfer mid-stream, or let them continue.
     ToggleTransfersPaused,
 
     // --- background results ---
+    /// The update check found a newer release (T74).
+    #[serde(skip)]
+    UpdateAvailable(crate::update::UpdateInfo),
     /// The queue pane changed the queue: cancel `cancel` (removed or paused
     /// while running), schedule the save and, with `wake`, look for work.
     #[serde(skip)]
@@ -250,6 +261,9 @@ pub(crate) enum Action {
     /// The saved queue was merged in after unlock (how many items).
     #[serde(skip)]
     QueueRestored(Result<usize, String>),
+    /// A settings or vault backup was opened or restored (T73).
+    #[serde(skip)]
+    Archive(Shared<crate::archive::ArchiveMsg>),
     /// What quitting now would lose.
     #[serde(skip)]
     QuitChecked {
@@ -315,6 +329,24 @@ pub(crate) enum Action {
         dir: RemotePath,
         result: Result<(), String>,
     },
+    /// The one-shot action after the queue finishes (`None`: the
+    /// `queue.on_complete` setting, T45).
+    #[serde(skip)]
+    QueueSetAfter(Option<courier_ftp_core::settings::OnComplete>),
+    /// Ask for the command to run when the queue finishes this time.
+    #[serde(skip)]
+    QueueAskCommand(String),
+    /// The countdown before disconnecting or quitting after the queue
+    /// finished ran out.
+    #[serde(skip)]
+    QueueAfterDue(courier_ftp_core::settings::OnComplete),
+    /// The command run after the queue finished exited (its code; `None`:
+    /// killed by a signal) or couldn't be started.
+    #[serde(skip)]
+    QueueAfterCommandExited(Result<Option<i32>, String>),
+    /// A step or result of a file operation (T62).
+    #[serde(skip)]
+    FileOp(Shared<crate::app::FileOpMsg>),
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),
@@ -352,6 +384,11 @@ pub(crate) enum Action {
     /// The quickconnect history was (re)loaded from the vault.
     #[serde(skip)]
     HistoryLoaded(Vec<crate::ui::HistoryItem>),
+    /// A sync background call finished or the sync engine reported
+    /// something (T90).
+    #[cfg(feature = "sync")]
+    #[serde(skip)]
+    Sync(Shared<crate::sync::Once<crate::sync::SyncMsg>>),
     /// The Site Manager screen asks for an operation (T59).
     #[serde(skip)]
     SiteOp(Shared<crate::sites::SiteOp>),
@@ -370,6 +407,16 @@ pub(crate) enum Action {
     /// The answer to a settings screen request.
     #[serde(skip)]
     SettingsReply(Shared<crate::ui::settings::SettingsReply>),
+    /// The search view asks for something (T65).
+    #[serde(skip)]
+    SearchRequest(Shared<crate::ui::search::SearchRequest>),
+    /// News from search `run` (results, progress, the end, deletions);
+    /// dropped when another search started since.
+    #[serde(skip)]
+    SearchUpdate {
+        run: u64,
+        update: Shared<crate::ui::search::SearchUpdate>,
+    },
     /// A connection attempt started by [`Action::Connect`] finished.
     #[serde(skip)]
     Connected {
@@ -441,8 +488,14 @@ impl Eq for ConnectRequest {}
 /// A value carried by an action that can't be compared or serialized (a
 /// background task's request or result). Two `Shared` values are equal only
 /// when they are the same allocation.
-#[derive(Clone)]
 pub(crate) struct Shared<T>(pub(crate) std::sync::Arc<T>);
+
+// By hand: cloning shares the allocation, so `T` needn't be `Clone`.
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self(std::sync::Arc::clone(&self.0))
+    }
+}
 
 impl<T> Shared<T> {
     pub(crate) fn new(value: T) -> Self {
@@ -469,4 +522,7 @@ impl<T> Eq for Shared<T> {}
 pub(crate) struct Connected {
     pub(crate) info: Option<SessionInfo>,
     pub(crate) listing: Listing,
+    /// What the backend supports (operations it can't do are explained
+    /// instead of failing, T62).
+    pub(crate) capabilities: courier_ftp_core::backend::Capabilities,
 }

@@ -18,14 +18,14 @@ use ratatui::{Terminal, backend::TestBackend};
 use super::*;
 use crate::ui::file_list_effect::Effect;
 
-fn server() -> MockServer {
+pub(super) fn server() -> MockServer {
     let server = MockServer::new();
     server.add_file("/srv/readme.txt", b"hello from the server");
     server.add_dir("/srv/logs");
     server
 }
 
-fn app(server: &MockServer) -> Box<App> {
+pub(super) fn app(server: &MockServer) -> Box<App> {
     let mut config = Config::builtin();
     config.settings.interface.unicode_symbols = SymbolMode::Unicode;
     config.settings.logging.show_timestamps = false;
@@ -39,7 +39,7 @@ fn app(server: &MockServer) -> Box<App> {
 }
 
 /// Run actions, core events and ticks until `done` holds (30 s cap).
-async fn until(app: &mut App, what: &str, done: impl Fn(&App) -> bool) {
+pub(super) async fn until(app: &mut App, what: &str, done: impl Fn(&App) -> bool) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         tokio::select! {
@@ -56,13 +56,13 @@ async fn until(app: &mut App, what: &str, done: impl Fn(&App) -> bool) {
     }
 }
 
-fn screen_text(app: &mut App, width: u16, height: u16) -> String {
+pub(super) fn screen_text(app: &mut App, width: u16, height: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal.draw(|f| app.screen.draw(f)).unwrap();
     terminal.backend().to_string()
 }
 
-async fn connect(app: &mut App, url: &str) {
+pub(super) async fn connect(app: &mut App, url: &str) {
     app.dispatch(Action::FocusQuickconnect).unwrap();
     app.screen.handle_paste(url);
     app.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
@@ -73,7 +73,7 @@ async fn connect(app: &mut App, url: &str) {
     .await;
 }
 
-async fn show_local(app: &mut App, dir: &std::path::Path) {
+pub(super) async fn show_local(app: &mut App, dir: &std::path::Path) {
     let dir = local_to_remote(dir).unwrap();
     if let Some(Effect::Action(a)) = app.screen.local.go_to(dir.clone()) {
         app.dispatch(a).unwrap();
@@ -85,7 +85,7 @@ async fn show_local(app: &mut App, dir: &std::path::Path) {
 }
 
 /// Move the cursor of `side`'s list onto `name`.
-fn cursor_to(app: &mut App, side: Side, name: &str) {
+pub(super) fn cursor_to(app: &mut App, side: Side, name: &str) {
     app.dispatch(match side {
         Side::Local => Action::FocusLocal,
         Side::Remote => Action::FocusRemote,
@@ -171,7 +171,7 @@ async fn upload_and_download_through_the_engine() {
     let text = screen_text(&mut app, 120, 40);
     assert!(text.contains("Successful transfers (2)"), "{text}");
     assert!(
-        text.contains("Queue finished: 1 file transferred"),
+        text.contains("Queue finished: 1 file, 21 B transferred"),
         "{text}"
     );
     app.transfers.shutdown().await;

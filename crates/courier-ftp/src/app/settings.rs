@@ -86,19 +86,20 @@ impl App {
                 .display()
                 .to_string(),
             keybindings,
+            backup_default: crate::archive::default_backup_path().display().to_string(),
         }
     }
 
     /// Send the settings screen an answer (through the action channel, so
     /// it arrives like the background tasks' answers).
-    fn settings_reply(&self, reply: SettingsReply) {
+    pub(super) fn settings_reply(&self, reply: SettingsReply) {
         let _ = self
             .action_tx
             .send(Action::SettingsReply(Shared::new(reply)));
     }
 
     /// The vault engine while unlocked.
-    fn unlocked_engine(&self) -> Option<VaultEngine> {
+    pub(super) fn unlocked_engine(&self) -> Option<VaultEngine> {
         self.vault
             .as_ref()
             .filter(|v| v.phase == Phase::Unlocked)
@@ -153,6 +154,18 @@ impl App {
                     self.settings_reply(SettingsReply::Failed("The vault is locked".to_owned()));
                     return;
                 };
+                // With a sync account the master password is the account
+                // password: it changes on the server (and may need a TOTP
+                // code), through the sync panel (T90).
+                #[cfg(feature = "sync")]
+                if self.sync_account_active() {
+                    self.settings_reply(SettingsReply::Failed(
+                        "This device uses a sync account: change the password in Sync → \
+                         Account, devices and recovery → Account, so your other devices follow"
+                            .to_owned(),
+                    ));
+                    return;
+                }
                 let (old, new) = (old.clone(), new.clone());
                 let tx = self.action_tx.clone();
                 tokio::spawn(async move {
@@ -189,12 +202,25 @@ impl App {
                     ))));
                 });
             }
+            SettingsRequest::OpenSync => {
+                #[cfg(feature = "sync")]
+                self.open_sync_panel();
+            }
             SettingsRequest::LockNow => {
                 if self.unlocked_engine().is_some() {
                     self.lock_vault(None);
                 }
                 self.load_security();
             }
+            SettingsRequest::Wizard(request) => self.wizard_request(request),
+            SettingsRequest::Export(job) => self.settings_export(job),
+            SettingsRequest::OpenImport { path, passphrase } => self.open_import(
+                crate::archive::Origin::Settings,
+                path.clone(),
+                passphrase.clone(),
+            ),
+            SettingsRequest::Import(choice) => self.settings_import(choice.clone()),
+            SettingsRequest::CancelImport => self.import_archive = None,
         }
     }
 
@@ -287,6 +313,10 @@ impl App {
             self.cache.configure(&new.cache);
         }
         if let Some(vault) = &mut self.vault {
+            #[cfg(feature = "sync")]
+            if let Some(sync) = vault.sync.as_mut() {
+                sync.settings_changed(&new.sync);
+            }
             vault.configure(&new.vault);
             vault.set_ftp_proxy_ref(ftp_proxy_ref(&new));
         }

@@ -963,17 +963,28 @@ both!(
     login_state_expires_pg
 );
 
+/// Quotas spread over an hour, so no slot refills during a slow test run.
 fn strict(per_email: u32, per_ip: u32) -> RateLimiters {
-    RateLimiters::new(LoginLimits {
-        per_email_per_minute: NonZeroU32::new(per_email).unwrap(),
-        per_ip_per_minute: NonZeroU32::new(per_ip).unwrap(),
-    })
+    RateLimiters::with_period(
+        LoginLimits {
+            per_email_per_minute: NonZeroU32::new(per_email).unwrap(),
+            per_ip_per_minute: NonZeroU32::new(per_ip).unwrap(),
+        },
+        HOUR,
+    )
 }
 
-/// 5 login starts per email per minute, then 429 with `Retry-After`.
+const HOUR: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// 5 login starts per email (the default burst), then 429 with
+/// `Retry-After`. Spread over an hour so no slot refills mid-test.
 #[tokio::test]
 async fn login_start_is_rate_limited() {
-    let h = Server::mem_with(RateLimiters::default(), config(&[])).await;
+    let h = Server::mem_with(
+        RateLimiters::with_period(LoginLimits::default(), HOUR),
+        config(&[]),
+    )
+    .await;
     let mut rng = os_rng();
     let (_, ke1) = client_login_start(&mut rng, b"pw").unwrap();
     let body = json!({ "email": "rl@example.com", "credential_request": b64::encode(&ke1) });
@@ -986,7 +997,7 @@ async fn login_start_is_rate_limited() {
         .await;
     assert_error(st, &v, StatusCode::TOO_MANY_REQUESTS, "rate_limited");
     let retry: u64 = headers["retry-after"].to_str().unwrap().parse().unwrap();
-    assert!((1..=60).contains(&retry));
+    assert!((1..=3600).contains(&retry));
     assert_eq!(v["error"]["retry_after_s"], json!(retry));
     // Registration and recovery share the limiter.
     let (st, _) = h
