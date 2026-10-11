@@ -77,6 +77,8 @@ pub(crate) struct App {
     /// The last tree the Site Manager loaded, for the screen and the site
     /// picker; `None` while locked or loading.
     site_snapshot: Option<Snapshot>,
+    /// The Site Manager's vault roots (T90): empty without team vaults.
+    vault_roots: Vec<crate::sites::VaultRoot>,
     /// Session log file and raw listings (T71).
     diag: crate::diagnostics::Diagnostics,
     /// Where `config.json` is saved (empty in tests: nothing is saved).
@@ -298,6 +300,7 @@ impl App {
             history: None,
             sites: Arc::new(tokio::sync::Mutex::new(None)),
             site_snapshot: None,
+            vault_roots: Vec::new(),
             diag: crate::diagnostics::Diagnostics::new(offset),
             config_dir: config.config.config_dir.clone(),
             transfers,
@@ -1253,6 +1256,7 @@ impl App {
         self.transfers.resolver.forget_passwords();
         self.history = None;
         self.site_snapshot = None;
+        self.vault_roots.clear();
         self.screen.close_site_manager();
         self.screen.close_bookmarks();
         let slot = Arc::clone(&self.sites);
@@ -1300,6 +1304,16 @@ impl App {
     /// Load the Site Manager over the unlocked vault; the tree arrives as
     /// [`Action::SitesReply`].
     fn load_sites(&mut self, engine: courier_ftp_store::vault::VaultEngine) {
+        // The team vault roots (T90), next to the tree.
+        #[cfg(feature = "sync")]
+        {
+            let engine = engine.clone();
+            let tx = self.action_tx.clone();
+            tokio::spawn(async move {
+                let roots = crate::sites::vault_roots(&engine).await;
+                let _ = tx.send(crate::sync::action(crate::sync::SyncMsg::VaultRoots(roots)));
+            });
+        }
         let slot = Arc::clone(&self.sites);
         let tx = self.action_tx.clone();
         tokio::spawn(async move {
@@ -1359,6 +1373,7 @@ impl App {
             return;
         }
         let mut view = SiteManagerView::new(self.site_snapshot.clone(), self.site_view_opts());
+        view.set_vaults(self.vault_roots.clone());
         if let Some(site) = new_site {
             view = view.with_new_site(site);
         }

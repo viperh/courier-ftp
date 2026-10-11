@@ -18,8 +18,8 @@ use courier_ftp_core::settings::Settings;
 use courier_ftp_proto::auth::DeviceSummary;
 use courier_ftp_store::vault::VaultEngine;
 use courier_ftp_sync::{
-    AccountConfig, AccountError, EngineConfig, Revoked, SyncEvent, SyncHandle, SyncSession,
-    SyncStatus, TotpSetup,
+    AccountConfig, AccountError, EngineConfig, Revoked, RotationError, RotationProgress, SyncEvent,
+    SyncHandle, SyncSession, SyncStatus, TeamError, Teams, TotpSetup, TrustError,
     account::{
         self, DuplicateChoice, LoggedIn, LoginRequest, LoginSession, LogoutReport,
         PreparedRegistration, Registered, RegistrationToken,
@@ -33,7 +33,10 @@ use zeroize::Zeroizing;
 
 use crate::{
     action::{Action, Shared},
-    ui::SyncLevel,
+    ui::{
+        SyncLevel,
+        sync::{Safety, TeamReply, TeamRequest},
+    },
 };
 
 /// A value handed over exactly once through a cloneable [`Action`].
@@ -112,6 +115,12 @@ pub(crate) enum SyncMsg {
     },
     /// `recover_locked_device`: the vault is unlocked under the new password.
     Recovered(Result<(), AccountError>),
+    /// A teams screen call (T90 §5).
+    Team(Result<TeamReply, String>),
+    /// A vault key rotation is in progress (removing a member, revoking).
+    Rotation(RotationProgress),
+    /// The Site Manager's vault roots (T90 §6).
+    VaultRoots(Vec<crate::sites::VaultRoot>),
 }
 
 impl std::fmt::Debug for SyncMsg {
@@ -136,6 +145,9 @@ impl std::fmt::Debug for SyncMsg {
             Self::AccountDeleted(_) => "AccountDeleted",
             Self::RecoveryDefaults { .. } => "RecoveryDefaults",
             Self::Recovered(_) => "Recovered",
+            Self::Team(_) => "Team",
+            Self::Rotation(_) => "Rotation",
+            Self::VaultRoots(_) => "VaultRoots",
         })
     }
 }
@@ -631,6 +643,20 @@ impl SyncCtl {
         }
     }
 
+    // ---- teams (T90 §5) -------------------------------------------------
+
+    /// Run a teams screen call.
+    pub(crate) fn team(&self, request: TeamRequest) -> bool {
+        let tx = self.tx.clone();
+        self.with_session(|s| async move {
+            let result = match s.teams().await {
+                Ok(teams) => team_call(&teams, request, &tx).await,
+                Err(e) => Err(e.to_string()),
+            };
+            SyncMsg::Team(result)
+        })
+    }
+
     /// Recovery prefill for the locked vault: the account's server and
     /// email (no keys needed).
     pub(crate) fn load_recovery_defaults(&self, store: courier_ftp_store::Store) {
@@ -675,4 +701,227 @@ impl SyncCtl {
             SyncMsg::Recovered(result)
         });
     }
+}
+
+/// A team error for the screens.
+fn team_error(e: &TeamError) -> String {
+    match e {
+        TeamError::Account(AccountError::Sync(inner)) => inner.to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// The safety number with `user` and their trust state (keys fetched and
+/// pinned on first sight).
+async fn safety(teams: &Teams, user: Uuid, email: String) -> Result<Safety, String> {
+    let pin = teams.member_keys(user).await.map_err(|e| team_error(&e))?;
+    let number = teams
+        .safety_number(user)
+        .await
+        .map_err(|e| team_error(&e))?;
+    Ok(Safety {
+        user,
+        email,
+        number,
+        state: pin.state(),
+    })
+}
+
+/// A rotation that failed after the change it follows was made.
+fn rotation_failed(what: &str, name: &str, e: &RotationError) -> String {
+    format!(
+        "{what}, but rotating the key of “{name}” failed: {e}. Changes to the vault wait; \
+         resume with R in its team's vault list."
+    )
+}
+
+/// Runs one teams screen call.
+#[expect(clippy::too_many_lines, reason = "one arm per call")]
+async fn team_call(
+    teams: &Teams,
+    request: TeamRequest,
+    tx: &UnboundedSender<Action>,
+) -> Result<TeamReply, String> {
+    let err = |e: TeamError| team_error(&e);
+    let progress_tx = tx.clone();
+    let progress = move |p: RotationProgress| {
+        let _ = progress_tx.send(action(SyncMsg::Rotation(p)));
+    };
+    Ok(match request {
+        TeamRequest::Orgs => TeamReply::Orgs(teams.list_orgs().await.map_err(err)?),
+        TeamRequest::CreateOrg(name) => {
+            let org = teams.create_org(&name).await.map_err(err)?;
+            TeamReply::Done(format!(
+                "Team “{}” created. Invite people from its member list, and create a shared \
+                 vault for the sites you want to share.",
+                org.name
+            ))
+        }
+        TeamRequest::AcceptInvite(link) => {
+            let accepted = teams.accept_invite(&link).await.map_err(err)?;
+            let name = teams
+                .list_orgs()
+                .await
+                .ok()
+                .and_then(|orgs| orgs.into_iter().find(|o| o.id == accepted.org_id))
+                .map_or_else(|| "the team".to_owned(), |o| format!("“{}”", o.name));
+            TeamReply::Done(format!(
+                "You joined {name}. Its shared vaults arrive on this device once a manager \
+                 gives you access."
+            ))
+        }
+        TeamRequest::Members(org) => {
+            // Fetch (and pin on first sight) every member's keys, so a
+            // changed key shows up here.
+            let members = teams.org_members(org).await.map_err(err)?;
+            for m in members.iter().filter(|m| !m.is_me) {
+                if let Err(e) = teams.member_keys(m.member.user_id).await {
+                    tracing::debug!(error = %e, "member keys not fetched");
+                }
+            }
+            TeamReply::Members(teams.org_members(org).await.map_err(err)?)
+        }
+        TeamRequest::Invite { org, email, role } => TeamReply::Invited(
+            teams
+                .invite(org, email.as_deref(), role)
+                .await
+                .map_err(err)?,
+        ),
+        TeamRequest::SetRole {
+            org,
+            user,
+            email,
+            role,
+        } => {
+            teams.set_role(org, user, role).await.map_err(err)?;
+            TeamReply::Done(format!("{email} is now {}.", role.as_str()))
+        }
+        TeamRequest::Remove { org, user, email } => {
+            let report = teams
+                .remove_member(org, user, &progress)
+                .await
+                .map_err(err)?;
+            let names = teams.vault_names().await.unwrap_or_default();
+            let name_of = |v: &courier_ftp_core::model::item::VaultId| {
+                names.get(v).cloned().unwrap_or_else(|| v.short())
+            };
+            if let Some((v, Err(e))) = report.rotations.iter().find(|(_, r)| r.is_err()) {
+                return Err(rotation_failed(
+                    &format!("{email} was removed"),
+                    &name_of(v),
+                    e,
+                ));
+            }
+            let n = report.rotations.len();
+            TeamReply::Done(if n == 0 {
+                format!("{email} was removed from the team.")
+            } else {
+                format!(
+                    "{email} was removed from the team; the key of {n} vault{} was rotated, \
+                     so they can't read new changes.",
+                    if n == 1 { "" } else { "s" }
+                )
+            })
+        }
+        TeamRequest::Leave(org) => {
+            let removed = teams.leave_org(org).await.map_err(err)?;
+            TeamReply::Left(format!(
+                "You left the team; {} shared vault{} were removed from this device.",
+                removed.len(),
+                if removed.len() == 1 { "" } else { "s" }
+            ))
+        }
+        TeamRequest::Safety { user, email } => TeamReply::Safety(safety(teams, user, email).await?),
+        TeamRequest::Verify { user, email } => {
+            teams.mark_verified(user).await.map_err(err)?;
+            TeamReply::Done(format!("{email} is marked verified."))
+        }
+        TeamRequest::AcceptKey {
+            user,
+            email,
+            verified,
+        } => {
+            teams.accept_new_key(user, verified).await.map_err(err)?;
+            TeamReply::Done(if verified {
+                format!("The new key of {email} is accepted and marked verified.")
+            } else {
+                format!("The new key of {email} is accepted.")
+            })
+        }
+        TeamRequest::Vaults(org) => TeamReply::Vaults(teams.org_vaults(org).await.map_err(err)?),
+        TeamRequest::CreateVault { org, name } => {
+            teams.create_vault(org, &name).await.map_err(err)?;
+            TeamReply::Done(format!(
+                "Shared vault “{name}” created: it is in the Site Manager as “Team: {name}”. \
+                 Give members access from its member list."
+            ))
+        }
+        TeamRequest::VaultMembers(vault) => {
+            TeamReply::VaultMembers(teams.vault_members(vault).await.map_err(err)?)
+        }
+        TeamRequest::Grant {
+            vault,
+            name,
+            user,
+            email,
+            permission,
+        } => match teams.grant(vault, user, permission).await {
+            Ok(()) => TeamReply::Done(format!(
+                "{email} can now {} “{name}”.",
+                match permission {
+                    courier_ftp_proto::sync::Permission::Read => "use (read only)",
+                    courier_ftp_proto::sync::Permission::Write => "use and edit",
+                    courier_ftp_proto::sync::Permission::Manage => "use, edit and manage",
+                }
+            )),
+            Err(TeamError::Trust(TrustError::KeyChanged(_))) => {
+                TeamReply::KeyChanged(safety(teams, user, email).await?)
+            }
+            Err(e) => return Err(err(e)),
+        },
+        TeamRequest::Revoke {
+            vault,
+            name,
+            user,
+            email,
+        } => match teams.revoke_and_rotate(vault, user, &progress).await {
+            Ok(_) => TeamReply::Done(format!(
+                "{email} can no longer use “{name}”; its key was rotated."
+            )),
+            Err(RotationError::Team(e)) => return Err(err(e)),
+            Err(e) => {
+                return Err(rotation_failed(
+                    &format!("{email}'s access was revoked"),
+                    &name,
+                    &e,
+                ));
+            }
+        },
+        TeamRequest::Rotate { vault, name } => {
+            let report = teams
+                .rotate(vault, &progress)
+                .await
+                .map_err(|e| e.to_string())?;
+            TeamReply::Done(format!(
+                "The key of “{name}” was rotated ({} item(s) re-encrypted for {} member(s)).",
+                report.items, report.members
+            ))
+        }
+        TeamRequest::Audit(org) => {
+            let page = teams.audit(org, None, 100).await.map_err(err)?;
+            let names = teams
+                .org_members(org)
+                .await
+                .map(|m| {
+                    m.into_iter()
+                        .map(|m| (m.member.user_id, m.member.email))
+                        .collect()
+                })
+                .unwrap_or_default();
+            TeamReply::Audit {
+                events: page.events,
+                names,
+            }
+        }
+    })
 }

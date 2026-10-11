@@ -17,8 +17,16 @@ use secrecy::SecretString;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::{SyncPage, SyncRequest, SyncView};
+use super::{Safety, SyncPage, SyncRequest, SyncView, TeamPage, TeamReply, TeamRequest};
 use crate::ui::Theme;
+use courier_ftp_core::model::item::UserId;
+use courier_ftp_proto::{
+    orgs::{AuditEventView, InviteCreated, MemberView, OrgView, Role},
+    sync::Permission,
+    vaults::{OrgVaultView, VaultMemberView, VaultMembersView},
+};
+use courier_ftp_store::{KeyChange, PinState, PinnedKey};
+use courier_ftp_sync::{MemberEntry, OrgVaultEntry};
 
 const PHRASE: &str = "abandon ability able about above absent absorb abstract absurd abuse \
                       access accident account accuse achieve acid acoustic acquire across act \
@@ -414,17 +422,374 @@ fn totp_setup_with_and_without_room_for_the_qr_code() {
     assert_eq!(names(&v.take_requests()), ["TotpConfirm"]);
 }
 
-#[test]
-fn teams_placeholder() {
+// ---- teams (T90 §5)
+
+fn org(name: &str, role: Role) -> OrgView {
+    OrgView {
+        id: Uuid::from_bytes([9; 16]),
+        name: name.to_owned(),
+        role,
+        created_at: time::macros::datetime!(2026-10-01 12:00 UTC),
+    }
+}
+
+fn pin(user: Uuid, verified: bool, changed: bool) -> PinnedKey {
+    PinnedKey {
+        user_id: UserId::from_uuid(user),
+        label: None,
+        fingerprint: [1; 32],
+        x25519_pub: [2; 32],
+        ed25519_pub: [3; 32],
+        pinned_at: 0,
+        verified,
+        verified_at: None,
+        is_self: false,
+        changed: changed.then_some(KeyChange {
+            fingerprint: [4; 32],
+            x25519_pub: [5; 32],
+            ed25519_pub: [6; 32],
+            seen_at: 0,
+        }),
+    }
+}
+
+const ALICE: Uuid = Uuid::from_bytes([1; 16]);
+const BOB: Uuid = Uuid::from_bytes([2; 16]);
+const CAROL: Uuid = Uuid::from_bytes([3; 16]);
+
+fn members() -> Vec<MemberEntry> {
+    let m = |user, email: &str, role| MemberView {
+        user_id: user,
+        email: email.to_owned(),
+        role,
+    };
+    vec![
+        MemberEntry {
+            member: m(ALICE, "alice@example.test", Role::Owner),
+            pin: None,
+            is_me: true,
+        },
+        MemberEntry {
+            member: m(BOB, "bob@example.test", Role::Member),
+            pin: Some(pin(BOB, true, false)),
+            is_me: false,
+        },
+        MemberEntry {
+            member: m(CAROL, "carol@example.test", Role::Admin),
+            pin: Some(pin(CAROL, false, true)),
+            is_me: false,
+        },
+    ]
+}
+
+const NUMBER: &str = "12345 67890 13579 24680 11223 34455 66778 89900 01234 56789 98765 43210";
+
+/// Signed in, on the teams list with "Ops".
+fn teams() -> SyncView {
     let mut v = signed_in();
     press(
         &mut v,
         &[KeyCode::Down, KeyCode::Down, KeyCode::Down, KeyCode::Enter],
     );
     assert_eq!(v.page(), SyncPage::Teams);
+    assert_eq!(names(&v.take_requests()), ["Team"]);
+    v.team_reply(Ok(TeamReply::Orgs(vec![org("Ops", Role::Owner)])));
+    v
+}
+
+fn team_requests(v: &mut SyncView) -> Vec<TeamRequest> {
+    v.take_requests()
+        .into_iter()
+        .filter_map(|r| match r {
+            SyncRequest::Team(t) => Some(t),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn teams_list_new_team_and_join() {
+    let mut v = signed_in();
+    press(
+        &mut v,
+        &[KeyCode::Down, KeyCode::Down, KeyCode::Down, KeyCode::Enter],
+    );
+    assert_eq!(team_requests(&mut v), [TeamRequest::Orgs]);
+    v.team_reply(Ok(TeamReply::Orgs(Vec::new())));
+    insta::assert_snapshot!("teams_empty_80x24", render(&v, 80, 24));
+
+    let mut v = teams();
     insta::assert_snapshot!("teams_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Char('n')]);
+    assert_eq!(v.team_page(), Some(TeamPage::NewOrg));
+    typed(&mut v, "Infra");
+    insta::assert_snapshot!("teams_new_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Enter]);
+    assert_eq!(
+        team_requests(&mut v),
+        [TeamRequest::CreateOrg("Infra".to_owned())]
+    );
+    // Done: the note, and the list again.
+    v.team_reply(Ok(TeamReply::Done("Team “Infra” created.".to_owned())));
+    assert_eq!(team_requests(&mut v), [TeamRequest::Orgs]);
+    assert_eq!(v.note(), Some("Team “Infra” created."));
+
+    v.team_reply(Ok(TeamReply::Orgs(vec![org("Ops", Role::Owner)])));
+    press(&mut v, &[KeyCode::Char('a')]);
+    assert_eq!(v.team_page(), Some(TeamPage::Accept));
+    typed(&mut v, "not a link!");
+    press(&mut v, &[KeyCode::Enter]);
+    assert!(team_requests(&mut v).is_empty(), "refused");
+    insta::assert_snapshot!("teams_join_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Esc]);
+    assert_eq!(v.team_page(), Some(TeamPage::Orgs));
+    v.team_reply(Ok(TeamReply::Orgs(Vec::new())));
     press(&mut v, &[KeyCode::Esc]);
     assert_eq!(v.page(), SyncPage::Overview);
+}
+
+#[test]
+fn team_menu_members_and_invite() {
+    let mut v = teams();
+    press(&mut v, &[KeyCode::Enter]);
+    assert_eq!(v.team_page(), Some(TeamPage::Org));
+    insta::assert_snapshot!("team_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Enter]);
+    assert_eq!(
+        team_requests(&mut v),
+        [TeamRequest::Members(org("Ops", Role::Owner).id)]
+    );
+    v.team_reply(Ok(TeamReply::Members(members())));
+    assert_eq!(v.team_page(), Some(TeamPage::Members));
+    insta::assert_snapshot!("team_members_80x24", render(&v, 80, 24));
+
+    // Remove asks first.
+    press(&mut v, &[KeyCode::Down, KeyCode::Char('x')]);
+    insta::assert_snapshot!("team_remove_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Left, KeyCode::Enter]);
+    assert!(matches!(
+        team_requests(&mut v).as_slice(),
+        [TeamRequest::Remove { user, .. }] if *user == BOB
+    ));
+    v.team_reply(Err("network unreachable".to_owned()));
+    assert_eq!(v.error(), Some("Network unreachable"));
+
+    // Invite.
+    press(&mut v, &[KeyCode::Char('i')]);
+    assert_eq!(v.team_page(), Some(TeamPage::Invite));
+    typed(&mut v, "dave@example.test");
+    press(&mut v, &[KeyCode::Tab, KeyCode::Right]);
+    insta::assert_snapshot!("team_invite_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Enter]);
+    assert!(matches!(
+        team_requests(&mut v).as_slice(),
+        [TeamRequest::Invite { email: Some(e), role: Role::Admin, .. }] if e == "dave@example.test"
+    ));
+    v.team_reply(Ok(TeamReply::Invited(InviteCreated {
+        id: Uuid::from_bytes([5; 16]),
+        org_id: org("Ops", Role::Owner).id,
+        email: Some("dave@example.test".to_owned()),
+        role: Role::Admin,
+        expires_at: time::macros::datetime!(2026-10-18 12:00 UTC),
+        link: Some("https://sync.example.test/invite/AbC-12_x".to_owned()),
+        emailed: false,
+    })));
+    assert_eq!(v.team_page(), Some(TeamPage::InviteLink));
+    insta::assert_snapshot!("team_invite_link_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Enter]);
+    assert_eq!(v.team_page(), Some(TeamPage::Members));
+}
+
+#[test]
+fn safety_number_and_key_change_warning() {
+    let mut v = teams();
+    press(&mut v, &[KeyCode::Enter, KeyCode::Enter]);
+    v.take_requests();
+    v.team_reply(Ok(TeamReply::Members(members())));
+    press(&mut v, &[KeyCode::Down, KeyCode::Enter]);
+    assert_eq!(
+        team_requests(&mut v),
+        [TeamRequest::Safety {
+            user: BOB,
+            email: "bob@example.test".to_owned()
+        }]
+    );
+    v.team_reply(Ok(TeamReply::Safety(Safety {
+        user: BOB,
+        email: "bob@example.test".to_owned(),
+        number: NUMBER.to_owned(),
+        state: PinState::Pinned,
+    })));
+    assert_eq!(v.team_page(), Some(TeamPage::Safety));
+    insta::assert_snapshot!("team_safety_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Left, KeyCode::Enter]);
+    assert_eq!(
+        team_requests(&mut v),
+        [TeamRequest::Verify {
+            user: BOB,
+            email: "bob@example.test".to_owned()
+        }]
+    );
+    assert_eq!(v.team_page(), Some(TeamPage::Members));
+
+    // Carol's key changed: the warning; accepting with the numbers compared.
+    v.team_reply(Ok(TeamReply::Done("ok".to_owned())));
+    v.take_requests();
+    v.team_reply(Ok(TeamReply::Members(members())));
+    press(&mut v, &[KeyCode::Down, KeyCode::Enter]);
+    v.take_requests();
+    v.team_reply(Ok(TeamReply::KeyChanged(Safety {
+        user: CAROL,
+        email: "carol@example.test".to_owned(),
+        number: NUMBER.to_owned(),
+        state: PinState::KeyChanged,
+    })));
+    assert_eq!(v.team_page(), Some(TeamPage::KeyChanged));
+    insta::assert_snapshot!("team_key_changed_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Left, KeyCode::Enter]);
+    assert_eq!(
+        team_requests(&mut v),
+        [TeamRequest::AcceptKey {
+            user: CAROL,
+            email: "carol@example.test".to_owned(),
+            verified: true
+        }]
+    );
+}
+
+#[test]
+fn shared_vaults_permissions_and_audit() {
+    let ops = org("Ops", Role::Owner);
+    let vault = Uuid::from_bytes([8; 16]);
+    let mut v = teams();
+    press(&mut v, &[KeyCode::Enter, KeyCode::Down, KeyCode::Enter]);
+    assert_eq!(team_requests(&mut v), [TeamRequest::Vaults(ops.id)]);
+    let entry = |id, name: Option<&str>, permission, has_key| OrgVaultEntry {
+        view: OrgVaultView {
+            id,
+            name_enc: Vec::new(),
+            key_version: 2,
+            permission,
+            has_key,
+        },
+        name: name.map(str::to_owned),
+    };
+    v.team_reply(Ok(TeamReply::Vaults(vec![
+        entry(vault, Some("Ops servers"), Permission::Manage, true),
+        entry(Uuid::from_bytes([7; 16]), None, Permission::Manage, false),
+    ])));
+    assert_eq!(v.team_page(), Some(TeamPage::Vaults));
+    insta::assert_snapshot!("team_vaults_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Char('n')]);
+    assert_eq!(v.team_page(), Some(TeamPage::NewVault));
+    typed(&mut v, "Databases");
+    insta::assert_snapshot!("team_new_vault_80x24", render(&v, 80, 24));
+    press(&mut v, &[KeyCode::Enter]);
+    assert_eq!(
+        team_requests(&mut v),
+        [TeamRequest::CreateVault {
+            org: ops.id,
+            name: "Databases".to_owned()
+        }]
+    );
+    v.team_reply(Ok(TeamReply::Vaults(vec![entry(
+        vault,
+        Some("Ops servers"),
+        Permission::Manage,
+        true,
+    )])));
+
+    // Rotating asks first.
+    press(&mut v, &[KeyCode::Char('R')]);
+    assert!(render(&v, 80, 24).contains("Rotate the key of “Ops servers”?"));
+    press(&mut v, &[KeyCode::Esc]);
+    assert!(team_requests(&mut v).is_empty());
+
+    press(&mut v, &[KeyCode::Enter]);
+    let vid = courier_ftp_core::model::item::VaultId::from_uuid(vault);
+    assert_eq!(team_requests(&mut v), [TeamRequest::VaultMembers(vid)]);
+    let vm = |user, email: &str, org_role, permission: Option<Permission>| VaultMemberView {
+        user_id: user,
+        email: Some(email.to_owned()),
+        org_role,
+        permission,
+        has_key: permission.is_some(),
+        granted_by: None,
+    };
+    v.team_reply(Ok(TeamReply::VaultMembers(VaultMembersView {
+        vault_id: vault,
+        org_id: ops.id,
+        key_version: 2,
+        created_by: Some(ALICE),
+        members: vec![
+            vm(
+                ALICE,
+                "alice@example.test",
+                Role::Owner,
+                Some(Permission::Manage),
+            ),
+            vm(
+                BOB,
+                "bob@example.test",
+                Role::Member,
+                Some(Permission::Read),
+            ),
+            vm(CAROL, "carol@example.test", Role::Member, None),
+        ],
+    })));
+    assert_eq!(v.team_page(), Some(TeamPage::VaultMembers));
+    insta::assert_snapshot!("team_vault_members_80x24", render(&v, 80, 24));
+    // Bob: read → write.
+    press(&mut v, &[KeyCode::Down, KeyCode::Right]);
+    assert!(matches!(
+        team_requests(&mut v).as_slice(),
+        [TeamRequest::Grant { user, permission: Permission::Write, .. }] if *user == BOB
+    ));
+    v.team_reply(Err("offline".to_owned()));
+    // Bob: read → nothing is a revoke (asks first).
+    press(&mut v, &[KeyCode::Left]);
+    assert!(render(&v, 80, 24).contains("Revoke bob@example.test's access"));
+    press(&mut v, &[KeyCode::Left, KeyCode::Enter]);
+    assert!(matches!(
+        team_requests(&mut v).as_slice(),
+        [TeamRequest::Revoke { user, .. }] if *user == BOB
+    ));
+    v.team_reply(Err("offline".to_owned()));
+
+    // The audit log.
+    press(&mut v, &[KeyCode::Esc]);
+    v.take_requests();
+    v.team_reply(Ok(TeamReply::Vaults(Vec::new())));
+    press(&mut v, &[KeyCode::Esc]);
+    assert_eq!(v.team_page(), Some(TeamPage::Org));
+    press(
+        &mut v,
+        &[KeyCode::Down, KeyCode::Down, KeyCode::Down, KeyCode::Enter],
+    );
+    assert_eq!(team_requests(&mut v), [TeamRequest::Audit(ops.id)]);
+    let at = time::macros::datetime!(2026-10-11 09:30 UTC);
+    let event = |id, kind: &str, target| AuditEventView {
+        id,
+        kind: kind.to_owned(),
+        actor: Some(ALICE),
+        target,
+        at,
+        meta: serde_json::Value::Null,
+    };
+    v.team_reply(Ok(TeamReply::Audit {
+        events: vec![
+            event(3, "vault.member_granted", Some(BOB)),
+            event(2, "invite.accepted", Some(BOB)),
+            event(1, "org.created", None),
+        ],
+        names: [
+            (ALICE, "alice@example.test".to_owned()),
+            (BOB, "bob@example.test".to_owned()),
+        ]
+        .into(),
+    }));
+    assert_eq!(v.team_page(), Some(TeamPage::Audit));
+    insta::assert_snapshot!("team_audit_80x24", render(&v, 80, 24));
 }
 
 #[test]

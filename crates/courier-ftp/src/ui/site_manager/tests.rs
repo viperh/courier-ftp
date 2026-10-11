@@ -18,6 +18,7 @@ use ratatui::{Terminal, backend::TestBackend};
 use secrecy::{ExposeSecret, SecretString};
 
 use super::{editor::visible_fields, picker::score, *};
+use crate::sites::{OverrideForm, VaultRoot};
 use crate::sites::{SiteOutcome, SitesReply};
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -479,7 +480,7 @@ fn folder_rename_duplicate_delete_and_move_requests() {
     view.handle_key(key(KeyCode::Enter));
     assert!(matches!(
         view.take_requests().as_slice(),
-        [SiteOp::AddFolder { parent: Some(p), name }] if *p == fx.production && name == "New folder"
+        [SiteOp::AddFolder { parent: Some(p), name, vault: None }] if *p == fx.production && name == "New folder"
     ));
     reply(&mut view, Some(fx.snapshot.clone()), SiteOutcome::Renamed);
 
@@ -731,4 +732,208 @@ fn picker_scores_names_first() {
     // Two letters and Enter connect.
     assert_eq!(modal.handle_key(key(KeyCode::Enter)), ModalOutcome::Close);
     assert_eq!(rx.try_recv().unwrap(), Some(fx.db01));
+}
+
+// ---- team vault roots (T90 §6)
+
+struct Vaults {
+    view: SiteManagerView,
+    personal: VaultId,
+    ops: VaultId,
+    dev: VaultId,
+    mine: ItemId,
+    shared: ItemId,
+}
+
+/// Personal (site "mine"), "Team: Dev" (empty, writable) and "Team: Ops"
+/// (site "shared", read-only for this account).
+fn vaults() -> Vaults {
+    let (personal, ops, dev) = (VaultId::new(), VaultId::new(), VaultId::new());
+    let mut mine = Site::new("mine", Protocol::Sftp, "mine.example.com");
+    mine.vault = Some(personal);
+    let mut shared = Site::new("shared", Protocol::Sftp, "shared.example.com");
+    shared.vault = Some(ops);
+    shared.read_only = true;
+    let ids = (mine.id, shared.id);
+    let tree = SiteTree::from_items(Vec::new(), vec![mine, shared]);
+    let mut view = SiteManagerView::new(
+        Some(Snapshot {
+            tree,
+            bookmarks: HashMap::new(),
+        }),
+        opts(),
+    );
+    let root = |id, name: &str, personal, read_only| VaultRoot {
+        id,
+        name: name.to_owned(),
+        personal,
+        read_only,
+    };
+    view.set_vaults(vec![
+        root(personal, "Personal", true, false),
+        root(dev, "Dev", false, false),
+        root(ops, "Ops", false, true),
+    ]);
+    Vaults {
+        view,
+        personal,
+        ops,
+        dev,
+        mine: ids.0,
+        shared: ids.1,
+    }
+}
+
+#[test]
+fn vaults_are_roots_and_read_only_items_are_locked() {
+    let mut v = vaults();
+    let view = &mut v.view;
+    assert_eq!(view.selected(), Some(v.mine), "the first site");
+    view.handle_key(key(KeyCode::Home));
+    assert_eq!(view.root, Some(v.personal));
+    insta::assert_snapshot!("vault_roots_100x24", render(view, 100, 24));
+
+    view.handle_key(key(KeyCode::End));
+    assert_eq!(view.selected(), Some(v.shared));
+    insta::assert_snapshot!("read_only_site_100x24", render(view, 100, 24));
+    // Nothing can be changed.
+    view.handle_key(key(KeyCode::Tab));
+    typed(view, "zzz");
+    view.handle_key(ctrl('s'));
+    assert!(render(view, 100, 24).contains("🔒 Team: Ops is read-only for you"));
+    view.handle_key(key(KeyCode::Esc));
+    for c in ['x', 'r', 'd', 'm'] {
+        view.handle_key(key(KeyCode::Char(c)));
+        assert!(
+            render(view, 100, 24).contains("is read-only for you"),
+            "{c}"
+        );
+    }
+    assert!(view.take_requests().is_empty());
+    assert_eq!(
+        view.tree_ref().unwrap().site(v.shared).unwrap().host,
+        "shared.example.com"
+    );
+
+    // New items in a read-only vault are refused too.
+    view.handle_key(key(KeyCode::Up));
+    assert_eq!(view.root, Some(v.ops));
+    view.handle_key(key(KeyCode::Char('n')));
+    assert!(!view.has_overlay());
+    // Collapsing a root hides its items.
+    view.handle_key(key(KeyCode::Left));
+    view.handle_key(key(KeyCode::End));
+    assert_eq!(view.root, Some(v.ops));
+}
+
+#[test]
+fn copy_and_move_to_vault_and_new_items_in_a_team_root() {
+    let mut v = vaults();
+    let view = &mut v.view;
+    view.handle_key(key(KeyCode::End));
+    // Copy the read-only site somewhere this account can write.
+    view.handle_key(key(KeyCode::Char('c')));
+    assert!(view.has_overlay());
+    insta::assert_snapshot!("copy_to_vault_100x24", render(view, 100, 24));
+    view.handle_key(key(KeyCode::Down));
+    view.handle_key(key(KeyCode::Enter));
+    assert!(matches!(
+        view.take_requests().as_slice(),
+        [SiteOp::CopyToVault { id, vault, remove: false }] if *id == v.shared && *vault == v.dev
+    ));
+    reply(
+        view,
+        None,
+        SiteOutcome::CopiedToVault {
+            id: v.shared,
+            moved: false,
+        },
+    );
+
+    // Move "mine" to Dev.
+    view.handle_key(key(KeyCode::Home));
+    view.handle_key(key(KeyCode::Down));
+    assert_eq!(view.selected(), Some(v.mine));
+    view.handle_key(key(KeyCode::Char('m')));
+    view.handle_key(key(KeyCode::Enter));
+    assert!(matches!(
+        view.take_requests().as_slice(),
+        [SiteOp::CopyToVault { id, vault, remove: true }] if *id == v.mine && *vault == v.dev
+    ));
+    reply(view, None, SiteOutcome::Failed("offline".to_owned()));
+
+    // Cut and paste into another vault is refused.
+    view.handle_key(ctrl('x'));
+    view.handle_key(key(KeyCode::Down));
+    assert_eq!(view.root, Some(v.dev));
+    view.handle_key(ctrl('v'));
+    assert!(render(view, 100, 24).contains("That is another vault"));
+    assert!(view.take_requests().is_empty());
+
+    // A new folder and a new site at the top of the Dev root go into Dev.
+    view.handle_key(key(KeyCode::Char('f')));
+    view.handle_key(key(KeyCode::Enter));
+    assert!(matches!(
+        view.take_requests().as_slice(),
+        [SiteOp::AddFolder { parent: None, vault: Some(d), .. }] if *d == v.dev
+    ));
+    reply(view, None, SiteOutcome::Failed("offline".to_owned()));
+    view.handle_key(key(KeyCode::Char('n')));
+    view.handle_key(key(KeyCode::Enter));
+    let ed = view.editor().unwrap();
+    assert!(ed.is_new());
+    assert_eq!(ed.site.vault, Some(v.dev));
+    let text = render(view, 100, 24);
+    assert!(text.contains("▾ Team: Dev"), "{text}");
+}
+
+#[test]
+fn credential_override_editor() {
+    let mut v = vaults();
+    let view = &mut v.view;
+    // Not for personal sites.
+    assert_eq!(view.selected(), Some(v.mine));
+    view.handle_key(key(KeyCode::Char('o')));
+    assert!(render(view, 100, 24).contains("only be set for sites in a team vault"));
+    view.handle_key(key(KeyCode::End));
+    view.handle_key(key(KeyCode::Char('o')));
+    assert!(matches!(
+        view.take_requests().as_slice(),
+        [SiteOp::LoadOverride(id)] if *id == v.shared
+    ));
+    let key_id = ItemId::new();
+    let mut current = CredentialOverride::new(v.shared);
+    current.user = Some("me".to_owned());
+    reply(
+        view,
+        None,
+        SiteOutcome::Override(Box::new(OverrideForm {
+            site: v.shared,
+            site_name: "shared".to_owned(),
+            current: Some(current),
+            keys: vec![(key_id, "laptop key".to_owned())],
+        })),
+    );
+    assert!(view.has_overlay());
+    insta::assert_snapshot!("override_100x24", render(view, 100, 24));
+    // User, password, key, passphrase.
+    view.handle_key(key(KeyCode::Tab));
+    typed(view, "s3cret");
+    view.handle_key(key(KeyCode::Tab));
+    view.handle_key(key(KeyCode::Right));
+    view.handle_key(key(KeyCode::Tab));
+    view.handle_key(key(KeyCode::Enter));
+    let requests = view.take_requests();
+    let [SiteOp::SetOverride(ov)] = requests.as_slice() else {
+        panic!("{requests:?}");
+    };
+    assert_eq!(ov.shared_site_id, v.shared);
+    assert_eq!(ov.user.as_deref(), Some("me"));
+    assert_eq!(
+        ov.password.as_ref().map(|p| p.expose_secret().to_owned()),
+        Some("s3cret".to_owned())
+    );
+    assert_eq!(ov.key_id, Some(key_id));
+    reply(view, None, SiteOutcome::OverrideSaved(true));
+    assert!(render(view, 100, 24).contains("Your own login for this site was saved"));
 }

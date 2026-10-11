@@ -243,3 +243,8 @@ the section matching the tag.
   notification), run a command (without a shell, totals in COURIER_FTP_*
   variables), or disconnect or quit after a cancellable countdown, plus a
   one-off override from the queue pane (a).
+- Teams UI (T90): create teams, invite people (email or link, also usable when
+  registering), verify members by safety number with a warning when a key
+  changes, share vaults with read/write/manage access, and see the audit log;
+  the Site Manager shows vault roots, locks read-only items 🔒, copies or moves
+  sites between vaults and keeps your own login for shared sites.

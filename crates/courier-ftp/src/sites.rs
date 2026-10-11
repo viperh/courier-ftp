@@ -12,7 +12,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use courier_ftp_core::{
     backend::ConnectInfo,
-    model::item::{ItemId, UnixMillis},
+    model::item::{CredentialOverride, ItemId, UnixMillis, VaultId},
     queue::QueueServer,
     sites::{
         Bookmarks, Site, SiteConnect, SiteError, SiteIssue, SiteManager, SiteTree,
@@ -36,6 +36,94 @@ pub(crate) struct Snapshot {
     pub(crate) bookmarks: HashMap<ItemId, Vec<String>>,
 }
 
+/// A vault shown as a root of the Site Manager tree (T90): `Personal`,
+/// `Team: Ops`, … Only listed when this device holds a team vault; the
+/// tree is flat (no roots) otherwise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VaultRoot {
+    pub(crate) id: VaultId,
+    /// The team vault's name (`Personal` for the personal vault).
+    pub(crate) name: String,
+    pub(crate) personal: bool,
+    /// This account may only read it (🔒): its items can't be edited.
+    pub(crate) read_only: bool,
+}
+
+impl VaultRoot {
+    /// The root's label: `Personal`, `Team: Ops`.
+    pub(crate) fn label(&self) -> String {
+        if self.personal {
+            "Personal".to_owned()
+        } else {
+            format!("Team: {}", self.name)
+        }
+    }
+}
+
+/// The Site Manager roots of the unlocked vault `engine`: the personal
+/// vault first, then the team vaults by name. Empty when there are no team
+/// vaults on this device.
+#[cfg(feature = "sync")]
+pub(crate) async fn vault_roots(engine: &courier_ftp_store::vault::VaultEngine) -> Vec<VaultRoot> {
+    let rows = match engine.store().vaults().list().await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::debug!(error = %e, "vaults not listed");
+            return Vec::new();
+        }
+    };
+    let names = courier_ftp_sync::teams::vault_names(engine)
+        .await
+        .unwrap_or_default();
+    let Some(personal) = engine.personal_vault().await else {
+        return Vec::new();
+    };
+    let mut teams = Vec::new();
+    for row in rows {
+        if row.kind != courier_ftp_store::VaultKind::Shared || row.id == personal {
+            continue;
+        }
+        let name = names.get(&row.id).cloned().unwrap_or_else(|| {
+            let id = row.id.to_string();
+            format!("vault {}", id.chars().take(8).collect::<String>())
+        });
+        teams.push(VaultRoot {
+            id: row.id,
+            name,
+            personal: false,
+            read_only: engine.is_vault_read_only(row.id).await,
+        });
+    }
+    if teams.is_empty() {
+        return Vec::new();
+    }
+    teams.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.id.cmp(&b.id))
+    });
+    let mut out = vec![VaultRoot {
+        id: personal,
+        name: "Personal".to_owned(),
+        personal: true,
+        read_only: false,
+    }];
+    out.extend(teams);
+    out
+}
+
+/// This member's own login for a team vault site (T89 §6) as the override
+/// editor shows it, with the personal vault's SSH keys to choose from.
+#[derive(Debug, Clone)]
+pub(crate) struct OverrideForm {
+    pub(crate) site: ItemId,
+    pub(crate) site_name: String,
+    pub(crate) current: Option<CredentialOverride>,
+    /// `(id, label)` of the personal vault's `ssh-key` items.
+    pub(crate) keys: Vec<(ItemId, String)>,
+}
+
 /// Export file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExportFormat {
@@ -55,6 +143,8 @@ pub(crate) enum SiteOp {
     AddFolder {
         parent: Option<ItemId>,
         name: String,
+        /// At the top level: the vault root it goes into (`None`: personal).
+        vault: Option<VaultId>,
     },
     Rename {
         id: ItemId,
@@ -66,6 +156,17 @@ pub(crate) enum SiteOp {
     },
     Duplicate(ItemId),
     Delete(ItemId),
+    /// "Copy to vault…" / "Move to vault…" (T90): a new site at the top
+    /// level of `vault`; moving deletes the original.
+    CopyToVault {
+        id: ItemId,
+        vault: VaultId,
+        remove: bool,
+    },
+    /// Open the credential override editor of a team vault site.
+    LoadOverride(ItemId),
+    /// Save (or, when empty, delete) this member's override.
+    SetOverride(Box<CredentialOverride>),
     /// Connect the remote pane to a site (the app handles it).
     Connect(ItemId),
     /// Connect to a site in a new tab (T61; the app handles it).
@@ -96,6 +197,15 @@ pub(crate) enum SiteOutcome {
     Renamed,
     Moved,
     Deleted(usize),
+    /// A site was copied (or moved) to another vault: select the copy.
+    CopiedToVault {
+        id: ItemId,
+        moved: bool,
+    },
+    /// The override editor's data.
+    Override(Box<OverrideForm>),
+    /// The override was saved (`false`: removed, it was empty).
+    OverrideSaved(bool),
     Imported(Box<ImportReport>),
     /// The export is encrypted: ask for its passphrase and try again.
     NeedPassphrase(PathBuf),
@@ -179,9 +289,16 @@ async fn apply(
             let warnings = sites.save_site(*site).await.map_err(text)?;
             SiteOutcome::Saved { id, warnings }
         }
-        SiteOp::AddFolder { parent, name } => {
-            SiteOutcome::Created(sites.add_folder(parent, &name).await.map_err(text)?)
-        }
+        SiteOp::AddFolder {
+            parent,
+            name,
+            vault,
+        } => SiteOutcome::Created(
+            sites
+                .add_folder_in(parent, &name, vault)
+                .await
+                .map_err(text)?,
+        ),
         SiteOp::Rename { id, name } => {
             sites.rename(id, &name).await.map_err(text)?;
             SiteOutcome::Renamed
@@ -192,6 +309,30 @@ async fn apply(
         }
         SiteOp::Duplicate(id) => SiteOutcome::Created(sites.duplicate(id).await.map_err(text)?),
         SiteOp::Delete(id) => SiteOutcome::Deleted(sites.delete(id).await.map_err(text)?),
+        SiteOp::CopyToVault { id, vault, remove } => {
+            let new_id = copy_to_vault(sites, id, vault).await?;
+            if remove && let Err(e) = sites.delete(id).await {
+                return Err(format!(
+                    "Copied, but the original was not deleted: {}",
+                    text(e)
+                ));
+            }
+            SiteOutcome::CopiedToVault {
+                id: new_id,
+                moved: remove,
+            }
+        }
+        SiteOp::LoadOverride(id) => {
+            SiteOutcome::Override(Box::new(override_form(sites, id).await?))
+        }
+        SiteOp::SetOverride(ov) => {
+            let kept = !ov.is_empty();
+            sites
+                .set_credential_override(ov.shared_site_id, *ov)
+                .await
+                .map_err(text)?;
+            SiteOutcome::OverrideSaved(kept)
+        }
         SiteOp::Connect(_) | SiteOp::ConnectInNewTab(_) => {
             return Err("connect is handled by the app".to_owned());
         }
@@ -202,6 +343,64 @@ async fn apply(
             path,
             passphrase,
         } => export_file(sites, scope, format, path, passphrase, cost).await?,
+    })
+}
+
+/// Copies site `id` as a new site at the top level of `vault` (new id, a
+/// free name there). A team vault site can't log in with a key of another
+/// vault (`SiteError::CrossVaultKey`); the member sets their own login as a
+/// credential override instead.
+async fn copy_to_vault(
+    sites: &mut SiteManager,
+    id: ItemId,
+    vault: VaultId,
+) -> Result<ItemId, String> {
+    let mut site = sites
+        .site(id)
+        .cloned()
+        .ok_or_else(|| "Only sites can be copied to another vault".to_owned())?;
+    if site.vault == Some(vault) {
+        return Err("The site is already in that vault".to_owned());
+    }
+    site.id = ItemId::new();
+    site.parent = None;
+    site.vault = Some(vault);
+    site.read_only = false;
+    site.created_at = None;
+    site.last_connected_at = None;
+    site.name = sites.tree().unique_name(None, &site.name);
+    let new_id = site.id;
+    sites.save_site(site).await.map_err(|e| e.to_string())?;
+    Ok(new_id)
+}
+
+/// What the credential override editor of team site `id` shows.
+async fn override_form(sites: &SiteManager, id: ItemId) -> Result<OverrideForm, String> {
+    use courier_ftp_core::vault::ItemVaultExt as _;
+    let site_name = sites
+        .site(id)
+        .map(|s| s.name.clone())
+        .ok_or_else(|| "Select a site".to_owned())?;
+    let current = sites
+        .credential_override(id)
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|(_, ov)| ov);
+    let personal = sites.vault().personal_vault().await;
+    let keys = sites
+        .vault()
+        .list_views::<courier_ftp_core::model::item::SshKey>()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|(it, _)| Some(it.vault_id) == personal)
+        .map(|(it, key)| (it.id, key.label))
+        .collect();
+    Ok(OverrideForm {
+        site: id,
+        site_name,
+        current,
+        keys,
     })
 }
 
@@ -407,6 +606,82 @@ mod tests {
         assert!(looks_like_xml(b"\n<FileZilla3>"));
         assert!(!looks_like_xml(b"{\"format\": 1}"));
         assert!(!looks_like_xml(b""));
+    }
+
+    #[tokio::test]
+    async fn copy_and_move_between_vaults_and_overrides() {
+        let slot: SitesSlot = Arc::new(tokio::sync::Mutex::new(Some(
+            SiteManager::load(
+                Arc::new(MemItemVault::unlocked()),
+                Arc::new(MemSiteLocalStore::new()),
+            )
+            .await
+            .unwrap(),
+        )));
+        let today = time::macros::date!(2026 - 10 - 11);
+        let cost = Argon2Cost::DEFAULT;
+        let run = |op| {
+            let slot = Arc::clone(&slot);
+            async move { run(&slot, op, cost, today).await }
+        };
+        let mut site = Site::new("web", Protocol::Sftp, "web.example.com");
+        site.logon = SiteLogon::Normal {
+            user: "deploy".into(),
+            password: None,
+        };
+        let id = site.id;
+        let reply = run(SiteOp::Save(Box::new(site))).await;
+        assert!(matches!(reply.outcome, SiteOutcome::Saved { .. }));
+        let team = VaultId::new();
+
+        // Copy: a new site at the top of the team vault; the original stays.
+        let reply = run(SiteOp::CopyToVault {
+            id,
+            vault: team,
+            remove: false,
+        })
+        .await;
+        let SiteOutcome::CopiedToVault { id: copy, moved } = reply.outcome else {
+            panic!("{:?}", reply.outcome);
+        };
+        assert!(!moved);
+        let tree = reply.snapshot.unwrap().tree;
+        assert_eq!(tree.site(copy).unwrap().vault, Some(team));
+        assert_eq!(tree.site(copy).unwrap().name, "web (2)");
+        assert!(tree.site(id).is_some());
+
+        // Copying into its own vault is refused.
+        let reply = run(SiteOp::CopyToVault {
+            id: copy,
+            vault: team,
+            remove: false,
+        })
+        .await;
+        assert!(matches!(reply.outcome, SiteOutcome::Failed(_)));
+
+        // My own login for the team copy, read back by the editor.
+        let mut ov = CredentialOverride::new(copy);
+        ov.user = Some("me".to_owned());
+        let reply = run(SiteOp::SetOverride(Box::new(ov))).await;
+        assert!(matches!(reply.outcome, SiteOutcome::OverrideSaved(true)));
+        let reply = run(SiteOp::LoadOverride(copy)).await;
+        let SiteOutcome::Override(form) = reply.outcome else {
+            panic!("{:?}", reply.outcome);
+        };
+        assert_eq!(form.current.unwrap().user.as_deref(), Some("me"));
+
+        // Move: the original goes.
+        let reply = run(SiteOp::CopyToVault {
+            id,
+            vault: team,
+            remove: true,
+        })
+        .await;
+        assert!(matches!(
+            reply.outcome,
+            SiteOutcome::CopiedToVault { moved: true, .. }
+        ));
+        assert!(reply.snapshot.unwrap().tree.site(id).is_none());
     }
 
     #[tokio::test]

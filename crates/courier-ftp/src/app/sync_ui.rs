@@ -1,10 +1,11 @@
 //! T90: the app's glue between the sync screens (`ui::sync`), the vault's
 //! "Forgot password?" recovery, and the sync controller (`crate::sync`).
 
-use courier_ftp_core::events::LogKind;
+use courier_ftp_core::{events::LogKind, model::item::VaultId};
 use courier_ftp_sync::{
-    AccountError, Revoked, SyncEvent, SyncStatus, ToastLevel,
+    AccountError, Revoked, RotationProgress, SyncEvent, SyncStatus, ToastLevel,
     account::{LoginRequest, LoginSession},
+    rotation::RotationPhase,
 };
 
 use super::App;
@@ -12,7 +13,7 @@ use crate::{
     sync::{SyncCtl, SyncMsg},
     ui::{
         VaultRequest,
-        sync::{LoginSummary, SyncRequest, SyncView},
+        sync::{LoginSummary, SyncRequest, SyncView, TeamReply},
     },
     vault::Phase,
 };
@@ -176,6 +177,7 @@ impl App {
             },
             SyncRequest::Logout => ctl.logout(),
             SyncRequest::DeleteAccount { password, totp } => ctl.delete_account(password, totp),
+            SyncRequest::Team(request) => ctl.team(request),
         };
         if !ok && let Some(view) = self.screen.sync_view_mut() {
             view.failed("not signed in to a sync server, or the flow expired: start again");
@@ -293,35 +295,80 @@ impl App {
                 self.sync_log(LogKind::Status, &text);
                 self.screen.flash(text);
             }
-            SyncEvent::VaultAccess { .. } => {
-                let text = "Sync: access to a vault changed".to_owned();
+            SyncEvent::VaultAccess { vault } => {
+                let text = format!(
+                    "Sync: your access to {} changed (granted, revoked or a new key)",
+                    self.vault_label(vault)
+                );
                 self.sync_log(LogKind::Status, &text);
                 self.screen.flash(text);
                 self.sync_reload_sites();
             }
             SyncEvent::VaultAdded { name, .. } => {
                 let text = match name {
-                    Some(name) => format!("Sync: team vault \"{name}\" is now on this device"),
-                    None => "Sync: a team vault is now on this device".to_owned(),
+                    Some(name) => format!(
+                        "Sync: you were given access to the team vault “{name}”; its sites are \
+                         in the Site Manager under “Team: {name}”"
+                    ),
+                    None => "Sync: you were given access to a team vault; its sites are in the \
+                             Site Manager"
+                        .to_owned(),
                 };
                 self.sync_log(LogKind::Status, &text);
                 self.screen.flash(text);
                 self.sync_reload_sites();
             }
-            SyncEvent::VaultRemoved { .. } => {
-                let text = "Sync: a team vault was removed from this device".to_owned();
+            SyncEvent::VaultRemoved { vault } => {
+                let text = format!(
+                    "Sync: your access to {} was revoked; its sites were removed from this device",
+                    self.vault_label(vault)
+                );
                 self.sync_log(LogKind::Status, &text);
                 self.screen.flash(text);
                 self.sync_reload_sites();
             }
-            SyncEvent::RotationAbandoned { .. } => {
-                let text = "Sync: a vault key rotation was abandoned; changes to that vault \
-                            wait until a manager restarts it"
-                    .to_owned();
+            SyncEvent::RotationAbandoned { vault } => {
+                let text = format!(
+                    "Sync: a key rotation of {} was abandoned; changes to it wait until a \
+                     manager restarts it (sync panel → Teams → shared vaults → R)",
+                    self.vault_label(vault)
+                );
                 self.sync_log(LogKind::Error, &text);
                 self.screen.flash(text);
             }
         }
+    }
+
+    /// `the team vault “Ops”` (or by id while its name is unknown).
+    fn vault_label(&self, vault: VaultId) -> String {
+        self.vault_roots.iter().find(|r| r.id == vault).map_or_else(
+            || "a team vault".to_owned(),
+            |r| format!("the team vault “{}”", r.name),
+        )
+    }
+
+    /// A key rotation is in progress (removing a member, revoking access).
+    fn rotation_progress(&mut self, p: &RotationProgress) {
+        let name = self.vault_label(p.vault);
+        let text = if p.phase == RotationPhase::Done {
+            format!("Sync: the key of {name} was rotated")
+        } else if p.total > 0 {
+            format!(
+                "Sync: rotating the key of {name}: {} {}/{} (changes to it wait)",
+                p.phase.label(),
+                p.done,
+                p.total
+            )
+        } else {
+            format!(
+                "Sync: rotating the key of {name}: {} (changes to it wait)",
+                p.phase.label()
+            )
+        };
+        if matches!(p.phase, RotationPhase::Starting | RotationPhase::Done) {
+            self.sync_log(LogKind::Status, &text);
+        }
+        self.screen.flash(text);
     }
 
     fn sync_view_failed(&mut self, e: &AccountError) {
@@ -586,6 +633,27 @@ impl App {
                     view.set_sync_account(account);
                     view.set_recovery_defaults(server, email);
                 }
+            }
+            SyncMsg::Team(result) => {
+                let changed = matches!(result, Ok(TeamReply::Done(_) | TeamReply::Left(_)));
+                if let Some(view) = self.screen.sync_view_mut() {
+                    view.team_reply(result);
+                }
+                if changed {
+                    // New or removed vaults, keys and permissions: the
+                    // Site Manager roots and the engine's vault list.
+                    self.sync_reload_sites();
+                    if let Some(ctl) = self.sync_ctl() {
+                        ctl.sync_now();
+                    }
+                }
+            }
+            SyncMsg::Rotation(progress) => self.rotation_progress(&progress),
+            SyncMsg::VaultRoots(roots) => {
+                if let Some(view) = self.screen.site_manager_mut() {
+                    view.set_vaults(roots.clone());
+                }
+                self.vault_roots = roots;
             }
             SyncMsg::Recovered(result) => match result {
                 Ok(()) => {
