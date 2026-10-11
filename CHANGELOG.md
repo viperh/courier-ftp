@@ -227,3 +227,6 @@ the section matching the tag.
   conditions, live results as they are found, cancel, and result actions
   (download or upload keeping the folder structure or flattened, delete with
   confirmation, open the folder in the file list).
+- Network configuration wizard (T72, Settings → FTP): set up passive and
+  active mode step by step and test them against a saved site or an address,
+  with a ✔/✘ and a suggested fix for every step.
