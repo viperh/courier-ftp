@@ -16,7 +16,13 @@ build = "build.rs"
 default = ["sync"]
 # Device sync through a courier-ftp server (D12). Without it the client is
 # local-only; everything else works the same.
-sync = ["dep:courier-ftp-sync"]
+sync = [
+    "dep:courier-ftp-sync",
+    "dep:courier-ftp-proto",
+    "dep:hostname",
+    "dep:qrcodegen",
+    "dep:uuid",
+]
 
 [dependencies]
 courier-ftp-core = { workspace = true }
@@ -25,6 +31,12 @@ courier-ftp-proto-ftp = { workspace = true }
 courier-ftp-proto-sftp = { workspace = true }
 courier-ftp-store = { workspace = true }
 courier-ftp-sync = { workspace = true, optional = true }
+# Sync account screens (T90), only with feature `sync`: wire types of the
+# devices list, the default device name and the TOTP QR code.
+courier-ftp-proto = { workspace = true, optional = true }
+hostname = { workspace = true, optional = true }
+qrcodegen = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
 
 async-trait = { workspace = true }
 better-panic = { workspace = true }
@@ -70,6 +82,14 @@ courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
 pretty_assertions = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
+# The in-process sync server the T90 flow tests drive (in-memory store).
+# Path-only so `cargo package` strips it; dev-only, so the client build never
+# links it (scripts/check-layering.py looks at normal dependencies).
+courier-ftp-server = { path = "../courier-ftp-server" }
+axum = { workspace = true }
+# The server's manual clock (the TOTP test steps it).
+chrono = { workspace = true }
+rustls = { workspace = true }
 
 [lints]
 workspace = true

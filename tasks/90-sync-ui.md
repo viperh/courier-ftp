@@ -35,8 +35,20 @@ Screens for everything sync-related, plus status and notifications.
 ## Acceptance criteria
 
 - [ ] Full register → second device login → team invite flow usable by keyboard only.
-- [ ] Recovery words never logged or kept in memory after the screen closes.
+  *Status:* register → second device login (duplicate preview) → live sync, devices,
+  revoke, password change and re-login, TOTP, recovery and logout are keyboard-only and
+  tested against the in-process server (`app/sync_tests.rs`). The team part waits for
+  T89 (not in `next` when T90 was built): scope 5 (teams screens), scope 6 (vault roots,
+  🔒 read-only items, copy/move to vault) and the team toasts are open; the panel has a
+  "Teams and shared vaults" placeholder page. Settings → Sync (scope 1 entry point) is
+  T68's; the panel is `<Ctrl-x><y>` (`SyncPanel`).
+- [x] Recovery words never logged or kept in memory after the screen closes.
+  (Held in `Zeroizing` strings only while the words/check pages are open; confirm inputs
+  are zeroizing `TextInput::sensitive` fields; `SyncRequest`/`SyncMsg` `Debug` print names
+  only. The terminal back buffer keeps the drawn cells until the next redraw.)
 - [ ] Snapshot tests for every screen.
+  *Status:* every personal-sync screen has a snapshot (`ui/sync/snapshots/`, plus the
+  vault recovery pages and the status bar segment); team screens wait for T89.
 
 ## Tests
 

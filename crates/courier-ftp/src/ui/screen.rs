@@ -220,6 +220,13 @@ pub(crate) struct MainScreen {
     /// A bookmark being applied waits for its listings before turning
     /// synchronized browsing / comparison on.
     bookmark_modes: Option<PendingModes>,
+    /// The sync screens (T90), when open. They cover the panes like the
+    /// Site Manager.
+    #[cfg(feature = "sync")]
+    sync_view: Option<super::sync::SyncView>,
+    /// What the sync screens asked for, taken by the app after each key.
+    #[cfg(feature = "sync")]
+    sync_requests: Vec<super::sync::SyncRequest>,
 }
 
 /// Synchronized browsing / comparison to turn on once the panes show a
@@ -305,6 +312,10 @@ impl MainScreen {
             compare_warned: false,
             bookmarks: None,
             bookmark_modes: None,
+            #[cfg(feature = "sync")]
+            sync_view: None,
+            #[cfg(feature = "sync")]
+            sync_requests: Vec::new(),
         }
     }
 
@@ -461,6 +472,56 @@ impl MainScreen {
         self.sites = None;
     }
 
+    /// Open the sync screens (replacing ones already open).
+    #[cfg(feature = "sync")]
+    pub(crate) fn open_sync_view(&mut self, view: super::sync::SyncView) {
+        self.sync_view = Some(view);
+        self.pump_sync();
+    }
+
+    /// The sync screens, when open.
+    #[cfg(feature = "sync")]
+    pub(crate) fn sync_view_mut(&mut self) -> Option<&mut super::sync::SyncView> {
+        self.sync_view.as_mut()
+    }
+
+    /// The sync screens, when open.
+    #[cfg(all(test, feature = "sync"))]
+    pub(crate) fn sync_view(&self) -> Option<&super::sync::SyncView> {
+        self.sync_view.as_ref()
+    }
+
+    /// Close the sync screens (vault locked).
+    #[cfg(feature = "sync")]
+    pub(crate) fn close_sync_view(&mut self) {
+        self.sync_view = None;
+    }
+
+    /// What the sync screens asked for since the last call.
+    #[cfg(feature = "sync")]
+    pub(crate) fn take_sync_requests(&mut self) -> Vec<super::sync::SyncRequest> {
+        self.pump_sync();
+        std::mem::take(&mut self.sync_requests)
+    }
+
+    /// Collect the sync screens' requests and drop them once closed.
+    #[cfg(feature = "sync")]
+    fn pump_sync(&mut self) {
+        let Some(view) = self.sync_view.as_mut() else {
+            return;
+        };
+        self.sync_requests.extend(view.take_requests());
+        if view.is_closed() {
+            self.sync_view = None;
+        }
+    }
+
+    /// The status bar's device sync segment (T90).
+    #[cfg(feature = "sync")]
+    pub(crate) fn set_sync_status(&mut self, sync: Option<(String, status::SyncLevel)>) {
+        self.status.sync = sync;
+    }
+
     /// Open the bookmarks menu (replacing one already open).
     pub(crate) fn open_bookmarks(&mut self, menu: BookmarksMenu) {
         self.bookmarks = Some(menu);
@@ -527,6 +588,7 @@ impl MainScreen {
             || self.vault_shown
             || self.sites.is_some()
             || self.bookmarks.is_some()
+            || self.sync_open()
         {
             return Mode::Dialog;
         }
@@ -553,6 +615,14 @@ impl MainScreen {
             Region::Log => Mode::Log,
             Region::Queue => Mode::Queue,
         }
+    }
+
+    /// Whether the sync screens are open.
+    fn sync_open(&self) -> bool {
+        #[cfg(feature = "sync")]
+        return self.sync_view.is_some();
+        #[cfg(not(feature = "sync"))]
+        false
     }
 
     #[cfg(test)]
@@ -602,6 +672,12 @@ impl MainScreen {
         if let Some(view) = self.sites.as_mut() {
             view.handle_key(key);
             self.pump_sites();
+            return KeyOutcome::Consumed;
+        }
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_mut() {
+            view.handle_key(key);
+            self.pump_sync();
             return KeyOutcome::Consumed;
         }
         if let Some(menu) = self.bookmarks.as_mut() {
@@ -656,6 +732,7 @@ impl MainScreen {
             top.handle_paste(text);
         } else if let Some(view) = self.sites.as_mut() {
             view.handle_paste(text);
+        } else if self.paste_sync(text) {
         } else if let Some(menu) = self.bookmarks.as_mut() {
             menu.handle_paste(text);
         } else if self.focus == Region::Quickconnect {
@@ -663,6 +740,17 @@ impl MainScreen {
         } else if let Some(list) = self.focused_list() {
             list.handle_paste(text);
         }
+    }
+
+    /// Paste into the sync screens; `false` when they aren't open.
+    fn paste_sync(&mut self, text: &str) -> bool {
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_mut() {
+            view.handle_paste(text);
+            return true;
+        }
+        let _ = text;
+        false
     }
 
     /// The side of the file list or tree that last had focus.
@@ -784,6 +872,10 @@ impl MainScreen {
             Action::Tick => {
                 self.tick = self.tick.wrapping_add(1);
                 if let Some(view) = self.vault.as_mut() {
+                    view.tick();
+                }
+                #[cfg(feature = "sync")]
+                if let Some(view) = self.sync_view.as_mut() {
                     view.tick();
                 }
                 self.pump_prompts(Instant::now(), false);
@@ -1453,6 +1545,7 @@ impl MainScreen {
         let busy = !self.modals.is_empty()
             || self.vault_shown
             || self.sites.is_some()
+            || self.sync_open()
             || (!force
                 && (matches!(self.mode(), Mode::Input | Mode::Filter)
                     || self
@@ -1592,6 +1685,17 @@ impl MainScreen {
             panes::draw_hint(frame, a, theme);
         }
         if let Some(view) = self.sites.as_mut() {
+            let bottom = r.status.map_or(area.bottom(), |s| s.y);
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                bottom.saturating_sub(area.y),
+            );
+            view.draw(frame, above, theme);
+        }
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_ref() {
             let bottom = r.status.map_or(area.bottom(), |s| s.y);
             let above = ratatui::layout::Rect::new(
                 area.x,

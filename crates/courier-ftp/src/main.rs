@@ -21,6 +21,8 @@ mod errors;
 mod keymap;
 mod logging;
 mod sites;
+#[cfg(feature = "sync")]
+mod sync;
 mod transfers;
 mod tui;
 mod ui;

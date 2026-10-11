@@ -2,7 +2,8 @@
 //! slow calls (Argon2, keyring, SQLite) in background tasks that report back
 //! as [`VaultMsg`], and applies what locking and unlocking mean for the rest
 //! of the program (the host key store behind "Always trust", the session
-//! credential cache, auto-lock).
+//! credential cache, auto-lock, and with feature `sync` the sync engine:
+//! started after unlock, stopped on lock, T90).
 //!
 //! The screens are in `ui::vault`; the engine is T30's
 //! [`courier_ftp_store::vault::VaultEngine`].
@@ -134,6 +135,9 @@ pub(crate) struct Vault {
     pub(crate) phase: Phase,
     pub(crate) auto_lock: AutoLock,
     store_passwords: bool,
+    /// Device sync (T90): the session and engine run while unlocked.
+    #[cfg(feature = "sync")]
+    pub(crate) sync: Option<crate::sync::SyncCtl>,
 }
 
 impl std::fmt::Debug for Vault {
@@ -163,6 +167,8 @@ impl Vault {
             phase: Phase::Opening,
             auto_lock: AutoLock::from_settings(settings, Instant::now()),
             store_passwords: settings.store_passwords,
+            #[cfg(feature = "sync")]
+            sync: None,
         }
     }
 
@@ -309,6 +315,10 @@ impl Vault {
         }
         self.phase = Phase::Unlocked;
         self.auto_lock.reset(Instant::now());
+        #[cfg(feature = "sync")]
+        if let (Some(sync), Some(engine)) = (self.sync.as_mut(), self.engine.as_ref()) {
+            sync.unlocked(engine.clone());
+        }
     }
 
     /// Lock: keys are dropped (in the background), "Always trust" becomes
@@ -322,8 +332,17 @@ impl Vault {
         }
         self.credentials.clear();
         self.phase = Phase::Locked;
+        // The sync engine stops before the keys go.
+        #[cfg(feature = "sync")]
+        let sync = self.sync.as_mut().and_then(crate::sync::SyncCtl::locked);
         if let Some(engine) = self.engine.clone() {
-            self.pending_lock = Some(tokio::spawn(async move { engine.lock().await }));
+            self.pending_lock = Some(tokio::spawn(async move {
+                #[cfg(feature = "sync")]
+                if let Some(sync) = sync {
+                    sync.shutdown().await;
+                }
+                engine.lock().await;
+            }));
         }
     }
 

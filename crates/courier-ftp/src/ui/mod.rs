@@ -18,6 +18,8 @@ mod quickconnect;
 mod screen;
 pub(crate) mod site_manager;
 mod status;
+#[cfg(feature = "sync")]
+pub(crate) mod sync;
 mod text_viewer;
 mod theme;
 mod trust;
@@ -33,6 +35,8 @@ pub(crate) mod file_list_effect {
     pub(crate) use super::file_list::Effect;
 }
 pub(crate) use screen::{KeyOutcome, MainScreen};
+#[cfg(feature = "sync")]
+pub(crate) use status::SyncLevel;
 pub(crate) use text_viewer::TextViewer;
 pub(crate) use theme::Theme;
 #[cfg(test)]
