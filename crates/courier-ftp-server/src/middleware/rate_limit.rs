@@ -15,10 +15,12 @@
 use std::net::IpAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use governor::clock::{Clock, DefaultClock};
-use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
+use governor::clock::{Clock, MonotonicClock};
+use governor::middleware::NoOpMiddleware;
+use governor::state::keyed::DefaultKeyedStateStore;
+use governor::{Quota, RateLimiter};
 
 use crate::error::ApiError;
 
@@ -43,11 +45,18 @@ impl Default for LoginLimits {
     }
 }
 
+/// A keyed limiter on [`MonotonicClock`] (`std::time::Instant`).
+/// governor's default clock (`quanta`, the CPU timestamp counter) can step
+/// backwards when a busy thread moves between cores, which made a second
+/// request inside the burst look early and get a spurious 429.
+type KeyedLimiter<K> =
+    RateLimiter<K, DefaultKeyedStateStore<K>, MonotonicClock, NoOpMiddleware<Instant>>;
+
 /// The server's keyed rate limiters.
 pub struct RateLimiters {
-    login_email: DefaultKeyedRateLimiter<String>,
-    login_ip: DefaultKeyedRateLimiter<IpAddr>,
-    clock: DefaultClock,
+    login_email: KeyedLimiter<String>,
+    login_ip: KeyedLimiter<IpAddr>,
+    clock: MonotonicClock,
 }
 
 impl std::fmt::Debug for RateLimiters {
@@ -83,9 +92,15 @@ impl RateLimiters {
                 .allow_burst(n)
         };
         Self {
-            login_email: RateLimiter::keyed(quota(limits.per_email_per_minute)),
-            login_ip: RateLimiter::keyed(quota(limits.per_ip_per_minute)),
-            clock: DefaultClock::default(),
+            login_email: RateLimiter::dashmap_with_clock(
+                quota(limits.per_email_per_minute),
+                MonotonicClock,
+            ),
+            login_ip: RateLimiter::dashmap_with_clock(
+                quota(limits.per_ip_per_minute),
+                MonotonicClock,
+            ),
+            clock: MonotonicClock,
         }
     }
 
