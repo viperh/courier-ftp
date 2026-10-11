@@ -19,6 +19,7 @@ mod screen;
 pub(crate) mod search;
 pub(crate) mod settings;
 pub(crate) mod site_manager;
+mod splash;
 mod status;
 mod text_viewer;
 mod theme;
@@ -35,6 +36,8 @@ pub(crate) mod file_list_effect {
     pub(crate) use super::file_list::Effect;
 }
 pub(crate) use screen::{KeyOutcome, MainScreen};
+#[cfg(test)]
+pub(crate) use splash::MAX_SHOWN as SPLASH_MAX_SHOWN;
 pub(crate) use text_viewer::TextViewer;
 pub(crate) use theme::Theme;
 #[cfg(test)]

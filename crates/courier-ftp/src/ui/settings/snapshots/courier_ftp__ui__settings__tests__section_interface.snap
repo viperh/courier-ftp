@@ -1,6 +1,5 @@
 ---
 source: crates/courier-ftp/src/ui/settings/tests.rs
-assertion_line: 149
 expression: text
 ---
 "┌ Settings ────────────┐┌ Interface ─────────────────────────────────────────────────────────────────────────┐"
@@ -17,7 +16,7 @@ expression: text
 "│    File lists        ││ Key sequence timeout (ms)     1000                                                 │"
 "│    Theme             ││ Splash screen                 [ ]                                                  │"
 "│    Keybindings       ││ Check for updates             [x]                                                  │"
-"│  Editing             ││                                                                                    │"
+"│  Editing             ││ Include prereleases           [ ]                                                  │"
 "│  Queue               ││                                                                                    │"
 "│  Logging             ││                                                                                    │"
 "│  Security            ││                                                                                    │"

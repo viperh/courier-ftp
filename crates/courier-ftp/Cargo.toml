@@ -41,6 +41,11 @@ human-panic = { workspace = true }
 json5 = { workspace = true }
 libc = { workspace = true }
 ratatui = { workspace = true }
+# The update check (T74): already linked through courier-ftp-sync; rustls with
+# the `ring` provider and the OS trust store (D9).
+reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

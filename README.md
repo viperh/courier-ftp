@@ -91,6 +91,7 @@ chord, `"<g><g>"` for a sequence. Every value must name an `Action` variant.
 | `COURIER_FTP_CONFIG` | Config directory (wins over `COURIER_FTP_HOME`) |
 | `COURIER_FTP_DATA` | Data directory, where the log file goes (wins over `COURIER_FTP_HOME`) |
 | `COURIER_FTP_LOG_LEVEL` | Log filter, e.g. `debug` (`RUST_LOG` also works) |
+| `COURIER_FTP_NO_UPDATE_CHECK` | Set to `1` to turn the update check off (same as `--no-update-check`; for packagers) |
 
 The repo's `.envrc` ([direnv](https://direnv.net)) keeps config, data and logs
 inside the checkout while developing.
@@ -135,6 +136,13 @@ page and shell completions. The workflow checks that the builds are
 reproducible, then publishes them with `SHA256SUMS` and an SBOM to the GitHub
 release and updates the AUR, Homebrew and Scoop packages. A manual run of the CD
 workflow is a dry run.
+
+The client looks for a newer release at startup, at most once a week
+(`interface.check_updates`, on by default; `interface.check_prereleases` counts
+betas and release candidates). It sends one anonymous request to the GitHub
+releases API, in the background, and shows "Update available" in the status bar,
+the message log and Help (`F1`). It never downloads or installs anything. Turn it
+off with the setting, `--no-update-check` or `COURIER_FTP_NO_UPDATE_CHECK=1`.
 
 ## License
 

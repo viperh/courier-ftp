@@ -427,8 +427,10 @@ pub struct InterfaceSettings {
     pub confirm_delete: bool,
     /// Show the splash screen at startup (T74).
     pub show_splash: bool,
-    /// Check for new releases (T74).
+    /// Check for new releases (T74), at most once every 7 days.
     pub check_updates: bool,
+    /// Count prereleases as updates (T74).
+    pub check_prereleases: bool,
     /// UI language, or `auto` for the system locale (T75).
     pub language: String,
     /// Milliseconds allowed between the keys of a sequence like `gg` (T51).
@@ -534,6 +536,7 @@ impl Default for InterfaceSettings {
             confirm_delete: true,
             show_splash: false,
             check_updates: true,
+            check_prereleases: false,
             language: "auto".to_owned(),
             key_sequence_timeout_ms: 1000,
             unicode_symbols: SymbolMode::Auto,
