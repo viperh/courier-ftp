@@ -45,6 +45,7 @@ use super::{
 use crate::sites::{ExportFormat, SiteOp, SiteOutcome, SitesReply, Snapshot};
 
 pub(crate) use editor::Editor;
+pub(crate) use editor::TextArea;
 
 /// Keys of the tree, shown at the bottom.
 pub(crate) const TREE_HINTS: &str = "n new · f folder · d dup · r rename · x delete · ^x/^v move · / search · Enter connect · Esc close";

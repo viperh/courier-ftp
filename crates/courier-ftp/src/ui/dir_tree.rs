@@ -189,6 +189,11 @@ impl DirTree {
         self.active = active;
     }
 
+    /// `interface.unicode_symbols` changed (settings screen, T68).
+    pub(crate) fn set_unicode(&mut self, unicode: bool) {
+        self.unicode = unicode;
+    }
+
     /// Follow the file list's hidden-files toggle.
     pub(crate) fn set_show_hidden(&mut self, show: bool) {
         if self.show_hidden != show {

@@ -110,6 +110,22 @@ impl LogPane {
         }
     }
 
+    /// The settings screen changed `logging.log_lines` or
+    /// `logging.show_timestamps` (T68). A smaller capacity drops the oldest
+    /// lines.
+    pub(crate) fn configure(&mut self, capacity: usize, show_timestamps: bool) {
+        self.capacity = capacity.max(1);
+        self.show_timestamps = show_timestamps;
+        while self.lines.len() > self.capacity {
+            self.lines.pop_front();
+        }
+        if let (Some(c), Some(first)) = (self.cursor, self.lines.front())
+            && c < first.seq
+        {
+            self.cursor = Some(first.seq);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.lines.len()

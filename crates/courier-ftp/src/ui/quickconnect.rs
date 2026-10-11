@@ -144,6 +144,11 @@ impl Quickconnect {
         self
     }
 
+    /// `interface.unicode_symbols` changed (settings screen, T68).
+    pub(crate) fn set_unicode(&mut self, unicode: bool) {
+        self.unicode = unicode;
+    }
+
     /// The history entries (`None`: the vault is locked).
     pub(crate) fn history(&self) -> Option<&[HistoryItem]> {
         self.history.as_deref()

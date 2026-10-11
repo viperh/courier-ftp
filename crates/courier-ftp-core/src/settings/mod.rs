@@ -439,6 +439,22 @@ pub struct InterfaceSettings {
     pub natural_sort: bool,
     /// Which file list columns are shown, in order (T53).
     pub columns: ColumnSettings,
+    /// The built-in colour scheme; the `styles` config section refines it
+    /// (T68).
+    pub color_scheme: ColorScheme,
+}
+
+/// A built-in colour scheme (T68).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorScheme {
+    /// The standard colours.
+    #[default]
+    Default,
+    /// Bright colours and bold text for low-contrast terminals.
+    HighContrast,
+    /// No colours: bold, reverse and italic only.
+    Monochrome,
 }
 
 /// A file list column.
@@ -523,6 +539,7 @@ impl Default for InterfaceSettings {
             unicode_symbols: SymbolMode::Auto,
             natural_sort: true,
             columns: ColumnSettings::default(),
+            color_scheme: ColorScheme::Default,
         }
     }
 }

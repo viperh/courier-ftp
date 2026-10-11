@@ -318,6 +318,15 @@ impl Transfers {
         self.expander.apply_settings(settings);
     }
 
+    /// New settings from the settings screen (T68): the engine (limits,
+    /// concurrency, retries, the speed limiter) and the directory expander
+    /// (empty dirs, symlinks, invalid characters, filters) use them from
+    /// now on.
+    pub(crate) fn settings_changed(&self, settings: &Settings) {
+        self.engine.settings_changed(settings.clone());
+        self.expander.apply_settings(settings);
+    }
+
     /// Whether the queue is being processed.
     pub(crate) fn processing(&self) -> bool {
         courier_ftp_core::queue::lock_queue(&self.queue).is_processing()

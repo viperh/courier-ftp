@@ -205,3 +205,8 @@ the section matching the tag.
   sets, a filter editor with live regex checking and built-in filters, and
   Apply filters to transfers; changes re-filter both panes and are saved to
   config.json.
+- Settings screen (T68, F9): edit every setting in FileZilla-style sections
+  with live apply, inline validation, reset section and cancel; manage stored
+  SFTP host keys and trusted TLS certificates; vault security actions (change
+  master password, keyring unlock, lock now, auto-lock); built-in colour
+  schemes (default, high contrast, monochrome).

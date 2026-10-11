@@ -182,6 +182,37 @@ impl Vault {
         });
     }
 
+    /// The vault settings changed (settings screen, T68): auto-lock and
+    /// password storage apply at once.
+    pub(crate) fn configure(&mut self, settings: &VaultSettings) {
+        self.auto_lock.configure(settings);
+        self.store_passwords = settings.store_passwords;
+        if let Some(engine) = &self.engine {
+            engine.set_store_passwords(settings.store_passwords);
+        }
+    }
+
+    /// The FTP proxy's vault item changed (settings screen, T68): forget the
+    /// old password and, while unlocked, read the new one.
+    pub(crate) fn set_ftp_proxy_ref(&mut self, id: Option<String>) {
+        let Some(ftp) = self.ftp.as_mut() else {
+            return;
+        };
+        if ftp.proxy_password == id {
+            return;
+        }
+        ftp.proxy_password = id.clone();
+        ftp.factory.set_ftp_proxy_password(None);
+        if self.phase == Phase::Unlocked
+            && let (Some(engine), Some(id)) = (self.engine.clone(), id)
+        {
+            let factory = ftp.factory.clone();
+            tokio::spawn(async move {
+                factory.set_ftp_proxy_password(read_proxy_password(&engine, &id).await);
+            });
+        }
+    }
+
     /// The engine, once the database is open.
     pub(crate) fn engine(&self) -> Option<&VaultEngine> {
         self.engine.as_ref()
