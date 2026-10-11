@@ -127,6 +127,7 @@
       "<Ctrl-x><g>": "SitePicker",
       "<Ctrl-x><i>": "ServerInfo",
       "<Ctrl-x><l>": "ToggleSpeedLimit",
+      "<Ctrl-x><n>": "NewFile",
       "<Ctrl-x><o>": "CompareOptions",
       "<Ctrl-x><p>": "OpenPrompt",
       "<Ctrl-x><r>": "Reconnect",

@@ -390,6 +390,30 @@ impl MainScreen {
         self.apply(effect);
     }
 
+    /// A cached listing was patched by our own change (T46/T62): redraw
+    /// `side`'s list (keeping cursor and selection) and tree when they show
+    /// that directory. A list waiting for another listing is left alone.
+    pub(crate) fn listing_patched(&mut self, side: Side, listing: &Listing) {
+        let pane = self.pane_mut(side);
+        if pane.dir.as_ref() == Some(&listing.dir) && !pane.busy {
+            let result: Result<Listing, String> = Ok(listing.clone());
+            let _ = pane.listing_loaded(&result);
+        }
+        self.tree_mut(side).listing(listing);
+        self.after_change();
+    }
+
+    /// Show `dir` in `side`'s list (a directory just created and entered).
+    pub(crate) fn go_to(&mut self, side: Side, dir: RemotePath) {
+        let effect = self.pane_mut(side).go_to(dir);
+        self.apply(effect);
+    }
+
+    /// The side of the focused file list or directory tree.
+    pub(crate) fn focused_side(&self) -> Option<Side> {
+        self.focused_list_side().or(self.focused_tree_side())
+    }
+
     /// The actions the panes asked for since the last call.
     pub(crate) fn take_actions(&mut self) -> Vec<Action> {
         std::mem::take(&mut self.outbox)
@@ -1095,6 +1119,15 @@ impl MainScreen {
     /// Show `text` in the status bar for a few seconds.
     pub(crate) fn flash(&mut self, text: impl Into<String>) {
         self.status.flash(text, Instant::now());
+    }
+
+    /// The transient status bar message (tests).
+    #[cfg(test)]
+    pub(crate) fn status_text(&self) -> String {
+        self.status
+            .message(Instant::now())
+            .unwrap_or_default()
+            .to_owned()
     }
 
     /// A connection to `server` is being opened in the remote pane.

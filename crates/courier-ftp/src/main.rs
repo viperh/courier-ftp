@@ -18,6 +18,7 @@ mod clipboard;
 mod config;
 mod diagnostics;
 mod errors;
+mod file_ops;
 mod keymap;
 mod logging;
 mod sites;

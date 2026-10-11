@@ -49,6 +49,8 @@ pub(crate) enum Action {
     Mkdir,
     /// Make a directory and enter it (T62).
     MkdirEnter,
+    /// Create an empty file (T62).
+    NewFile,
     /// Delete the selection, with confirmation (T62).
     Delete,
     /// Open the settings screen (T68).
@@ -318,6 +320,9 @@ pub(crate) enum Action {
         dir: RemotePath,
         result: Result<(), String>,
     },
+    /// A step or result of a file operation (T62).
+    #[serde(skip)]
+    FileOp(Shared<crate::app::FileOpMsg>),
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),
@@ -472,4 +477,7 @@ impl<T> Eq for Shared<T> {}
 pub(crate) struct Connected {
     pub(crate) info: Option<SessionInfo>,
     pub(crate) listing: Listing,
+    /// What the backend supports (operations it can't do are explained
+    /// instead of failing, T62).
+    pub(crate) capabilities: courier_ftp_core::backend::Capabilities,
 }

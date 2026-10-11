@@ -7,6 +7,7 @@ pub(crate) mod dialog;
 mod dir_tree;
 mod file_exists;
 mod file_list;
+pub(crate) mod file_ops;
 mod filters;
 mod focus;
 mod layout;

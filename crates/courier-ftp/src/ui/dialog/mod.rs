@@ -36,7 +36,8 @@ pub(crate) use list::ListView;
 use ratatui::{Frame, layout::Rect};
 use secrecy::SecretString;
 pub(crate) use standard::{
-    ProgressDialog, ask, choose, confirm, error, message, prompt_password, prompt_text,
+    ProgressDialog, ProgressHandle, ask, choose, confirm, error, message, prompt_password,
+    prompt_text,
 };
 pub(crate) use text::{Completer, LocalPathCompleter, NumberInput, PathInput, TextInput};
 
