@@ -419,8 +419,10 @@ impl Backend for SftpBackend {
             Arc::clone(&conn.sftp.raw),
             handle,
             path.clone(),
-            offset,
-            opts.read_limit.map(|n| offset.saturating_add(n)),
+            offset
+                ..opts
+                    .read_limit
+                    .map_or(u64::MAX, |n| offset.saturating_add(n)),
             conn.sftp.read_len,
             self.depth,
             Arc::clone(&outcome),

@@ -609,7 +609,12 @@ async fn copy_range(
     let cancel = &ctx.cancel;
     let timeout = ctx.timeout;
     let began = Instant::now();
-    tracing::debug!(slot, start = range.start, end = range.end, "segment range claimed");
+    tracing::debug!(
+        slot,
+        start = range.start,
+        end = range.end,
+        "segment range claimed"
+    );
     // The reader needn't fetch past the range (an SFTP reader would keep
     // up to its whole pipeline in flight beyond it). A range shortened by
     // work stealing meanwhile still wastes what is already requested.
