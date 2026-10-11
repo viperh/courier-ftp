@@ -211,6 +211,7 @@ impl App {
                 }
                 self.load_security();
             }
+            SettingsRequest::Wizard(request) => self.wizard_request(request),
         }
     }
 
