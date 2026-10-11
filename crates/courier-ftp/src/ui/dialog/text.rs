@@ -27,6 +27,9 @@ pub(crate) struct TextInput {
     chars: Vec<char>,
     cursor: usize,
     masked: bool,
+    /// Shown in clear but treated like a password: zeroized on clear and
+    /// drop, its value a secret (recovery words, TOTP codes).
+    sensitive: bool,
     placeholder: String,
     max_len: Option<usize>,
     validator: Option<Validator>,
@@ -41,6 +44,7 @@ impl TextInput {
             chars: Vec::new(),
             cursor: 0,
             masked: false,
+            sensitive: false,
             placeholder: String::new(),
             max_len: None,
             validator: None,
@@ -55,6 +59,15 @@ impl TextInput {
         input.masked = true;
         // Room for a long passphrase up front, so typing doesn't reallocate
         // (and leave copies of the text behind) in the common case.
+        input.chars.reserve(256);
+        input
+    }
+
+    /// A field shown in clear whose text is a secret (recovery words, a
+    /// TOTP code): zeroized when cleared and dropped, collected as a secret.
+    pub(crate) fn sensitive(label: impl Into<String>) -> Self {
+        let mut input = Self::new(label);
+        input.sensitive = true;
         input.chars.reserve(256);
         input
     }
@@ -187,7 +200,7 @@ impl TextInput {
 
 impl Drop for TextInput {
     fn drop(&mut self) {
-        if self.masked {
+        if self.masked || self.sensitive {
             zeroize::Zeroize::zeroize(&mut self.chars);
         }
     }
@@ -287,7 +300,7 @@ impl Field for TextInput {
     }
 
     fn value(&self) -> FieldValue {
-        if self.masked {
+        if self.masked || self.sensitive {
             FieldValue::Secret(SecretString::from(self.text()))
         } else {
             FieldValue::Text(self.text())

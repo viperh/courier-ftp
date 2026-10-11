@@ -1,6 +1,6 @@
 //! The status bar (T57): connection security, transfer type, speed limit,
-//! filters, sync/compare, vault, queue summary, pending keys or a transient
-//! message, and key hints. Segments that don't fit are dropped, least
+//! filters, sync/compare, vault, device sync (T90), queue summary, pending
+//! keys or a transient message, and key hints. Segments that don't fit are dropped, least
 //! important first.
 
 use std::time::{Duration, Instant};
@@ -22,6 +22,20 @@ use super::theme::Theme;
 /// How long a transient message stays.
 pub(crate) const MESSAGE_TTL: Duration = Duration::from_secs(3);
 
+/// How the device sync segment reads (its colour).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(feature = "sync"), allow(dead_code))]
+pub(crate) enum SyncLevel {
+    /// `⟳ synced`.
+    Ok,
+    /// `⟳ syncing`.
+    Busy,
+    /// `⟳ offline (3)`, `⟳ login needed`.
+    Warn,
+    /// `⟳ error`.
+    Error,
+}
+
 /// Everything the status bar shows.
 #[derive(Debug, Clone)]
 pub(crate) struct StatusState {
@@ -35,6 +49,9 @@ pub(crate) struct StatusState {
     pub(crate) sync_browsing: bool,
     pub(crate) compare: bool,
     pub(crate) vault_locked: bool,
+    /// Device sync (T90): `⟳ synced`, `⟳ offline (3)`… `None` without a
+    /// sync account (or while the vault is locked).
+    pub(crate) sync: Option<(String, SyncLevel)>,
     pub(crate) queue_files: u64,
     pub(crate) queue_bytes: u64,
     pub(crate) queue_speed_bps: u64,
@@ -59,6 +76,7 @@ impl StatusState {
             sync_browsing: false,
             compare: false,
             vault_locked: false,
+            sync: None,
             queue_files: 0,
             queue_bytes: 0,
             queue_speed_bps: 0,
@@ -277,6 +295,22 @@ pub(crate) fn status_line(
             priority: 2,
         });
     }
+    if let Some((text, level)) = &s.sync {
+        let text = if u {
+            text.clone()
+        } else {
+            text.replace('⟳', "sync:")
+        };
+        let style = match level {
+            SyncLevel::Ok | SyncLevel::Busy => Style::new(),
+            SyncLevel::Warn => theme.key_hint,
+            SyncLevel::Error => theme.error,
+        };
+        segments.push(Segment {
+            spans: vec![Span::styled(text, style)],
+            priority: 3,
+        });
+    }
     let queue = if s.queue_files == 0 {
         "Queue: empty".to_owned()
     } else {
@@ -461,6 +495,35 @@ mod tests {
             ("F8".into(), "delete".into()),
         ];
         s
+    }
+
+    #[test]
+    fn sync_segment_in_both_symbol_modes() {
+        let theme = Theme::new(None, true);
+        let now = Instant::now();
+        for (text, level) in [
+            ("⟳ synced", SyncLevel::Ok),
+            ("⟳ syncing", SyncLevel::Busy),
+            ("⟳ offline (3)", SyncLevel::Warn),
+            ("⟳ error", SyncLevel::Error),
+            ("⟳ login needed", SyncLevel::Warn),
+        ] {
+            let mut s = StatusState::new(true);
+            s.sync = Some((text.to_owned(), level));
+            let line = line_text(&status_line(&s, 120, now, &theme));
+            assert!(line.contains(&format!(" │ {text} │ ")), "{line}");
+            let mut s = StatusState::new(false);
+            s.sync = Some((text.to_owned(), level));
+            let line = line_text(&status_line(&s, 120, now, &theme));
+            let ascii = text.replace('⟳', "sync:");
+            assert!(line.contains(&format!(" | {ascii} | ")), "{line}");
+        }
+        let mut s = busy(true);
+        s.sync = Some(("⟳ offline (3)".to_owned(), SyncLevel::Warn));
+        insta::assert_snapshot!(
+            "status_120_sync",
+            line_text(&status_line(&s, 120, now, &theme))
+        );
     }
 
     #[test]

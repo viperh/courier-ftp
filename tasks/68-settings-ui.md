@@ -42,7 +42,8 @@ Settings dialog, saving to the user config file.
 - [x] Host key/cert stores manageable.
 - [x] Snapshot tests per section.
 
-**Status (T68):** done except: `sync.*` settings and the Sync & teams page → T90;
+**Status (T68):** done except: the Sync page (with the `sync.*` settings and a button to the
+sync panel) was added by T90, its teams part waits for T89;
 Import/Export buttons → T73; the Security page's local approvals list with revoke → T91
 (nothing writes `local_approvals` yet and `VaultEngine` exposes no API for it). Path filters
 stay in the filters dialog (T67), not the settings screen. The update-check toggle is

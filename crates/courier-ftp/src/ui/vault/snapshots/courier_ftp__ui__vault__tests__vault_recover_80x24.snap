@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/ui/vault/tests.rs
+assertion_line: 346
+expression: text
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ┌ Reset with the recovery key ───────────────────────────────────────────────┐ "
+" │                                                                            │ "
+" │ 1. Send a recovery code to the account's email. 2. Enter the code, your    │ "
+" │ 24-word recovery key and a new master password. Every other device of the  │ "
+" │ account is signed out and logs in again with the new password.             │ "
+" │                                                                            │ "
+" │ Server URL     https://sync.example.test                                   │ "
+" │ Email          alice@example.test                                          │ "
+" │ Recovery code  from the email                                              │ "
+" │ Recovery key   the 24 words                                                │ "
+" │ New password                                                               │ "
+" │ Confirm                                                                    │ "
+" │                                                                            │ "
+" │                [ Send code ]  [ Reset password ]  [ Back ]                 │ "
+" └────────────────────────────────────────────────────────────────────────────┘ "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

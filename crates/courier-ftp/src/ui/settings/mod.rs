@@ -137,6 +137,8 @@ pub(crate) enum SettingsRequest {
     LockNow,
     /// The network configuration wizard needs something (T72).
     Wizard(WizardRequest),
+    /// Open the sync panel over the settings screen (T90).
+    OpenSync,
 }
 
 /// The app's answer to a [`SettingsRequest`].
@@ -654,6 +656,7 @@ impl SettingsView {
             }
             Command::LockNow => self.requests.push(SettingsRequest::LockNow),
             Command::NetworkWizard => self.open_wizard(),
+            Command::OpenSync => self.requests.push(SettingsRequest::OpenSync),
         }
     }
 
