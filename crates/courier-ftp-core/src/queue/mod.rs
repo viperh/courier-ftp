@@ -54,7 +54,9 @@ pub use export::{
     EXPORT_FORMAT, EXPORT_VERSION, ExportError, ExportedItem, ExportedServer, ImportReport,
     QueueExport, import_json,
 };
-pub use item::{ItemState, NewItem, Priority, Progress, QueueItem, QueueServer, ServerKey, SiteId};
+pub use item::{
+    ByteRange, ItemState, NewItem, Priority, Progress, QueueItem, QueueServer, ServerKey, SiteId,
+};
 pub use model::{DEFAULT_MAX_SUCCESSFUL, FailOutcome, Queue, QueueError, QueueList, Removed};
 pub use persist::{
     LossReason, PersistError, QUEUE_BLOB, QueuePersister, QuitCheck, SaveOutcome, SharedQueue,

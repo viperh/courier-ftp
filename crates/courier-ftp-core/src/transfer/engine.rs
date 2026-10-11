@@ -1,7 +1,14 @@
 //! [`TransferEngine`]: the scheduler task, its [`Command`]s and the
 //! per-server connection pool.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+    time::Duration,
+};
 
 use time::OffsetDateTime;
 use tokio::{
@@ -17,6 +24,7 @@ use super::{
         DirExpander, ExistsPolicy, LocalBackendFactory, OverwriteAll, RateLimiter, RealLocal,
         ServerResolver, Unlimited,
     },
+    segmented::{Grant, SegmentLink},
     worker::{self, Failure, Job, Outcome, Shared, Side, WorkerResult},
 };
 use crate::{
@@ -69,6 +77,9 @@ pub struct EngineStatus {
     /// Transfers holding a slot (including cancelled ones still winding
     /// down).
     pub active: usize,
+    /// Slots in use: one per active transfer plus the extra connections of
+    /// segmented transfers (T41b).
+    pub slots: usize,
     /// Tasks the engine owns (workers and connection closers). Zero after
     /// [`Command::Stop`] once the workers are gone.
     pub tasks: usize,
@@ -233,11 +244,12 @@ impl EngineBuilder {
             local: self.local,
             log_session,
             no_mtime_noted: std::sync::Mutex::default(),
+            wake: tokio::sync::Notify::new(),
+            on_changed: self.on_changed,
         });
         let engine = TransferEngine {
             shared,
             settings: Arc::new(self.settings),
-            on_changed: self.on_changed,
             rx,
             status_tx,
             paused_tx,
@@ -263,6 +275,22 @@ struct Active {
     cancel: CancellationToken,
     /// Cancelled by the engine; the result only returns the session.
     cancelled: bool,
+    /// The site's connection limit, if any.
+    site_limit: Option<u32>,
+    /// Extra connections granted to this (segmented) transfer; each holds
+    /// a slot until the transfer ends.
+    extra: u32,
+    /// Grants to the worker (T41b).
+    grants: mpsc::UnboundedSender<Grant>,
+    /// How many connections in total the worker could use
+    /// ([`SegmentLink::desired`]).
+    desired: Arc<AtomicU32>,
+}
+
+impl Active {
+    fn slots(&self) -> usize {
+        1 + self.extra as usize
+    }
 }
 
 /// Transfer connections to one server.
@@ -301,7 +329,6 @@ enum Task {
 pub struct TransferEngine {
     shared: Arc<Shared>,
     settings: Arc<Settings>,
-    on_changed: Option<QueueChanged>,
     rx: mpsc::UnboundedReceiver<Command>,
     status_tx: watch::Sender<EngineStatus>,
     paused_tx: watch::Sender<bool>,
@@ -365,7 +392,9 @@ impl TransferEngine {
             self.check_finished();
             self.publish_status();
             let wake_at = self.next_wakeup();
+            let shared = Arc::clone(&self.shared);
             tokio::select! {
+                () = shared.wake.notified() => {}
                 cmd = self.rx.recv() => match cmd {
                     None | Some(Command::Shutdown) => break,
                     Some(cmd) => self.handle(cmd),
@@ -454,10 +483,20 @@ impl TransferEngine {
         self.settings.transfers.max_concurrent.max(1) as usize
     }
 
+    /// Slots in use (segments included).
+    fn slots(&self) -> usize {
+        self.active.values().map(Active::slots).sum()
+    }
+
     /// The connection limit for `item`'s server.
     fn server_limit(&self, item: &QueueItem, key: &ServerKey) -> u32 {
+        self.limit_for(self.shared.resolver.connection_limit(&item.server), key)
+    }
+
+    /// The connection limit for a server with `site_limit`.
+    fn limit_for(&self, site_limit: Option<u32>, key: &ServerKey) -> u32 {
         let mut limit = self.settings.transfers.max_concurrent.max(1);
-        if let Some(site) = self.shared.resolver.connection_limit(&item.server) {
+        if let Some(site) = site_limit {
             limit = limit.min(site.max(1));
         }
         if let Some(reduced) = self.pools.get(key).and_then(|p| p.reduced_limit) {
@@ -493,33 +532,91 @@ impl TransferEngine {
         busy < self.server_limit(item, &key)
     }
 
-    /// Starts as many eligible items as the limits allow.
+    /// Starts as many eligible items as the limits allow; then gives free
+    /// slots to segmented transfers that want more connections (new files
+    /// first, T41b).
     fn schedule(&mut self) {
         if self.paused {
             return;
         }
+        if self.start_items() {
+            self.grant_segments();
+        }
+    }
+
+    /// Starts eligible items. Returns `true` when slots may be left over
+    /// (nothing else could start).
+    fn start_items(&mut self) -> bool {
         loop {
-            if self.active.len() >= self.max_concurrent() {
-                return;
+            if self.slots() >= self.max_concurrent() {
+                return false;
             }
             let now = Instant::now();
             let item = {
                 let mut q = lock_queue(&self.shared.queue);
                 if !q.is_processing() {
-                    return;
+                    return false;
                 }
                 let Some(id) = q.next_runnable(|item| self.eligible(item, now)) else {
-                    return;
+                    return true;
                 };
                 if q.start(id).is_err() {
-                    return;
+                    return false;
                 }
                 match q.get(id) {
                     Some(item) => item.clone(),
-                    None => return,
+                    None => return false,
                 }
             };
             self.spawn_worker(item, now);
+        }
+    }
+
+    /// Sends extra connections (an idle pooled session, or leave to open a
+    /// new one) to segmented transfers asking for them, within the global
+    /// and per-server limits.
+    fn grant_segments(&mut self) {
+        let max = self.max_concurrent();
+        let ids: Vec<TransferId> = self
+            .active
+            .iter()
+            .filter(|(_, a)| !a.cancelled && a.desired.load(Ordering::Acquire) as usize > a.slots())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            loop {
+                if self.slots() >= max {
+                    return;
+                }
+                let Some(a) = self.active.get(&id) else {
+                    break;
+                };
+                if a.desired.load(Ordering::Acquire) as usize <= a.slots() {
+                    break;
+                }
+                let key = a.server.clone();
+                let limit = self.limit_for(a.site_limit, &key);
+                let pool = self.pools.entry(key).or_default();
+                if pool.busy >= limit {
+                    break;
+                }
+                let session = pool.idle.pop().map(|(s, _)| s);
+                match a.grants.send(Grant(session)) {
+                    Ok(()) => {
+                        pool.busy += 1;
+                        if let Some(a) = self.active.get_mut(&id) {
+                            a.extra += 1;
+                        }
+                    }
+                    Err(mpsc::error::SendError(Grant(session))) => {
+                        // The worker is finishing.
+                        if let Some(s) = session {
+                            pool.idle.push((s, Instant::now()));
+                        }
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -532,6 +629,8 @@ impl TransferEngine {
         let session = pool.idle.pop().map(|(s, _)| s);
         let cancel = CancellationToken::new();
         let resume_from = self.retry.get(&id).and_then(|r| r.offset);
+        let (grants, grants_rx) = mpsc::unbounded_channel();
+        let desired = Arc::new(AtomicU32::new(0));
         self.active.insert(
             id,
             Active {
@@ -540,6 +639,10 @@ impl TransferEngine {
                 file_name: item.remote.file_name().unwrap_or_default().to_owned(),
                 cancel: cancel.clone(),
                 cancelled: false,
+                site_limit: self.shared.resolver.connection_limit(&item.server),
+                extra: 0,
+                grants,
+                desired: Arc::clone(&desired),
             },
         );
         self.run.get_or_insert_with(|| RunStats {
@@ -558,6 +661,7 @@ impl TransferEngine {
             paused: self.paused_tx.subscribe(),
             settings: Arc::clone(&self.settings),
             shared: Arc::clone(&self.shared),
+            link: SegmentLink::new(grants_rx, desired),
         };
         let handle = self
             .tasks
@@ -584,6 +688,8 @@ impl TransferEngine {
                 self.on_result(WorkerResult {
                     id,
                     session: None,
+                    extra: Vec::new(),
+                    refused: None,
                     outcome: Outcome::Failed(Failure {
                         error: Error::Io(std::io::Error::other("transfer task failed")),
                         side: Side::Local,
@@ -602,10 +708,28 @@ impl TransferEngine {
         let now = Instant::now();
         let limit = self.settings.transfers.max_concurrent.max(1);
         let pool = self.pools.entry(active.server.clone()).or_default();
-        pool.busy = pool.busy.saturating_sub(1);
-        if let Some(session) = result.session {
+        pool.busy = pool.busy.saturating_sub(1 + active.extra);
+        for session in result.session.into_iter().chain(result.extra) {
             pool.idle.push((session, now));
         }
+        if let Some(error) = &result.refused {
+            // An extra segment connection was refused: keep to what is open.
+            let open = u32::try_from(pool.busy as usize + pool.idle.len())
+                .unwrap_or(u32::MAX)
+                .max(1);
+            if pool.reduced_limit.is_none_or(|l| l > open) {
+                pool.reduced_limit = Some(open);
+                self.shared.events.log(
+                    self.log_session,
+                    LogKind::Status,
+                    format!(
+                        "The server refused another connection ({error}); \
+                         using at most {open} for this session"
+                    ),
+                );
+            }
+        }
+        let pool = self.pools.entry(active.server.clone()).or_default();
         // Don't keep more connections than the (possibly lowered) limit.
         let keep = pool.reduced_limit.unwrap_or(limit).min(limit);
         let mut surplus = Vec::new();
@@ -779,9 +903,7 @@ impl TransferEngine {
     }
 
     fn changed(&self) {
-        if let Some(f) = &self.on_changed {
-            f();
-        }
+        self.shared.changed();
     }
 
     /// Emits `QueueFinished` when a run has nothing left to do.
@@ -868,6 +990,7 @@ impl TransferEngine {
             processing: lock_queue(&self.shared.queue).is_processing(),
             paused: self.paused,
             active: self.active.len(),
+            slots: self.slots(),
             tasks: self.tasks.len(),
             connections: self
                 .pools

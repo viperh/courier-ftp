@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# SFTP throughput benchmark (T22, manual, not CI).
+# SFTP throughput benchmark (T22, T41b; manual, not CI).
 #
 # Starts a private, unprivileged OpenSSH server on 127.0.0.1 (no root, no
 # changes outside a temp directory), then:
 #   1. runs the backend conformance suite and a timed upload/download of
 #      SIZE_MIB MiB with courier-ftp's SFTP backend
 #      (crates/courier-ftp-proto-sftp/tests/openssh_bench.rs);
-#   2. times the same transfers with the OpenSSH `sftp` CLI.
+#   2. downloads and uploads one file through the transfer engine with 1
+#      and 4 segments, byte-compared (tests/openssh_segmented.rs);
+#   3. times the same transfers with the OpenSSH `sftp` CLI.
 # Target: courier >= 80 % of the CLI's throughput.
 #
 # Usage: scripts/bench-sftp.sh [SIZE_MIB]   (default 1024)
@@ -55,6 +57,13 @@ COURIER_BENCH_KEY="$WORK/client_key" COURIER_BENCH_DIR="$WORK/remote" \
 COURIER_BENCH_SIZE_MIB="$SIZE_MIB" \
     cargo test --release --manifest-path "$ROOT/Cargo.toml" -p courier-ftp-proto-sftp \
     --test openssh_bench -- --ignored --nocapture 2>&1 | grep -E "courier|conformance|test result|panicked"
+
+echo "== courier-ftp transfer engine, 1 vs 4 segments (${SIZE_MIB} MiB, T41b)"
+COURIER_BENCH_PORT="$PORT" COURIER_BENCH_USER="$(id -un)" \
+COURIER_BENCH_KEY="$WORK/client_key" COURIER_BENCH_DIR="$WORK/remote" \
+COURIER_BENCH_SIZE_MIB="$SIZE_MIB" \
+    cargo test --release --manifest-path "$ROOT/Cargo.toml" -p courier-ftp-proto-sftp \
+    --test openssh_segmented -- --ignored --nocapture 2>&1 | grep -E "courier|test result|panicked"
 
 echo "== OpenSSH sftp CLI (${SIZE_MIB} MiB)"
 head -c "$((SIZE_MIB * 1024 * 1024))" /dev/zero | tr '\0' 'Z' >"$WORK/local.bin"

@@ -1474,13 +1474,16 @@ dependencies = [
 name = "courier-ftp-e2e"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "cargo_metadata",
  "courier-ftp-core",
  "courier-ftp-proto-ftp",
  "courier-ftp-proto-sftp",
  "rcgen",
  "secrecy",
+ "tempfile",
  "testcontainers",
+ "time",
  "tokio",
  "tokio-util",
  "toml",
@@ -1516,6 +1519,7 @@ dependencies = [
  "rustls-pki-types",
  "rustls-platform-verifier",
  "secrecy",
+ "tempfile",
  "thiserror 2.0.20",
  "time",
  "tokio",

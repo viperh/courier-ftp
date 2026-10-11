@@ -114,6 +114,7 @@ mod tests {
         TransferOpts {
             transfer_type: TransferType::Binary,
             preallocate_hint: hint,
+            read_limit: None,
         }
     }
 

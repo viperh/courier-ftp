@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use time::OffsetDateTime;
 
-use super::item::{ItemState, NewItem, Priority, Progress, QueueItem};
+use super::item::{ByteRange, ItemState, NewItem, Priority, Progress, QueueItem};
 use crate::events::TransferId;
 use crate::settings::ExistsAction;
 
@@ -694,6 +694,25 @@ impl Queue {
         Ok(())
     }
 
+    /// Records the byte ranges still missing from a segmented transfer
+    /// (T41b; `None` clears them). Bumps the revision so the persister
+    /// saves them: a restart then continues only those ranges.
+    ///
+    /// # Errors
+    /// [`QueueError::UnknownItem`].
+    pub fn set_segments(
+        &mut self,
+        id: TransferId,
+        segments: Option<Vec<ByteRange>>,
+    ) -> Result<(), QueueError> {
+        let item = self.items.get_mut(&id).ok_or(QueueError::UnknownItem(id))?;
+        if item.segments != segments {
+            item.segments = segments;
+            self.touch();
+        }
+        Ok(())
+    }
+
     /// Puts an active item back to queued at its position (the engine stopped
     /// it, e.g. processing was stopped).
     ///
@@ -718,6 +737,7 @@ impl Queue {
         now: OffsetDateTime,
     ) -> Result<(), QueueError> {
         let item = self.get_mut_in(id, ItemState::is_active, "active")?;
+        item.segments = None;
         item.state = ItemState::Done {
             finished_at: now,
             bytes,

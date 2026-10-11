@@ -92,6 +92,19 @@ pub const KEEPALIVE_MAX: usize = 3;
 /// The SSH channel window we grant the server (16 MiB, T41b §3).
 pub const CHANNEL_WINDOW: u32 = 16 * 1024 * 1024;
 
+/// Cipher preference (T41b §3): AES-GCM first (hardware accelerated on
+/// CPUs with AES-NI or ARMv8 crypto, and the fastest in our benchmark),
+/// then ChaCha20-Poly1305, then the CTR modes. The server's list decides
+/// among the ones it accepts.
+pub const CIPHER_ORDER: &[russh::cipher::Name] = &[
+    russh::cipher::AES_128_GCM,
+    russh::cipher::AES_256_GCM,
+    russh::cipher::CHACHA20_POLY1305,
+    russh::cipher::AES_256_CTR,
+    russh::cipher::AES_192_CTR,
+    russh::cipher::AES_128_CTR,
+];
+
 /// The russh client handle of an authenticated session.
 pub type SshHandle = client::Handle<ClientHandler>;
 
@@ -208,6 +221,10 @@ impl SshOptions {
             // A large channel window so it doesn't throttle pipelined SFTP
             // transfers on fast links (T41b §3).
             window_size: CHANNEL_WINDOW,
+            preferred: russh::Preferred {
+                cipher: Cow::Borrowed(CIPHER_ORDER),
+                ..russh::Preferred::default()
+            },
             ..client::Config::default()
         }
     }

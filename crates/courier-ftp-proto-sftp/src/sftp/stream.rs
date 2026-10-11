@@ -1,5 +1,6 @@
-//! Pipelined file streams (T41b §3): up to [`MAX_OUTSTANDING`] `READ` or
-//! `WRITE` requests in flight per file, on russh-sftp's raw request API.
+//! Pipelined file streams (T41b §3): up to `sftp.max_outstanding_requests`
+//! (default [`MAX_OUTSTANDING`]) `READ` or `WRITE` requests in flight per
+//! file, on russh-sftp's raw request API.
 //!
 //! A request is sent the first time its future is polled, so a new request
 //! is polled once right after it is queued; afterwards only the oldest one is
@@ -23,7 +24,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::client::map_error;
 
-/// Requests in flight per file.
+/// Requests in flight per file by default (`sftp.max_outstanding_requests`).
 pub const MAX_OUTSTANDING: usize = 64;
 
 type Pending<T> = Pin<Box<dyn Future<Output = Result<T, SftpError>> + Send>>;
@@ -88,7 +89,12 @@ pub(crate) struct SftpReader {
     chunk: u32,
     /// Only one request until the first reply showed the server's read size.
     probing: bool,
+    /// Requests in flight at most.
+    depth: usize,
     next_offset: u64,
+    /// No requests from here on (the caller's `read_limit`); the stream
+    /// ends here.
+    end: u64,
     pending: VecDeque<PendingRead>,
     buf: Vec<u8>,
     pos: usize,
@@ -102,17 +108,22 @@ impl SftpReader {
         handle: String,
         path: RemotePath,
         offset: u64,
+        end: Option<u64>,
         chunk: u32,
+        depth: usize,
         outcome: Outcome,
     ) -> Self {
+        let depth = depth.max(1);
         Self {
             raw,
             handle,
             path,
             chunk: chunk.max(1),
             probing: true,
+            depth,
             next_offset: offset,
-            pending: VecDeque::with_capacity(MAX_OUTSTANDING),
+            end: end.unwrap_or(u64::MAX),
+            pending: VecDeque::with_capacity(depth),
             buf: Vec::new(),
             pos: 0,
             state: ReadState::Reading,
@@ -122,11 +133,13 @@ impl SftpReader {
 
     /// Queue requests up to the pipeline depth, sending each at once.
     fn fill(&mut self, cx: &mut Context<'_>) {
-        let depth = if self.probing { 1 } else { MAX_OUTSTANDING };
-        while self.pending.len() < depth {
+        let depth = if self.probing { 1 } else { self.depth };
+        while self.pending.len() < depth && self.next_offset < self.end {
             let raw = Arc::clone(&self.raw);
             let handle = self.handle.clone();
-            let (offset, len) = (self.next_offset, self.chunk);
+            let left = self.end - self.next_offset;
+            let len = u32::try_from(left).map_or(self.chunk, |l| l.min(self.chunk));
+            let offset = self.next_offset;
             let mut reply: Pending<Vec<u8>> =
                 Box::pin(async move { raw.read(handle, offset, len).await.map(|d| d.data) });
             // The first poll sends the request; a reply can't be there yet,
@@ -177,6 +190,8 @@ impl AsyncRead for SftpReader {
                     }
                     this.fill(cx);
                     let Some(front) = this.pending.front_mut() else {
+                        // The read limit is reached.
+                        this.finish();
                         continue;
                     };
                     let result = ready!(front.reply.as_mut().poll(cx));
@@ -235,6 +250,8 @@ pub(crate) struct SftpWriter {
     handle: String,
     path: RemotePath,
     chunk: usize,
+    /// Requests in flight at most.
+    depth: usize,
     offset: u64,
     pending: VecDeque<Pending<()>>,
     closing: Option<Pending<()>>,
@@ -249,15 +266,18 @@ impl SftpWriter {
         path: RemotePath,
         offset: u64,
         chunk: u32,
+        depth: usize,
         outcome: Outcome,
     ) -> Self {
+        let depth = depth.max(1);
         Self {
             raw,
             handle,
             path,
             chunk: usize::try_from(chunk.max(1)).unwrap_or(32 * 1024),
+            depth,
             offset,
-            pending: VecDeque::with_capacity(MAX_OUTSTANDING),
+            pending: VecDeque::with_capacity(depth),
             closing: None,
             closed: false,
             outcome,
@@ -303,7 +323,7 @@ impl AsyncWrite for SftpWriter {
         if buf.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        while this.pending.len() >= MAX_OUTSTANDING {
+        while this.pending.len() >= this.depth {
             ready!(this.poll_oldest(cx))?;
         }
         let n = buf.len().min(this.chunk);

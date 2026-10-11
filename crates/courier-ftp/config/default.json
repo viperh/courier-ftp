@@ -441,6 +441,10 @@
       "persist": true,
       "refresh_remote_after": true
     },
+    "sftp": {
+      "max_outstanding_requests": 64,
+      "request_size_kib": 32
+    },
     "sync": {
       "history": false,
       "poll_fallback_secs": 300,
@@ -460,6 +464,12 @@
       "preallocate": false,
       "preserve_timestamps": false,
       "replace_invalid_chars": true,
+      "segmented": {
+        "enabled": true,
+        "max_segments": 4,
+        "min_file_size_mib": 32,
+        "min_segment_size_mib": 8
+      },
       "speed_limit_enabled": false,
       "upload_limit_kib": 0
     },

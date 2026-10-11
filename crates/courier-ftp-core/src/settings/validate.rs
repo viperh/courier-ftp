@@ -1,6 +1,9 @@
 //! Range and consistency checks for [`Settings`].
 
-use super::{FtpProxy, FtpSettings, GenericProxy, Settings, TransferSettings};
+use super::{
+    FtpProxy, FtpSettings, GenericProxy, SegmentedSettings, Settings, SftpSettings,
+    TransferSettings,
+};
 
 const KEEPALIVE_COMMANDS: &[&str] = &["NOOP", "PWD", "TYPE"];
 
@@ -64,12 +67,47 @@ impl Settings {
             &mut || p.ftp_proxy = FtpProxy::None,
         );
 
+        let sftp = &mut self.sftp;
+        let sftp_defaults = SftpSettings::default();
+        check(
+            (1..=1024).contains(&sftp.max_outstanding_requests),
+            "sftp.max_outstanding_requests",
+            "must be between 1 and 1024",
+            &mut || sftp.max_outstanding_requests = sftp_defaults.max_outstanding_requests,
+        );
+        check(
+            (1..=255).contains(&sftp.request_size_kib),
+            "sftp.request_size_kib",
+            "must be between 1 and 255",
+            &mut || sftp.request_size_kib = sftp_defaults.request_size_kib,
+        );
+
         let t = &mut self.transfers;
         check(
-            (1..=32).contains(&t.max_concurrent),
+            (1..=16).contains(&t.max_concurrent),
             "transfers.max_concurrent",
-            "must be between 1 and 32",
+            "must be between 1 and 16",
             &mut || t.max_concurrent = TransferSettings::default().max_concurrent,
+        );
+        let seg = &mut t.segmented;
+        let seg_defaults = SegmentedSettings::default();
+        check(
+            (1..=16).contains(&seg.max_segments),
+            "transfers.segmented.max_segments",
+            "must be between 1 and 16",
+            &mut || seg.max_segments = seg_defaults.max_segments,
+        );
+        check(
+            seg.min_segment_size_mib >= 1,
+            "transfers.segmented.min_segment_size_mib",
+            "must be at least 1",
+            &mut || seg.min_segment_size_mib = seg_defaults.min_segment_size_mib,
+        );
+        check(
+            seg.min_file_size_mib >= 1,
+            "transfers.segmented.min_file_size_mib",
+            "must be at least 1",
+            &mut || seg.min_file_size_mib = seg_defaults.min_file_size_mib,
         );
         let replacement = t.invalid_char_replacement;
         check(
@@ -175,6 +213,27 @@ mod tests {
         }));
         assert_eq!(s, Settings::default());
         assert_eq!(report.warnings.len(), 6, "{report:?}");
+    }
+
+    #[test]
+    fn fast_transfer_settings_are_range_checked() {
+        let (s, report) = Settings::from_value(&json!({
+            "transfers": {
+                "max_concurrent": 17,
+                "segmented": {"max_segments": 0, "min_file_size_mib": 0, "min_segment_size_mib": 0}
+            },
+            "sftp": {"max_outstanding_requests": 0, "request_size_kib": 256}
+        }));
+        assert_eq!(s, Settings::default());
+        assert_eq!(report.warnings.len(), 6, "{report:?}");
+
+        let (s, report) = Settings::from_value(&json!({
+            "transfers": {"max_concurrent": 16, "segmented": {"max_segments": 16}},
+            "sftp": {"max_outstanding_requests": 1024, "request_size_kib": 255}
+        }));
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert_eq!(s.transfers.segmented.max_segments, 16);
+        assert_eq!(s.sftp.request_size_kib, 255);
     }
 
     #[test]

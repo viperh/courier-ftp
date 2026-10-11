@@ -115,6 +115,28 @@ pub async fn run(b: &mut dyn Backend, base: &RemotePath) {
     assert_eq!(names(b, &dir).await, ["a.txt"]);
     assert_eq!(read(b, &a, 0).await, b"hello world");
     assert_eq!(read(b, &a, 6).await, b"world");
+    {
+        // A read limit (T41b segments): the first `limit` bytes are there;
+        // the reader may stop after them.
+        let step = "read with a read limit";
+        let opts = TransferOpts {
+            read_limit: Some(3),
+            ..TransferOpts::default()
+        };
+        let mut r = ok(b.open_read(&a, 2, &opts).await, step);
+        let mut got = [0u8; 3];
+        if let Err(e) = r.read_exact(&mut got).await {
+            panic!("conformance: {step}: {e}");
+        }
+        assert_eq!(&got, b"llo", "conformance: {step}");
+        drop(r);
+        // Stopping before the end may abort the transfer (FTP `ABOR`).
+        if let Err(e) = b.finish_transfer().await
+            && !matches!(e, Error::Cancelled)
+        {
+            panic!("conformance: {step}: finish: {e}");
+        }
+    }
 
     // Write modes.
     if caps.resume_upload {
@@ -124,6 +146,34 @@ pub async fn run(b: &mut dyn Backend, base: &RemotePath) {
     if caps.append {
         write(b, &a, WriteMode::Append, b"!").await;
         assert_eq!(read(b, &a, 0).await, b"hello there!", "conformance: append");
+    }
+    if caps.write_at {
+        // Positional writes (T41b segments): nothing truncated, and a
+        // preallocation hint extends the file.
+        let mut expected = read(b, &a, 0).await;
+        expected[6..11].copy_from_slice(b"THERE");
+        write(b, &a, WriteMode::At(6), b"THERE").await;
+        assert_eq!(read(b, &a, 0).await, expected, "conformance: write at");
+        let step = "write at with a preallocation hint";
+        let opts = TransferOpts {
+            preallocate_hint: Some(20),
+            ..TransferOpts::default()
+        };
+        let mut w = ok(b.open_write(&a, WriteMode::At(0), &opts).await, step);
+        if let Err(e) = w.write_all(b"J").await {
+            panic!("conformance: {step}: {e}");
+        }
+        if let Err(e) = w.shutdown().await {
+            panic!("conformance: {step}: shutdown: {e}");
+        }
+        drop(w);
+        ok(b.finish_transfer().await, step);
+        expected[0] = b'J';
+        let got = read(b, &a, 0).await;
+        assert!(
+            got.starts_with(&expected) && got.len() >= expected.len(),
+            "conformance: write at with a hint: {got:?}"
+        );
     }
     write(b, &a, WriteMode::Truncate, b"x").await;
     assert_eq!(read(b, &a, 0).await, b"x", "conformance: truncate");

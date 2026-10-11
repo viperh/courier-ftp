@@ -31,6 +31,8 @@ pub struct Settings {
     pub connection: ConnectionSettings,
     /// FTP specifics (FileZilla: Connection → FTP, Active/Passive mode).
     pub ftp: FtpSettings,
+    /// SFTP request pipelining (T41b §3).
+    pub sftp: SftpSettings,
     /// Generic and FTP proxies (FileZilla: Connection → Generic proxy, FTP proxy).
     pub proxy: ProxySettings,
     /// Concurrency, speed limits, file-exists actions (FileZilla: Transfers).
@@ -83,6 +85,30 @@ impl Default for ConnectionSettings {
             keepalive: true,
             keepalive_interval_secs: 30,
             prefer_ipv6: false,
+        }
+    }
+}
+
+/// SFTP-only settings: request pipelining (T41b §3).
+///
+/// Each open file keeps up to `max_outstanding_requests` `READ` or `WRITE`
+/// requests in flight, so one connection isn't limited by the round-trip
+/// time. A request carries `request_size_kib` KiB, or the larger size a
+/// server announces with `limits@openssh.com` (OpenSSH: 255 KiB).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SftpSettings {
+    /// Requests in flight per file (1–1024).
+    pub max_outstanding_requests: u32,
+    /// Bytes per request (KiB, 1–255) when the server announces no limits.
+    pub request_size_kib: u32,
+}
+
+impl Default for SftpSettings {
+    fn default() -> Self {
+        Self {
+            max_outstanding_requests: 64,
+            request_size_kib: 32,
         }
     }
 }
@@ -216,7 +242,8 @@ pub enum FtpProxy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TransferSettings {
-    /// Maximum simultaneous transfers (1–32). Default 4 (D11).
+    /// Maximum simultaneous transfers (1–16), counting each segment of a
+    /// segmented transfer. Default 4 (D11; FileZilla: 2).
     pub max_concurrent: u32,
     /// Maximum simultaneous downloads within `max_concurrent`; 0 = no extra limit.
     pub max_downloads: u32,
@@ -246,6 +273,42 @@ pub struct TransferSettings {
     pub empty_dirs: EmptyDirs,
     /// Follow symlinks during recursive operations.
     pub follow_symlinks: bool,
+    /// Large files split into byte ranges over several connections (T41b).
+    pub segmented: SegmentedSettings,
+}
+
+/// Segmented (multi-connection) transfers of one large file (T41b, D11).
+///
+/// A binary transfer of a file of at least `min_file_size_mib` is split
+/// into byte ranges, each moved on its own connection, when the source can
+/// read from an offset (SFTP; FTP with `REST STREAM`) and the target can
+/// write at an offset (the local disk; SFTP). FTP uploads are never
+/// segmented: `REST` + `STOR` at arbitrary offsets is not widely supported.
+/// Segments count against `max_concurrent` and the site's connection limit;
+/// new files are started before an active file gets more segments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SegmentedSettings {
+    /// Whether large files are segmented at all.
+    pub enabled: bool,
+    /// Smallest file (MiB) that is segmented.
+    pub min_file_size_mib: u64,
+    /// Most connections one file uses (1–16).
+    pub max_segments: u32,
+    /// Smallest range (MiB) a segment is split into: an idle connection only
+    /// takes over half of a range at least twice this long.
+    pub min_segment_size_mib: u64,
+}
+
+impl Default for SegmentedSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_file_size_mib: 32,
+            max_segments: 4,
+            min_segment_size_mib: 8,
+        }
+    }
 }
 
 impl Default for TransferSettings {
@@ -266,6 +329,7 @@ impl Default for TransferSettings {
             on_exists_upload: ExistsAction::Ask,
             empty_dirs: EmptyDirs::Create,
             follow_symlinks: false,
+            segmented: SegmentedSettings::default(),
         }
     }
 }

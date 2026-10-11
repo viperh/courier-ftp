@@ -50,6 +50,9 @@ struct State {
     latency: Duration,
     /// Streams move at most `.0` bytes per poll, each after a `.1` delay.
     stream_pace: Option<(usize, Duration)>,
+    /// Pacing for the next streams opened only, overriding `stream_pace`
+    /// (one slow connection, T41b tests).
+    next_stream_paces: VecDeque<(usize, Duration)>,
     /// The next streams opened fail with this error kind after this many
     /// bytes.
     stream_faults: VecDeque<(u64, io::ErrorKind)>,
@@ -178,6 +181,15 @@ impl MockServer {
         self
     }
 
+    /// Make only the next stream opened (read or write) slow, like
+    /// [`MockServer::set_stream_pace`] (one throttled connection).
+    pub fn pace_next_stream(&self, chunk: usize, delay: Duration) -> &Self {
+        self.lock()
+            .next_stream_paces
+            .push_back((chunk.max(1), delay));
+        self
+    }
+
     /// Make the next stream opened (read or write) fail with `kind` once
     /// `after` bytes went through it.
     pub fn fail_stream_after(&self, after: u64, kind: io::ErrorKind) -> &Self {
@@ -234,9 +246,10 @@ impl MockServer {
         let mut st = self.lock();
         st.open_streams += 1;
         st.peak_streams = st.peak_streams.max(st.open_streams);
+        let pace = st.next_stream_paces.pop_front().or(st.stream_pace);
         StreamGauge {
             server: self.clone(),
-            pace: st.stream_pace,
+            pace,
             fault: st.stream_faults.pop_front(),
             sleep: None,
         }
@@ -420,6 +433,7 @@ impl Backend for MockBackend {
             server_side_rename_across_dirs: true,
             ascii_mode: false,
             parallel_connections_allowed: true,
+            write_at: true,
         }
     }
 
@@ -615,7 +629,7 @@ impl Backend for MockBackend {
         &mut self,
         path: &RemotePath,
         mode: WriteMode,
-        _opts: &TransferOpts,
+        opts: &TransferOpts,
     ) -> Result<WriteStream> {
         self.server.delay().await;
         let mut st = self.begin()?;
@@ -631,12 +645,30 @@ impl Backend for MockBackend {
             WriteMode::Create | WriteMode::Truncate => data.clear(),
             WriteMode::Append => {}
             WriteMode::ResumeAt(n) => data.truncate(usize::try_from(n).unwrap_or(usize::MAX)),
+            WriteMode::At(_) => {
+                if let Some(size) = opts.preallocate_hint {
+                    let size = usize::try_from(size).unwrap_or(usize::MAX);
+                    if data.len() < size {
+                        data.resize(size, 0);
+                    }
+                }
+            }
         }
-        st.nodes.insert(path.clone(), Node::file(data));
+        let pos = match mode {
+            WriteMode::At(n) => usize::try_from(n).unwrap_or(usize::MAX),
+            _ => data.len(),
+        };
+        let modified = existing.map_or(OffsetDateTime::UNIX_EPOCH, |n| n.modified);
+        let mut node = Node::file(data);
+        if matches!(mode, WriteMode::At(_)) {
+            node.modified = modified;
+        }
+        st.nodes.insert(path.clone(), node);
         drop(st);
         Ok(Box::new(MockWriter {
             server: self.server.clone(),
             path: path.clone(),
+            pos,
             written: 0,
             gauge: self.server.open_stream(),
         }))
@@ -663,10 +695,12 @@ impl Backend for MockBackend {
     }
 }
 
-/// Appends to the file on the shared server as bytes arrive.
+/// Writes into the file on the shared server as bytes arrive, from `pos`
+/// (the end, or a [`WriteMode::At`] offset).
 struct MockWriter {
     server: MockServer,
     path: RemotePath,
+    pos: usize,
     written: u64,
     gauge: StreamGauge,
 }
@@ -689,7 +723,12 @@ impl AsyncWrite for MockWriter {
         let mut st = this.server.lock();
         match st.nodes.get_mut(&this.path) {
             Some(node) => {
-                node.data.extend_from_slice(&buf[..n]);
+                let end = this.pos + n;
+                if node.data.len() < end {
+                    node.data.resize(end, 0);
+                }
+                node.data[this.pos..end].copy_from_slice(&buf[..n]);
+                this.pos = end;
                 this.written += n as u64;
                 Poll::Ready(Ok(n))
             }
