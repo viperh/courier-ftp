@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::filters::FilterSettings;
 
-pub use persist::LoadReport;
+pub use persist::{LoadReport, merge_values, read_user_config, write_user_config};
 
 /// All settings, grouped like FileZilla's Settings dialog.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

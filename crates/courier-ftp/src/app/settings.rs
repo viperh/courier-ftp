@@ -86,19 +86,20 @@ impl App {
                 .display()
                 .to_string(),
             keybindings,
+            backup_default: crate::archive::default_backup_path().display().to_string(),
         }
     }
 
     /// Send the settings screen an answer (through the action channel, so
     /// it arrives like the background tasks' answers).
-    fn settings_reply(&self, reply: SettingsReply) {
+    pub(super) fn settings_reply(&self, reply: SettingsReply) {
         let _ = self
             .action_tx
             .send(Action::SettingsReply(Shared::new(reply)));
     }
 
     /// The vault engine while unlocked.
-    fn unlocked_engine(&self) -> Option<VaultEngine> {
+    pub(super) fn unlocked_engine(&self) -> Option<VaultEngine> {
         self.vault
             .as_ref()
             .filter(|v| v.phase == Phase::Unlocked)
@@ -195,6 +196,14 @@ impl App {
                 }
                 self.load_security();
             }
+            SettingsRequest::Export(job) => self.settings_export(job),
+            SettingsRequest::OpenImport { path, passphrase } => self.open_import(
+                crate::archive::Origin::Settings,
+                path.clone(),
+                passphrase.clone(),
+            ),
+            SettingsRequest::Import(choice) => self.settings_import(choice.clone()),
+            SettingsRequest::CancelImport => self.import_archive = None,
         }
     }
 

@@ -109,6 +109,26 @@ pub fn seal<R: CryptoRng + ?Sized>(
     created_at: i64,
     rng: &mut R,
 ) -> Result<Vec<u8>, BackupError> {
+    let list = encode_items(items)?;
+    let mut cbor = Zeroizing::new(Vec::new());
+    ciborium::into_writer(&list, &mut *cbor).map_err(|e| BackupError::Corrupt(e.to_string()))?;
+    seal_payload(
+        FORMAT,
+        AAD_LABEL,
+        &cbor,
+        items.len() as u64,
+        password,
+        cost,
+        created_at,
+        rng,
+    )
+}
+
+/// `items` as the CBOR list of the payload (also used by the T73 archive).
+///
+/// # Errors
+/// [`BackupError::Corrupt`] if a body can't be encoded.
+pub(crate) fn encode_items(items: &[BackupItem]) -> Result<Value, BackupError> {
     let mut list = Vec::with_capacity(items.len());
     for item in items {
         let body = item
@@ -121,19 +141,7 @@ pub fn seal<R: CryptoRng + ?Sized>(
             (Value::Text("body".into()), Value::Bytes(body)),
         ]));
     }
-    let mut cbor = Zeroizing::new(Vec::new());
-    ciborium::into_writer(&Value::Array(list), &mut *cbor)
-        .map_err(|e| BackupError::Corrupt(e.to_string()))?;
-    seal_payload(
-        FORMAT,
-        AAD_LABEL,
-        &cbor,
-        items.len() as u64,
-        password,
-        cost,
-        created_at,
-        rng,
-    )
+    Ok(Value::Array(list))
 }
 
 /// The container under [`seal`], for other formats (T32's encrypted site
@@ -341,6 +349,15 @@ fn decode_items(cbor: &[u8]) -> Result<Vec<BackupItem>, BackupError> {
     let Value::Array(list) = value else {
         return Err(bad("payload is not a list"));
     };
+    decode_item_list(list)
+}
+
+/// The CBOR item list of a payload (also used by the T73 archive).
+///
+/// # Errors
+/// [`BackupError::Corrupt`].
+pub(crate) fn decode_item_list(list: Vec<Value>) -> Result<Vec<BackupItem>, BackupError> {
+    let bad = |what: &str| BackupError::Corrupt(what.to_owned());
     list.into_iter()
         .map(|entry| {
             let Value::Map(fields) = entry else {

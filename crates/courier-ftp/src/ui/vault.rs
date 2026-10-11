@@ -47,6 +47,11 @@ pub(crate) enum VaultRequest {
     Retry,
     /// Move the database aside and start a new empty vault.
     NewVault,
+    /// Open a `.cftp-backup` to restore once the vault is created (T73).
+    OpenBackup {
+        path: std::path::PathBuf,
+        passphrase: SecretString,
+    },
     /// Quit courier-ftp.
     Quit,
 }
@@ -61,6 +66,7 @@ impl std::fmt::Debug for VaultRequest {
             Self::Skip => "Skip",
             Self::Retry => "Retry",
             Self::NewVault => "NewVault",
+            Self::OpenBackup { .. } => "OpenBackup",
             Self::Quit => "Quit",
         })
     }
@@ -90,6 +96,27 @@ pub(crate) enum VaultPage {
     Forgot,
     Reset,
     NewVault,
+    Restore,
+}
+
+/// "Restore from a .cftp-backup": the file and its passphrase (T73).
+struct RestoreForm {
+    file: TextInput,
+    passphrase: TextInput,
+    buttons: ButtonRow,
+    /// 0 file, 1 passphrase, 2 buttons.
+    focus: usize,
+}
+
+impl RestoreForm {
+    fn new() -> Self {
+        Self {
+            file: TextInput::new("Backup file"),
+            passphrase: TextInput::password("Passphrase"),
+            buttons: ButtonRow::new(&["Open backup", "Back"], 0),
+            focus: 0,
+        }
+    }
 }
 
 /// The two-password form of first run and the keyring reset.
@@ -200,6 +227,7 @@ enum Page {
     },
     Reset(PasswordForm),
     NewVault(ButtonRow),
+    Restore(RestoreForm),
 }
 
 /// The vault screens (see the module docs).
@@ -219,6 +247,11 @@ pub(crate) struct VaultView {
     retry_at: Option<Instant>,
     unicode: bool,
     tick: u64,
+    /// What the opened backup holds, restored once the vault is created.
+    backup: Option<Vec<String>>,
+    /// "Forgot password? → Restore": show the restore form after the old
+    /// database is moved aside.
+    restore_next: bool,
 }
 
 const LABEL_W: u16 = 18;
@@ -239,6 +272,8 @@ impl VaultView {
             retry_at: None,
             unicode,
             tick: 0,
+            backup: None,
+            restore_next: false,
         }
     }
 
@@ -252,6 +287,7 @@ impl VaultView {
             Page::Forgot { .. } => VaultPage::Forgot,
             Page::Reset(_) => VaultPage::Reset,
             Page::NewVault(_) => VaultPage::NewVault,
+            Page::Restore(_) => VaultPage::Restore,
         }
     }
 
@@ -277,12 +313,34 @@ impl VaultView {
     /// First run.
     pub(crate) fn show_create(&mut self, facts: VaultFacts) {
         self.facts = facts;
-        self.page = Page::Create(PasswordForm::new(
-            facts.keyring_available,
-            &["Set password", "Continue without vault"],
-        ));
+        self.create_page();
+        if std::mem::take(&mut self.restore_next) {
+            self.page = Page::Restore(RestoreForm::new());
+        }
         self.busy = None;
         self.error = None;
+    }
+
+    fn create_page(&mut self) {
+        self.page = Page::Create(PasswordForm::new(
+            self.facts.keyring_available,
+            &["Set password", "Restore backup…", "Continue without vault"],
+        ));
+    }
+
+    /// The backup chosen on the restore page opened: back to the first-run
+    /// form, which now says what will be restored.
+    pub(crate) fn backup_ready(&mut self, contents: &[String]) {
+        self.backup = Some(contents.to_vec());
+        self.create_page();
+        self.busy = None;
+        self.error = None;
+    }
+
+    /// A backup is waiting for the vault to be created.
+    #[cfg(test)]
+    pub(crate) fn has_backup(&self) -> bool {
+        self.backup.is_some()
     }
 
     /// The unlock view (also the lock overlay). `retry_after` is the backoff
@@ -391,6 +449,11 @@ impl VaultView {
                 ..
             } => password.handle_paste(text),
             Page::Create(form) | Page::Reset(form) => form.handle_paste(text),
+            Page::Restore(form) => match form.focus {
+                0 => form.file.handle_paste(text),
+                1 => form.passphrase.handle_paste(text),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -432,17 +495,14 @@ impl VaultView {
                             ));
                             self.error = None;
                         }
-                        Some(ForgotOption::RestoreBackup) => {
-                            self.error = Some(
-                                "Restoring a .cftp-backup is not available in this build yet (T73)."
-                                    .to_owned(),
-                            );
-                        }
-                        Some(ForgotOption::NewVault) => {
-                            self.page = Page::NewVault(ButtonRow::new(
-                                &["Move it aside and start over", "Back"],
-                                1,
-                            ));
+                        Some(option @ (ForgotOption::RestoreBackup | ForgotOption::NewVault)) => {
+                            self.restore_next = option == ForgotOption::RestoreBackup;
+                            let yes = if self.restore_next {
+                                "Move it aside and restore"
+                            } else {
+                                "Move it aside and start over"
+                            };
+                            self.page = Page::NewVault(ButtonRow::new(&[yes, "Back"], 1));
                             self.error = None;
                         }
                         Some(ForgotOption::Back) | None => self.unlock_page(),
@@ -453,6 +513,7 @@ impl VaultView {
             }
             Page::NewVault(buttons) => {
                 if key.code == KeyCode::Esc {
+                    self.restore_next = false;
                     self.forgot_page();
                     return None;
                 }
@@ -462,11 +523,71 @@ impl VaultView {
                         Some(VaultRequest::NewVault)
                     }
                     Some(_) => {
+                        self.restore_next = false;
                         self.forgot_page();
                         None
                     }
                     None => None,
                 }
+            }
+            Page::Restore(_) => self.restore_key(key),
+        }
+    }
+
+    fn restore_key(&mut self, key: KeyEvent) -> Option<VaultRequest> {
+        let Page::Restore(form) = &mut self.page else {
+            return None;
+        };
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let pressed = if alt {
+            form.buttons.handle_key(key)
+        } else {
+            match key.code {
+                KeyCode::Tab | KeyCode::Down => {
+                    form.focus = (form.focus + 1) % 3;
+                    None
+                }
+                KeyCode::BackTab | KeyCode::Up => {
+                    form.focus = (form.focus + 2) % 3;
+                    None
+                }
+                KeyCode::Esc => Some(1),
+                _ if form.focus == 2 => form.buttons.handle_key(key),
+                KeyCode::Enter => Some(0),
+                _ => {
+                    if form.focus == 0 {
+                        form.file.handle_key(key);
+                    } else {
+                        form.passphrase.handle_key(key);
+                    }
+                    None
+                }
+            }
+        };
+        match pressed? {
+            0 => {
+                let file = form.file.text();
+                if file.trim().is_empty() {
+                    self.error = Some("Enter the backup file.".to_owned());
+                    return None;
+                }
+                if form.passphrase.is_empty() {
+                    self.error = Some("Enter the backup's passphrase.".to_owned());
+                    return None;
+                }
+                let passphrase = form.passphrase.secret();
+                form.passphrase.clear();
+                self.busy = Some("Opening the backup…".to_owned());
+                self.error = None;
+                Some(VaultRequest::OpenBackup {
+                    path: crate::diagnostics::expand_home(file.trim()),
+                    passphrase,
+                })
+            }
+            _ => {
+                self.create_page();
+                self.error = None;
+                None
             }
         }
     }
@@ -594,6 +715,11 @@ impl VaultView {
                     Some(VaultRequest::Reset(password))
                 }
             }
+            1 if create => {
+                self.page = Page::Restore(RestoreForm::new());
+                self.error = None;
+                None
+            }
             _ if create => Some(VaultRequest::Skip),
             _ => {
                 self.forgot_page();
@@ -668,6 +794,15 @@ impl VaultView {
             ) => buttons.draw(frame, full, idle && *on_buttons, theme),
             (Page::Unavailable { buttons, .. }, Mark::Buttons)
             | (Page::NewVault(buttons), Mark::Buttons) => buttons.draw(frame, full, idle, theme),
+            (Page::Restore(form), mark) => {
+                let focused = |i: usize| idle && form.focus == i;
+                match mark {
+                    Mark::File => form.file.draw(frame, field, focused(0), theme),
+                    Mark::Password => form.passphrase.draw(frame, field, focused(1), theme),
+                    Mark::Buttons => form.buttons.draw(frame, full, focused(2), theme),
+                    _ => {}
+                }
+            }
             (Page::Create(form) | Page::Reset(form), mark) => {
                 let focused = |i: usize| idle && form.focus == i;
                 match mark {
@@ -683,6 +818,7 @@ impl VaultView {
                         form.buttons
                             .draw(frame, full, idle && form.on_buttons(), theme);
                     }
+                    Mark::File => {}
                 }
             }
             _ => {}
@@ -755,10 +891,23 @@ impl VaultView {
                 body.text(&format!("{warn} {NO_RECOVERY_WARNING}"), theme.key_hint);
                 body.blank();
                 body.mark(Mark::Buttons, Line::default());
-                body.text(
-                    "Restore from a .cftp-backup (T73) or sign in to a sync server (T90): not available yet.",
-                    theme.dim,
-                );
+                match &self.backup {
+                    Some(contents) => {
+                        body.text(
+                            "Backup opened. Once the vault is created this is restored \
+                             (its settings replace the current ones):",
+                            theme.key_hint,
+                        );
+                        for line in contents {
+                            body.indented(2, line, theme.dim);
+                        }
+                    }
+                    None => body.text(
+                        "Moving from another computer? Choose “Restore backup…” to bring a \
+                         .cftp-backup along. Signing in to a sync server (T90) is not available yet.",
+                        theme.dim,
+                    ),
+                }
                 " Create your vault "
             }
             Page::Reset(form) => {
@@ -816,14 +965,35 @@ impl VaultView {
             Page::NewVault(_) => {
                 body.blank();
                 body.text(
-                    "Start a new empty vault? The current database is renamed (moved aside) in \
-                     the data directory, not deleted: you can move it back later if you remember \
-                     the password.",
+                    if self.restore_next {
+                        "Restore from a backup? The current database is renamed (moved aside) in \
+                         the data directory, not deleted: you can move it back later if you \
+                         remember the password. Then you choose the backup and a new master \
+                         password."
+                    } else {
+                        "Start a new empty vault? The current database is renamed (moved aside) in \
+                         the data directory, not deleted: you can move it back later if you \
+                         remember the password."
+                    },
                     Style::new(),
                 );
                 body.blank();
                 body.mark(Mark::Buttons, Line::default());
                 " Start a new vault "
+            }
+            Page::Restore(_) => {
+                body.text(
+                    "Restore from a .cftp-backup made with Settings → Export. Enter the file and \
+                     the passphrase it was made with; next you choose the master password for \
+                     this device.",
+                    Style::new(),
+                );
+                body.blank();
+                body.mark(Mark::File, label_line("Backup file:", theme));
+                body.mark(Mark::Password, label_line("Passphrase:", theme));
+                body.blank();
+                body.mark(Mark::Buttons, Line::default());
+                " Restore from a backup "
             }
         };
         if let Some(note) = &self.note
@@ -924,6 +1094,7 @@ fn label_line(label: &str, theme: &Theme) -> Line<'static> {
 /// Where a widget goes in the body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mark {
+    File,
     Password,
     Confirm,
     Keyring,

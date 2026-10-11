@@ -1,6 +1,6 @@
 ---
 source: crates/courier-ftp/src/ui/vault/tests.rs
-assertion_line: 179
+assertion_line: 185
 expression: text
 ---
 "                                                                                "
@@ -19,11 +19,11 @@ expression: text
 " │ ⚠ Without the keyring option or a sync account (which gives you a recovery │ "
 " │ key), a forgotten password means your saved sites are lost.                │ "
 " │                                                                            │ "
-" │               [ Set password ]  [ Continue without vault ]                 │ "
-" │ Restore from a .cftp-backup (T73) or sign in to a sync server (T90): not   │ "
-" │ available yet.                                                             │ "
+" │     [ Set password ]  [ Restore backup… ]  [ Continue without vault ]      │ "
+" │ Moving from another computer? Choose “Restore backup…” to bring a          │ "
+" │ .cftp-backup along. Signing in to a sync server (T90) is not available     │ "
+" │ yet.                                                                       │ "
 " │ The passwords don't match.                                                 │ "
 " └────────────────────────────────────────────────────────────────────────────┘ "
-"                                                                                "
 "                                                                                "
 "                                                                                "

@@ -16,9 +16,15 @@ Move a whole courier-ftp setup to another machine.
 
 ## Acceptance criteria
 
-- [ ] Export → import on a fresh data/config dir reproduces settings and sites.
-- [ ] Plain export contains no secrets.
-- [ ] Partial import works.
+- [x] Export → import on a fresh data/config dir reproduces settings and sites.
+- [x] Plain export contains no secrets.
+- [x] Partial import works.
+
+**Status (T73):** done. Export also offers *Connection history*; sites restored in place keep
+their ids and merge field by field (newer edits win), or go into a new folder as new items.
+Keybindings and styles from an import apply at the next start. The first-run screen and
+*Forgot password? → Restore* open a backup and restore everything once the new vault exists
+(T60). No Docker e2e test (none needed: no network).
 
 ## Tests
 

@@ -45,6 +45,7 @@ fn opts() -> SettingsOpts {
             ("Normal".into(), "<Ctrl-s>".into(), "SiteManager".into()),
             ("FileList".into(), "<j>".into(), "CursorDown".into()),
         ],
+        backup_default: "/home/me/courier-ftp.cftp-backup".into(),
     }
 }
 
@@ -635,4 +636,119 @@ fn small_terminal_does_not_panic() {
     for (w, h) in [(10, 3), (40, 10), (60, 12)] {
         let _ = render(&mut view, w, h);
     }
+}
+
+fn alt(view: &mut SettingsView, c: char) {
+    view.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT));
+}
+
+#[test]
+fn plain_export_is_settings_only_without_a_passphrase() {
+    let mut v = view();
+    alt(&mut v, 'e');
+    assert!(v.has_overlay());
+    // settings, sites, passwords, history, trust, queue, format
+    for _ in 0..6 {
+        press(&mut v, KeyCode::Tab);
+    }
+    press(&mut v, KeyCode::Right);
+    press(&mut v, KeyCode::Tab);
+    alt(&mut v, 'e');
+    let requests = v.take_requests();
+    let [SettingsRequest::Export(job)] = requests.as_slice() else {
+        panic!("{requests:?}");
+    };
+    assert!(job.plain);
+    assert!(job.passphrase.is_none());
+    assert_eq!(
+        job.choice,
+        ExportChoice {
+            settings: true,
+            ..ExportChoice::default()
+        }
+    );
+    assert_eq!(job.path, std::path::Path::new("/home/me/courier-ftp.json"));
+}
+
+#[test]
+fn a_backup_needs_matching_passphrases_and_unsaved_edits_block_export() {
+    let mut v = view();
+    alt(&mut v, 'e');
+    alt(&mut v, 'e');
+    assert!(v.take_requests().is_empty(), "no passphrase");
+    for _ in 0..8 {
+        press(&mut v, KeyCode::Tab);
+    }
+    typed(&mut v, "one");
+    press(&mut v, KeyCode::Tab);
+    typed(&mut v, "two");
+    alt(&mut v, 'e');
+    assert!(v.take_requests().is_empty(), "mismatch");
+    press(&mut v, KeyCode::Esc);
+    assert!(!v.has_overlay());
+
+    // An unsaved edit: export and import ask to apply first.
+    press(&mut v, KeyCode::Enter);
+    clear(&mut v);
+    typed(&mut v, "33");
+    assert!(v.is_dirty());
+    alt(&mut v, 'e');
+    assert!(!v.has_overlay());
+    assert!(v.message().unwrap().0.contains("before exporting"));
+    alt(&mut v, 'i');
+    assert!(!v.has_overlay());
+}
+
+#[test]
+fn import_choices_and_the_result() {
+    let mut v = view();
+    v.apply_reply(&SettingsReply::ImportReady(Box::new(ImportPreview {
+        sections: vec![
+            (ArchiveSection::Settings, "2 changed groups".into()),
+            (
+                ArchiveSection::Sites,
+                "1 site, 0 folders, 0 bookmarks".into(),
+            ),
+            (ArchiveSection::Queue, "1 item".into()),
+        ],
+        warnings: vec!["Skipped section “macros” (from a newer courier-ftp)".into()],
+        folder: "Imported 2026-10-11".into(),
+    })));
+    assert!(v.has_overlay());
+    assert!(v.message().unwrap().0.contains("macros"));
+    let text = render(&mut v, 100, 30);
+    assert!(
+        text.contains("Into a new folder “Imported 2026-10-11”"),
+        "{text}"
+    );
+    // Untick the queue, keep the defaults otherwise.
+    for _ in 0..4 {
+        press(&mut v, KeyCode::Tab);
+    }
+    press(&mut v, KeyCode::Char(' '));
+    alt(&mut v, 'i');
+    let requests = v.take_requests();
+    let [SettingsRequest::Import(choice)] = requests.as_slice() else {
+        panic!("{requests:?}");
+    };
+    assert_eq!(
+        *choice,
+        ImportChoice {
+            settings: Some(SettingsMode::Merge),
+            sites: Some(SitesMode::NewFolder("Imported 2026-10-11".into())),
+            ..ImportChoice::default()
+        }
+    );
+
+    let mut imported = Settings::default();
+    imported.connection.timeout_secs = 45;
+    v.apply_reply(&SettingsReply::Imported {
+        settings: Some(Box::new(imported.clone())),
+        text: "Settings merged\nVault items: 2 added".into(),
+        failed: false,
+    });
+    assert_eq!(v.draft(), &imported);
+    assert!(!v.is_dirty());
+    assert_eq!(v.message().unwrap().0, "Settings merged");
+    assert!(v.has_overlay(), "summary dialog");
 }

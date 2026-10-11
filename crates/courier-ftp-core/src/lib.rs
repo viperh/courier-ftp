@@ -10,6 +10,7 @@
 
 mod error;
 
+pub mod archive;
 pub mod backend;
 pub mod cache;
 pub mod compare;

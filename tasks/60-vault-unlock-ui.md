@@ -65,6 +65,11 @@ first-run setup, recovery, and every other vault-related screen — matching sve
 - [x] First-run creates the vault only with a strong enough password.
 - [x] Snapshot tests for unlock, first run, forgot password, backoff and lock overlay.
 
+**Status (T73):** *Restore from a `.cftp-backup`* now works, on the first-run screen
+(*Restore backup…*) and under *Forgot password?* (old database moved aside first): the backup
+is opened with its passphrase, then restored in full once the new vault is created. Sync
+recovery and sync sign-in remain T90.
+
 ## Tests
 
 - UI-flow tests with synthetic key events, a mock keyring and cheap Argon2 params.

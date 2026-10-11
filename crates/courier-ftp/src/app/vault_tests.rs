@@ -224,7 +224,7 @@ async fn first_run_then_every_start_asks_for_the_password() {
     }
 }
 
-async fn initialised(dir: &Path, keyring: &MemKeyring, enable_keyring: bool) {
+pub(super) async fn initialised(dir: &Path, keyring: &MemKeyring, enable_keyring: bool) {
     let rig = start(dir, keyring, config()).await;
     rig.engine()
         .initialize(&secrecy::SecretString::from(STRONG), enable_keyring)
