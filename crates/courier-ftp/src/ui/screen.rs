@@ -32,6 +32,7 @@ use super::{
     panes,
     queue::QueuePane,
     quickconnect::{QuickKey, Quickconnect},
+    search::{Fmt, SearchOpts, SearchUpdate, SearchView},
     settings::SettingsView,
     site_manager::SiteManagerView,
     status::{self, StatusState},
@@ -210,6 +211,9 @@ pub(crate) struct MainScreen {
     /// The settings screen (T68), when open. It covers the panes (and the
     /// Site Manager); dialogs open over it.
     settings: Option<SettingsView>,
+    /// The search view (T65). It stays for the session once opened, hidden
+    /// or shown, so the last query and results come back with `Ctrl-f`.
+    search: Option<SearchView>,
     /// Synchronized browsing (T66): the base directories, when on.
     sync: Option<SyncBase>,
     /// A synchronized directory change waiting for the other side.
@@ -303,6 +307,7 @@ impl MainScreen {
             vault_requests: Vec::new(),
             sites: None,
             settings: None,
+            search: None,
             sync: None,
             sync_nav: None,
             compare: None,
@@ -551,6 +556,79 @@ impl MainScreen {
         }
     }
 
+    /// Whether the search view covers the panes.
+    pub(crate) fn search_shown(&self) -> bool {
+        self.search.as_ref().is_some_and(|v| !v.is_hidden())
+    }
+
+    /// The search view, when one was opened this session.
+    #[cfg(test)]
+    pub(crate) fn search_view_mut(&mut self) -> Option<&mut SearchView> {
+        self.search.as_mut()
+    }
+
+    /// `Ctrl-f`: show the search view, searching the focused pane's side
+    /// from its current directory (the remote side only when connected).
+    fn open_search(&mut self) {
+        let side = match self.opts.compact_side {
+            Side::Remote if self.remote.dir.is_some() => Side::Remote,
+            _ => Side::Local,
+        };
+        let opts = SearchOpts {
+            side,
+            dirs: [
+                self.local
+                    .dir
+                    .as_ref()
+                    .map(display_native)
+                    .unwrap_or_default(),
+                self.remote
+                    .dir
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            ],
+            unicode: self.status.unicode,
+            fmt: Fmt::new(
+                &self.config.settings,
+                time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC),
+            ),
+        };
+        match self.search.as_mut() {
+            Some(view) => view.reopen(opts),
+            None => self.search = Some(SearchView::new(opts)),
+        }
+    }
+
+    /// Something from the running search (or a result action) for the view.
+    pub(crate) fn search_update(&mut self, update: &SearchUpdate) {
+        if let Some(view) = self.search.as_mut() {
+            view.apply_update(update);
+        }
+    }
+
+    /// Pass the search view's requests on.
+    fn pump_search(&mut self) {
+        let Some(view) = self.search.as_mut() else {
+            return;
+        };
+        for request in view.take_requests() {
+            self.outbox
+                .push(Action::SearchRequest(crate::action::Shared::new(request)));
+        }
+    }
+
+    /// "Go to" a search result: hide the search view, show `dir` in the
+    /// `side` pane with the cursor on `name`, and focus that pane.
+    pub(crate) fn reveal(&mut self, side: Side, dir: RemotePath, name: String) {
+        if let Some(view) = self.search.as_mut() {
+            view.hide();
+        }
+        self.set_focus(Region::list(side));
+        let effect = self.pane_mut(side).go_to_entry(dir, name);
+        self.apply(effect);
+    }
+
     /// Settings changed on the settings screen (T68): apply what the screen
     /// shows at once (layout, visibility, formats, sort order, colours, log
     /// pane, status bar).
@@ -616,6 +694,7 @@ impl MainScreen {
             || self.sites.is_some()
             || self.bookmarks.is_some()
             || self.settings.is_some()
+            || self.search_shown()
         {
             return Mode::Dialog;
         }
@@ -693,6 +772,11 @@ impl MainScreen {
             self.pump_settings();
             return KeyOutcome::Consumed;
         }
+        if let Some(view) = self.search.as_mut().filter(|v| !v.is_hidden()) {
+            view.handle_key(key);
+            self.pump_search();
+            return KeyOutcome::Consumed;
+        }
         if let Some(view) = self.sites.as_mut() {
             view.handle_key(key);
             self.pump_sites();
@@ -749,6 +833,8 @@ impl MainScreen {
         } else if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
         } else if let Some(view) = self.settings.as_mut() {
+            view.handle_paste(text);
+        } else if let Some(view) = self.search.as_mut().filter(|v| !v.is_hidden()) {
             view.handle_paste(text);
         } else if let Some(view) = self.sites.as_mut() {
             view.handle_paste(text);
@@ -970,6 +1056,7 @@ impl MainScreen {
                 self.modals.push(Box::new(dialog));
             }
             Action::SetFilters(filters) => self.set_filters(filters),
+            Action::Search => self.open_search(),
             Action::SelectCompareLonely => self.select_by_status(Highlight::Lonely),
             Action::SelectCompareNewer => self.select_by_status(Highlight::Newer),
             Action::SelectCompareDifferent => self.select_by_status(Highlight::Different),
@@ -1717,6 +1804,16 @@ impl MainScreen {
                 bottom.saturating_sub(area.y),
             );
             view.draw(frame, above, theme);
+        }
+        if let Some(view) = self.search.as_mut().filter(|v| !v.is_hidden()) {
+            let bottom = r.status.map_or(area.bottom(), |s| s.y);
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                bottom.saturating_sub(area.y),
+            );
+            view.draw(frame, above, self.tick, theme);
         }
         for modal in &mut self.modals {
             modal.draw(frame, area, theme);

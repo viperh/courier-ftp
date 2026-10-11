@@ -86,6 +86,9 @@ pub(crate) struct App {
     /// The production backends, told about new settings (T68); `None` in
     /// tests with a mock server.
     net: Option<Arc<Backends>>,
+    /// The last search started (T65), running or finished: what its
+    /// result actions need.
+    search: Option<search::SearchRun>,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -268,6 +271,7 @@ impl App {
             config_dir: config.config.config_dir.clone(),
             transfers,
             net: None,
+            search: None,
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -464,6 +468,8 @@ impl App {
             }
             Action::Settings => self.open_settings(),
             Action::SettingsRequest(request) => self.settings_request(&request.0),
+            Action::SearchRequest(request) => self.search_request(&request.0),
+            Action::SearchUpdate { run, update } => self.search_update(*run, &update.0),
             Action::SaveAsSite => self.save_as_site(),
             Action::SitePicker => self.site_picker(),
             Action::SiteOp(op) => self.site_op((*op.0).clone()),
@@ -1470,6 +1476,7 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+mod search;
 mod settings;
 
 #[cfg(test)]
@@ -1478,6 +1485,8 @@ mod bookmark_tests;
 mod filter_tests;
 #[cfg(test)]
 mod log_tests;
+#[cfg(test)]
+mod search_tests;
 mod transfers;
 
 #[cfg(test)]

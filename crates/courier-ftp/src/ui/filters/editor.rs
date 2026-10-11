@@ -191,15 +191,16 @@ impl ValueWidget {
     }
 }
 
-/// One condition row: type, operator, value.
-struct CondRow {
+/// One condition row: type, operator, value (also used by the search
+/// form, T65).
+pub(in crate::ui) struct CondRow {
     kind: Select,
     op: Select,
     value: ValueWidget,
 }
 
 impl CondRow {
-    fn new(condition: &Condition) -> Self {
+    pub(in crate::ui) fn new(condition: &Condition) -> Self {
         let (kind, op_labels, op, value) = match condition {
             Condition::Name { op, value } | Condition::Path { op, value } => (
                 usize::from(matches!(condition, Condition::Path { .. })),
@@ -240,7 +241,7 @@ impl CondRow {
     }
 
     /// The condition, or what is wrong with it.
-    fn condition(&self) -> Result<Condition, String> {
+    pub(in crate::ui) fn condition(&self) -> Result<Condition, String> {
         let op = self.op.selected();
         let text = self.value.text();
         match self.kind.selected() {
@@ -284,7 +285,7 @@ impl CondRow {
 
     /// The type was changed: a fresh operator and value of the new type
     /// (the text stays between Filename and Path).
-    fn retype(&mut self) {
+    pub(in crate::ui) fn retype(&mut self) {
         let text = self.value.text();
         let kind = self.kind.selected();
         let fresh = match kind {
@@ -316,7 +317,12 @@ impl CondRow {
         *self = CondRow::new(&fresh);
     }
 
-    fn col(&self, col: usize) -> &dyn Field {
+    /// The selected condition type (an index into the type list).
+    pub(in crate::ui) fn kind(&self) -> usize {
+        self.kind.selected()
+    }
+
+    pub(in crate::ui) fn col(&self, col: usize) -> &dyn Field {
         match col {
             0 => &self.kind,
             1 => &self.op,
@@ -324,7 +330,7 @@ impl CondRow {
         }
     }
 
-    fn col_mut(&mut self, col: usize) -> &mut dyn Field {
+    pub(in crate::ui) fn col_mut(&mut self, col: usize) -> &mut dyn Field {
         match col {
             0 => &mut self.kind,
             1 => &mut self.op,
