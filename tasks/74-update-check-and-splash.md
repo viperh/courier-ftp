@@ -18,10 +18,19 @@ Tell users when a new release exists, and optionally show a splash on start.
 
 ## Acceptance criteria
 
-- [ ] Update check respects interval and opt-out.
-- [ ] Version comparison unit-tested (`v1.2.3` vs `1.10.0`, prereleases).
-- [ ] No network access when disabled (test with a mock that panics if called).
+- [x] Update check respects interval and opt-out.
+- [x] Version comparison unit-tested (`v1.2.3` vs `1.10.0`, prereleases).
+- [x] No network access when disabled (test with a mock that panics if called).
 
 ## Tests
 
 - Unit tests for version comparison and scheduling; mock HTTP.
+
+## Status
+
+Done. `reqwest` (rustls/ring, OS trust store) was chosen over hand-rolled HTTP: the
+default build already links it through `courier-ftp-sync`, so it adds nothing there;
+the local-only build gains hyper/reqwest. The request goes direct (no configured
+or environment proxy). The splash stays at least 1 s and until the vault has
+opened, at most 5 s; config loads before the terminal is set up, so there is
+nothing else to wait for.

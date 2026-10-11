@@ -24,6 +24,7 @@ mod sites;
 mod transfers;
 mod tui;
 mod ui;
+mod update;
 mod vault;
 
 #[tokio::main]
@@ -53,6 +54,9 @@ async fn main() -> color_eyre::Result<()> {
 
     let result = async {
         let mut app = App::new(args.tick_rate, args.frame_rate)?;
+        if args.no_update_check || crate::update::env_opt_out() {
+            app.disable_update_check();
+        }
         if let Some(level) = args.debug_level {
             app.set_debug_level(level);
         }

@@ -377,6 +377,7 @@
       "use_mlsd": true
     },
     "interface": {
+      "check_prereleases": false,
       "check_updates": true,
       "color_scheme": "default",
       "columns": {

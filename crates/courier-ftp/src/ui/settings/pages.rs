@@ -950,8 +950,14 @@ fn interface(s: &Settings) -> Vec<Row> {
         check(
             "interface.check_updates",
             "Check for updates",
-            "Check for new releases at startup.",
+            "Check for new releases at startup (at most once a week).",
             i.check_updates,
+        ),
+        check(
+            "interface.check_prereleases",
+            "Include prereleases",
+            "Report prereleases (betas, release candidates) as updates too.",
+            i.check_prereleases,
         ),
     ]
 }
@@ -1445,6 +1451,7 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
             );
             i.show_splash = v.bool("interface.show_splash");
             i.check_updates = v.bool("interface.check_updates");
+            i.check_prereleases = v.bool("interface.check_prereleases");
         }
         Section::FileLists => {
             let i = &mut s.interface;

@@ -233,6 +233,9 @@ pub(crate) enum Action {
     ToggleTransfersPaused,
 
     // --- background results ---
+    /// The update check found a newer release (T74).
+    #[serde(skip)]
+    UpdateAvailable(crate::update::UpdateInfo),
     /// The queue pane changed the queue: cancel `cancel` (removed or paused
     /// while running), schedule the save and, with `wake`, look for work.
     #[serde(skip)]

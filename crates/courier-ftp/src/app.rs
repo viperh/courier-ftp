@@ -86,6 +86,13 @@ pub(crate) struct App {
     /// The production backends, told about new settings (T68); `None` in
     /// tests with a mock server.
     net: Option<Arc<Backends>>,
+    /// The update check (T74); `None` in tests that don't set one, so they
+    /// never touch the network.
+    update: Option<crate::update::Hook>,
+    /// `--no-update-check` or `COURIER_FTP_NO_UPDATE_CHECK`.
+    update_opt_out: bool,
+    /// Stops the update check when the app quits.
+    update_cancel: CancellationToken,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -177,6 +184,7 @@ impl App {
         let backends = Arc::new(backends);
         let mut app = Self::with_backends(config, backends.clone(), tick_rate, frame_rate);
         app.net = Some(backends);
+        app.update = Some(crate::update::Hook::github(crate::config::get_data_dir()));
         let opener = crate::vault::opener(crate::config::get_data_dir());
         let mut app = app.with_vault(opener, host_keys, credentials);
         if let Some(vault) = app.vault.as_mut() {
@@ -268,6 +276,9 @@ impl App {
             config_dir: config.config.config_dir.clone(),
             transfers,
             net: None,
+            update: None,
+            update_opt_out: false,
+            update_cancel: CancellationToken::new(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -309,8 +320,13 @@ impl App {
             LogKind::Status,
             format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
         );
+        if self.settings.interface.show_splash {
+            self.screen
+                .show_splash(env!("CARGO_PKG_VERSION"), Instant::now());
+        }
         self.list(Side::Local, None, false, false);
         self.start_vault();
+        self.start_update_check();
 
         loop {
             tokio::select! {
@@ -338,6 +354,7 @@ impl App {
             }
         }
         tui.exit()?;
+        self.update_cancel.cancel();
         self.transfers.shutdown().await;
         if let Some(log) = self.diag.session_log() {
             log.flush_timeout(Duration::from_secs(1));
@@ -413,6 +430,7 @@ impl App {
         self.transfer_action(&action);
         match &action {
             Action::Tick => {
+                self.expire_splash(Instant::now());
                 self.sequencer.expire(Instant::now());
                 self.screen
                     .set_pending_keys(self.sequencer.pending_display());
@@ -462,6 +480,7 @@ impl App {
                     self.site_snapshot = Some(snapshot.clone());
                 }
             }
+            Action::UpdateAvailable(info) => self.update_available(info),
             Action::Settings => self.open_settings(),
             Action::SettingsRequest(request) => self.settings_request(&request.0),
             Action::SaveAsSite => self.save_as_site(),
@@ -1479,6 +1498,9 @@ mod filter_tests;
 #[cfg(test)]
 mod log_tests;
 mod transfers;
+mod update;
+#[cfg(test)]
+mod update_tests;
 
 #[cfg(test)]
 mod settings_tests;

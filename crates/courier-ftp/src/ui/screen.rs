@@ -34,6 +34,7 @@ use super::{
     quickconnect::{QuickKey, Quickconnect},
     settings::SettingsView,
     site_manager::SiteManagerView,
+    splash::Splash,
     status::{self, StatusState},
     theme::Theme,
     vault::{VaultRequest, VaultView},
@@ -224,6 +225,10 @@ pub(crate) struct MainScreen {
     /// A bookmark being applied waits for its listings before turning
     /// synchronized browsing / comparison on.
     bookmark_modes: Option<PendingModes>,
+    /// The splash screen (T74), while shown. It covers everything.
+    splash: Option<Splash>,
+    /// "Update available: …" (T74), shown at the top of Help.
+    update_notice: Option<String>,
 }
 
 /// Synchronized browsing / comparison to turn on once the panes show a
@@ -310,7 +315,37 @@ impl MainScreen {
             compare_warned: false,
             bookmarks: None,
             bookmark_modes: None,
+            splash: None,
+            update_notice: None,
         }
+    }
+
+    /// Cover the screen with the splash (T74) for `version`.
+    pub(crate) fn show_splash(&mut self, version: &str, now: Instant) {
+        self.splash = Some(Splash::new(version, now));
+    }
+
+    /// Whether the splash screen is up.
+    pub(crate) fn splash_shown(&self) -> bool {
+        self.splash.is_some()
+    }
+
+    /// Take the splash down once it has been up long enough (`starting`:
+    /// the app is still opening the vault).
+    pub(crate) fn expire_splash(&mut self, now: Instant, starting: bool) {
+        if self
+            .splash
+            .as_ref()
+            .is_some_and(|s| s.expired(now, starting))
+        {
+            self.splash = None;
+        }
+    }
+
+    /// A newer release exists (T74): say so in the status bar and in Help.
+    pub(crate) fn set_update_notice(&mut self, notice: String) {
+        self.flash(notice.clone());
+        self.update_notice = Some(notice);
     }
 
     /// Where dialogs send their results.
@@ -674,6 +709,10 @@ impl MainScreen {
 
     fn route_key(&mut self, key: KeyEvent) -> KeyOutcome {
         self.last_key = Some(Instant::now());
+        // Any key skips the splash, and does nothing else.
+        if self.splash.take().is_some() {
+            return KeyOutcome::Consumed;
+        }
         if self.vault_shown {
             if let Some(view) = self.vault.as_mut()
                 && let Some(request) = view.handle_key(key, Instant::now())
@@ -1582,13 +1621,19 @@ impl MainScreen {
     fn open_help(&mut self) {
         let mode = self.mode();
         let bindings = self.config.keybindings.describe(mode);
-        self.modals
-            .push(Box::new(HelpOverlay::new(&format!("{mode:?}"), bindings)));
+        self.modals.push(Box::new(
+            HelpOverlay::new(&format!("{mode:?}"), bindings)
+                .with_notice(self.update_notice.clone()),
+        ));
     }
 
     /// Draw everything.
     pub(crate) fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
+        if let Some(splash) = &self.splash {
+            splash.draw(frame, area, &self.theme);
+            return;
+        }
         self.modals.retain(|m| !m.is_done());
         self.status.pending_prompts = self.prompts.len();
         let r = layout::compute(area, &self.opts);
