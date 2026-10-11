@@ -210,6 +210,22 @@ async fn register_finish(
         .store()
         .register(&acct, cred, &tokens, Uuid::now_v7(), now)
         .await?;
+    if let Some(invite) = grant.org_invite {
+        // The org membership for the invite presented at registration.
+        match state
+            .orgs()
+            .accept_invite_id(invite, acct.user_id, now)
+            .await
+        {
+            Ok((org_id, role)) => {
+                tracing::info!(user_id = %acct.user_id, %invite, %org_id, %role, "registered with an org invite");
+            }
+            // The account exists either way; the invite can be accepted later.
+            Err(e) => {
+                tracing::warn!(user_id = %acct.user_id, %invite, error = %e, "org invite not applied");
+            }
+        }
+    }
     tracing::info!(
         user_id = %acct.user_id,
         instance_admin = grant.is_instance_admin,
@@ -383,6 +399,16 @@ async fn login_finish(
                         "device_added",
                         Some(device_id),
                         serde_json::json!({}),
+                        now,
+                    )
+                    .await?;
+                // A new device shows in the audit log of the user's orgs.
+                state
+                    .orgs()
+                    .record_for_user_orgs(
+                        user.id,
+                        crate::orgs::kinds::DEVICE_ADDED,
+                        Some(device_id),
                         now,
                     )
                     .await?;

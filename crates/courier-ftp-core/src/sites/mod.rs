@@ -85,7 +85,12 @@
 //!
 //! **Team vaults (T89)**: nodes carry their [`VaultId`](crate::model::item::VaultId);
 //! new items go into their folder's vault, moving between vaults is refused
-//! ([`SiteError::CrossVault`]). Credential overrides are not applied yet.
+//! ([`SiteError::CrossVault`]). A team vault site can't log in with an SSH
+//! key of another vault ([`SiteError::CrossVaultKey`]); each member keeps
+//! their own login as a credential override in their personal vault
+//! ([`SiteManager::credential_override`],
+//! [`SiteManager::set_credential_override`]), which
+//! [`SiteManager::connect`] applies ([`Site::with_override`]).
 //!
 //! # Schema changes
 //!

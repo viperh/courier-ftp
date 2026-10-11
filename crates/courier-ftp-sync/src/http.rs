@@ -24,6 +24,9 @@ use uuid::Uuid;
 
 use crate::error::SyncError;
 
+// Orgs, invites, shared vaults, rotation (T89).
+mod teams;
+
 /// Request timeout.
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 

@@ -304,6 +304,7 @@ impl VaultEngine {
             })
             .await
             .map_err(storage)?;
+        let vault_read_only = u.read_only_vaults.contains(&vault);
         for (id, body) in out.finals {
             let outcome = migrate(body);
             self.inner.store.set_read_only(id, outcome.read_only);
@@ -317,7 +318,7 @@ impl VaultEngine {
                     Cached {
                         vault_id: vault,
                         body: outcome.body,
-                        read_only: outcome.read_only,
+                        read_only: outcome.read_only || vault_read_only,
                     },
                 );
             }

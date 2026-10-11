@@ -19,10 +19,17 @@
 //!   merges into dirty local copies, re-seals and stores a page in one
 //!   transaction and updates the decrypted index; [`VaultEngine::outgoing`]
 //!   builds the push batch.
+//! - **Team vaults** (T89): [`VaultEngine::install_vault_key`] adds a team
+//!   vault whose key the sync client opened from a verified grant, or moves a
+//!   vault to a rotated key (re-sealing the local items under it);
+//!   [`VaultEngine::remove_vault`] drops a team vault the account lost access
+//!   to; [`VaultEngine::set_vault_read_only`] marks a vault the account may
+//!   only read (its items become read-only, nothing can be added).
 
-use courier_ftp_core::model::item::{DeviceId, HlcClock, VaultId};
+use courier_ftp_core::model::item::{DeviceId, HlcClock, OrgId, VaultId, is_read_only};
 use courier_ftp_core::vault::{UnlockMethod, VaultError, check_strength, keyring_account};
 use courier_ftp_crypto::Key32;
+use courier_ftp_crypto::envelope::{open_item, seal_item};
 use courier_ftp_crypto::kdf::KdfParams;
 use courier_ftp_crypto::keys::{hkdf_key32, os_rng, random_key32};
 use courier_ftp_crypto::wrap::{WrapPurpose, unwrap_key, wrap_key};
@@ -31,7 +38,7 @@ use zeroize::Zeroizing;
 
 use super::{UnlockReport, VaultEngine, blocking, storage};
 use crate::meta::keys;
-use crate::{VaultKind, WriteTx};
+use crate::{StoreError, VaultKind, WriteTx};
 
 /// A new password wrap of the LMK (`meta.kdf` + `meta.lmk_wrapped_pw`),
 /// prepared outside a transaction by [`VaultEngine::password_wrap`] (Argon2
@@ -353,4 +360,187 @@ impl VaultEngine {
         tracing::info!("vault re-keyed after an account recovery");
         self.open_vaults(lmk, UnlockMethod::Password).await
     }
+
+    /// Installs key `key_version` of team vault `vault` (T89), opened by the
+    /// sync client from a grant it verified:
+    /// * a vault this device doesn't have is added (`kind`, `org`, the key
+    ///   wrapped under the LMK) — "adopting" a vault shared with the account;
+    /// * a vault at an older key version moves to the new key after a key
+    ///   rotation: in **one** transaction every local item still sealed under
+    ///   the old key is re-sealed under the new one (same id, dirty flag and
+    ///   revision kept; items that don't open are left for the next pull to
+    ///   replace) and the wrapped key is replaced;
+    /// * a vault already at `key_version` or newer is left alone.
+    ///
+    /// The unlocked state is reloaded afterwards.
+    ///
+    /// # Errors
+    /// [`VaultError::Locked`], [`VaultError::Storage`] (rolled back).
+    pub async fn install_vault_key(
+        &self,
+        vault: VaultId,
+        kind: VaultKind,
+        org: Option<OrgId>,
+        key_version: u32,
+        key: &Key32,
+    ) -> Result<KeyInstall, VaultError> {
+        let mut state = self.inner.state.write().await;
+        let (lmk, method, min_hlc, old) = {
+            let u = state.as_ref().ok_or(VaultError::Locked)?;
+            let old = u
+                .vaults
+                .get(&vault)
+                .map(|e| (e.key_version, Key32::clone(&e.key.key)));
+            (Key32::clone(&u.lmk.key), u.method, u.clock.last(), old)
+        };
+        if old.as_ref().is_some_and(|(kv, _)| *kv >= key_version) {
+            return Ok(KeyInstall::Unchanged);
+        }
+        let mut rng = os_rng();
+        let wrapped = wrap_key(
+            &lmk,
+            &WrapPurpose::VaultKey(*vault.as_bytes()),
+            key.expose_secret(),
+            &mut rng,
+        )
+        .map_err(|e| VaultError::from_crypto(e, "vault key"))?;
+        let new_key = Key32::clone(key);
+        let out = self
+            .inner
+            .store
+            .write(move |w| {
+                if w.as_read().get_vault(vault)?.is_none() {
+                    w.create_vault(vault, kind, org, key_version, &wrapped)?;
+                    return Ok(KeyInstall::Added);
+                }
+                let mut resealed = 0usize;
+                if let Some((old_kv, old_key)) = &old {
+                    for item in w.as_read().list_items(vault)? {
+                        if item.key_version != *old_kv {
+                            continue;
+                        }
+                        let lookup = |v: u32| (v == *old_kv).then_some(old_key);
+                        let Ok(plain) =
+                            open_item(lookup, vault.as_bytes(), item.id.as_bytes(), &item.envelope)
+                        else {
+                            tracing::debug!(item = %item.id.short(), "old-key item does not open; left for the pull");
+                            continue;
+                        };
+                        let env = seal_item(
+                            &new_key,
+                            vault.as_bytes(),
+                            item.id.as_bytes(),
+                            key_version,
+                            &plain,
+                            &mut os_rng(),
+                        )
+                        .map_err(|e| StoreError::Corrupt(format!("sealing item: {e}")))?;
+                        w.reseal_item(item.id, key_version, &env)?;
+                        resealed += 1;
+                    }
+                }
+                w.update_wrapped_key(vault, key_version, &wrapped)?;
+                Ok(KeyInstall::Rotated { resealed })
+            })
+            .await
+            .map_err(storage)?;
+        let (unlocked, _) = self.load_unlocked(self.track(lmk), method, min_hlc).await?;
+        *state = Some(unlocked);
+        tracing::info!(vault = %vault.short(), key_version, outcome = ?out, "vault key installed");
+        Ok(out)
+    }
+
+    /// Removes team vault `vault` and its local items (access revoked, org
+    /// left, sync disabled: shared vaults belong to the org). The personal
+    /// vault is never removed. Returns whether a vault was removed.
+    ///
+    /// # Errors
+    /// [`VaultError::Locked`], [`VaultError::Storage`].
+    pub async fn remove_vault(&self, vault: VaultId) -> Result<bool, VaultError> {
+        if self.personal_vault().await == Some(vault) {
+            return Ok(false);
+        }
+        let removed = self
+            .commit(move |w| {
+                let found = w
+                    .as_read()
+                    .get_vault(vault)?
+                    .is_some_and(|r| r.kind == VaultKind::Shared);
+                if found {
+                    w.delete_vault(vault)?;
+                }
+                w.delete_meta(&keys::vault_read_only(vault))?;
+                Ok(found)
+            })
+            .await?;
+        if removed {
+            tracing::info!(vault = %vault.short(), "team vault removed from this device");
+        }
+        Ok(removed)
+    }
+
+    /// Marks team vault `vault` read-only (this account has only `read`) or
+    /// writable again (T89). Read-only vaults show their items with
+    /// `read_only` set (the 🔒 in the Site Manager); writes and deletes are
+    /// refused with [`VaultError::ReadOnlyVault`]. The mark is kept in `meta`
+    /// so it holds offline and after a restart. Returns whether it changed.
+    ///
+    /// # Errors
+    /// [`VaultError::Locked`], [`VaultError::Storage`].
+    pub async fn set_vault_read_only(
+        &self,
+        vault: VaultId,
+        read_only: bool,
+    ) -> Result<bool, VaultError> {
+        let mut state = self.inner.state.write().await;
+        let u = state.as_mut().ok_or(VaultError::Locked)?;
+        if u.read_only_vaults.contains(&vault) == read_only {
+            return Ok(false);
+        }
+        let key = keys::vault_read_only(vault);
+        self.inner
+            .store
+            .write(move |w| {
+                if read_only {
+                    w.set_meta(&key, b"1")
+                } else {
+                    w.delete_meta(&key)
+                }
+            })
+            .await
+            .map_err(storage)?;
+        if read_only {
+            u.read_only_vaults.insert(vault);
+        } else {
+            u.read_only_vaults.remove(&vault);
+        }
+        for c in u.items.values_mut().filter(|c| c.vault_id == vault) {
+            c.read_only = read_only || is_read_only(&c.body);
+        }
+        Ok(true)
+    }
+
+    /// Whether `vault` is marked read-only ([`Self::set_vault_read_only`]).
+    pub async fn is_vault_read_only(&self, vault: VaultId) -> bool {
+        self.inner
+            .state
+            .read()
+            .await
+            .as_ref()
+            .is_some_and(|u| u.read_only_vaults.contains(&vault))
+    }
+}
+
+/// What [`VaultEngine::install_vault_key`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyInstall {
+    /// A team vault new to this device was added.
+    Added,
+    /// The vault moved to the newer key version.
+    Rotated {
+        /// Local items re-sealed under the new key.
+        resealed: usize,
+    },
+    /// The vault already had this key version (or a newer one).
+    Unchanged,
 }

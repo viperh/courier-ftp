@@ -67,6 +67,18 @@ pub fn invite_body(link: &str) -> String {
     )
 }
 
+/// The body of an org invite mail (`POST /v1/orgs/{id}/invites` with an
+/// email, SMTP configured).
+#[must_use]
+pub fn org_invite_body(org_name: &str, link: &str) -> String {
+    format!(
+        "You have been invited to join the team \"{org_name}\" on a courier-ftp sync server.\n\n\
+         Paste this invite link into courier-ftp (Settings > Sync > Teams), or use it \
+         when you register:\n\n{link}\n\n\
+         The invite can be used once and expires in 7 days.\n"
+    )
+}
+
 /// The body of a recovery-code mail.
 #[must_use]
 pub fn recovery_body(code: &str) -> String {
@@ -82,6 +94,8 @@ pub fn recovery_body(code: &str) -> String {
 pub const RECOVERY_SUBJECT: &str = "Your courier-ftp recovery code";
 /// Subject of invite mails.
 pub const INVITE_SUBJECT: &str = "Your courier-ftp sync invite";
+/// Subject of org invite mails.
+pub const ORG_INVITE_SUBJECT: &str = "You're invited to a courier-ftp team";
 
 /// One mail a [`Mailer::Recording`] kept.
 #[derive(Debug, Clone, PartialEq, Eq)]

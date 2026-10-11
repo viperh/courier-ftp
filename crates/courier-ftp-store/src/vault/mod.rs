@@ -25,10 +25,10 @@ mod os_keyring;
 pub mod sync;
 mod sync_apply;
 
-pub use self::sync::{PasswordWrap, RecoveredKey};
+pub use self::sync::{KeyInstall, PasswordWrap, RecoveredKey};
 pub use self::sync_apply::{ApplyMode, ApplyReport, Incoming, Outgoing, OutgoingBatch, label_of};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -136,6 +136,10 @@ struct Unlocked {
     items: BTreeMap<ItemId, Cached>,
     /// The device data key for device blobs (T40), unwrapped on first use.
     device_key: Option<TrackedKey>,
+    /// Team vaults this account may only read (T89, `meta`
+    /// `vault_read_only/<id>`): their items are read-only and nothing can be
+    /// added to them.
+    read_only_vaults: HashSet<VaultId>,
 }
 
 impl Unlocked {
@@ -516,6 +520,7 @@ impl VaultEngine {
             method: UnlockMethod::Created,
             items: BTreeMap::new(),
             device_key: None,
+            read_only_vaults: HashSet::new(),
         });
         tracing::info!(vault = %vault_id.short(), "vault created");
         Ok(InitReport { keyring_error })
@@ -803,15 +808,25 @@ impl VaultEngine {
         method: UnlockMethod,
         min_hlc: Hlc,
     ) -> Result<(Unlocked, UnlockReport), VaultError> {
-        let (rows, items, device, hlc) = self
+        let (rows, items, device, hlc, read_only_vaults) = self
             .inner
             .store
             .read(|r| {
+                let rows = r.list_vaults()?;
+                let mut ro = HashSet::new();
+                for row in &rows {
+                    if row.kind == VaultKind::Shared
+                        && r.get_meta(&keys::vault_read_only(row.id))?.is_some()
+                    {
+                        ro.insert(row.id);
+                    }
+                }
                 Ok((
-                    r.list_vaults()?,
+                    rows,
                     r.list_all_items()?,
                     r.get_device_id()?,
                     r.get_hlc_last()?,
+                    ro,
                 ))
             })
             .await
@@ -854,6 +869,7 @@ impl VaultEngine {
             method,
             items: BTreeMap::new(),
             device_key: None,
+            read_only_vaults,
         };
         let mut report = UnlockReport {
             method,
@@ -873,12 +889,14 @@ impl VaultEngine {
                         continue;
                     }
                     report.items += 1;
+                    let read_only =
+                        outcome.read_only || unlocked.read_only_vaults.contains(&row.vault_id);
                     unlocked.items.insert(
                         row.id,
                         Cached {
                             vault_id: row.vault_id,
                             body: outcome.body,
-                            read_only: outcome.read_only,
+                            read_only,
                         },
                     );
                 }
@@ -941,6 +959,10 @@ impl ItemVault for VaultEngine {
         VaultEngine::is_unlocked(self).await
     }
 
+    async fn personal_vault(&self) -> Option<VaultId> {
+        VaultEngine::personal_vault(self).await
+    }
+
     async fn get(&self, id: ItemId) -> Result<Option<VaultItem>, VaultError> {
         let state = self.inner.state.read().await;
         Ok(state.as_ref().ok_or(VaultError::Locked)?.item(id))
@@ -961,6 +983,9 @@ impl ItemVault for VaultEngine {
         let mut state = self.inner.state.write().await;
         let u = state.as_mut().ok_or(VaultError::Locked)?;
         let (vault, before) = match u.items.get(&write.id) {
+            Some(c) if u.read_only_vaults.contains(&c.vault_id) => {
+                return Err(VaultError::ReadOnlyVault(c.vault_id));
+            }
             Some(c) if c.read_only => return Err(VaultError::ReadOnlyItem(write.id)),
             Some(c) if c.body.kind != write.kind => {
                 return Err(VaultError::WrongKind {
@@ -977,6 +1002,9 @@ impl ItemVault for VaultEngine {
                 "vault {} is not loaded",
                 vault.short()
             )));
+        }
+        if u.read_only_vaults.contains(&vault) {
+            return Err(VaultError::ReadOnlyVault(vault));
         }
         let mut body = before
             .clone()
@@ -1030,6 +1058,9 @@ impl ItemVault for VaultEngine {
         let Some(cached) = u.items.get(&id) else {
             return Ok(false);
         };
+        if u.read_only_vaults.contains(&cached.vault_id) {
+            return Err(VaultError::ReadOnlyVault(cached.vault_id));
+        }
         if cached.read_only {
             return Err(VaultError::ReadOnlyItem(id));
         }

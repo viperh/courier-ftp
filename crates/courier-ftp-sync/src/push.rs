@@ -138,6 +138,16 @@ impl Ctx {
                         tracing::info!(vault = %vault.short(), "vault key rotation in progress; pushes paused");
                         return Ok(accepted);
                     }
+                    // The vault's key was rotated: install the new key
+                    // (the local items are re-sealed) and push next cycle.
+                    Err(e)
+                        if e.code() == Some(ErrorCode::Invalid)
+                            && e.api_message().is_some_and(|m| m.contains("key version")) =>
+                    {
+                        tracing::info!(vault = %vault.short(), "vault key rotated; refreshing the vault keys");
+                        self.refresh_vaults().await?;
+                        return Ok(accepted);
+                    }
                     Err(e) if e.code() == Some(ErrorCode::Forbidden) => {
                         let ids: Vec<ItemId> = chunk.iter().map(|p| p.id).collect();
                         self.read_only(vault, &ids);

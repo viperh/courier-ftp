@@ -92,6 +92,10 @@ impl ItemVault for MemItemVault {
         self.unlocked.load(Ordering::SeqCst)
     }
 
+    async fn personal_vault(&self) -> Option<VaultId> {
+        Some(self.state().personal)
+    }
+
     async fn get(&self, id: ItemId) -> Result<Option<VaultItem>, VaultError> {
         self.check()?;
         Ok(self

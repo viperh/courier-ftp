@@ -107,6 +107,16 @@ async fn run_once(state: &AppState) {
         ),
         Err(e) => tracing::warn!(error = %e, "background gc failed"),
     }
+    match state.sync().store().discard_abandoned_rotations(now).await {
+        Ok(v) if !v.is_empty() => {
+            tracing::info!(
+                vaults = v.len(),
+                "background gc: abandoned key rotations discarded"
+            );
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "background gc: discarding rotations failed"),
+    }
 }
 
 /// Spawns the periodic GC job (`gc_interval_hours`, 0 = off). The first

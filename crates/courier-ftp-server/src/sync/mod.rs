@@ -4,6 +4,8 @@
 //!   per-change decision shared by both backends, and the PostgreSQL
 //!   transaction with the vault-row lock;
 //! * [`quota`]: storage quota;
+//! * [`shared`]: team vaults (create, grants, revoke, member listings);
+//! * [`rotation`]: vault key rotation (begin, upload, commit, abandonment);
 //! * [`gc`]: tombstone GC raising `vaults.gc_floor_revision` and the
 //!   optional background job;
 //! * [`mem`]: the in-memory model (tests without PostgreSQL), which models
@@ -40,8 +42,10 @@ pub mod mem;
 pub mod pull;
 pub mod push;
 pub mod quota;
-// The `vaults.rotation` column (rotation itself is T89).
+// Vault key rotation (begin, upload, commit, abandonment; T89).
 pub mod rotation;
+// Shared vaults (create, grants, revoke, membership listings; T89).
+pub mod shared;
 pub mod vaults;
 
 use std::sync::{Arc, RwLock};

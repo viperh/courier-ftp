@@ -150,7 +150,8 @@ pub enum RegistrationCredential<'a> {
     None,
     /// The bootstrap setup token.
     SetupToken(&'a str),
-    /// An instance invite token (`admin invite`; org invites are T89).
+    /// An invite token: an instance invite (`admin invite`) or an org
+    /// invite (`POST /v1/orgs/{id}/invites`).
     InviteToken(&'a str),
 }
 
@@ -161,6 +162,9 @@ pub struct RegistrationGrant {
     pub is_instance_admin: bool,
     /// The instance invite that was consumed.
     pub instance_invite: Option<Uuid>,
+    /// An org invite presented at registration: applied once the account
+    /// exists (adds the membership and sets `accepted_at`).
+    pub org_invite: Option<Uuid>,
 }
 
 /// Decides whether `email` may register, consuming single-use tokens.
@@ -219,9 +223,28 @@ pub async fn authorize(
             .bind(email)
             .fetch_optional(&mut *conn)
             .await?;
-            match instance {
-                Some(id) => Ok(RegistrationGrant {
+            if let Some(id) = instance {
+                return Ok(RegistrationGrant {
                     instance_invite: Some(id),
+                    ..RegistrationGrant::default()
+                });
+            }
+            // An org invite admits the registration too; it is consumed
+            // (membership added) once the account exists.
+            let org: Option<Uuid> = sqlx_core::query_scalar::query_scalar(
+                "SELECT id FROM invites \
+                 WHERE token_hash = $1 AND org_id IS NOT NULL AND accepted_at IS NULL \
+                   AND (expires_at IS NULL OR expires_at > now()) \
+                   AND (email IS NULL OR email = $2::citext) \
+                 FOR UPDATE",
+            )
+            .bind(&hash)
+            .bind(email)
+            .fetch_optional(&mut *conn)
+            .await?;
+            match org {
+                Some(id) => Ok(RegistrationGrant {
+                    org_invite: Some(id),
                     ..RegistrationGrant::default()
                 }),
                 None => Err(ApiError::Forbidden(
