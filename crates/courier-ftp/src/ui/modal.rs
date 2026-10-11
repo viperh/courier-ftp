@@ -143,7 +143,7 @@ impl Modal for HelpOverlay {
 /// dialog. `unicode` picks the symbols of the trust and file-exists prompts.
 pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Modal> {
     use super::{
-        dialog::{Form, FormDialog, TextInput, message, prompt_password},
+        dialog::{Form, FormDialog, TextInput, ask, message, prompt_password},
         trust::{certificate_dialog, host_key_dialog},
     };
     let PromptRequest { kind, reply, .. } = request;
@@ -151,6 +151,17 @@ pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Mod
         PromptKind::Message(text) => {
             let (modal, rx) = message("Message", &text);
             forward(rx, reply, |()| Some(PromptResponse::Ok));
+            modal
+        }
+        PromptKind::Choice {
+            title,
+            text,
+            buttons,
+            default,
+        } => {
+            let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
+            let (modal, rx) = ask(&title, &text, &labels, default);
+            forward(rx, reply, |pressed| pressed.map(PromptResponse::Choice));
             modal
         }
         PromptKind::Password { for_ } => {

@@ -1,6 +1,6 @@
 ---
 source: crates/courier-ftp/src/ui/search/tests.rs
-assertion_line: 235
+assertion_line: 239
 expression: "render(&mut view, 120, 30)"
 ---
 "┌ Search results: remote /srv ─────────────────────────────────────────────────────────────────────────────────────────┐"
@@ -31,5 +31,5 @@ expression: "render(&mut view, 120, 30)"
 "│                                                                                                                      │"
 "│                                                                                                                      │"
 "│ 4 found · 4 dirs scanned in 1.2 s                                                                         1 selected │"
-"│ Space select · a all · Enter go to · F5 copy · F8 delete · / filter · s/S sort · n new search · Esc stop · q hide    │"
+"│ Space select · a all · Enter go to · F3 view · F4 edit · F5 copy · F8 delete · / filter · s/S sort · n new · Esc stop│"
 "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"

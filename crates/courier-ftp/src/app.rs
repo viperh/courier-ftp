@@ -112,6 +112,8 @@ pub(crate) struct App {
     /// [`App::remote`] and its panes are the screen's; the others are parked
     /// here.
     tabs: tabs::Tabs,
+    /// Files being viewed or edited externally (T63).
+    edits: edit::Edits,
 }
 
 /// A tab's connection.
@@ -206,6 +208,7 @@ impl App {
         let mut app = Self::with_backends(config, backends.clone(), tick_rate, frame_rate);
         app.net = Some(backends);
         app.update = Some(crate::update::Hook::github(crate::config::get_data_dir()));
+        app.edits = edit::Edits::from_environment();
         let opener = crate::vault::opener(crate::config::get_data_dir());
         let mut app = app.with_vault(opener, host_keys, credentials);
         if let Some(vault) = app.vault.as_mut() {
@@ -314,6 +317,7 @@ impl App {
             file_ops: file_ops::FileOps::default(),
             completion: completion::Completion::default(),
             tabs: tabs::Tabs::default(),
+            edits: edit::Edits::default(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -390,6 +394,7 @@ impl App {
         }
         tui.exit()?;
         self.save_tabs().await;
+        self.cleanup_edits();
         self.update_cancel.cancel();
         self.transfers.shutdown().await;
         if let Some(log) = self.diag.session_log() {
@@ -448,8 +453,11 @@ impl App {
     }
 
     fn handle_action(&mut self, tui: &mut Tui, action: Action) -> color_eyre::Result<()> {
+        if let Action::RunForeground(job) = &action {
+            return self.run_in_terminal(tui, &job.0);
+        }
         match &action {
-            Action::ClearScreen => tui.terminal.clear()?,
+            Action::ClearScreen => tui.force_redraw()?,
             Action::Resize(w, h) => {
                 tui.resize(Rect::new(0, 0, *w, *h))?;
                 self.render(tui)?;
@@ -469,6 +477,7 @@ impl App {
         self.file_op_action(&action);
         self.completion_action(&action);
         self.tab_action(&action);
+        self.edit_action(&action);
         match &action {
             Action::Tick => {
                 self.expire_splash(Instant::now());
@@ -1254,6 +1263,7 @@ impl App {
         #[cfg(feature = "sync")]
         self.sync_locked();
         self.transfers.resolver.forget_passwords();
+        self.edits.forget_passwords();
         self.history = None;
         self.site_snapshot = None;
         self.vault_roots.clear();
@@ -1556,10 +1566,14 @@ mod archive;
 #[cfg(test)]
 mod archive_tests;
 mod completion;
+mod edit;
+#[cfg(test)]
+mod edit_tests;
 mod file_ops;
 mod search;
 mod settings;
 mod tabs;
+pub(crate) use edit::EditMsg;
 pub(crate) use file_ops::FileOpMsg;
 pub(crate) use tabs::SavedTab;
 

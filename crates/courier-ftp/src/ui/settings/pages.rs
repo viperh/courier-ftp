@@ -1172,6 +1172,14 @@ fn editing(s: &Settings) -> Vec<Row> {
             "Watch edited files and offer to upload them when they change.",
             e.watch_and_prompt_upload,
         ),
+        num(
+            "editing.max_size_mib",
+            "Ask above (MiB)",
+            "Ask before downloading a larger remote file to view or edit it (0: never ask).",
+            e.max_size_mib,
+            0,
+            1_000_000,
+        ),
     ]
 }
 
@@ -1586,6 +1594,7 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
                 Err(err) => problems.push(("editing.associations", err)),
             }
             e.watch_and_prompt_upload = v.bool("editing.watch_and_prompt_upload");
+            e.max_size_mib = number(v, "editing.max_size_mib", e.max_size_mib);
         }
         Section::Queue => {
             let q = &mut s.queue;

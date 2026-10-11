@@ -953,6 +953,7 @@ impl App {
                 if let Some(parent) = path.parent() {
                     self.refresh_uncached(side, &[parent]);
                 }
+                self.edit_new_file(side, path);
             }
             Err(e) => self.report(
                 side,

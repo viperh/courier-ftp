@@ -164,6 +164,17 @@ pub(crate) fn get_data_dir() -> PathBuf {
     }
 }
 
+/// Where temporary copies of edited files go (T63).
+pub(crate) fn get_cache_dir() -> PathBuf {
+    if let Some(home) = HOME_FOLDER.clone() {
+        home.join("cache")
+    } else if let Some(proj_dirs) = project_directory() {
+        proj_dirs.cache_dir().to_path_buf()
+    } else {
+        PathBuf::from(".").join(".cache")
+    }
+}
+
 pub(crate) fn get_config_dir() -> PathBuf {
     if let Some(s) = CONFIG_FOLDER.clone() {
         s

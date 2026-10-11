@@ -183,6 +183,13 @@ impl App {
             SearchRequest::Delete(hits) => self.delete_hits(hits.clone()),
             SearchRequest::Queue(items) => self.queue_items(items),
             SearchRequest::GoTo(hit) => self.go_to_hit(hit),
+            SearchRequest::Open(hit, kind) => {
+                let Some(run) = self.search.as_ref() else {
+                    return;
+                };
+                let (side, info) = (run.side, run.info.clone());
+                self.open_search_hit(*kind, side, info.as_ref(), hit);
+            }
         }
     }
 

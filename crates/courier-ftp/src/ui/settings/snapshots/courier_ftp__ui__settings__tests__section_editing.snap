@@ -11,7 +11,7 @@ expression: text
 "│    SFTP              ││                                                                                    │"
 "│    TLS               ││                                                                                    │"
 "│  Transfers           ││ Offer upload on change  [x]                                                        │"
-"│    File types        ││                                                                                    │"
+"│    File types        ││ Ask above (MiB)         50                                                         │"
 "│    File exists action││                                                                                    │"
 "│  Interface           ││                                                                                    │"
 "│    File lists        ││                                                                                    │"

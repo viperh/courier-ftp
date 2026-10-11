@@ -39,6 +39,8 @@ pub(crate) enum Action {
     View,
     /// Edit the file under the cursor in an external editor (T63).
     Edit,
+    /// The files being edited: upload now, stop watching, discard (T63).
+    EditedFiles,
     /// Transfer the selection to the other pane (T62).
     Copy,
     /// Add the selection to the queue without starting it (T62).
@@ -355,6 +357,13 @@ pub(crate) enum Action {
     /// A step or result of a file operation (T62).
     #[serde(skip)]
     FileOp(Shared<crate::app::FileOpMsg>),
+    /// A step or result of viewing / editing a file (T63).
+    #[serde(skip)]
+    EditMsg(Shared<crate::app::EditMsg>),
+    /// Run a program in the terminal: the event loop suspends the TUI,
+    /// waits for it and restores the TUI (T63).
+    #[serde(skip)]
+    RunForeground(Shared<crate::edit::Foreground>),
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),

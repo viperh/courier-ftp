@@ -208,6 +208,21 @@ impl Tui {
         Ok(())
     }
 
+    /// Redraw every cell on the next render (after another program used the
+    /// screen). Not `Terminal::clear`: it asks the terminal for the cursor
+    /// position, and a terminal that doesn't answer in time would end the
+    /// program. Clear the screen, then let ratatui believe it shows an empty
+    /// frame.
+    pub(crate) fn force_redraw(&mut self) -> color_eyre::Result<()> {
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+        )?;
+        self.terminal
+            .draw(|frame| frame.render_widget(ratatui::widgets::Clear, frame.area()))?;
+        Ok(())
+    }
+
     pub(crate) async fn next_event(&mut self) -> Option<Event> {
         self.event_rx.recv().await
     }

@@ -30,6 +30,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-x><d>` | Disconnect |
 | `<Ctrl-x><T>` | DuplicateTab |
 | `<F4>` | Edit |
+| `<Ctrl-x><e>` | EditedFiles |
 | `<Ctrl-x><f>` | Filters |
 | `<Tab>` | FocusNext |
 | `<BackTab>` | FocusPrev |
