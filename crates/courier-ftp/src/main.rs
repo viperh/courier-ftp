@@ -21,6 +21,8 @@ mod errors;
 mod keymap;
 mod logging;
 mod sites;
+#[cfg(feature = "sync")]
+mod sync;
 mod transfers;
 mod tui;
 mod ui;
@@ -53,7 +55,8 @@ async fn main() -> color_eyre::Result<()> {
     );
 
     let result = async {
-        let mut app = App::new(args.tick_rate, args.frame_rate)?;
+        // Boxed: `App` is large, and this future would hold it inline.
+        let mut app = Box::new(App::new(args.tick_rate, args.frame_rate)?);
         if args.no_update_check || crate::update::env_opt_out() {
             app.disable_update_check();
         }
@@ -63,7 +66,7 @@ async fn main() -> color_eyre::Result<()> {
         if args.debug {
             app.log_status(&format!("Warning: {}", crate::logging::DEBUG_WARNING));
         }
-        app.run().await
+        Box::pin(app.run()).await
     }
     .await;
     // The log is written by a background thread: write it out before exiting.
