@@ -64,6 +64,8 @@ pub(crate) enum SearchRequest {
     Delete(Vec<SearchHit>),
     /// Show the hit in its pane (the view hides itself).
     GoTo(SearchHit),
+    /// F3 / F4: view or edit the hit in an external program (T63).
+    Open(SearchHit, courier_ftp_core::edit::OpenKind),
     /// (From the app itself) the target directories are ready: queue these.
     Queue(Vec<courier_ftp_core::queue::NewItem>),
 }
@@ -97,8 +99,8 @@ pub(crate) enum Page {
 }
 
 /// Key hints under the results, long and short.
-const RESULT_HINTS: &str = "Space select · a all · Enter go to · F5 copy · F8 delete · \
-                            / filter · s/S sort · n new search · Esc stop · q hide";
+const RESULT_HINTS: &str = "Space select · a all · Enter go to · F3 view · F4 edit · F5 copy · \
+                            F8 delete · / filter · s/S sort · n new · Esc stop";
 const RESULT_HINTS_SHORT: &str =
     "Space select · Enter go to · F5 copy · F8 delete · / filter · s sort · n new";
 
@@ -320,6 +322,16 @@ impl SearchView {
             KeyCode::Enter | KeyCode::Char('o') => {
                 if let Some(hit) = r.current().cloned() {
                     self.requests.push(SearchRequest::GoTo(hit));
+                }
+            }
+            KeyCode::F(3) | KeyCode::F(4) => {
+                if let Some(hit) = r.current().cloned() {
+                    let kind = if key.code == KeyCode::F(3) {
+                        courier_ftp_core::edit::OpenKind::View
+                    } else {
+                        courier_ftp_core::edit::OpenKind::Edit
+                    };
+                    self.requests.push(SearchRequest::Open(hit, kind));
                 }
             }
             _ => {}

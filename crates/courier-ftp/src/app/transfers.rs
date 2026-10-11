@@ -233,6 +233,9 @@ impl App {
                 if active == 1 { " is" } else { "s are" }
             ));
         }
+        if let Some(reason) = self.edit_quit_reason() {
+            reasons.push(reason);
+        }
         if let QuitCheck::WouldLose { items, reason } = check {
             let s = if items == 1 { "" } else { "s" };
             reasons.push(match reason {

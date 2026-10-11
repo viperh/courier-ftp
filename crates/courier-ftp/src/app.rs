@@ -106,6 +106,8 @@ pub(crate) struct App {
     file_ops: file_ops::FileOps,
     /// The action after the queue finishes (T45).
     completion: completion::Completion,
+    /// Files being viewed or edited externally (T63).
+    edits: edit::Edits,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -200,6 +202,7 @@ impl App {
         let mut app = Self::with_backends(config, backends.clone(), tick_rate, frame_rate);
         app.net = Some(backends);
         app.update = Some(crate::update::Hook::github(crate::config::get_data_dir()));
+        app.edits = edit::Edits::from_environment();
         let opener = crate::vault::opener(crate::config::get_data_dir());
         let mut app = app.with_vault(opener, host_keys, credentials);
         if let Some(vault) = app.vault.as_mut() {
@@ -306,6 +309,7 @@ impl App {
             restore_archive: None,
             file_ops: file_ops::FileOps::default(),
             completion: completion::Completion::default(),
+            edits: edit::Edits::default(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -381,6 +385,7 @@ impl App {
             }
         }
         tui.exit()?;
+        self.cleanup_edits();
         self.update_cancel.cancel();
         self.transfers.shutdown().await;
         if let Some(log) = self.diag.session_log() {
@@ -439,6 +444,9 @@ impl App {
     }
 
     fn handle_action(&mut self, tui: &mut Tui, action: Action) -> color_eyre::Result<()> {
+        if let Action::RunForeground(job) = &action {
+            return self.run_in_terminal(tui, &job.0);
+        }
         match &action {
             Action::ClearScreen => tui.terminal.clear()?,
             Action::Resize(w, h) => {
@@ -459,6 +467,7 @@ impl App {
         self.transfer_action(&action);
         self.file_op_action(&action);
         self.completion_action(&action);
+        self.edit_action(&action);
         match &action {
             Action::Tick => {
                 self.expire_splash(Instant::now());
@@ -1227,6 +1236,7 @@ impl App {
         #[cfg(feature = "sync")]
         self.sync_locked();
         self.transfers.resolver.forget_passwords();
+        self.edits.forget_passwords();
         self.history = None;
         self.site_snapshot = None;
         self.screen.close_site_manager();
@@ -1520,9 +1530,13 @@ mod archive;
 #[cfg(test)]
 mod archive_tests;
 mod completion;
+mod edit;
+#[cfg(test)]
+mod edit_tests;
 mod file_ops;
 mod search;
 mod settings;
+pub(crate) use edit::EditMsg;
 pub(crate) use file_ops::FileOpMsg;
 
 #[cfg(test)]

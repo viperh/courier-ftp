@@ -14,6 +14,7 @@ pub mod archive;
 pub mod backend;
 pub mod cache;
 pub mod compare;
+pub mod edit;
 pub mod events;
 pub mod filters;
 pub mod hardening;

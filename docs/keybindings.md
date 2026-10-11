@@ -29,6 +29,7 @@ Active everywhere except in text fields and dialogs.
 | `<F8>` | Delete |
 | `<Ctrl-x><d>` | Disconnect |
 | `<F4>` | Edit |
+| `<Ctrl-x><e>` | EditedFiles |
 | `<Ctrl-x><f>` | Filters |
 | `<Tab>` | FocusNext |
 | `<BackTab>` | FocusPrev |

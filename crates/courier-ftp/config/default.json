@@ -123,6 +123,7 @@
       "<Ctrl-x><a>": "SaveAsSite",
       "<Ctrl-x><c>": "ClearLog",
       "<Ctrl-x><d>": "Disconnect",
+      "<Ctrl-x><e>": "EditedFiles",
       "<Ctrl-x><f>": "Filters",
       "<Ctrl-x><g>": "SitePicker",
       "<Ctrl-x><i>": "ServerInfo",
@@ -209,6 +210,7 @@
     "editing": {
       "associations": [],
       "editor": "auto",
+      "max_size_mib": 50,
       "watch_and_prompt_upload": true
     },
     "file_types": {

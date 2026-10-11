@@ -620,6 +620,9 @@ pub struct EditingSettings {
     pub associations: Vec<FileAssociation>,
     /// Watch edited files and offer to upload them when they change.
     pub watch_and_prompt_upload: bool,
+    /// Ask before downloading a remote file larger than this (MiB) to view
+    /// or edit it; 0 never asks.
+    pub max_size_mib: u64,
 }
 
 impl Default for EditingSettings {
@@ -628,6 +631,7 @@ impl Default for EditingSettings {
             editor: EditorChoice::Auto,
             associations: Vec::new(),
             watch_and_prompt_upload: true,
+            max_size_mib: 50,
         }
     }
 }

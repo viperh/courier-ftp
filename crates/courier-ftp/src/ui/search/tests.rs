@@ -345,6 +345,18 @@ fn result_actions_send_requests() {
         panic!("{requests:?}");
     };
     assert_eq!(*h, hits()[2]);
+    // F3 / F4: view or edit the hit under the cursor (T63).
+    for (code, kind) in [
+        (KeyCode::F(3), courier_ftp_core::edit::OpenKind::View),
+        (KeyCode::F(4), courier_ftp_core::edit::OpenKind::Edit),
+    ] {
+        press(&mut view, code);
+        let requests = view.take_requests();
+        let [SearchRequest::Open(h, k)] = requests.as_slice() else {
+            panic!("{requests:?}");
+        };
+        assert_eq!((h, *k), (&hits()[2], kind));
+    }
     // q hides; reopening shows the results again.
     press(&mut view, KeyCode::Char('q'));
     assert!(view.is_hidden());

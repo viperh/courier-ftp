@@ -107,6 +107,18 @@ pub enum PromptKind {
     },
     /// Something to acknowledge.
     Message(String),
+    /// A question with a row of buttons (T63: "File X has changed. Upload
+    /// it back to the server?"). Answered with [`PromptResponse::Choice`].
+    Choice {
+        /// The dialog title.
+        title: String,
+        /// The question.
+        text: String,
+        /// The button labels.
+        buttons: Vec<String>,
+        /// The button highlighted first.
+        default: usize,
+    },
 }
 
 /// The answer to a [`PromptKind`].
@@ -122,6 +134,8 @@ pub enum PromptResponse {
     FileExists(FileExistsAnswer),
     /// For [`PromptKind::Message`].
     Ok,
+    /// For [`PromptKind::Choice`]: the index of the button pressed.
+    Choice(usize),
 }
 
 impl fmt::Debug for PromptResponse {
@@ -132,6 +146,7 @@ impl fmt::Debug for PromptResponse {
             PromptResponse::Answers(a) => write!(f, "Answers([{} × ****])", a.len()),
             PromptResponse::FileExists(a) => f.debug_tuple("FileExists").field(a).finish(),
             PromptResponse::Ok => f.write_str("Ok"),
+            PromptResponse::Choice(i) => f.debug_tuple("Choice").field(i).finish(),
         }
     }
 }
