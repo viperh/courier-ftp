@@ -916,6 +916,33 @@ async fn new_items_go_into_their_folders_vault() {
 
 // ------------------------------------------------------------ team vaults (T89)
 
+#[tokio::test]
+async fn new_top_level_items_can_go_into_a_chosen_vault() {
+    let env = Env::new();
+    let mut m = env.open().await;
+    let team = item::VaultId::new();
+    // A site and a folder at the top level of a team vault root (T90).
+    let mut s = sftp("shared");
+    s.vault = Some(team);
+    let id = s.id;
+    m.save_site(s).await.unwrap();
+    assert_eq!(m.site(id).unwrap().vault, Some(team));
+    let f = m.add_folder_in(None, "Ops", Some(team)).await.unwrap();
+    assert_eq!(m.tree().folder(f).unwrap().vault, Some(team));
+    // Inside a folder its vault wins over the chosen one.
+    let mut inner = sftp("inner");
+    inner.parent = Some(f);
+    inner.vault = None;
+    let inner_id = inner.id;
+    m.save_site(inner).await.unwrap();
+    assert_eq!(m.site(inner_id).unwrap().vault, Some(team));
+    // No choice: the personal vault.
+    let plain = sftp("plain");
+    let plain_id = plain.id;
+    m.save_site(plain).await.unwrap();
+    assert_ne!(m.site(plain_id).unwrap().vault, Some(team));
+}
+
 /// A site stored in a team vault (another vault than the personal one).
 async fn team_site(env: &Env, logon: SiteLogon) -> (item::VaultId, ItemId) {
     let team = item::VaultId::new();

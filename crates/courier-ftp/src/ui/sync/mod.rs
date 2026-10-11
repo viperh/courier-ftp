@@ -2,7 +2,8 @@
 //! sync, pending changes, per-vault cursors, held-back items, "sync now"),
 //! the account wizard (register with the 24-word recovery key, or log in
 //! with the duplicate preview), devices, the account screen (password, TOTP,
-//! recovery code, log out, delete) and the teams placeholder.
+//! recovery code, log out, delete) and the teams screens ([`teams`]: teams,
+//! members and safety numbers, invites, shared vaults, the audit log).
 //!
 //! [`SyncView`] is a large view owned by the main screen, like the Site
 //! Manager (T59): it takes every key while open, never talks to the network
@@ -14,6 +15,7 @@
 //! recovery phrase is held (zeroizing) only while its two pages are open.
 
 mod qr;
+mod teams;
 
 use courier_ftp_core::model::item::ItemId;
 use courier_ftp_proto::auth::DeviceSummary;
@@ -38,6 +40,10 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use self::qr::Qr;
+#[cfg(test)]
+pub(crate) use self::teams::TeamPage;
+pub(crate) use self::teams::{Safety, TeamReply, TeamRequest};
+use self::teams::{TeamOut, TeamsView};
 use super::{
     dialog::{ButtonRow, Form, FormOutcome, FormValues, RadioGroup, TextInput},
     theme::Theme,
@@ -93,6 +99,8 @@ pub(crate) enum SyncRequest {
         password: SecretString,
         totp: Option<SecretString>,
     },
+    /// A teams screen call.
+    Team(TeamRequest),
 }
 
 impl std::fmt::Debug for SyncRequest {
@@ -117,6 +125,7 @@ impl std::fmt::Debug for SyncRequest {
             Self::RecoveryCode => "RecoveryCode",
             Self::Logout => "Logout",
             Self::DeleteAccount { .. } => "DeleteAccount",
+            Self::Team(_) => "Team",
         })
     }
 }
@@ -226,6 +235,8 @@ enum ConfirmAction {
         totp: Option<SecretString>,
     },
     CancelRegistration,
+    /// A teams screen change (remove, revoke, rotate, leave).
+    Team(TeamRequest, &'static str),
 }
 
 /// A yes/no question drawn over the page.
@@ -281,7 +292,7 @@ enum Page {
     },
     TotpDisable(Form),
     DeleteAccount(Form),
-    Teams,
+    Teams(Box<TeamsView>),
 }
 
 /// See the module docs.
@@ -345,7 +356,12 @@ fn token_from(v: &FormValues) -> Option<RegistrationToken> {
     let token = optional(v, "token")?;
     Some(match v.index("token_kind") {
         Some(1) => RegistrationToken::Setup(token),
-        _ => RegistrationToken::Invite(token),
+        // A team invite link works too (its token is the last part).
+        _ => RegistrationToken::Invite(
+            courier_ftp_sync::teams::invite_token(token.expose_secret())
+                .map(|t| SecretString::from(t.to_owned()))
+                .unwrap_or(token),
+        ),
     })
 }
 
@@ -386,7 +402,7 @@ impl SyncView {
             Page::TotpSetup { .. } => SyncPage::TotpSetup,
             Page::TotpDisable(_) => SyncPage::TotpDisable,
             Page::DeleteAccount(_) => SyncPage::DeleteAccount,
-            Page::Teams => SyncPage::Teams,
+            Page::Teams(_) => SyncPage::Teams,
         }
     }
 
@@ -410,6 +426,33 @@ impl SyncView {
     pub(crate) fn totp_secret(&self) -> Option<String> {
         match &self.page {
             Page::TotpSetup { secret, .. } => Some(secret.expose_secret().to_owned()),
+            _ => None,
+        }
+    }
+
+    /// The teams page shown, if any.
+    #[cfg(test)]
+    pub(crate) fn team_page(&self) -> Option<TeamPage> {
+        match &self.page {
+            Page::Teams(t) => Some(t.page()),
+            _ => None,
+        }
+    }
+
+    /// The invite link on its page.
+    #[cfg(test)]
+    pub(crate) fn invite_link(&self) -> Option<String> {
+        match &self.page {
+            Page::Teams(t) => t.invite_link(),
+            _ => None,
+        }
+    }
+
+    /// The safety number on its page.
+    #[cfg(test)]
+    pub(crate) fn safety_number(&self) -> Option<String> {
+        match &self.page {
+            Page::Teams(t) => t.safety_number(),
             _ => None,
         }
     }
@@ -487,6 +530,71 @@ impl SyncView {
         self.note = note;
         self.confirm = None;
         self.requests.push(SyncRequest::Refresh);
+    }
+
+    /// A teams call finished.
+    pub(crate) fn team_reply(&mut self, result: Result<TeamReply, String>) {
+        self.busy = None;
+        let reply = match result {
+            Ok(reply) => reply,
+            Err(e) => {
+                self.failed(&e);
+                return;
+            }
+        };
+        let note = match &reply {
+            TeamReply::Done(n) | TeamReply::Left(n) => Some(n.clone()),
+            _ => None,
+        };
+        if let Page::Teams(t) = &mut self.page
+            && let Some(next) = t.reply(reply)
+        {
+            self.requests.push(SyncRequest::Team(next));
+            self.busy = Some("Loading…".to_owned());
+        }
+        if note.is_some() {
+            self.note = note;
+            self.error = None;
+        }
+    }
+
+    /// Open the teams screens.
+    fn open_teams(&mut self) {
+        let (view, request) = TeamsView::new(self.unicode);
+        self.page = Page::Teams(Box::new(view));
+        self.request(SyncRequest::Team(request), Some("Loading the teams…"));
+    }
+
+    fn teams_key(&mut self, key: KeyEvent) {
+        let Page::Teams(t) = &mut self.page else {
+            return;
+        };
+        let before = t.title();
+        let out = t.handle_key(key);
+        if t.title() != before {
+            // A new page: the last result belonged to the old one.
+            self.error = None;
+            self.note = None;
+        }
+        match out {
+            TeamOut::None => {}
+            TeamOut::Request(request, busy) => self.request(SyncRequest::Team(request), Some(busy)),
+            TeamOut::Confirm {
+                title,
+                text,
+                yes,
+                request,
+                busy,
+            } => {
+                self.confirm = Some(Confirm {
+                    title,
+                    text,
+                    action: ConfirmAction::Team(request, busy),
+                    buttons: ButtonRow::new(&[yes, "Cancel"], 1),
+                });
+            }
+            TeamOut::Close => self.done(None),
+        }
     }
 
     /// Back to the account page with `note`.
@@ -790,6 +898,7 @@ impl SyncView {
             | Page::DeleteAccount(f)
             | Page::Confirm { form: f, .. }
             | Page::TotpSetup { form: f, .. } => f.handle_paste(text),
+            Page::Teams(t) => t.handle_paste(text),
             _ => {}
         }
     }
@@ -880,11 +989,7 @@ impl SyncView {
                 FormOutcome::Cancel => self.account_done(None),
                 _ => {}
             },
-            Page::Teams => {
-                if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
-                    self.done(None);
-                }
-            }
+            Page::Teams(_) => self.teams_key(key),
         }
     }
 
@@ -916,6 +1021,9 @@ impl SyncView {
                 SyncRequest::DeleteAccount { password, totp },
                 Some("Deleting the account…"),
             ),
+            ConfirmAction::Team(request, busy) => {
+                self.request(SyncRequest::Team(request), Some(busy));
+            }
             ConfirmAction::CancelRegistration => {
                 self.requests.push(SyncRequest::CancelRegistration);
                 self.done(Some(
@@ -958,7 +1066,7 @@ impl SyncView {
                         self.request(SyncRequest::Devices, Some("Loading the devices…"));
                     }
                     Some(MenuItem::Account) => self.page = Page::Account { cursor: 0 },
-                    Some(MenuItem::Teams) => self.page = Page::Teams,
+                    Some(MenuItem::Teams) => self.open_teams(),
                     Some(MenuItem::Close) | None => self.closed = true,
                 }
             }
@@ -1279,7 +1387,7 @@ impl SyncView {
     }
 
     fn title(&self) -> &'static str {
-        match self.page {
+        match &self.page {
             Page::Overview { .. } => " Sync ",
             Page::Register(_) => " Sync: create an account ",
             Page::Login(_) => " Sync: log in ",
@@ -1293,7 +1401,7 @@ impl SyncView {
             Page::TotpSetup { .. } => " Sync: two-factor authentication ",
             Page::TotpDisable(_) => " Sync: disable two-factor ",
             Page::DeleteAccount(_) => " Sync: delete the account ",
-            Page::Teams => " Sync: teams ",
+            Page::Teams(t) => t.title(),
         }
     }
 
@@ -1657,20 +1765,7 @@ impl SyncView {
                 c.form(form, theme);
                 "Tab next field · Enter delete · Esc cancel".to_owned()
             }
-            Page::Teams => {
-                c.text(
-                    "Teams and shared vaults (organisations, members with roles and \
-                     safety-number verification, invites, vault permissions and the audit \
-                     log) are not available in this version of courier-ftp yet.",
-                    Style::new(),
-                );
-                c.blank();
-                c.text(
-                    "Your personal vault syncs between your devices as usual.",
-                    theme.dim,
-                );
-                "Esc back".to_owned()
-            }
+            Page::Teams(t) => t.draw(c, theme),
         }
     }
 

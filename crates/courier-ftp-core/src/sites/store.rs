@@ -217,6 +217,28 @@ impl SiteManager {
         self.add_folder_as(parent, name, ItemId::new()).await
     }
 
+    /// [`SiteManager::add_folder`] at the top level of `vault` (a team
+    /// vault root in the Site Manager, T90). Inside a folder the folder's
+    /// vault wins; `None` is the personal vault.
+    ///
+    /// # Errors
+    /// As [`SiteManager::add_folder`].
+    pub async fn add_folder_in(
+        &mut self,
+        parent: Option<ItemId>,
+        name: &str,
+        vault: Option<crate::model::item::VaultId>,
+    ) -> Result<ItemId, SiteError> {
+        let id = ItemId::new();
+        let mut folder = Folder::new(name);
+        folder.id = id;
+        folder.vault = self.vault_of(parent).or(vault);
+        let mut next = self.tree.clone();
+        next.insert(parent, SiteNode::Folder(folder))?;
+        self.commit(next, &[id]).await?;
+        Ok(id)
+    }
+
     /// [`SiteManager::add_folder`] with a given id (imports keep ids).
     pub(super) async fn add_folder_as(
         &mut self,
@@ -260,7 +282,10 @@ impl SiteManager {
             site.name = super::validate_name(&name)?;
             next.replace(SiteNode::Site(Box::new(site.clone())))?;
         } else {
-            site.vault = self.vault_of(site.parent);
+            // Inside a folder the folder's vault; at the top level the
+            // vault the caller chose (a team vault root, T90), else the
+            // personal vault.
+            site.vault = self.vault_of(site.parent).or(site.vault);
             site.created_at.get_or_insert_with(UnixMillis::now);
             site.read_only = false;
             let parent = site.parent;

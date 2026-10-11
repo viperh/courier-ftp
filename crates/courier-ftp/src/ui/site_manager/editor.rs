@@ -754,6 +754,9 @@ pub(crate) struct Editor {
     /// The last password typed or stored, so stepping through logon types
     /// (Normal → Ask for password → Account) doesn't lose it.
     kept_password: Option<SecretString>,
+    /// The site is in a team vault this account may only read (T90): the
+    /// root's label for the 🔒 note; fields are shown disabled.
+    vault_lock: Option<String>,
 }
 
 impl Editor {
@@ -775,7 +778,20 @@ impl Editor {
             store_passwords,
             bookmarks,
             kept_password: kept,
+            vault_lock: None,
         }
+    }
+
+    /// Shown, not editable: an item from a newer courier-ftp, or one in a
+    /// team vault this account may only read.
+    fn locked(&self) -> bool {
+        self.site.read_only || self.vault_lock.is_some()
+    }
+
+    /// The site is in a read-only team vault: the note shown after its name
+    /// (or not, `None`).
+    pub(crate) fn set_vault_lock(&mut self, label: Option<String>) {
+        self.vault_lock = label;
     }
 
     /// The site's id.
@@ -945,7 +961,7 @@ impl Editor {
             }
             _ => {}
         }
-        if self.site.read_only {
+        if self.locked() {
             // Shown, not editable (an item from a newer courier-ftp).
             return match key.code {
                 KeyCode::Tab | KeyCode::Down => self.step(true),
@@ -990,7 +1006,7 @@ impl Editor {
     }
 
     pub(crate) fn handle_paste(&mut self, text: &str) {
-        if self.site.read_only {
+        if self.locked() {
             return;
         }
         if let Some(field) = self.focus {
@@ -1207,7 +1223,9 @@ impl Editor {
         if self.new {
             header.push(Span::styled(" (new, not saved)", theme.dim));
         }
-        if self.site.read_only {
+        if let Some(label) = &self.vault_lock {
+            header.push(Span::styled(format!(" {label}"), theme.key_hint));
+        } else if self.site.read_only {
             header.push(Span::styled(
                 " (from a newer courier-ftp: read-only)",
                 theme.dim,
@@ -1347,6 +1365,10 @@ impl Editor {
                 );
             } else {
                 widget.draw(frame, field_area, is_focused, theme);
+            }
+            if self.locked() {
+                // Disabled: shown, not editable.
+                frame.buffer_mut().set_style(field_area, theme.dim);
             }
             if is_focused {
                 overlay = Some((*field, field_area));
