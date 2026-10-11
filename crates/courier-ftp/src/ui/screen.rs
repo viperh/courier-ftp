@@ -12,7 +12,7 @@ use courier_ftp_core::{
     filters::{FilterEngine, FilterSettings},
     local::display_native,
     model::RemotePath,
-    settings::InterfaceSettings,
+    settings::{InterfaceSettings, Settings},
 };
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
@@ -32,6 +32,7 @@ use super::{
     panes,
     queue::QueuePane,
     quickconnect::{QuickKey, Quickconnect},
+    settings::SettingsView,
     site_manager::SiteManagerView,
     status::{self, StatusState},
     theme::Theme,
@@ -206,6 +207,9 @@ pub(crate) struct MainScreen {
     /// The Site Manager (T59), when open. It covers the panes; dialogs open
     /// over it.
     sites: Option<SiteManagerView>,
+    /// The settings screen (T68), when open. It covers the panes (and the
+    /// Site Manager); dialogs open over it.
+    settings: Option<SettingsView>,
     /// Synchronized browsing (T66): the base directories, when on.
     sync: Option<SyncBase>,
     /// A synchronized directory change waiting for the other side.
@@ -298,6 +302,7 @@ impl MainScreen {
             vault_shown: false,
             vault_requests: Vec::new(),
             sites: None,
+            settings: None,
             sync: None,
             sync_nav: None,
             compare: None,
@@ -521,12 +526,96 @@ impl MainScreen {
         }
     }
 
+    /// Open the settings screen (replacing one already open).
+    pub(crate) fn open_settings(&mut self, view: SettingsView) {
+        self.settings = Some(view);
+    }
+
+    /// The settings screen, when open.
+    #[cfg(test)]
+    pub(crate) fn settings_view(&self) -> Option<&SettingsView> {
+        self.settings.as_ref()
+    }
+
+    /// Pass the settings screen's requests on and drop it once it closed.
+    fn pump_settings(&mut self) {
+        let Some(view) = self.settings.as_mut() else {
+            return;
+        };
+        for request in view.take_requests() {
+            self.outbox
+                .push(Action::SettingsRequest(crate::action::Shared::new(request)));
+        }
+        if view.is_closed() {
+            self.settings = None;
+        }
+    }
+
+    /// Settings changed on the settings screen (T68): apply what the screen
+    /// shows at once (layout, visibility, formats, sort order, colours, log
+    /// pane, status bar).
+    pub(crate) fn apply_settings(&mut self, new: &Settings) {
+        let old = &self.config.settings;
+        let (ui, was) = (&new.interface, &old.interface);
+        self.opts.layout = ui.layout;
+        self.opts.swap_panes = ui.swap_panes;
+        // Visibility toggled with keys this run stays unless the setting
+        // itself changed.
+        let visible = &mut self.opts.visible;
+        for (now, before, slot) in [
+            (
+                ui.show_quickconnect,
+                was.show_quickconnect,
+                &mut visible.quickconnect,
+            ),
+            (ui.show_log, was.show_log, &mut visible.log),
+            (ui.show_queue, was.show_queue, &mut visible.queue),
+            (ui.show_tree, was.show_tree, &mut visible.tree),
+        ] {
+            if now != before {
+                *slot = now;
+            }
+        }
+        let unicode = status::unicode_enabled(ui.unicode_symbols);
+        self.status.unicode = unicode;
+        self.quickconnect.set_unicode(unicode);
+        self.local_tree.set_unicode(unicode);
+        self.remote_tree.set_unicode(unicode);
+        if ui != was {
+            self.local.apply_settings(new);
+            self.remote.apply_settings(new);
+        }
+        self.compare_opts.dirs_first = ui.dirs_first;
+        self.compare_opts.natural_sort = ui.natural_sort;
+        if let Some(state) = &mut self.compare {
+            state.built_from = None;
+        }
+        self.log
+            .configure(new.logging.log_lines, new.logging.show_timestamps);
+        if ui.color_scheme != was.color_scheme {
+            self.theme = Theme::with_scheme(
+                ui.color_scheme,
+                self.config.styles.0.get(&Mode::Normal),
+                Theme::no_color_requested(),
+            );
+        }
+        let t = &new.transfers;
+        self.status.speed_limit = t.speed_limit_enabled;
+        self.status.download_limit_kib = t.download_limit_kib;
+        self.status.upload_limit_kib = t.upload_limit_kib;
+        if new.file_types.default_type != old.file_types.default_type {
+            self.status.transfer_type = new.file_types.default_type;
+        }
+        self.config.settings = new.clone();
+    }
+
     /// The current input mode, which selects the keymap.
     pub(crate) fn mode(&self) -> Mode {
         if !self.modals.is_empty()
             || self.vault_shown
             || self.sites.is_some()
             || self.bookmarks.is_some()
+            || self.settings.is_some()
         {
             return Mode::Dialog;
         }
@@ -599,6 +688,11 @@ impl MainScreen {
             }
             return KeyOutcome::Consumed;
         }
+        if let Some(view) = self.settings.as_mut() {
+            view.handle_key(key);
+            self.pump_settings();
+            return KeyOutcome::Consumed;
+        }
         if let Some(view) = self.sites.as_mut() {
             view.handle_key(key);
             self.pump_sites();
@@ -654,6 +748,8 @@ impl MainScreen {
             }
         } else if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
+        } else if let Some(view) = self.settings.as_mut() {
+            view.handle_paste(text);
         } else if let Some(view) = self.sites.as_mut() {
             view.handle_paste(text);
         } else if let Some(menu) = self.bookmarks.as_mut() {
@@ -738,6 +834,13 @@ impl MainScreen {
             if let Some(view) = self.sites.as_mut() {
                 view.apply_reply(&reply.0);
                 self.pump_sites();
+            }
+            return None;
+        }
+        if let Action::SettingsReply(reply) = action {
+            if let Some(view) = self.settings.as_mut() {
+                view.apply_reply(&reply.0);
+                self.pump_settings();
             }
             return None;
         }
@@ -1453,6 +1556,7 @@ impl MainScreen {
         let busy = !self.modals.is_empty()
             || self.vault_shown
             || self.sites.is_some()
+            || self.settings.is_some()
             || (!force
                 && (matches!(self.mode(), Mode::Input | Mode::Filter)
                     || self
@@ -1603,6 +1707,16 @@ impl MainScreen {
         }
         if let Some(menu) = self.bookmarks.as_mut() {
             menu.draw(frame, area, theme);
+        }
+        if let Some(view) = self.settings.as_mut() {
+            let bottom = r.status.map_or(area.bottom(), |s| s.y);
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                bottom.saturating_sub(area.y),
+            );
+            view.draw(frame, above, theme);
         }
         for modal in &mut self.modals {
             modal.draw(frame, area, theme);

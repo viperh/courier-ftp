@@ -364,6 +364,12 @@ pub(crate) enum Action {
     /// A bookmarks operation finished.
     #[serde(skip)]
     BookmarksReply(Shared<crate::bookmarks::BookmarksReply>),
+    /// The settings screen asks for something (T68).
+    #[serde(skip)]
+    SettingsRequest(Shared<crate::ui::settings::SettingsRequest>),
+    /// The answer to a settings screen request.
+    #[serde(skip)]
+    SettingsReply(Shared<crate::ui::settings::SettingsReply>),
     /// A connection attempt started by [`Action::Connect`] finished.
     #[serde(skip)]
     Connected {

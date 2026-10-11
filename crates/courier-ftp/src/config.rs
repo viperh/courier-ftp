@@ -19,9 +19,9 @@ const APP_QUALIFIER: &str = "com";
 const APP_ORGANIZATION: &str = "viperh";
 
 #[derive(Clone, Debug, Deserialize, Default)]
-#[expect(dead_code, reason = "data_dir is read by the settings screen (T68)")]
 pub(crate) struct AppConfig {
     #[serde(default)]
+    #[expect(dead_code, reason = "the app uses get_data_dir()")]
     pub(crate) data_dir: PathBuf,
     #[serde(default)]
     pub(crate) config_dir: PathBuf,
@@ -29,6 +29,7 @@ pub(crate) struct AppConfig {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub(crate) struct Config {
+    /// Where the user config lives: the settings screen saves there (T68).
     #[serde(default, flatten)]
     pub(crate) config: AppConfig,
     #[serde(default)]
@@ -69,10 +70,16 @@ fn non_empty_var(name: &str) -> Option<PathBuf> {
 
 impl Config {
     pub(crate) fn new() -> color_eyre::Result<Self, config::ConfigError> {
+        Self::load(&get_config_dir(), &get_data_dir())
+    }
+
+    /// The built-in config with the user files in `config_dir` on top.
+    pub(crate) fn load(
+        config_dir: &std::path::Path,
+        data_dir: &std::path::Path,
+    ) -> color_eyre::Result<Self, config::ConfigError> {
         let default_config: Config = json5::from_str(CONFIG)
             .map_err(|e| config::ConfigError::Message(format!("built-in config: {e}")))?;
-        let data_dir = get_data_dir();
-        let config_dir = get_config_dir();
         let mut builder = config::Config::builder()
             .set_default("data_dir", data_dir.to_string_lossy().into_owned())?
             .set_default("config_dir", config_dir.to_string_lossy().into_owned())?;

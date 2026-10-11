@@ -37,10 +37,17 @@ Settings dialog, saving to the user config file.
 
 ## Acceptance criteria
 
-- [ ] Every T05 setting editable, validated and persisted.
-- [ ] Live-apply settings take effect without restart.
-- [ ] Host key/cert stores manageable.
-- [ ] Snapshot tests per section.
+- [x] Every T05 setting editable, validated and persisted.
+- [x] Live-apply settings take effect without restart.
+- [x] Host key/cert stores manageable.
+- [x] Snapshot tests per section.
+
+**Status (T68):** done except: `sync.*` settings and the Sync & teams page → T90;
+Import/Export buttons → T73; the Security page's local approvals list with revoke → T91
+(nothing writes `local_approvals` yet and `VaultEngine` exposes no API for it). Path filters
+stay in the filters dialog (T67), not the settings screen. The update-check toggle is
+editable; the check itself is T74. No language option (T75 dropped): the unused
+`interface.language` setting is not shown.
 
 ## Tests
 
