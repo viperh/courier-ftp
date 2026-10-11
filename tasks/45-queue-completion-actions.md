@@ -19,11 +19,32 @@ Do something useful when the queue becomes empty.
 
 ## Acceptance criteria
 
-- [ ] Each action works; one-shot override resets after use.
-- [ ] RunCommand receives the env vars.
-- [ ] Stopping the queue manually doesn't trigger the action.
-- [ ] Panes showing changed dirs refresh after completion.
+- [x] Each action works; one-shot override resets after use.
+- [x] RunCommand receives the env vars.
+- [x] Stopping the queue manually doesn't trigger the action.
+- [x] Panes showing changed dirs refresh after completion.
 
 ## Tests
 
 - Engine-level tests with mock backend asserting the `QueueFinished` event and action dispatch.
+
+**Status (T45):** `courier_ftp_core::transfer::completion` picks the action
+(`QueueCompletion`: the one-shot override, used up by the next run that
+processed at least one file, else `queue.on_complete`), builds the command
+(`command_line`/`split_command`: quoting only, never a shell — scope item 4's
+`sh -c` was dropped so nothing in the line is interpreted; write
+`sh -c '…'` explicitly if needed) and its environment (`command_env`). The
+binary (`src/completion.rs`, `src/app/completion.rs`) reacts to
+`CoreEvent::QueueFinished` in `App::transfer_event`: the summary goes to the
+log and status bar; ShowMessage opens a message and sends the `queue.notify`
+bell / OSC 9 + OSC 777; RunCommand starts the program detached and logs its
+exit code; Disconnect and CloseApp run after a 10 s countdown dialog that Esc
+cancels (CloseApp then goes through the normal quit check). The one-shot is
+set from the queue pane (`a`, or "Action after queue completion…" in the `m`
+menu) and shown in the pane's bottom line until used. The engine never sends
+`QueueFinished` for a stopped run. Directories changed by transfers were
+already refreshed per finished transfer (T56, `queue.refresh_remote_after`).
+Side effects go through the `Effects` trait, recorded in tests
+(`app/completion_tests.rs`); one Unix test runs a real command. With one tab
+until T61, Disconnect closes the remote pane's session (T61 should loop over
+tabs).

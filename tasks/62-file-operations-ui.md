@@ -35,10 +35,35 @@ The dialogs and flows for every file operation available from the panes.
 ## Acceptance criteria
 
 - [ ] Each operation works on local and remote (mock backend) and updates both panes via cache patches.
-- [ ] Chmod tri-state/numeric with `x` correct.
+- [x] Chmod tri-state/numeric with `x` correct.
 - [ ] OSC 52 clipboard works in tmux (with `set-clipboard on`) — manual check noted.
-- [ ] Unsupported operations explain why instead of failing silently.
+- [x] Unsupported operations explain why instead of failing silently.
 
 ## Tests
 
 - UI-flow tests with synthetic key events and mock backend.
+
+**Status (T62):** done in `crates/courier-ftp/src/file_ops.rs` (the work on
+the local filesystem or the remote pane's `SessionHandle`, patching the T46
+cache), `src/app/file_ops.rs` (dialogs, flows, progress) and
+`src/ui/file_ops.rs` (chmod dialog, command line, question texts):
+F7 / Shift-F7 (`mkdir -p`, reused by T66's `Action::MakeDir`), `Ctrl-x n`
+new empty file, F2 rename (a `/` moves), F6 move on the same side (into an
+existing directory, or one entry to a new path), F8 recursive delete with
+`confirm_delete` and a cancellable progress dialog plus status-bar progress,
+`c` chmod (tri-state, numeric with `x`, recurse with apply-to), `:` custom
+command with history, `yu` copy URL (with/without port and password;
+local paths locally) via OSC 52. Renames ask before replacing an existing
+file (SFTP's rename would replace silently); directories are never
+replaced. Panes and directory trees are redrawn from the patched cache;
+directories whose listing wasn't cached are listed again. Unsupported
+operations (chmod on FTP without `SITE CHMOD` / on Windows, custom commands
+over SFTP, moves across directories where the server can't) explain why.
+Tested with `MockServer` flows (`app/file_op_tests.rs`), backend-level tests
+(`file_ops/tests.rs`), dialog snapshots, and a PTY smoke test of
+mkdir/rename-overwrite/chmod/recursive delete against an asyncssh SFTP
+server. Not done, left for a follow-up task: F6 across sides (transfer then
+delete the source needs a `delete_source_after` flag in the core queue and
+engine, T40/T41), the manual transfer dialog (§10), opening a new file in
+the editor (T63), and the native-clipboard (`arboard`) fallback; F5/Shift-F5
+and Refresh were done by T56/T53. OSC 52 in tmux was not checked by hand.

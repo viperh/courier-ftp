@@ -39,6 +39,7 @@ Active everywhere except in text fields and dialogs.
 | `<F7>` | Mkdir |
 | `<Shift-F7>` | MkdirEnter |
 | `<F6>` | Move |
+| `<Ctrl-x><n>` | NewFile |
 | `<Ctrl-t>` | NewTab |
 | `<g><t>` | NextTab |
 | `<Ctrl-x><p>` | OpenPrompt |
@@ -158,6 +159,7 @@ When the transfer queue has focus.
 | `<PageUp>` | PageUp |
 | `<minus>` | PriorityDown |
 | `<+>` | PriorityUp |
+| `<a>` | QueueAfterMenu |
 | `<C>` | QueueClear |
 | `<e>` | QueueExistsMenu |
 | `<s>` | QueueGroupByServer |

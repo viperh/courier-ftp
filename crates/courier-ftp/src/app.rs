@@ -102,6 +102,10 @@ pub(crate) struct App {
     /// The backup opened on the first-run screen, restored once the new
     /// vault is created (T73, T60).
     restore_archive: Option<Box<courier_ftp_core::archive::Archive>>,
+    /// File operations in progress (T62).
+    file_ops: file_ops::FileOps,
+    /// The action after the queue finishes (T45).
+    completion: completion::Completion,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -122,6 +126,8 @@ struct Remote {
     record: Option<ConnectInfo>,
     /// The Site Manager entry connected to (`None`: quickconnect).
     site: Option<ItemId>,
+    /// What the backend supports, once connected.
+    capabilities: Option<courier_ftp_core::backend::Capabilities>,
 }
 
 /// `alice@host` (with the port when it isn't the protocol's default), for
@@ -298,6 +304,8 @@ impl App {
             update_cancel: CancellationToken::new(),
             import_archive: None,
             restore_archive: None,
+            file_ops: file_ops::FileOps::default(),
+            completion: completion::Completion::default(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -449,6 +457,8 @@ impl App {
             debug!("{action}");
         }
         self.transfer_action(&action);
+        self.file_op_action(&action);
+        self.completion_action(&action);
         match &action {
             Action::Tick => {
                 self.expire_splash(Instant::now());
@@ -598,7 +608,6 @@ impl App {
                 self.list(*side, Some(dir.clone()), *force, false);
             }
             Action::TreeListDir { side, dir } => self.list(*side, Some(dir.clone()), false, true),
-            Action::MakeDir { side, dir } => self.make_dir(*side, dir.clone()),
             Action::CopyToClipboard(text) => {
                 if let Err(e) = crate::clipboard::copy(text) {
                     tracing::warn!("clipboard: {e}");
@@ -711,51 +720,6 @@ impl App {
         });
     }
 
-    /// Create `dir` on `side` in the background; [`Action::DirMade`] reports
-    /// the result. The parent's cached listing is dropped.
-    fn make_dir(&mut self, side: Side, dir: RemotePath) {
-        let tx = self.action_tx.clone();
-        let cache = self.cache.clone();
-        match side {
-            Side::Local => {
-                tokio::spawn(async move {
-                    let mut backend = LocalBackend::new();
-                    let cancel = CancellationToken::new();
-                    let result = async {
-                        backend.connect(cancel).await?;
-                        backend.mkdir(&dir).await
-                    }
-                    .await
-                    .map_err(|e| e.to_string());
-                    if let Some(parent) = dir.parent() {
-                        cache.invalidate(None, &parent);
-                    }
-                    let _ = tx.send(Action::DirMade { side, dir, result });
-                });
-            }
-            Side::Remote => {
-                let Some(remote) = self.remote.as_ref().filter(|r| r.connected) else {
-                    let _ = tx.send(Action::DirMade {
-                        side,
-                        dir,
-                        result: Err("Not connected".to_owned()),
-                    });
-                    return;
-                };
-                let handle = Arc::clone(&remote.handle);
-                let cancel = remote.cancel.clone();
-                let server = remote.info.address.clone();
-                tokio::spawn(async move {
-                    let result = handle.mkdir(&dir, &cancel).await.map_err(|e| e.to_string());
-                    if let Some(parent) = dir.parent() {
-                        cache.invalidate(Some(&server), &parent);
-                    }
-                    let _ = tx.send(Action::DirMade { side, dir, result });
-                });
-            }
-        }
-    }
-
     fn current_session(&self) -> Option<SessionId> {
         self.remote.as_ref().map(|r| r.session)
     }
@@ -810,7 +774,9 @@ impl App {
                 Side::Local
             };
             self.screen.tree_mut(side).invalidate(dir);
+            self.listing_patched(side, dir);
         }
+        self.file_op_event(&event);
         self.transfer_event(&event);
         self.screen.handle_core(event);
     }
@@ -871,6 +837,7 @@ impl App {
             // Sites are not quickconnect history.
             record: request.site.is_none().then(|| request.info.clone()),
             site: request.site,
+            capabilities: None,
         });
         self.last_connect = Some(request.without_password());
         self.screen
@@ -884,7 +851,10 @@ impl App {
         tokio::spawn(async move {
             let result = async {
                 handle.connect(cancel.clone()).await?;
-                let info = handle.lock().await.session_info();
+                let (info, capabilities) = {
+                    let backend = handle.lock().await;
+                    (backend.session_info(), backend.capabilities())
+                };
                 let listing = match start {
                     Some(dir) => match handle.list(&dir, &cancel).await {
                         Ok(listing) => listing,
@@ -896,7 +866,11 @@ impl App {
                     None => first_listing(&handle, &cancel).await?,
                 };
                 cache.put(Some(&server), listing.clone());
-                Ok::<_, courier_ftp_core::Error>(Box::new(Connected { info, listing }))
+                Ok::<_, courier_ftp_core::Error>(Box::new(Connected {
+                    info,
+                    listing,
+                    capabilities,
+                }))
             }
             .await
             .map_err(|e| e.to_string());
@@ -913,6 +887,7 @@ impl App {
         match result {
             Ok(connected) => {
                 remote.connected = true;
+                remote.capabilities = Some(connected.capabilities);
                 let (sync, compare) = (remote.sync_browsing, remote.compare);
                 let case_sensitive = courier_ftp_core::compare::names_case_sensitive(
                     remote.info.server_type.unwrap_or_default(),
@@ -1544,11 +1519,18 @@ async fn first_listing(
 mod archive;
 #[cfg(test)]
 mod archive_tests;
+mod completion;
+mod file_ops;
 mod search;
 mod settings;
+pub(crate) use file_ops::FileOpMsg;
 
 #[cfg(test)]
 mod bookmark_tests;
+#[cfg(test)]
+mod completion_tests;
+#[cfg(test)]
+mod file_op_tests;
 #[cfg(test)]
 mod filter_tests;
 #[cfg(test)]

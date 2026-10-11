@@ -117,11 +117,13 @@
 //!   recursive delete/chmod.
 //! - **T44**: [`RateLimiter`] (`acquire`, `chunk_size`, `settings_changed`),
 //!   implemented by [`SpeedLimiter`] (global token buckets, see [`ratelimit`]).
-//! - **T45**: `QueueFinished { stats }`.
+//! - **T45**: `QueueFinished { stats }`; [`completion`] picks the action
+//!   (one-shot override or `queue.on_complete`) and the command line.
 //! - **T41b**: the pool and the worker are the places to add warm-up and
 //!   segments; slots are counted per server in the engine.
 //! - **T56/T62**: [`EngineHandle`] commands and [`EngineStatus`].
 
+pub mod completion;
 mod engine;
 mod exists;
 mod hooks;

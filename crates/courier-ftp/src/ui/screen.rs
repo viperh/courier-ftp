@@ -185,6 +185,9 @@ pub(crate) struct MainScreen {
     /// The transfer engine's state (processing, paused), once the app runs
     /// one.
     engine_status: Option<tokio::sync::watch::Receiver<courier_ftp_core::transfer::EngineStatus>>,
+    /// The one-shot action after the queue finishes, for the queue pane
+    /// (T45).
+    queue_after: Option<&'static str>,
     quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
     tick: u64,
@@ -305,6 +308,7 @@ impl MainScreen {
             log,
             queue,
             engine_status: None,
+            queue_after: None,
             quickconnect: Quickconnect::new().with_unicode(unicode),
             modals: Vec::new(),
             tick: 0,
@@ -374,6 +378,12 @@ impl MainScreen {
         self.queue.shared()
     }
 
+    /// Show the one-shot action after the queue finishes in the queue
+    /// pane's bottom line (`None`: the setting applies).
+    pub(crate) fn set_queue_after(&mut self, after: Option<&'static str>) {
+        self.queue_after = after;
+    }
+
     /// Follow the transfer engine's status (processing, paused).
     pub(crate) fn set_engine_status(
         &mut self,
@@ -404,6 +414,30 @@ impl MainScreen {
         let tx = self.action_tx.clone();
         let effect = self.pane_mut(side).update(&Action::Refresh, tx.as_ref());
         self.apply(effect);
+    }
+
+    /// A cached listing was patched by our own change (T46/T62): redraw
+    /// `side`'s list (keeping cursor and selection) and tree when they show
+    /// that directory. A list waiting for another listing is left alone.
+    pub(crate) fn listing_patched(&mut self, side: Side, listing: &Listing) {
+        let pane = self.pane_mut(side);
+        if pane.dir.as_ref() == Some(&listing.dir) && !pane.busy {
+            let result: Result<Listing, String> = Ok(listing.clone());
+            let _ = pane.listing_loaded(&result);
+        }
+        self.tree_mut(side).listing(listing);
+        self.after_change();
+    }
+
+    /// Show `dir` in `side`'s list (a directory just created and entered).
+    pub(crate) fn go_to(&mut self, side: Side, dir: RemotePath) {
+        let effect = self.pane_mut(side).go_to(dir);
+        self.apply(effect);
+    }
+
+    /// The side of the focused file list or directory tree.
+    pub(crate) fn focused_side(&self) -> Option<Side> {
+        self.focused_list_side().or(self.focused_tree_side())
     }
 
     /// The actions the panes asked for since the last call.
@@ -1277,6 +1311,15 @@ impl MainScreen {
         self.status.flash(text, Instant::now());
     }
 
+    /// The transient status bar message (tests).
+    #[cfg(test)]
+    pub(crate) fn status_text(&self) -> String {
+        self.status
+            .message(Instant::now())
+            .unwrap_or_default()
+            .to_owned()
+    }
+
     /// A connection to `server` is being opened in the remote pane.
     pub(crate) fn remote_connecting(&mut self, server: String) {
         self.end_sync();
@@ -1910,6 +1953,7 @@ impl MainScreen {
                 super::queue::RunState {
                     processing,
                     paused: status.paused,
+                    after: self.queue_after,
                 },
                 theme,
                 now,

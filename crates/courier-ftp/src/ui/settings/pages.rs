@@ -1177,7 +1177,7 @@ fn queue(s: &Settings) -> Vec<Row> {
         text(
             "queue.on_complete.command",
             "Command",
-            "The shell command for “Run a command”.",
+            "The command for “Run a command”, run directly (no shell) with COURIER_FTP_FILES_OK, COURIER_FTP_FILES_FAILED and COURIER_FTP_BYTES set.",
             command,
         ),
         select(
@@ -1569,6 +1569,12 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
                 Some(1) => OnComplete::ShowMessage,
                 Some(2) if command.is_empty() => {
                     problems.push(("queue.on_complete.command", "enter the command".into()));
+                    q.on_complete.clone()
+                }
+                Some(2)
+                    if courier_ftp_core::transfer::completion::command_line(&command).is_none() =>
+                {
+                    problems.push(("queue.on_complete.command", "unterminated quote".into()));
                     q.on_complete.clone()
                 }
                 Some(2) => OnComplete::RunCommand(command),

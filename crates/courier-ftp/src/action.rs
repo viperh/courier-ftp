@@ -49,6 +49,8 @@ pub(crate) enum Action {
     Mkdir,
     /// Make a directory and enter it (T62).
     MkdirEnter,
+    /// Create an empty file (T62).
+    NewFile,
     /// Delete the selection, with confirmation (T62).
     Delete,
     /// Open the settings screen (T68).
@@ -233,6 +235,8 @@ pub(crate) enum Action {
     QueueMenu,
     /// Set the "file exists" action of the selected items.
     QueueExistsMenu,
+    /// Choose what happens when the queue finishes this time (T45).
+    QueueAfterMenu,
     /// Hold every running transfer mid-stream, or let them continue.
     ToggleTransfersPaused,
 
@@ -325,6 +329,24 @@ pub(crate) enum Action {
         dir: RemotePath,
         result: Result<(), String>,
     },
+    /// The one-shot action after the queue finishes (`None`: the
+    /// `queue.on_complete` setting, T45).
+    #[serde(skip)]
+    QueueSetAfter(Option<courier_ftp_core::settings::OnComplete>),
+    /// Ask for the command to run when the queue finishes this time.
+    #[serde(skip)]
+    QueueAskCommand(String),
+    /// The countdown before disconnecting or quitting after the queue
+    /// finished ran out.
+    #[serde(skip)]
+    QueueAfterDue(courier_ftp_core::settings::OnComplete),
+    /// The command run after the queue finished exited (its code; `None`:
+    /// killed by a signal) or couldn't be started.
+    #[serde(skip)]
+    QueueAfterCommandExited(Result<Option<i32>, String>),
+    /// A step or result of a file operation (T62).
+    #[serde(skip)]
+    FileOp(Shared<crate::app::FileOpMsg>),
     /// Put text on the clipboard (OSC 52) and say so in the status bar.
     #[serde(skip)]
     CopyToClipboard(String),
@@ -500,4 +522,7 @@ impl<T> Eq for Shared<T> {}
 pub(crate) struct Connected {
     pub(crate) info: Option<SessionInfo>,
     pub(crate) listing: Listing,
+    /// What the backend supports (operations it can't do are explained
+    /// instead of failing, T62).
+    pub(crate) capabilities: courier_ftp_core::backend::Capabilities,
 }

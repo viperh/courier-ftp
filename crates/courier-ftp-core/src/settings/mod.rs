@@ -693,7 +693,8 @@ pub enum OnComplete {
     None,
     /// Show a summary message.
     ShowMessage,
-    /// Run a shell command.
+    /// Run a command: split into words and started directly, never through
+    /// a shell (see [`crate::transfer::completion::command_line`]).
     RunCommand(String),
     /// Disconnect from the server.
     Disconnect,
