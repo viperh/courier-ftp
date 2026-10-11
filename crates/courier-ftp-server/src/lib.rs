@@ -19,7 +19,9 @@
 //! * [`secrets`]: AEAD-encrypted `server_secrets`,
 //! * [`registration`]: registration modes, setup-token bootstrap,
 //! * [`auth`]: OPAQUE login, tokens, devices, TOTP,
-//! * [`sync`]: vaults, pull, push, quota, tombstone GC,
+//! * [`orgs`]: orgs, members, invites, the org audit log,
+//! * [`sync`]: vaults, pull, push, quota, tombstone GC, shared vaults and
+//!   key rotation,
 //! * [`ws`]: `/v1/ws` notifications and `LISTEN/NOTIFY` fan-out,
 //! * [`mail`]: SMTP for recovery codes and invites,
 //! * [`metrics`]: Prometheus metrics,
@@ -40,6 +42,8 @@ pub mod logging;
 pub mod mail;
 pub mod metrics;
 pub mod middleware;
+// Orgs, members, invites and the org audit log (T89).
+pub mod orgs;
 pub mod registration;
 pub mod routes;
 pub mod secrets;

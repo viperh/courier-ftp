@@ -40,6 +40,13 @@ impl std::fmt::Debug for CreatedInvite {
     }
 }
 
+/// The org invite link for `token`: `<public url>/invite/<token>` (the
+/// client takes the last path segment as the token).
+#[must_use]
+pub fn invite_link(public_url: &str, token: &str) -> String {
+    format!("{}/invite/{token}", public_url.trim_end_matches('/'))
+}
+
 /// Creates an email-bound instance invite.
 ///
 /// # Errors

@@ -463,6 +463,66 @@ impl Site {
         self.port.unwrap_or_else(|| self.protocol.default_port())
     }
 
+    /// This site with a member's [`CredentialOverride`](item::CredentialOverride)
+    /// applied (team vaults, T89 §6): the override's user replaces the
+    /// site's; its password makes the logon Normal (or fills Account's); its
+    /// vault key makes it a key login with the override's passphrase; a
+    /// passphrase alone fills a key login's. Anonymous stays anonymous
+    /// unless the override names a user. Fields the override leaves empty
+    /// keep the shared site's values.
+    #[must_use]
+    pub fn with_override(&self, ov: &item::CredentialOverride) -> Self {
+        let mut site = self.clone();
+        let user = ov
+            .user
+            .clone()
+            .unwrap_or_else(|| self.logon.user().to_owned());
+        let mut logon = match (&self.logon, &ov.user) {
+            (SiteLogon::Anonymous, Some(_)) => SiteLogon::Normal {
+                user: user.clone(),
+                password: None,
+            },
+            _ => self.logon.clone(),
+        };
+        if ov.user.is_some() {
+            match &mut logon {
+                SiteLogon::Anonymous => {}
+                SiteLogon::Normal { user: u, .. }
+                | SiteLogon::AskForPassword { user: u }
+                | SiteLogon::Interactive { user: u }
+                | SiteLogon::KeyFile { user: u, .. }
+                | SiteLogon::Account { user: u, .. }
+                | SiteLogon::Agent { user: u } => u.clone_from(&user),
+            }
+        }
+        if let Some(key) = ov.key_id {
+            logon = SiteLogon::KeyFile {
+                user,
+                key: Some(SiteKey::Vault(key)),
+                passphrase: ov.passphrase.clone(),
+            };
+        } else if let Some(pw) = &ov.password {
+            logon = match logon {
+                SiteLogon::Account { user, account, .. } => SiteLogon::Account {
+                    user,
+                    password: Some(pw.clone()),
+                    account,
+                },
+                SiteLogon::Anonymous => SiteLogon::Anonymous,
+                other => SiteLogon::Normal {
+                    user: other.user().to_owned(),
+                    password: Some(pw.clone()),
+                },
+            };
+        } else if let (Some(pp), SiteLogon::KeyFile { passphrase, .. }) =
+            (&ov.passphrase, &mut logon)
+        {
+            *passphrase = Some(pp.clone());
+        }
+        site.logon = logon;
+        site
+    }
+
     /// The vault `ssh-key` item this site logs in with, if any.
     pub fn vault_key_id(&self) -> Option<ItemId> {
         match &self.logon {

@@ -354,12 +354,14 @@ async fn run_admin(config: &Config, command: AdminCommand) -> Result<(), AdminEr
             let r = admin::gc::run(&pool, config).await?;
             println!(
                 "gc: removed {} expired token(s), {} expired login state(s)/codes, \
-                 {} expired invite(s), {} tombstone(s) in {} vault(s)",
+                 {} expired invite(s), {} tombstone(s) in {} vault(s), \
+                 {} abandoned key rotation(s)",
                 r.expired_tokens,
                 r.expired_other,
                 r.expired_invites,
                 r.purged_tombstones,
-                r.gc_floor_vaults
+                r.gc_floor_vaults,
+                r.abandoned_rotations
             );
             Ok(())
         }

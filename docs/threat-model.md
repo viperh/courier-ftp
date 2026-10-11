@@ -19,7 +19,7 @@ the document is completed at the end of the project.
 | LMK and vault keys | in memory only while unlocked, in `mlock`ed pages (`hardening::Locked`), zeroized on lock |
 | Items: sites with passwords, SSH keys, key passphrases | SQLite `items.envelope`, XChaCha20-Poly1305 under the vault key |
 | Decrypted index | memory only (the engine's in-memory map), zeroized on lock |
-| Account keys and sync tokens (sync, planned) | `meta` / `sync_state`, AEAD under the LMK |
+| Account keys and sync tokens (sync) | `meta` / `sync_state`, AEAD under the LMK |
 | Trusted host keys (SFTP) and certificates (FTPS, planned) | vault items; integrity matters, not secrecy. `~/.ssh/known_hosts` is read, never written |
 | Transfer queue (hosts, paths, quickconnect passwords) | SQLite `device_blobs`, an envelope under a device data key wrapped by the LMK; never synced, never written while the vault is locked. Queue exports (JSON) carry no passwords |
 | Edit temp files (planned: T63) | a private temp dir |
@@ -28,14 +28,15 @@ the document is completed at the end of the project.
 
 ## Actors
 
-- **Malicious or compromised sync server operator** (sync is planned, T83–T89): sees all
+- **Malicious or compromised sync server operator** (sync, T83–T89): sees all
   ciphertext, membership lists and the public-key directory; can drop, replay or reorder.
 - **Network attacker**: on the path to an FTP/SFTP server, a proxy, or the sync server.
 - **Malicious FTP/SFTP server**: controls every reply, listing and file name: `../`
   components, `/` and NUL in names, control characters and terminal escape sequences, huge
   sizes and dates, hostile PASV addresses, endless or malformed replies.
 - **Malicious proxy**: answers the HTTP `CONNECT` / SOCKS handshake.
-- **Malicious teammate** (teams, planned): can write items into shared vaults.
+- **Malicious teammate** (teams, T89): can write items into shared vaults where they have
+  `write`; with `manage` can grant access to others.
 - **Local attacker without an unlocked session**: has the disk (stolen laptop) or runs code
   as another user.
 - **Local attacker with an unlocked session**: runs code as the same user while courier-ftp
@@ -60,7 +61,8 @@ the document is completed at the end of the project.
 | Terminal escapes in file names and server messages | SSH banners and server text pass `sanitize_server_text` (escape sequences and control characters removed, length capped); ratatui drops graphemes containing control characters when it writes to its buffer | T21, T53, T55 | `courier-ftp-proto-sftp` `ssh::text::tests::strips_escapes_and_controls`; a rendering test with hostile names is open (T53/T55) |
 | Hostile parser input (servers, proxies, files) | Every parser of untrusted bytes is fuzzed (below) and its fuzz body is a property test in its crate | T07, T13, T20, T21, T30, T80, T81, **T91** | 10 cargo-fuzz targets (table below); CI job `fuzz` (30 s per target), nightly `fuzz.yml` (10 min) |
 | Synced values that act locally (key file paths, agent use) | Device-local approval by value hash (`local_approvals`), re-asked when the value changes; headless starts fail | T82 (store table exists), approval UI **planned** | `courier-ftp-store` approvals tests; prompt tests with the UI |
-| Server compromise, key substitution (sync, teams) | E2EE, OPAQUE, TOFU pins, safety numbers, signed grants (see sverb's threat model) | T80, T83–T89 (**planned**) | crypto: `courier-ftp-crypto` `tests/{kat,envelope,opaque,account}.rs`; trust rules with T89 |
+| Server compromise, key substitution (sync, teams) | E2EE, OPAQUE; teammates' public keys pinned on first sight (TOFU), 60-digit safety numbers to verify, a changed key blocks grants and rotation commits until accepted; a vault key is used only from a grant whose signature verifies with the **pinned** key of a granter that has `manage` (personal vaults: self-grants only) | T80, T83–T89 | crypto: `courier-ftp-crypto` `tests/{kat,envelope,opaque,account}.rs`; trust rules: `courier-ftp-sync` `trust::tests`, `tests/teams.rs::{safety_numbers_and_a_changed_key_blocks_grants_until_accepted, a_changed_member_key_blocks_the_rotation_commit}` |
+| Removed teammate reads new data | Revoking a member (or removing them from the org) rotates the vault key: every item is re-encrypted under a new key, wrapped only for the remaining members; the server checks full coverage atomically; read-only members are refused pushes by the server | T89 | `courier-ftp-sync` `tests/teams.rs::{revoking_a_member_rotates_the_key_and_they_cannot_read_new_items, read_only_member_cannot_push_even_bypassing_the_engine}`; `courier-ftp-server` `tests/teams.rs::rotation_*` |
 | Supply chain | `cargo-deny` (licenses, advisories, bans, sources); `cargo-vet` (imported audits from Mozilla, Google, Bytecode Alliance, ISRG, Zcash; the rest exempted, crypto crates flagged as a CI warning until audited); `Cargo.lock` committed, `--locked` in CI; reproducible archives | T00, T77, **T91** | CI jobs `deny`, `vet` (+ `scripts/check-vet-crypto.py`), `packaging` (archives are reproducible) |
 
 ## `unsafe` policy
@@ -152,8 +154,13 @@ Planned with their tasks: FTP reply parser (T10), PASV/EPSV parser (T11), FileZi
 - **TOFU on first sight** of an SFTP host key (and, with sync, of a teammate's key) until the
   fingerprint is compared out of band.
 - **Plain FTP is inherently insecure**: credentials and data travel in clear text.
-- **Revoked members keep old data; membership is server-asserted** (teams, planned; see
-  sverb's threat model).
+- **Revoked members keep old data**: a removed teammate keeps every item they had already
+  synced (and could have copied); rotation only protects changes made after it. Rotate the
+  real server credentials of shared sites when someone leaves.
+- **Membership is server-asserted**: the server decides who is listed as a member and with
+  which permission. Clients only trust grants signed by a pinned key with `manage`, but a
+  malicious server can hide members, withhold data, or keep a revoked member's access to
+  ciphertext until the rotation commits.
 - **Canary coverage** is limited to what tests leave behind: the vault and SSH fixtures
   (`target/tmp/canary-vault`, `target/tmp/canary-ssh`) are always scanned; tests that delete
   their temp dirs are covered by their own in-test checks only.

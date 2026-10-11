@@ -209,7 +209,7 @@ courier-ftp-server admin user disable <email>        disable the account, revoke
 courier-ftp-server admin user recovery-code <email>  one-time account-recovery code (24 h; mailed with SMTP)
 courier-ftp-server admin invite <email> [--no-email] invite token (also mailed when SMTP is set)
 courier-ftp-server admin registration open|invite-only|closed
-courier-ftp-server admin gc                          purge expired tokens, invites and old tombstones
+courier-ftp-server admin gc                          purge expired tokens, invites, old tombstones, abandoned key rotations
 courier-ftp-server healthcheck [--addr HOST:PORT]    probe /healthz (the Docker HEALTHCHECK)
 ```
 
@@ -217,6 +217,13 @@ Passwords are never set on the server: courier-ftp uses OPAQUE with the
 master password, chosen on the client. `user create` and `invite` hand out a
 single-use, email-bound token valid for 7 days. `closed` blocks every
 registration, invites included.
+
+Teams: any user can create an org in courier-ftp (Settings > Sync > Teams) and
+invite people by email (mailed when SMTP is set) or with a copyable link
+`<COURIER_PUBLIC_URL>/invite/<token>` (single-use, 7 days). An org invite
+also admits a new account on an `invite-only` server: the invitee registers
+with the token and joins the org. Org owners and admins see the org's audit
+log (who did what, item ids only, never content).
 
 Forgotten master password: a user with their 24-word recovery key needs a
 one-time recovery code. With SMTP configured, courier-ftp requests it by
@@ -228,6 +235,9 @@ device of the account.
 GC runs every `COURIER_GC_INTERVAL_HOURS` (default daily); with `0`, run
 `admin gc` from cron. Purging tombstones makes devices that were offline
 longer than `COURIER_TOMBSTONE_HORIZON_DAYS` do a full resync.
+GC also discards key rotations of team vaults abandoned for 15 minutes
+(pushes to such a vault are paused until then; a `manage` member can also
+restart the rotation).
 
 ## 8. Backups and upgrades
 

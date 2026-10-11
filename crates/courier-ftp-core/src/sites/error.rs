@@ -45,6 +45,17 @@ pub enum SiteError {
     /// Moving an entry into a folder of another vault (team vaults, T89).
     #[error("moving between vaults is not supported")]
     CrossVault,
+    /// A team vault site that logs in with an SSH key from another vault
+    /// (T89 §6): each member sets their own key as a credential override.
+    #[error(
+        "a team vault site can't use an SSH key from another vault; set your own key as a \
+         personal credential override instead"
+    )]
+    CrossVaultKey,
+    /// A credential override for a site that is not in a team vault, or
+    /// naming a key outside the personal vault.
+    #[error("credential overrides are for team vault sites and use keys of your personal vault")]
+    NotShared,
 }
 
 fn describe(issues: &[SiteIssue]) -> String {

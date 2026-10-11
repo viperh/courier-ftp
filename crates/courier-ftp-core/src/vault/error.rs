@@ -6,7 +6,7 @@ use std::time::Duration;
 use courier_ftp_crypto::CryptoError;
 
 use super::password::WeakPassword;
-use crate::model::item::{ItemId, ItemKind};
+use crate::model::item::{ItemId, ItemKind, VaultId};
 
 /// Everything that can go wrong with the vault. Carries no secrets.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -49,6 +49,10 @@ pub enum VaultError {
     /// The item was written by a newer courier-ftp and must not be modified.
     #[error("item {0} was written by a newer courier-ftp and is read-only")]
     ReadOnlyItem(ItemId),
+    /// This account has read-only access to the team vault (T89): its items
+    /// can't be edited and nothing can be added to it.
+    #[error("you have read-only access to vault {}", .0.short())]
+    ReadOnlyVault(VaultId),
     /// An existing item has another kind than the write expected.
     #[error("item {id} is a {found}, not a {expected}")]
     WrongKind {

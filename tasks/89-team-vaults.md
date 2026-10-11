@@ -54,12 +54,27 @@ encrypted, with member verification and key rotation when someone leaves.
 
 ## Acceptance criteria
 
-- [ ] Owner creates a team, invites a member, member accepts and sees shared sites.
-- [ ] Read-only member can connect but not edit.
-- [ ] Removing a member rotates the key; removed member can't decrypt new changes.
-- [ ] Changed member key blocks grants until accepted.
-- [ ] Rotation resumes after a crash.
+- [x] Owner creates a team, invites a member, member accepts and sees shared sites.
+- [x] Read-only member can connect but not edit.
+- [x] Removing a member rotates the key; removed member can't decrypt new changes.
+- [x] Changed member key blocks grants until accepted.
+- [x] Rotation resumes after a crash.
 
 ## Tests
 
 - Multi-user integration tests against the in-process server.
+
+## Status
+
+- Done: server (`/v1/orgs`, members, invites incl. at registration, audit,
+  `/v1/users/{id}/public-keys`, `POST /v1/vaults`, vault members/grants/revoke,
+  `/v1/vaults/{id}/rotate`, abandoned rotations discarded by `admin gc` and the
+  background GC), sync client (`courier_ftp_sync::teams::Teams`, trust pins and
+  safety numbers, grant verification, team-vault adoption/removal in the engine,
+  rotation with resume), read-only vaults in the vault engine, credential
+  overrides in `SiteManager` (T31 part of §6), copy/move between vaults.
+- Tests: `courier-ftp-server/tests/teams.rs` (`*_mem` and `*_pg`, the PG twins
+  were also run locally against PostgreSQL 16), `courier-ftp-sync/tests/teams.rs`,
+  `courier-ftp-core` `sites::tests` (overrides).
+- UI parts (lock icon and disabled fields for read-only items, key-change warning
+  dialog, Settings → Teams screens, override editor, "copy to vault") are T90.

@@ -110,6 +110,13 @@ pub trait ItemVault: Send + Sync + fmt::Debug {
     /// # Errors
     /// As [`ItemVault::put`].
     async fn delete(&self, id: ItemId) -> Result<bool, VaultError>;
+
+    /// The personal vault's id, when known (new items with `vault: None`
+    /// go there). Team vaults (T89) are every other vault. The default
+    /// knows none.
+    async fn personal_vault(&self) -> Option<VaultId> {
+        None
+    }
 }
 
 /// Typed helpers on top of [`ItemVault`].

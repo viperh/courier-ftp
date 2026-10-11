@@ -1,6 +1,6 @@
 //! `/v1/vaults`: vault list, pull and push (T85): request extraction and
-//! the post-commit notification. Team vault creation (`POST /v1/vaults`),
-//! members and rotation are T89.
+//! the post-commit notification. `POST /v1/vaults` (team vault creation) is
+//! `super::shared_vaults::create`.
 
 use axum::extract::{Path, Query, State};
 use axum::routing::get;
@@ -19,7 +19,7 @@ use crate::sync::{pull, push, rev_from_wire};
 /// `/vaults` routes (nested under `/v1`).
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/vaults", get(list))
+        .route("/vaults", get(list).post(super::shared_vaults::create))
         .route("/vaults/{id}/changes", get(pull_changes).post(push_changes))
 }
 
@@ -82,6 +82,15 @@ async fn push_changes(
         metrics::counter!(SYNC_PUSH_ITEMS_TOTAL).increment(accepted);
         metrics::counter!(SYNC_PUSH_BYTES_TOTAL).increment(bytes);
         tracing::debug!(%vault_id, head, accepted, "push committed");
+        // Item-level audit of shared vaults (ids only).
+        let ids: Vec<Uuid> = req
+            .changes
+            .iter()
+            .zip(&outcome.results)
+            .filter(|(_, r)| r.revision.is_some())
+            .map(|(c, _)| c.id)
+            .collect();
+        super::shared_vaults::audit_push(&state, ctx.user_id, vault_id, &ids).await;
     }
     Ok(Json(PushResponse {
         results: outcome.results,

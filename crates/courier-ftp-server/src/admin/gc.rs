@@ -5,7 +5,8 @@
 //! * tombstones older than `COURIER_TOMBSTONE_HORIZON_DAYS`, raising
 //!   `vaults.gc_floor_revision` (pulls below it get `410 gone`).
 //!
-//! Abandoned key rotations are discarded by T89.
+//! * key rotations abandoned for 15 minutes, with their staged items
+//!   ([`crate::sync::rotation`]).
 
 use sqlx_postgres::PgPool;
 
@@ -26,6 +27,8 @@ pub struct GcReport {
     pub purged_tombstones: u64,
     /// Vaults whose GC floor was raised.
     pub gc_floor_vaults: u64,
+    /// Abandoned key rotations discarded.
+    pub abandoned_rotations: u64,
 }
 
 /// Runs every GC step.
@@ -37,11 +40,13 @@ pub async fn run(pool: &PgPool, config: &Config) -> Result<GcReport, AdminError>
     let purged = AuthStore::Postgres(pool.clone()).purge_expired(now).await?;
     let cutoff = crate::sync::gc::cutoff(now, config.limits.tombstone_horizon_days);
     let tombstones = crate::sync::gc::pg_purge_tombstones(pool, cutoff).await?;
+    let abandoned = crate::sync::rotation::pg_discard_abandoned(pool, now).await?;
     Ok(GcReport {
         expired_tokens: purged.tokens,
         expired_other: purged.other,
         expired_invites: purged.invites,
         purged_tombstones: tombstones.purged_tombstones,
         gc_floor_vaults: tombstones.vaults,
+        abandoned_rotations: abandoned.len() as u64,
     })
 }

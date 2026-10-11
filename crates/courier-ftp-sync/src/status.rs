@@ -111,8 +111,29 @@ pub enum SyncEvent {
         field: &'static str,
     },
     /// This account's access to a vault was granted, revoked or its key
-    /// rotated (`vault_access`); the vault list was refreshed.
+    /// rotated (`vault_access`), or its permission changed; the vault list
+    /// was refreshed.
     VaultAccess {
+        /// The vault.
+        vault: VaultId,
+    },
+    /// A team vault shared with the account was verified and added to this
+    /// device (T89): add it to the Site Manager roots.
+    VaultAdded {
+        /// The vault.
+        vault: VaultId,
+        /// Its name, when it opens.
+        name: Option<String>,
+    },
+    /// A team vault was removed from this device (access revoked, org left).
+    VaultRemoved {
+        /// The vault.
+        vault: VaultId,
+    },
+    /// A key rotation of a vault this account manages was abandoned (15
+    /// minutes): pushes stay paused until a `manage` member restarts it
+    /// (`Teams::rotate`).
+    RotationAbandoned {
         /// The vault.
         vault: VaultId,
     },

@@ -43,6 +43,17 @@ pub mod keys {
     /// UNIX ms of the last sync cycle that finished without an error (T88),
     /// as decimal text.
     pub const SYNC_LAST_OK: &str = "sync_last_ok";
+    /// Prefix of the per-vault read-only marks (T89):
+    /// `vault_read_only/<vault uuid>` = `1` while this account has only
+    /// `read` on that team vault. Written by the sync engine from the vault
+    /// list, read by the vault engine on unlock (so the 🔒 shows offline).
+    pub const VAULT_READ_ONLY_PREFIX: &str = "vault_read_only/";
+
+    /// The read-only mark key of `vault`.
+    #[must_use]
+    pub fn vault_read_only(vault: courier_ftp_core::model::item::VaultId) -> String {
+        format!("{VAULT_READ_ONLY_PREFIX}{}", vault.uuid())
+    }
 }
 
 impl ReadTx<'_> {
