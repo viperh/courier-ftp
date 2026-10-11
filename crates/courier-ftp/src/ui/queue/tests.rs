@@ -22,6 +22,7 @@ use super::{QueuePane, RunState};
 const RUN: RunState = RunState {
     processing: true,
     paused: false,
+    after: None,
 };
 use crate::{
     action::Action,

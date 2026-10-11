@@ -184,6 +184,9 @@ pub(crate) struct MainScreen {
     /// The transfer engine's state (processing, paused), once the app runs
     /// one.
     engine_status: Option<tokio::sync::watch::Receiver<courier_ftp_core::transfer::EngineStatus>>,
+    /// The one-shot action after the queue finishes, for the queue pane
+    /// (T45).
+    queue_after: Option<&'static str>,
     quickconnect: Quickconnect,
     modals: Vec<Box<dyn Modal>>,
     tick: u64,
@@ -301,6 +304,7 @@ impl MainScreen {
             log,
             queue,
             engine_status: None,
+            queue_after: None,
             quickconnect: Quickconnect::new().with_unicode(unicode),
             modals: Vec::new(),
             tick: 0,
@@ -367,6 +371,12 @@ impl MainScreen {
     /// The queue the pane shows (shared with the engine and persister).
     pub(crate) fn queue_shared(&self) -> &courier_ftp_core::queue::SharedQueue {
         self.queue.shared()
+    }
+
+    /// Show the one-shot action after the queue finishes in the queue
+    /// pane's bottom line (`None`: the setting applies).
+    pub(crate) fn set_queue_after(&mut self, after: Option<&'static str>) {
+        self.queue_after = after;
     }
 
     /// Follow the transfer engine's status (processing, paused).
@@ -1856,6 +1866,7 @@ impl MainScreen {
                 super::queue::RunState {
                     processing,
                     paused: status.paused,
+                    after: self.queue_after,
                 },
                 theme,
                 now,

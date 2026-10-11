@@ -95,6 +95,8 @@ pub(crate) struct App {
     update_cancel: CancellationToken,
     /// File operations in progress (T62).
     file_ops: file_ops::FileOps,
+    /// The action after the queue finishes (T45).
+    completion: completion::Completion,
 }
 
 /// The remote pane's connection (one tab until T61).
@@ -291,6 +293,7 @@ impl App {
             update_opt_out: false,
             update_cancel: CancellationToken::new(),
             file_ops: file_ops::FileOps::default(),
+            completion: completion::Completion::default(),
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -443,6 +446,7 @@ impl App {
         }
         self.transfer_action(&action);
         self.file_op_action(&action);
+        self.completion_action(&action);
         match &action {
             Action::Tick => {
                 self.expire_splash(Instant::now());
@@ -1493,12 +1497,15 @@ async fn first_listing(
     handle.list(&home, cancel).await
 }
 
+mod completion;
 mod file_ops;
 mod settings;
 pub(crate) use file_ops::FileOpMsg;
 
 #[cfg(test)]
 mod bookmark_tests;
+#[cfg(test)]
+mod completion_tests;
 #[cfg(test)]
 mod file_op_tests;
 #[cfg(test)]

@@ -159,6 +159,7 @@ When the transfer queue has focus.
 | `<PageUp>` | PageUp |
 | `<minus>` | PriorityDown |
 | `<+>` | PriorityUp |
+| `<a>` | QueueAfterMenu |
 | `<C>` | QueueClear |
 | `<e>` | QueueExistsMenu |
 | `<s>` | QueueGroupByServer |

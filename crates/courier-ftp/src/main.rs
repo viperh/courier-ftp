@@ -15,6 +15,7 @@ mod backends;
 mod bookmarks;
 mod cli;
 mod clipboard;
+mod completion;
 mod config;
 mod diagnostics;
 mod errors;

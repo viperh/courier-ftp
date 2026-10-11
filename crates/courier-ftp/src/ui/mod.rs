@@ -42,6 +42,7 @@ pub(crate) use screen::{KeyOutcome, MainScreen};
 pub(crate) use splash::MAX_SHOWN as SPLASH_MAX_SHOWN;
 #[cfg(feature = "sync")]
 pub(crate) use status::SyncLevel;
+pub(crate) use status::human_bytes;
 pub(crate) use text_viewer::TextViewer;
 pub(crate) use theme::Theme;
 #[cfg(test)]

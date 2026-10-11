@@ -178,6 +178,7 @@
       "<PageUp>": "PageUp",
       "<Space>": "QueueToggleItem",
       "<Up>": "CursorUp",
+      "<a>": "QueueAfterMenu",
       "<b>": "MoveItemBottom",
       "<e>": "QueueExistsMenu",
       "<g><g>": "Top",

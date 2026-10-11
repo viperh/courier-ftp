@@ -171,7 +171,7 @@ async fn upload_and_download_through_the_engine() {
     let text = screen_text(&mut app, 120, 40);
     assert!(text.contains("Successful transfers (2)"), "{text}");
     assert!(
-        text.contains("Queue finished: 1 file transferred"),
+        text.contains("Queue finished: 1 file, 21 B transferred"),
         "{text}"
     );
     app.transfers.shutdown().await;
