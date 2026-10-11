@@ -1501,6 +1501,7 @@ mod transfers;
 mod update;
 #[cfg(test)]
 mod update_tests;
+mod wizard;
 
 #[cfg(test)]
 mod settings_tests;

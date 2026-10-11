@@ -92,7 +92,7 @@ fn field(label: &'static str, value: impl Into<String>) -> Item {
 
 /// Break `text` into lines of at most `width` characters, at spaces when
 /// possible.
-fn wrap(text: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {

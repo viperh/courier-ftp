@@ -99,6 +99,8 @@ pub(crate) enum Command {
     ChangePassword,
     ToggleKeyring,
     LockNow,
+    /// Open the network configuration wizard (T72).
+    NetworkWizard,
 }
 
 pub(crate) enum RowKind {
@@ -501,6 +503,11 @@ fn ftp(s: &Settings) -> Vec<Row> {
             "The command sent to keep an idle FTP connection open.",
             &labels(&KEEPALIVE_COMMANDS),
             pos(&KEEPALIVE_COMMANDS, &f.send_keepalive_command.as_str()),
+        ),
+        button(
+            Command::NetworkWizard,
+            "Network configuration wizard…",
+            "Set up passive and active mode step by step and test them against a server.",
         ),
     ]
 }
