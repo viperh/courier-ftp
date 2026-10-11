@@ -230,3 +230,8 @@ the section matching the tag.
 - Network configuration wizard (T72, Settings → FTP): set up passive and
   active mode step by step and test them against a saved site or an address,
   with a ✔/✘ and a suggested fix for every step.
+- Settings import/export (T73): Settings → Import/Export moves a whole setup
+  between machines as an encrypted .cftp-backup (settings, sites and bookmarks
+  with optional passwords, history, trusted host keys and certificates,
+  transfer queue) or a plain settings JSON without secrets; imports can be
+  partial, and the first-run and Forgot-password screens can restore a backup.
