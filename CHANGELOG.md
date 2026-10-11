@@ -223,3 +223,7 @@ the section matching the tag.
   log in on another device with a duplicate preview, manage devices, change
   the password, enable TOTP, recover and log out; sync status in the status
   bar; vault recovery through the sync account on the Forgot-password page.
+- Search screen (T65): local and remote file search with FileZilla-style
+  conditions, live results as they are found, cancel, and result actions
+  (download or upload keeping the folder structure or flattened, delete with
+  confirmation, open the folder in the file list).

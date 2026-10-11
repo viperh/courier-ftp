@@ -70,6 +70,9 @@ pub(crate) struct ServerConfig {
     pub(crate) pasv_ip: Option<Ipv4Addr>,
     /// `PASV`/`EPSV` announce a port nobody listens on.
     pub(crate) pasv_dead_port: bool,
+    /// Active mode connections fail like a blocked port: the transfer
+    /// command gets `425` (as vsftpd answers) and nothing connects.
+    pub(crate) active_blocked: bool,
     pub(crate) rest_stream: bool,
     pub(crate) mfmt: bool,
     /// `SITE CHMOD` works (else `500`).
@@ -99,6 +102,7 @@ impl Default for ServerConfig {
             refuse_eprt: false,
             pasv_ip: None,
             pasv_dead_port: false,
+            active_blocked: false,
             rest_stream: true,
             mfmt: true,
             chmod: true,
@@ -835,6 +839,11 @@ impl Session {
     async fn open_data(&mut self) -> Option<BoxIo> {
         if self.passive.is_none() && self.active.is_none() {
             self.send("425 Use PORT or PASV first.").await;
+            return None;
+        }
+        if self.active.is_some() && self.config.active_blocked {
+            self.active = None;
+            self.send("425 Failed to establish connection.").await;
             return None;
         }
         if !self.send("150 Opening data connection.").await {

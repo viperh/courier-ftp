@@ -32,6 +32,7 @@ use ratatui::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+pub(super) use self::editor::CondRow;
 use self::editor::{EditorOutcome, FilterEditor};
 use super::{
     dialog::{ButtonRow, Checkbox, Field, FieldOutcome, FieldValue, Select, TextInput},

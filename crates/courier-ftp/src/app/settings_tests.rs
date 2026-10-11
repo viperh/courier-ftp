@@ -478,3 +478,73 @@ async fn transfer_and_queue_settings_apply_to_the_running_engine() {
     // The engine is still running and took the change.
     assert!(app.transfers.engine.settings_changed(new));
 }
+
+/// T72: the network configuration wizard through the app: the test runs
+/// for real (against a closed local port, so it reports the failed login
+/// without contacting anything else) and *Apply* writes the settings.
+#[tokio::test]
+async fn the_network_wizard_tests_and_writes_the_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = mock_app(dir.path());
+    app.dispatch(Action::Settings).unwrap();
+    pump(&mut app);
+    go_to(&mut app, Section::Ftp);
+    press(&mut app, KeyCode::Enter);
+    // The wizard button is the FTP page's last row.
+    for _ in 0..8 {
+        press(&mut app, KeyCode::Tab);
+    }
+    press(&mut app, KeyCode::Enter);
+    assert!(view(&app).wizard().is_some());
+    pump(&mut app);
+    for _ in 0..3 {
+        chord(&mut app, 'n', KeyModifiers::ALT);
+    }
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Tab);
+    typed(&mut app, &format!("ftp://bob@127.0.0.1:{port}"));
+    // No password: refused before connecting.
+    chord(&mut app, 'r', KeyModifiers::ALT);
+    wait_for(&mut app, "the password problem", |a| {
+        view(a).wizard().is_some_and(|w| !w.is_testing())
+    })
+    .await;
+    assert!(
+        view(&app)
+            .wizard()
+            .unwrap()
+            .report()
+            .is_some_and(|r| r.steps.is_empty())
+    );
+    press(&mut app, KeyCode::Tab);
+    typed(&mut app, "pw");
+    chord(&mut app, 'r', KeyModifiers::ALT);
+    wait_for(&mut app, "the test", |a| {
+        view(a).wizard().is_some_and(|w| !w.is_testing())
+    })
+    .await;
+    let report = view(&app).wizard().unwrap().report().unwrap().clone();
+    assert_eq!(report.steps.len(), 5, "{report:#?}");
+    assert_eq!(
+        report.steps[0].status,
+        courier_ftp_proto_ftp::probe::StepStatus::Failed
+    );
+    // Summary: active mode; Apply saves and applies it.
+    chord(&mut app, 'n', KeyModifiers::ALT);
+    press(&mut app, KeyCode::Right);
+    chord(&mut app, 'a', KeyModifiers::ALT);
+    wait_for(&mut app, "the save", |a| {
+        a.settings.ftp.transfer_mode == courier_ftp_core::settings::FtpTransferMode::Active
+    })
+    .await;
+    assert!(view(&app).wizard().is_none());
+    let doc: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("config.json")).unwrap())
+            .unwrap();
+    assert_eq!(doc["settings"]["ftp"], json!({"transfer_mode": "active"}));
+}

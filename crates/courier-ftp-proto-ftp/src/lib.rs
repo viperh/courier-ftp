@@ -3,7 +3,8 @@
 //! Implements `courier_ftp_core::backend::Backend` for FTP, explicit FTPS and
 //! implicit FTPS: the control connection (T10), data connections and transfer
 //! modes (T11), TLS through rustls (T12), directory listing parsers (T13), the
-//! backend operations (T14) and FTP proxies (T15).
+//! backend operations (T14), FTP proxies (T15) and the network
+//! configuration wizard's test (T72, [`probe`]).
 //!
 //! This crate never depends on `ratatui`, `crossterm` or `clap`.
 
@@ -11,6 +12,7 @@ pub mod backend;
 pub mod control;
 pub mod data;
 pub mod listing;
+pub mod probe;
 pub mod proxy;
 pub mod tls;
 

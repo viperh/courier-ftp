@@ -404,6 +404,16 @@ pub(crate) enum Action {
     /// The answer to a settings screen request.
     #[serde(skip)]
     SettingsReply(Shared<crate::ui::settings::SettingsReply>),
+    /// The search view asks for something (T65).
+    #[serde(skip)]
+    SearchRequest(Shared<crate::ui::search::SearchRequest>),
+    /// News from search `run` (results, progress, the end, deletions);
+    /// dropped when another search started since.
+    #[serde(skip)]
+    SearchUpdate {
+        run: u64,
+        update: Shared<crate::ui::search::SearchUpdate>,
+    },
     /// A connection attempt started by [`Action::Connect`] finished.
     #[serde(skip)]
     Connected {

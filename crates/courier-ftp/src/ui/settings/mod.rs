@@ -12,10 +12,15 @@
 //! app as requests, answered with a [`SettingsReply`].
 //!
 //! Keys are fixed, like the dialogs': see [`HINTS`].
+//!
+//! The FTP page opens the network configuration wizard ([`wizard`], T72)
+//! over the screen. Its *Apply* saves only the `ftp.*` settings it set;
+//! other unsaved edits stay unsaved.
 
 mod pages;
 #[cfg(test)]
 mod tests;
+pub(crate) mod wizard;
 
 use std::collections::HashMap;
 
@@ -37,6 +42,7 @@ use tokio::sync::oneshot;
 
 pub(crate) use pages::Section;
 use pages::{Command, Ctx, Page, RowKind, SECTIONS};
+use wizard::{NetworkWizard, WizardOutcome, WizardReply, WizardRequest};
 
 use super::{
     dialog::{ButtonRow, FieldOutcome, Form, FormDialog, TextInput, confirm, message},
@@ -129,6 +135,8 @@ pub(crate) enum SettingsRequest {
     },
     SetKeyring(bool),
     LockNow,
+    /// The network configuration wizard needs something (T72).
+    Wizard(WizardRequest),
     /// Open the sync panel over the settings screen (T90).
     OpenSync,
 }
@@ -147,6 +155,8 @@ pub(crate) enum SettingsReply {
         certs: Trust<TrustedCertificate>,
     },
     Security(SecurityInfo),
+    /// For the network configuration wizard.
+    Wizard(WizardReply),
 }
 
 /// Which part of the screen has the keys.
@@ -193,6 +203,10 @@ pub(crate) struct SettingsView {
     message: Option<(String, bool)>,
     /// A save is running: the draft it saves, and whether to close after.
     saving: Option<(Box<Settings>, bool)>,
+    /// The running save includes the typed proxy passwords.
+    saving_passwords: bool,
+    /// The network configuration wizard, when open.
+    wizard: Option<Box<NetworkWizard>>,
     closed: bool,
 }
 
@@ -217,6 +231,8 @@ impl SettingsView {
             requests: Vec::new(),
             message: None,
             saving: None,
+            saving_passwords: false,
+            wizard: None,
             closed: false,
         };
         view.rebuild();
@@ -303,7 +319,9 @@ impl SettingsView {
                     self.saved = *settings;
                     self.closed = close;
                 }
-                self.proxy_passwords.clear();
+                if std::mem::take(&mut self.saving_passwords) {
+                    self.proxy_passwords.clear();
+                }
                 self.message = Some(("Settings saved".to_owned(), false));
                 self.rebuild_keep_focus();
             }
@@ -325,7 +343,73 @@ impl SettingsView {
                     self.rebuild_keep_focus();
                 }
             }
+            SettingsReply::Wizard(reply) => {
+                if let Some(w) = self.wizard.as_mut() {
+                    w.apply_reply(reply.clone());
+                }
+                self.pump_wizard();
+            }
         }
+    }
+
+    /// The wizard, when open.
+    #[cfg(test)]
+    pub(crate) fn wizard(&self) -> Option<&NetworkWizard> {
+        self.wizard.as_deref()
+    }
+
+    fn open_wizard(&mut self) {
+        self.refresh();
+        self.wizard = Some(Box::new(NetworkWizard::new(&self.draft)));
+        self.pump_wizard();
+    }
+
+    /// Pass the wizard's requests on and handle how it ended.
+    fn pump_wizard(&mut self) {
+        let Some(w) = self.wizard.as_mut() else {
+            return;
+        };
+        let requests = w.take_requests();
+        let outcome = w.take_outcome();
+        self.requests
+            .extend(requests.into_iter().map(SettingsRequest::Wizard));
+        match outcome {
+            None => {}
+            Some(WizardOutcome::Cancel) => self.wizard = None,
+            Some(WizardOutcome::Apply(ftp)) => {
+                self.wizard = None;
+                self.save_network(ftp);
+            }
+        }
+    }
+
+    /// The wizard's *Apply*: the `ftp.*` settings go into the draft and are
+    /// saved on their own (other unsaved edits stay unsaved).
+    fn save_network(&mut self, ftp: courier_ftp_core::settings::FtpSettings) {
+        self.draft.ftp = ftp.clone();
+        if self.section == Section::Ftp {
+            self.rebuild_keep_focus();
+        }
+        if self.saving.is_some() {
+            self.message = Some((
+                "A save is running; save again (Ctrl+S) to keep the network settings".to_owned(),
+                true,
+            ));
+            return;
+        }
+        let mut settings = self.saved.clone();
+        settings.ftp = ftp;
+        if settings == self.saved {
+            self.message = Some(("The network settings are unchanged".to_owned(), false));
+            return;
+        }
+        let settings = Box::new(settings);
+        self.saving = Some((settings.clone(), false));
+        self.saving_passwords = false;
+        self.requests.push(SettingsRequest::Save {
+            settings,
+            proxy_passwords: Vec::new(),
+        });
     }
 
     // ---- page state
@@ -479,6 +563,7 @@ impl SettingsView {
             .collect();
         proxy_passwords.sort_by_key(|(t, _)| *t == ProxyTarget::Ftp);
         self.saving = Some((settings.clone(), close));
+        self.saving_passwords = true;
         self.requests.push(SettingsRequest::Save {
             settings,
             proxy_passwords,
@@ -570,6 +655,7 @@ impl SettingsView {
                 }
             }
             Command::LockNow => self.requests.push(SettingsRequest::LockNow),
+            Command::NetworkWizard => self.open_wizard(),
             Command::OpenSync => self.requests.push(SettingsRequest::OpenSync),
         }
     }
@@ -691,6 +777,10 @@ impl SettingsView {
     // ---- keys
 
     pub(crate) fn handle_paste(&mut self, text: &str) {
+        if let Some(w) = self.wizard.as_mut() {
+            w.handle_paste(text);
+            return;
+        }
         if let Some(o) = self.overlay.as_mut() {
             o.modal.handle_paste(text);
             return;
@@ -704,6 +794,11 @@ impl SettingsView {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
+        if let Some(w) = self.wizard.as_mut() {
+            w.handle_key(key);
+            self.pump_wizard();
+            return;
+        }
         if let Some(o) = self.overlay.as_mut() {
             if o.modal.handle_key(key) == ModalOutcome::Close
                 && let Some(o) = self.overlay.take()
@@ -884,6 +979,9 @@ impl SettingsView {
         );
         if let Some(o) = self.overlay.as_mut() {
             o.modal.draw(frame, area, theme);
+        }
+        if let Some(w) = &self.wizard {
+            w.draw(frame, area, theme);
         }
     }
 

@@ -67,7 +67,7 @@ fn parse_response(response: &[u8]) -> Result<IpAddr> {
 }
 
 /// Fetch the external address from `url`.
-pub(super) async fn fetch(
+pub(crate) async fn fetch(
     url: &str,
     opts: &DataOptions,
     cancel: &CancellationToken,

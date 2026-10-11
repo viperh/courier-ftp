@@ -7,7 +7,7 @@
 //! arrives ([`FileList::listing_loaded`]); a failed listing leaves the pane in
 //! the directory it was in.
 
-mod format;
+pub(super) mod format;
 mod sort;
 
 use std::collections::{HashMap, HashSet};
@@ -545,6 +545,17 @@ impl FileList {
             return None;
         }
         self.navigate(dir, None, History::Push, false)
+    }
+
+    /// Go to `dir` and put the cursor on `name` (a search result, T65).
+    pub(crate) fn go_to_entry(&mut self, dir: RemotePath, name: String) -> Option<Effect> {
+        if self.dir.as_ref() == Some(&dir) && !self.busy {
+            if let Some(row) = self.row_of(&name) {
+                self.cursor = row;
+            }
+            return None;
+        }
+        self.navigate(dir, Some(name), History::Push, false)
     }
 
     /// Ask for a listing of `dir`; it is applied when it arrives.
