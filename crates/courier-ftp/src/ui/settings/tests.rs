@@ -145,7 +145,10 @@ fn snapshot_of_every_section() {
                 .collect::<Vec<_>>()
                 .join("\n");
         }
-        let name = format!("section_{section:?}").to_lowercase();
+        let mut name = format!("section_{section:?}").to_lowercase();
+        if section == Section::Sync && !cfg!(feature = "sync") {
+            name.push_str("_without_feature");
+        }
         insta::assert_snapshot!(name, text);
     }
 }

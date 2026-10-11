@@ -60,6 +60,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-s>` | SiteManager |
 | `<Ctrl-x><g>` | SitePicker |
 | `<Ctrl-z>` | Suspend |
+| `<Ctrl-x><y>` | SyncPanel |
 | `<Alt-1>` | Tab1 |
 | `<Alt-2>` | Tab2 |
 | `<Alt-3>` | Tab3 |

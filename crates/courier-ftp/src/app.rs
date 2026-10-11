@@ -212,6 +212,13 @@ impl App {
             &self.settings.vault,
             self.vault_tx.clone(),
         ));
+        #[cfg(feature = "sync")]
+        if let Some(vault) = self.vault.as_mut() {
+            vault.sync = Some(crate::sync::SyncCtl::new(
+                self.action_tx.clone(),
+                &self.settings,
+            ));
+        }
         let unicode = crate::ui::unicode_symbols(&self.settings);
         self.screen.set_vault_view(VaultView::opening(unicode));
         self.screen.set_vault_locked(true);
@@ -393,6 +400,8 @@ impl App {
             for request in self.screen.take_vault_requests() {
                 self.vault_request(request);
             }
+            #[cfg(feature = "sync")]
+            self.drain_sync_requests();
             for next in self.screen.take_actions() {
                 self.action_tx.send(next)?;
             }
@@ -479,6 +488,18 @@ impl App {
                 });
             }
             Action::SiteManager => self.open_site_manager(None),
+            #[cfg(feature = "sync")]
+            Action::SyncPanel => self.open_sync_panel(),
+            #[cfg(not(feature = "sync"))]
+            Action::SyncPanel => self
+                .screen
+                .flash("This build of courier-ftp has no sync support"),
+            #[cfg(feature = "sync")]
+            Action::Sync(msg) => {
+                if let Some(msg) = msg.0.take() {
+                    self.sync_message(msg);
+                }
+            }
             Action::Bookmarks => self.open_bookmarks(),
             Action::BookmarkOp(op) => self.bookmark_op((*op.0).clone()),
             Action::BookmarksReply(reply) => {
@@ -1002,6 +1023,12 @@ impl App {
                 );
             }
             VaultRequest::Quit => self.should_quit = true,
+            #[cfg(feature = "sync")]
+            request @ (VaultRequest::SendRecoveryCode { .. } | VaultRequest::Recover { .. }) => {
+                self.vault_sync_request(request);
+            }
+            #[cfg(not(feature = "sync"))]
+            VaultRequest::SendRecoveryCode { .. } | VaultRequest::Recover { .. } => {}
         }
     }
 
@@ -1034,6 +1061,10 @@ impl App {
                 }
                 if keyring_first {
                     vault.unlock_with_keyring();
+                }
+                #[cfg(feature = "sync")]
+                if status.sync_account && status.state == VaultState::Locked {
+                    self.sync_recovery_defaults();
                 }
                 if status.state == VaultState::Unlocked {
                     self.vault_unlocked(None);
@@ -1170,6 +1201,8 @@ impl App {
             return;
         };
         vault.lock();
+        #[cfg(feature = "sync")]
+        self.sync_locked();
         self.transfers.resolver.forget_passwords();
         self.history = None;
         self.site_snapshot = None;
@@ -1481,6 +1514,10 @@ mod update_tests;
 mod settings_tests;
 #[cfg(test)]
 mod site_tests;
+#[cfg(test)]
+mod sync_tests;
+#[cfg(feature = "sync")]
+mod sync_ui;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

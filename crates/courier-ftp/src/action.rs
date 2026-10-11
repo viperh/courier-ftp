@@ -128,6 +128,10 @@ pub(crate) enum Action {
     LockVault,
     /// Show the unlock view after "Continue without vault" (T60).
     UnlockVault,
+    /// The device sync panel (T90): status, "sync now", the account and
+    /// devices screens, or the wizard that connects this device to a sync
+    /// server. Builds without the `sync` feature say so.
+    SyncPanel,
 
     // --- focus ---
     /// `Tab`: switch between the two file lists (Midnight Commander style).
@@ -360,6 +364,11 @@ pub(crate) enum Action {
     /// The quickconnect history was (re)loaded from the vault.
     #[serde(skip)]
     HistoryLoaded(Vec<crate::ui::HistoryItem>),
+    /// A sync background call finished or the sync engine reported
+    /// something (T90).
+    #[cfg(feature = "sync")]
+    #[serde(skip)]
+    Sync(Shared<crate::sync::Once<crate::sync::SyncMsg>>),
     /// The Site Manager screen asks for an operation (T59).
     #[serde(skip)]
     SiteOp(Shared<crate::sites::SiteOp>),
@@ -449,8 +458,14 @@ impl Eq for ConnectRequest {}
 /// A value carried by an action that can't be compared or serialized (a
 /// background task's request or result). Two `Shared` values are equal only
 /// when they are the same allocation.
-#[derive(Clone)]
 pub(crate) struct Shared<T>(pub(crate) std::sync::Arc<T>);
+
+// By hand: cloning shares the allocation, so `T` needn't be `Clone`.
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self(std::sync::Arc::clone(&self.0))
+    }
+}
 
 impl<T> Shared<T> {
     pub(crate) fn new(value: T) -> Self {

@@ -153,6 +153,18 @@ impl App {
                     self.settings_reply(SettingsReply::Failed("The vault is locked".to_owned()));
                     return;
                 };
+                // With a sync account the master password is the account
+                // password: it changes on the server (and may need a TOTP
+                // code), through the sync panel (T90).
+                #[cfg(feature = "sync")]
+                if self.sync_account_active() {
+                    self.settings_reply(SettingsReply::Failed(
+                        "This device uses a sync account: change the password in Sync → \
+                         Account, devices and recovery → Account, so your other devices follow"
+                            .to_owned(),
+                    ));
+                    return;
+                }
                 let (old, new) = (old.clone(), new.clone());
                 let tx = self.action_tx.clone();
                 tokio::spawn(async move {
@@ -188,6 +200,10 @@ impl App {
                         info,
                     ))));
                 });
+            }
+            SettingsRequest::OpenSync => {
+                #[cfg(feature = "sync")]
+                self.open_sync_panel();
             }
             SettingsRequest::LockNow => {
                 if self.unlocked_engine().is_some() {
@@ -287,6 +303,10 @@ impl App {
             self.cache.configure(&new.cache);
         }
         if let Some(vault) = &mut self.vault {
+            #[cfg(feature = "sync")]
+            if let Some(sync) = vault.sync.as_mut() {
+                sync.settings_changed(&new.sync);
+            }
             vault.configure(&new.vault);
             vault.set_ftp_proxy_ref(ftp_proxy_ref(&new));
         }

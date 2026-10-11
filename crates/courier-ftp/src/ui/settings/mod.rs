@@ -129,6 +129,8 @@ pub(crate) enum SettingsRequest {
     },
     SetKeyring(bool),
     LockNow,
+    /// Open the sync panel over the settings screen (T90).
+    OpenSync,
 }
 
 /// The app's answer to a [`SettingsRequest`].
@@ -568,6 +570,7 @@ impl SettingsView {
                 }
             }
             Command::LockNow => self.requests.push(SettingsRequest::LockNow),
+            Command::OpenSync => self.requests.push(SettingsRequest::OpenSync),
         }
     }
 

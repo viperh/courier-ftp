@@ -229,6 +229,13 @@ pub(crate) struct MainScreen {
     splash: Option<Splash>,
     /// "Update available: …" (T74), shown at the top of Help.
     update_notice: Option<String>,
+    /// The sync screens (T90), when open. They cover the panes like the
+    /// Site Manager.
+    #[cfg(feature = "sync")]
+    sync_view: Option<super::sync::SyncView>,
+    /// What the sync screens asked for, taken by the app after each key.
+    #[cfg(feature = "sync")]
+    sync_requests: Vec<super::sync::SyncRequest>,
 }
 
 /// Synchronized browsing / comparison to turn on once the panes show a
@@ -317,6 +324,10 @@ impl MainScreen {
             bookmark_modes: None,
             splash: None,
             update_notice: None,
+            #[cfg(feature = "sync")]
+            sync_view: None,
+            #[cfg(feature = "sync")]
+            sync_requests: Vec::new(),
         }
     }
 
@@ -525,6 +536,56 @@ impl MainScreen {
         self.sites = None;
     }
 
+    /// Open the sync screens (replacing ones already open).
+    #[cfg(feature = "sync")]
+    pub(crate) fn open_sync_view(&mut self, view: super::sync::SyncView) {
+        self.sync_view = Some(view);
+        self.pump_sync();
+    }
+
+    /// The sync screens, when open.
+    #[cfg(feature = "sync")]
+    pub(crate) fn sync_view_mut(&mut self) -> Option<&mut super::sync::SyncView> {
+        self.sync_view.as_mut()
+    }
+
+    /// The sync screens, when open.
+    #[cfg(all(test, feature = "sync"))]
+    pub(crate) fn sync_view(&self) -> Option<&super::sync::SyncView> {
+        self.sync_view.as_ref()
+    }
+
+    /// Close the sync screens (vault locked).
+    #[cfg(feature = "sync")]
+    pub(crate) fn close_sync_view(&mut self) {
+        self.sync_view = None;
+    }
+
+    /// What the sync screens asked for since the last call.
+    #[cfg(feature = "sync")]
+    pub(crate) fn take_sync_requests(&mut self) -> Vec<super::sync::SyncRequest> {
+        self.pump_sync();
+        std::mem::take(&mut self.sync_requests)
+    }
+
+    /// Collect the sync screens' requests and drop them once closed.
+    #[cfg(feature = "sync")]
+    fn pump_sync(&mut self) {
+        let Some(view) = self.sync_view.as_mut() else {
+            return;
+        };
+        self.sync_requests.extend(view.take_requests());
+        if view.is_closed() {
+            self.sync_view = None;
+        }
+    }
+
+    /// The status bar's device sync segment (T90).
+    #[cfg(feature = "sync")]
+    pub(crate) fn set_sync_status(&mut self, sync: Option<(String, status::SyncLevel)>) {
+        self.status.sync = sync;
+    }
+
     /// Open the bookmarks menu (replacing one already open).
     pub(crate) fn open_bookmarks(&mut self, menu: BookmarksMenu) {
         self.bookmarks = Some(menu);
@@ -675,6 +736,7 @@ impl MainScreen {
             || self.sites.is_some()
             || self.bookmarks.is_some()
             || self.settings.is_some()
+            || self.sync_open()
         {
             return Mode::Dialog;
         }
@@ -701,6 +763,14 @@ impl MainScreen {
             Region::Log => Mode::Log,
             Region::Queue => Mode::Queue,
         }
+    }
+
+    /// Whether the sync screens are open.
+    fn sync_open(&self) -> bool {
+        #[cfg(feature = "sync")]
+        return self.sync_view.is_some();
+        #[cfg(not(feature = "sync"))]
+        false
     }
 
     #[cfg(test)]
@@ -749,6 +819,13 @@ impl MainScreen {
             if top.handle_key(key) == ModalOutcome::Close {
                 self.modals.pop();
             }
+            return KeyOutcome::Consumed;
+        }
+        // Over the settings screen when opened from its Sync page.
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_mut() {
+            view.handle_key(key);
+            self.pump_sync();
             return KeyOutcome::Consumed;
         }
         if let Some(view) = self.settings.as_mut() {
@@ -811,6 +888,7 @@ impl MainScreen {
             }
         } else if let Some(top) = self.modals.last_mut() {
             top.handle_paste(text);
+        } else if self.paste_sync(text) {
         } else if let Some(view) = self.settings.as_mut() {
             view.handle_paste(text);
         } else if let Some(view) = self.sites.as_mut() {
@@ -822,6 +900,17 @@ impl MainScreen {
         } else if let Some(list) = self.focused_list() {
             list.handle_paste(text);
         }
+    }
+
+    /// Paste into the sync screens; `false` when they aren't open.
+    fn paste_sync(&mut self, text: &str) -> bool {
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_mut() {
+            view.handle_paste(text);
+            return true;
+        }
+        let _ = text;
+        false
     }
 
     /// The side of the file list or tree that last had focus.
@@ -950,6 +1039,10 @@ impl MainScreen {
             Action::Tick => {
                 self.tick = self.tick.wrapping_add(1);
                 if let Some(view) = self.vault.as_mut() {
+                    view.tick();
+                }
+                #[cfg(feature = "sync")]
+                if let Some(view) = self.sync_view.as_mut() {
                     view.tick();
                 }
                 self.pump_prompts(Instant::now(), false);
@@ -1629,6 +1722,7 @@ impl MainScreen {
             || self.vault_shown
             || self.sites.is_some()
             || self.settings.is_some()
+            || self.sync_open()
             || (!force
                 && (matches!(self.mode(), Mode::Input | Mode::Filter)
                     || self
@@ -1787,6 +1881,18 @@ impl MainScreen {
             menu.draw(frame, area, theme);
         }
         if let Some(view) = self.settings.as_mut() {
+            let bottom = r.status.map_or(area.bottom(), |s| s.y);
+            let above = ratatui::layout::Rect::new(
+                area.x,
+                area.y,
+                area.width,
+                bottom.saturating_sub(area.y),
+            );
+            view.draw(frame, above, theme);
+        }
+        // Over the settings screen when opened from its Sync page.
+        #[cfg(feature = "sync")]
+        if let Some(view) = self.sync_view.as_ref() {
             let bottom = r.status.map_or(area.bottom(), |s| s.y);
             let above = ratatui::layout::Rect::new(
                 area.x,
