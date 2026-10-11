@@ -235,3 +235,11 @@ the section matching the tag.
   with optional passwords, history, trusted host keys and certificates,
   transfer queue) or a plain settings JSON without secrets; imports can be
   partial, and the first-run and Forgot-password screens can restore a backup.
+- File operations (T62): create folders, rename (asks before overwriting),
+  delete recursively with progress and change permissions (recursively,
+  files/folders only, per-bit) on local and remote panes, with listings and
+  directory trees kept up to date.
+- Queue completion actions (T45): show a message (with bell or desktop
+  notification), run a command (without a shell, totals in COURIER_FTP_*
+  variables), or disconnect or quit after a cancellable countdown, plus a
+  one-off override from the queue pane (a).
