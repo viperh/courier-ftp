@@ -455,7 +455,10 @@ async fn register_then_log_in_on_a_second_device_and_sync() {
     assert!(text.contains("desktop"), "{text}");
     a.key(KeyCode::Down);
     a.key(KeyCode::Char('d'));
-    assert!(a.screen(80, 24).contains("Revoke “desktop” (linux)?"));
+    // The platform is the test machine's own (`std::env::consts::OS`).
+    let prompt = format!("Revoke “desktop” ({})?", std::env::consts::OS);
+    let text = a.screen(80, 24);
+    assert!(text.contains(&prompt), "{text}");
     a.key(KeyCode::Left);
     a.key(KeyCode::Enter);
     a.settle().await;

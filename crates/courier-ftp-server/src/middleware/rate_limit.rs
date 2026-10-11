@@ -69,9 +69,22 @@ impl RateLimiters {
     /// Creates limiters with the given quotas.
     #[must_use]
     pub fn new(limits: LoginLimits) -> Self {
+        Self::with_period(limits, Duration::from_secs(60))
+    }
+
+    /// Like [`new`](Self::new), but each quota is spread over `period`
+    /// instead of a minute (tests use an hour so no slot refills while a
+    /// slow test runs).
+    #[must_use]
+    pub fn with_period(limits: LoginLimits, period: Duration) -> Self {
+        let quota = |n: NonZeroU32| {
+            Quota::with_period(period / n.get())
+                .unwrap_or_else(|| Quota::per_minute(n))
+                .allow_burst(n)
+        };
         Self {
-            login_email: RateLimiter::keyed(Quota::per_minute(limits.per_email_per_minute)),
-            login_ip: RateLimiter::keyed(Quota::per_minute(limits.per_ip_per_minute)),
+            login_email: RateLimiter::keyed(quota(limits.per_email_per_minute)),
+            login_ip: RateLimiter::keyed(quota(limits.per_ip_per_minute)),
             clock: DefaultClock::default(),
         }
     }
