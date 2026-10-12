@@ -492,6 +492,9 @@ impl Backend for FtpBackend {
             server_side_rename_across_dirs: true,
             ascii_mode: true,
             parallel_connections_allowed: true,
+            // `REST` + `STOR` at arbitrary offsets isn't widely supported,
+            // so FTP uploads are never segmented (T41b).
+            write_at: false,
         }
     }
 
@@ -775,6 +778,9 @@ impl Backend for FtpBackend {
             );
             return Err(Error::Unsupported("resuming an ASCII transfer"));
         }
+        if matches!(mode, WriteMode::At(_)) {
+            return Err(Error::Unsupported("writing an FTP file at an offset"));
+        }
         let target = self.target(path).await?;
         self.conn()?.set_type(opts.transfer_type).await?;
         let (cmd, rest) = match mode {
@@ -782,7 +788,7 @@ impl Backend for FtpBackend {
                 (format!("STOR {target}"), None)
             }
             WriteMode::Append => (format!("APPE {target}"), None),
-            WriteMode::ResumeAt(n) => (format!("STOR {target}"), Some(n)),
+            WriteMode::ResumeAt(n) | WriteMode::At(n) => (format!("STOR {target}"), Some(n)),
         };
         match self.open_data(cmd, rest, path, true).await? {
             None => Ok(Box::new(tokio::io::sink())),

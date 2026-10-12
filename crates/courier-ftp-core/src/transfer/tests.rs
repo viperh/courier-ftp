@@ -1059,3 +1059,5 @@ async fn real_files_round_trip_byte_identical() {
     handle.shutdown();
     task.await.unwrap();
 }
+
+mod segmented;

@@ -83,6 +83,38 @@ is shared by all tabs. With `interface.restore_tabs` the tabs (their sites or
 servers and directories, never passwords) are kept in the vault and reopened
 after the next unlock.
 
+### Command line
+
+```sh
+courier-ftp sftp://alice@example.com:2222/var/www   # connect at start (also ftp://, ftps://, ftpes://)
+courier-ftp ftp://host-a sftp://bob@host-b          # one tab per URL
+courier-ftp --site Work/Production/web01            # a Site Manager entry by its path
+courier-ftp ~/projects/site                         # start the local pane here
+courier-ftp -l ~/projects/site sftp://alice@host    # local directory and a connection
+```
+
+| Option | Effect |
+|---|---|
+| `URL_OR_PATH…` | Server URLs to connect to (one tab each), or one local directory to start in |
+| `-s, --site <PATH>` | Connect to a saved site (`Work/Production/web01`; repeatable). An unknown path lists close matches |
+| `-l, --local <DIR>` | Local start directory, also used for the URL and site connections |
+| `--logontype <ask\|interactive>` | Log in to the URLs given by asking for the password / for every server prompt |
+| `--config-dir <DIR>`, `--data-dir <DIR>` | Override the config and data directories (win over the variables below) |
+| `--no-vault` | Run without the vault: quickconnect only, nothing saved |
+| `--no-keyring` | Don't unlock the vault with the system keyring this run; ask for the master password |
+| `--debug`, `--debug-level <0-4>`, `--log-file <FILE>` | Logging for this run (see [Logging](#logging)) |
+| `--no-update-check` | No release check this run |
+| `-t, --tick-rate`, `-f, --frame-rate` | Event loop rates |
+| `-V, --version` | Version, directories and the vault's path |
+| `generate man\|completions <shell>` | Man page and shell completions (bash, zsh, fish, powershell), for packaging |
+
+Connections given on the command line start once the vault is unlocked (URLs
+also when it's skipped; sites need it). The first goes into the current tab,
+the others into new tabs, and the saved tabs aren't restored on such a start.
+A password in a URL (`sftp://user:pass@host`) works but is visible in your
+shell history and the process list; courier-ftp warns about it. Leave it out to
+be asked when connecting.
+
 ## Configuration
 
 Defaults are compiled in from `crates/courier-ftp/config/default.json`. At startup
@@ -116,7 +148,8 @@ inside the checkout while developing.
   servers, users and paths; passwords show as `PASS ****`.
 - `--debug-level 0-4` sets the message log's detail for one run; level 3 and up add raw
   directory listings and TLS/SSH negotiation details (`logging.show_raw_listing` adds the
-  listings alone). `<Ctrl-x><s>` shows the raw listing of the current directory; in the
+  listings alone). `--log-file <FILE>` writes the session log to FILE for one run.
+  `<Ctrl-x><s>` shows the raw listing of the current directory; in the
   message log `Y` copies and `S` saves the whole log.
 
 Passwords and other secrets are never logged, at any level, in either log.

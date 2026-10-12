@@ -10,7 +10,7 @@
 //! | `mkdir`, `rmdir`, `remove_file` | `MKDIR`, `RMDIR`, `REMOVE` |
 //! | `rename` | `posix-rename@openssh.com` when announced; otherwise `RENAME`, and when the target exists `REMOVE` it and retry |
 //! | `chmod`, `set_mtime` | `SETSTAT` (permissions; atime + mtime) |
-//! | `open_read`, `open_write` | `OPEN` + pipelined `READ`/`WRITE`, [`MAX_OUTSTANDING`] in flight |
+//! | `open_read`, `open_write` | `OPEN` + pipelined `READ`/`WRITE`, `sftp.max_outstanding_requests` (default [`MAX_OUTSTANDING`]) in flight |
 //! | `raw_command` | unsupported |
 //!
 //! # Rename overwrites
@@ -87,6 +87,10 @@ pub struct SftpBackend {
     ctx: SshContext,
     conn: Option<Conn>,
     outcome: Option<Outcome>,
+    /// Requests in flight per file (`sftp.max_outstanding_requests`).
+    depth: usize,
+    /// Bytes per request without server limits (`sftp.request_size_kib`).
+    request: u32,
 }
 
 impl std::fmt::Debug for SftpBackend {
@@ -112,6 +116,9 @@ impl SftpBackend {
             ctx,
             conn: None,
             outcome: None,
+            depth: usize::try_from(settings.sftp.max_outstanding_requests.max(1))
+                .unwrap_or(MAX_OUTSTANDING),
+            request: settings.sftp.request_size_kib.max(1).saturating_mul(1024),
         }
     }
 
@@ -192,6 +199,7 @@ impl Backend for SftpBackend {
             server_side_rename_across_dirs: true,
             ascii_mode: false,
             parallel_connections_allowed: true,
+            write_at: true,
         }
     }
 
@@ -202,7 +210,7 @@ impl Backend for SftpBackend {
     async fn connect(&mut self, cancel: CancellationToken) -> Result<()> {
         self.close_conn().await;
         let ssh = ssh::connect(&self.opts, &self.ctx, &cancel).await?;
-        let sftp = match Sftp::open(&ssh, self.timeout(), &cancel).await {
+        let sftp = match Sftp::open(&ssh, self.request, self.timeout(), &cancel).await {
             Ok(sftp) => sftp,
             Err(err) => {
                 self.log(LogKind::Error, format!("Could not start SFTP: {err}"));
@@ -229,7 +237,7 @@ impl Backend for SftpBackend {
             LogKind::Debug(4),
             format!(
                 "SFTP request size: read {} bytes, write {} bytes, {} in flight",
-                sftp.read_len, sftp.write_len, MAX_OUTSTANDING
+                sftp.read_len, sftp.write_len, self.depth
             ),
         );
         self.conn = Some(Conn { ssh, sftp });
@@ -401,7 +409,7 @@ impl Backend for SftpBackend {
         &mut self,
         path: &RemotePath,
         offset: u64,
-        _opts: &TransferOpts,
+        opts: &TransferOpts,
     ) -> Result<ReadStream> {
         let outcome = Outcome::default();
         let conn = self.conn()?;
@@ -411,8 +419,12 @@ impl Backend for SftpBackend {
             Arc::clone(&conn.sftp.raw),
             handle,
             path.clone(),
-            offset,
+            offset
+                ..opts
+                    .read_limit
+                    .map_or(u64::MAX, |n| offset.saturating_add(n)),
             conn.sftp.read_len,
+            self.depth,
             Arc::clone(&outcome),
         );
         self.outcome = Some(outcome);
@@ -434,7 +446,7 @@ impl Backend for SftpBackend {
                 WriteMode::Create => base | OpenFlags::EXCLUDE,
                 WriteMode::Truncate => base | OpenFlags::TRUNCATE,
                 WriteMode::Append => base | OpenFlags::APPEND,
-                WriteMode::ResumeAt(_) => base,
+                WriteMode::ResumeAt(_) | WriteMode::At(_) => base,
             };
             let handle = match sftp.open_file(path, flags).await {
                 Err(Error::Protocol { .. })
@@ -446,6 +458,8 @@ impl Backend for SftpBackend {
             };
             let offset = match mode {
                 WriteMode::Create | WriteMode::Truncate => Ok(0),
+                // A segment (T41b): writes go to explicit offsets anyway.
+                WriteMode::At(n) => Ok(n),
                 WriteMode::Append => sftp.fstat(&handle, path).await.map(|a| a.size.unwrap_or(0)),
                 WriteMode::ResumeAt(n) => {
                     // Drop anything after the resume point.
@@ -479,6 +493,7 @@ impl Backend for SftpBackend {
             path.clone(),
             offset,
             sftp.write_len,
+            self.depth,
             Arc::clone(&outcome),
         );
         self.outcome = Some(outcome);

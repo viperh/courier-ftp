@@ -205,6 +205,36 @@ pub struct QueueItem {
     pub added_at: OffsetDateTime,
     /// A directory to be expanded one level when reached (T43).
     pub is_dir_placeholder: bool,
+    /// The byte ranges still missing from a segmented transfer that was
+    /// interrupted (T41b), so a retry or restart continues only those.
+    /// `None` for ordinary transfers.
+    pub segments: Option<Vec<ByteRange>>,
+}
+
+/// A half-open byte range `start..end` of a file (T41b segments).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ByteRange {
+    /// First byte.
+    pub start: u64,
+    /// One past the last byte.
+    pub end: u64,
+}
+
+impl ByteRange {
+    /// `start..end`.
+    pub const fn new(start: u64, end: u64) -> Self {
+        Self { start, end }
+    }
+
+    /// Bytes in the range (0 when `end <= start`).
+    pub const fn len(&self) -> u64 {
+        self.end.saturating_sub(self.start)
+    }
+
+    /// Whether the range holds no bytes.
+    pub const fn is_empty(&self) -> bool {
+        self.end <= self.start
+    }
 }
 
 impl QueueItem {
@@ -281,6 +311,7 @@ impl NewItem {
             attempts: 0,
             added_at,
             is_dir_placeholder: self.is_dir_placeholder,
+            segments: None,
         }
     }
 }

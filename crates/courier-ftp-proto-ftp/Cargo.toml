@@ -38,6 +38,8 @@ courier-ftp-core = { workspace = true, features = ["test-util"] }
 rcgen = { workspace = true }
 insta = { workspace = true }
 pretty_assertions = { workspace = true }
+# Real target files for the segmented engine test (T41b).
+tempfile = { workspace = true }
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 

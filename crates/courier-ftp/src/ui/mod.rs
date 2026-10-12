@@ -34,7 +34,7 @@ pub(crate) use courier_ftp_core::filters::Side;
 #[cfg(test)]
 pub(crate) use focus::Region;
 pub(crate) use modal::Modal;
-pub(crate) use quickconnect::HistoryItem;
+pub(crate) use quickconnect::{HistoryItem, request_from_url};
 #[cfg(test)]
 pub(crate) mod file_list_effect {
     pub(crate) use super::file_list::Effect;

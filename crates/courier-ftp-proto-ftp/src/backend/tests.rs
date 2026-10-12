@@ -250,7 +250,7 @@ async fn ascii_transfers_and_no_ascii_resume() {
     let path = RemotePath::new("/home/bob/t.txt");
     let ascii = TransferOpts {
         transfer_type: TransferType::Ascii,
-        preallocate_hint: None,
+        ..TransferOpts::default()
     };
     let mut w = b
         .open_write(&path, WriteMode::Truncate, &ascii)
@@ -361,4 +361,101 @@ async fn factory_creates_backends_with_the_proxy_password() {
     let mut b = factory.create(&info(&server, Protocol::Ftp), SessionId::next(), tx);
     b.connect(CancellationToken::new()).await.unwrap();
     assert!(b.is_connected());
+}
+
+/// Resolves every queue server to one connect info.
+struct FixedResolver(ConnectInfo);
+
+#[async_trait]
+impl courier_ftp_core::transfer::ServerResolver for FixedResolver {
+    async fn resolve(
+        &self,
+        _: &courier_ftp_core::queue::QueueServer,
+        _: &CancellationToken,
+    ) -> Result<ConnectInfo> {
+        Ok(self.0.clone())
+    }
+}
+
+/// Runs one download of `remote` through the transfer engine with
+/// `FtpBackendFactory`; returns the local copy.
+async fn engine_download(server: &TestServer, remote: &str, size: u64, s: Settings) -> Vec<u8> {
+    use courier_ftp_core::{
+        events::CoreEvent,
+        model::{Direction, LocalPath},
+        queue::{NewItem, Queue, QueueServer, SharedQueue},
+        transfer::TransferEngine,
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("big.bin");
+    let info = info(server, Protocol::Ftp);
+    let queue: SharedQueue = Arc::new(std::sync::Mutex::new(Queue::default()));
+    let (tx, mut rx) = events::channel(0);
+    let trust = untrusting(Arc::new(MemoryCertTrustStore::new()));
+    let factory = FtpBackendFactory::new(s.clone(), trust);
+    let (engine, handle) = TransferEngine::builder(
+        Arc::clone(&queue),
+        Arc::new(factory),
+        Arc::new(FixedResolver(info.clone())),
+        tx,
+    )
+    .settings(s)
+    .build();
+    let engine = engine.spawn();
+    queue.lock().unwrap().add(
+        NewItem::file(
+            QueueServer::Quick {
+                address: info.address.clone(),
+                password: None,
+            },
+            Direction::Download,
+            LocalPath::new(&target),
+            RemotePath::new(remote),
+            Some(size),
+        ),
+        time::OffsetDateTime::UNIX_EPOCH,
+    );
+    handle.start();
+    let stats = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if let Some(CoreEvent::QueueFinished { stats }) = rx.recv().await {
+                break stats;
+            }
+        }
+    })
+    .await
+    .expect("transfer finished");
+    assert_eq!((stats.files_ok, stats.files_failed), (1, 0), "{stats:?}");
+    handle.shutdown();
+    engine.await.unwrap();
+    std::fs::read(&target).unwrap()
+}
+
+#[tokio::test]
+async fn segmented_download_through_the_engine_is_byte_identical() {
+    // T41b: ranges fetched over several connections with `REST` + `RETR`,
+    // each stopped at its end with `ABOR`.
+    let server = TestServer::start(ServerConfig {
+        chunk: 64 * 1024,
+        data_delay: Some(Duration::from_millis(2)),
+        ..ServerConfig::default()
+    })
+    .await;
+    let mib = 1024 * 1024;
+    let data: Vec<u8> = (0..12 * mib).map(|i| (i * 7 % 253) as u8).collect();
+    server.put("/home/bob/big.bin", &data);
+    let mut s = settings();
+    s.connection.keepalive = false;
+    s.file_types.default_type = courier_ftp_core::settings::TransferTypeChoice::Binary;
+    s.transfers.segmented.min_file_size_mib = 1;
+    s.transfers.segmented.min_segment_size_mib = 1;
+    s.transfers.segmented.max_segments = 4;
+    let got = engine_download(&server, "/home/bob/big.bin", data.len() as u64, s).await;
+    assert!(got == data, "files differ");
+    let commands = server.commands();
+    let mut rests: Vec<&String> = commands.iter().filter(|c| c.starts_with("REST ")).collect();
+    rests.sort();
+    rests.dedup();
+    assert!(rests.len() >= 3, "segmented: {rests:?}");
+    assert!(commands.iter().any(|c| c == "ABOR"), "ranges end with ABOR");
 }

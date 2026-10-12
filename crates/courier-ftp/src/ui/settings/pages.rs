@@ -379,7 +379,7 @@ pub(crate) fn build(section: Section, s: &Settings, ctx: &Ctx<'_>) -> Page {
         Section::Ftp => ftp(s),
         Section::FtpProxy => ftp_proxy(s, ctx.proxy_typed.1),
         Section::GenericProxy => generic_proxy(s, ctx.proxy_typed.0),
-        Section::Sftp => sftp(ctx.host_keys),
+        Section::Sftp => sftp(s, ctx.host_keys),
         Section::Tls => tls(ctx.certs),
         Section::Transfers => transfers(s),
         Section::FileTypes => file_types(s),
@@ -657,8 +657,26 @@ fn list_rows(items: &[String]) -> u16 {
     u16::try_from(items.len()).unwrap_or(10).clamp(1, 10)
 }
 
-fn sftp(host_keys: &Trust<KnownHost>) -> Vec<Row> {
+fn sftp(s: &Settings, host_keys: &Trust<KnownHost>) -> Vec<Row> {
+    let p = &s.sftp;
     let mut rows = vec![
+        num(
+            "sftp.max_outstanding_requests",
+            "Requests in flight",
+            "READ/WRITE requests kept in flight per file (1-1024): more hides more latency.",
+            u64::from(p.max_outstanding_requests),
+            1,
+            1024,
+        ),
+        num(
+            "sftp.request_size_kib",
+            "Request size (KiB)",
+            "Bytes per request (1-255) unless the server announces its own limits.",
+            u64::from(p.request_size_kib),
+            1,
+            255,
+        ),
+        note(""),
         note("Host keys you trusted with “Always trust”. Keys in ~/.ssh/known_hosts"),
         note("are checked too but not listed or changed here."),
         note(""),
@@ -743,10 +761,10 @@ fn transfers(s: &Settings) -> Vec<Row> {
         num(
             "transfers.max_concurrent",
             "Simultaneous transfers",
-            "Maximum transfers at the same time (1-32).",
+            "Maximum transfers at the same time (1-16); each segment of a split file counts.",
             u64::from(t.max_concurrent),
             1,
-            32,
+            16,
         ),
         num(
             "transfers.max_downloads",
@@ -754,7 +772,7 @@ fn transfers(s: &Settings) -> Vec<Row> {
             "Maximum simultaneous downloads within the above; 0 = no extra limit.",
             u64::from(t.max_downloads),
             0,
-            32,
+            16,
         ),
         num(
             "transfers.max_uploads",
@@ -762,7 +780,7 @@ fn transfers(s: &Settings) -> Vec<Row> {
             "Maximum simultaneous uploads within the above; 0 = no extra limit.",
             u64::from(t.max_uploads),
             0,
-            32,
+            16,
         ),
         check(
             "transfers.speed_limit_enabled",
@@ -830,6 +848,37 @@ fn transfers(s: &Settings) -> Vec<Row> {
             "Follow symlinks",
             "Follow symbolic links during recursive operations.",
             t.follow_symlinks,
+        ),
+        note(""),
+        check(
+            "transfers.segmented.enabled",
+            "Split large files",
+            "Large binary downloads (and SFTP uploads) move byte ranges over several connections.",
+            t.segmented.enabled,
+        ),
+        num(
+            "transfers.segmented.min_file_size_mib",
+            "From file size (MiB)",
+            "Smaller files use one connection.",
+            t.segmented.min_file_size_mib,
+            1,
+            1_048_576,
+        ),
+        num(
+            "transfers.segmented.max_segments",
+            "Connections per file",
+            "Most connections one file uses (1-16); new files start before a file gets more.",
+            u64::from(t.segmented.max_segments),
+            1,
+            16,
+        ),
+        num(
+            "transfers.segmented.min_segment_size_mib",
+            "Smallest range (MiB)",
+            "A range is only split when both halves get at least this much.",
+            t.segmented.min_segment_size_mib,
+            1,
+            1_048_576,
         ),
     ]
 }
@@ -1478,7 +1527,16 @@ pub(crate) fn apply(section: Section, v: &FormValues, s: &mut Settings) -> Probl
                 _ => s.proxy.generic.clone(),
             };
         }
-        Section::Sftp | Section::Tls | Section::Keybindings => {}
+        Section::Sftp => {
+            let p = &mut s.sftp;
+            p.max_outstanding_requests = number(
+                v,
+                "sftp.max_outstanding_requests",
+                p.max_outstanding_requests,
+            );
+            p.request_size_kib = number(v, "sftp.request_size_kib", p.request_size_kib);
+        }
+        Section::Tls | Section::Keybindings => {}
         Section::Transfers => apply_transfers(v, s, &mut problems),
         Section::FileTypes => {
             let f = &mut s.file_types;
@@ -1712,6 +1770,19 @@ fn apply_transfers(v: &FormValues, s: &mut Settings, problems: &mut Problems) {
     }
     t.empty_dirs = pick(v, "transfers.empty_dirs", &EMPTY_DIRS, t.empty_dirs);
     t.follow_symlinks = v.bool("transfers.follow_symlinks");
+    let seg = &mut t.segmented;
+    seg.enabled = v.bool("transfers.segmented.enabled");
+    seg.min_file_size_mib = number(
+        v,
+        "transfers.segmented.min_file_size_mib",
+        seg.min_file_size_mib,
+    );
+    seg.max_segments = number(v, "transfers.segmented.max_segments", seg.max_segments);
+    seg.min_segment_size_mib = number(
+        v,
+        "transfers.segmented.min_segment_size_mib",
+        seg.min_segment_size_mib,
+    );
 }
 
 /// The proxy server from the host/port/user fields (`None` for type 0 or

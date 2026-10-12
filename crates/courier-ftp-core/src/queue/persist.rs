@@ -27,7 +27,7 @@ use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
-use super::item::{ItemState, Priority, QueueItem, QueueServer, SiteId};
+use super::item::{ByteRange, ItemState, Priority, QueueItem, QueueServer, SiteId};
 use super::model::Queue;
 use crate::events::TransferId;
 use crate::model::{Direction, LocalPath, RemotePath, ServerAddress};
@@ -104,6 +104,10 @@ struct StoredItem {
     #[serde(with = "time::serde::rfc3339")]
     added_at: OffsetDateTime,
     is_dir_placeholder: bool,
+    /// Missing ranges of an interrupted segmented transfer (T41b); absent
+    /// in blobs written before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    segments: Option<Vec<ByteRange>>,
 }
 
 mod opt_secret {
@@ -155,6 +159,7 @@ impl From<&QueueItem> for StoredItem {
             attempts: i.attempts,
             added_at: i.added_at,
             is_dir_placeholder: i.is_dir_placeholder,
+            segments: i.segments.clone(),
         }
     }
 }
@@ -180,6 +185,7 @@ impl From<StoredItem> for QueueItem {
             attempts: s.attempts,
             added_at: s.added_at,
             is_dir_placeholder: s.is_dir_placeholder,
+            segments: s.segments,
         }
     }
 }

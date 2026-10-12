@@ -7,7 +7,7 @@ expression: text
 "│  Connection          ││ Certificates you trusted with “Always trust” (one per server and port).            │"
 "│    FTP               ││ Certificates signed by a known authority are accepted without asking.              │"
 "│    FTP proxy         ││                                                                                    │"
-"│    Generic proxy     ││   > ftp.example.com:990  CN=ftp.example.com  2026-04-02 08:30 UTC  03:90:58:C6:F2: │"
+"│    Generic proxy     ││ > ftp.example.com:990  CN=ftp.example.com  2026-04-02 08:30 UTC  03:90:58:C6:F2:C0 │"
 "│    SFTP              ││ [ Show certificate details ]                                                       │"
 "│>   TLS               ││ [ Forget the selected certificate ]                                                │"
 "│  Transfers           ││                                                                                    │"

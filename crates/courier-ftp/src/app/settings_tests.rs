@@ -248,7 +248,9 @@ async fn stored_host_keys_are_listed_and_forgotten() {
             .is_some_and(|v| v.lists_host_key("sftp.example.com"))
     })
     .await;
-    press(app, KeyCode::Enter); // into the list
+    press(app, KeyCode::Enter); // into the page: the pipelining fields first
+    press(app, KeyCode::Tab);
+    press(app, KeyCode::Tab); // the list
     press(app, KeyCode::Char('x'));
     press(app, KeyCode::Char('y'));
     wait_for(app, "the key to be forgotten", |a| {

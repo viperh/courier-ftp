@@ -4,10 +4,10 @@ assertion_line: 153
 expression: text
 ---
 "┌ Settings ────────────┐┌ Keybindings ───────────────────────────────────────────────────────────────────────┐"
-"│  Connection          ││   > Normal    <F1>               Help                                              │"
-"│    FTP               ││     Normal    <F9>               Settings                                          │"
-"│    FTP proxy         ││     Normal    <Ctrl-s>           SiteManager                                       │"
-"│    Generic proxy     ││     FileList  <j>                CursorDown                                        │"
+"│  Connection          ││ > Normal    <F1>               Help                                                │"
+"│    FTP               ││   Normal    <F9>               Settings                                            │"
+"│    FTP proxy         ││   Normal    <Ctrl-s>           SiteManager                                         │"
+"│    Generic proxy     ││   FileList  <j>                CursorDown                                          │"
 "│    SFTP              ││                                                                                    │"
 "│    TLS               ││ To change a binding, edit the keybindings section of                               │"
 "│  Transfers           ││ /home/me/.config/courier-ftp/config.json (restart needed).                         │"

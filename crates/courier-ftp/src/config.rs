@@ -62,6 +62,23 @@ pub(crate) static DATA_FOLDER: LazyLock<Option<PathBuf>> =
 pub(crate) static CONFIG_FOLDER: LazyLock<Option<PathBuf>> =
     LazyLock::new(|| non_empty_var(&format!("{}_CONFIG", PROJECT_NAME.clone())));
 
+/// `--config-dir` and `--data-dir` (T70): set once at startup, before
+/// anything reads a directory; they win over the environment. (Setting the
+/// environment variables themselves is `unsafe` in Rust 2024.)
+static DIR_OVERRIDES: std::sync::OnceLock<DirOverrides> = std::sync::OnceLock::new();
+
+#[derive(Debug, Default)]
+struct DirOverrides {
+    config: Option<PathBuf>,
+    data: Option<PathBuf>,
+}
+
+/// Use `config` / `data` as the config and data directories for this run
+/// (`--config-dir`, `--data-dir`). Only the first call counts.
+pub(crate) fn set_dir_overrides(config: Option<PathBuf>, data: Option<PathBuf>) {
+    let _ = DIR_OVERRIDES.set(DirOverrides { config, data });
+}
+
 fn non_empty_var(name: &str) -> Option<PathBuf> {
     env::var_os(name)
         .filter(|v| !v.is_empty())
@@ -153,7 +170,9 @@ impl Config {
 }
 
 pub(crate) fn get_data_dir() -> PathBuf {
-    if let Some(s) = DATA_FOLDER.clone() {
+    if let Some(dir) = DIR_OVERRIDES.get().and_then(|o| o.data.clone()) {
+        dir
+    } else if let Some(s) = DATA_FOLDER.clone() {
         s
     } else if let Some(home) = HOME_FOLDER.clone() {
         home.join("data")
@@ -176,7 +195,9 @@ pub(crate) fn get_cache_dir() -> PathBuf {
 }
 
 pub(crate) fn get_config_dir() -> PathBuf {
-    if let Some(s) = CONFIG_FOLDER.clone() {
+    if let Some(dir) = DIR_OVERRIDES.get().and_then(|o| o.config.clone()) {
+        dir
+    } else if let Some(s) = CONFIG_FOLDER.clone() {
         s
     } else if let Some(home) = HOME_FOLDER.clone() {
         home.join("config")

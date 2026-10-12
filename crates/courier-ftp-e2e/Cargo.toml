@@ -23,6 +23,8 @@ testcontainers = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
+# The engine's `ServerResolver` in the segmented transfer tests (T41b).
+async-trait = { workspace = true }
 cargo_metadata = { workspace = true }
 # The FTP control connection tests (tests/ftp_control.rs, T10).
 courier-ftp-proto-ftp = { workspace = true }
@@ -34,3 +36,6 @@ secrecy = { workspace = true }
 tokio-util = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 toml = { workspace = true }
+# Local targets of the segmented transfer tests (T41b).
+tempfile = { workspace = true }
+time = { workspace = true }

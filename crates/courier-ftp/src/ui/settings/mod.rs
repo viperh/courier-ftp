@@ -1383,6 +1383,8 @@ impl SettingsView {
                     );
                 }
                 RowKind::Field(widget) => {
+                    // An unlabelled field (a list) uses the full width.
+                    let label_w = if row.label.is_empty() { 0 } else { label_w };
                     frame.render_widget(
                         Paragraph::new(Span::styled(
                             row.label.clone(),

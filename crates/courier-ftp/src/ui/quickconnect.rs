@@ -430,6 +430,16 @@ impl Quickconnect {
     }
 }
 
+/// The connection a URL describes, parsed the way the bar parses a URL
+/// typed into its host field (T70: URLs on the command line). Errors are
+/// without the "Quickconnect:" prefix.
+pub(crate) fn request_from_url(url: &str) -> Result<ConnectRequest, String> {
+    let mut bar = Quickconnect::new();
+    bar.host.set_value(url.trim());
+    bar.request()
+        .map_err(|e| e.strip_prefix("Quickconnect: ").unwrap_or(&e).to_owned())
+}
+
 /// The logon for the typed user and password: anonymous FTP without a user;
 /// the password when one is typed, else asked for when connecting. SFTP
 /// without a user logs in as the local user, like `ssh`.

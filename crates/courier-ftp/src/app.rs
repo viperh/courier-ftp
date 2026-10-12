@@ -114,6 +114,10 @@ pub(crate) struct App {
     tabs: tabs::Tabs,
     /// Files being viewed or edited externally (T63).
     edits: edit::Edits,
+    /// What the command line asked for at start (T70).
+    launch: launch::Pending,
+    /// `--no-keyring`: no silent keyring unlock this run.
+    no_keyring: bool,
 }
 
 /// A tab's connection.
@@ -186,7 +190,9 @@ impl Mode {
 }
 
 impl App {
-    pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
+    /// The production app. `no_vault` (`--no-vault`): no vault this run,
+    /// quickconnect only and nothing saved in it.
+    pub(crate) fn new(tick_rate: f64, frame_rate: f64, no_vault: bool) -> color_eyre::Result<Self> {
         let config = Config::new()?;
         let backends = Backends::new(&config.settings);
         // Kept before the factory moves into the app: the vault swaps the
@@ -209,6 +215,9 @@ impl App {
         app.net = Some(backends);
         app.update = Some(crate::update::Hook::github(crate::config::get_data_dir()));
         app.edits = edit::Edits::from_environment();
+        if no_vault {
+            return Ok(app);
+        }
         let opener = crate::vault::opener(crate::config::get_data_dir());
         let mut app = app.with_vault(opener, host_keys, credentials);
         if let Some(vault) = app.vault.as_mut() {
@@ -318,6 +327,8 @@ impl App {
             completion: completion::Completion::default(),
             tabs: tabs::Tabs::default(),
             edits: edit::Edits::default(),
+            launch: launch::Pending::default(),
+            no_keyring: false,
         };
         app.apply_logging(&config.settings.logging);
         app
@@ -342,6 +353,14 @@ impl App {
         self.apply_logging(&logging);
     }
 
+    /// `--log-file`: write the message log to `path` this run (not saved).
+    pub(crate) fn set_log_file(&mut self, path: std::path::PathBuf) {
+        let mut logging = self.settings.logging.clone();
+        logging.log_to_file = true;
+        logging.log_file = Some(path);
+        self.apply_logging(&logging);
+    }
+
     /// A status line in the message log (startup warnings).
     pub(crate) fn log_status(&self, text: &str) {
         self.events_tx
@@ -363,8 +382,7 @@ impl App {
             self.screen
                 .show_splash(env!("CARGO_PKG_VERSION"), Instant::now());
         }
-        self.list(Side::Local, None, false, false);
-        self.start_vault();
+        self.begin();
         self.start_update_check();
 
         loop {
@@ -478,6 +496,7 @@ impl App {
         self.completion_action(&action);
         self.tab_action(&action);
         self.edit_action(&action);
+        self.launch_action(&action);
         match &action {
             Action::Tick => {
                 self.expire_splash(Instant::now());
@@ -1078,6 +1097,10 @@ impl App {
                     "Continuing without the vault: quickconnect only, nothing is saved. \
                      Unlock with <Ctrl-x><u>.",
                 );
+                self.launch_urls();
+                self.launch_sites_unavailable(
+                    "--site needs the vault (unlock with <Ctrl-x><u> to connect)",
+                );
             }
             VaultRequest::Quit => self.should_quit = true,
             #[cfg(feature = "sync")]
@@ -1110,7 +1133,9 @@ impl App {
                     keyring_available,
                     sync_account: status.sync_account,
                 };
-                let keyring_first = status.state == VaultState::Locked && status.keyring_enabled;
+                let keyring_first = status.state == VaultState::Locked
+                    && status.keyring_enabled
+                    && !self.no_keyring;
                 match status.state {
                     VaultState::Uninitialised => vault.phase = Phase::Uninitialised,
                     VaultState::Locked => vault.phase = Phase::Locked,
@@ -1250,6 +1275,7 @@ impl App {
                 .log(self.local_session, LogKind::Status, message);
             self.screen.flash(message);
         }
+        self.launch_urls();
     }
 
     /// Lock the vault (`<Ctrl-x><v>` or auto-lock): the unlock view covers
@@ -1513,19 +1539,8 @@ impl App {
         tokio::spawn(async move {
             match crate::sites::connect(&slot, id).await {
                 Ok(site) => {
-                    let local_dir = site.local_dir.as_ref().and_then(|local| {
-                        courier_ftp_core::local::local_to_remote(local.as_path()).ok()
-                    });
-                    let request = ConnectRequest {
-                        info: site.info,
-                        path: site.remote_dir,
-                        sync_browsing: site.sync_browsing,
-                        compare: site.directory_comparison,
-                        site: Some(id),
-                        local_dir,
-                    };
                     let _ = tx.send(Action::Connect {
-                        request: Box::new(request),
+                        request: Box::new(site_request(site, id)),
                         target,
                     });
                 }
@@ -1539,6 +1554,23 @@ impl App {
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| self.screen.draw(frame))?;
         Ok(())
+    }
+}
+
+/// The connection for saved site `id`, with its default local and remote
+/// directories.
+fn site_request(site: courier_ftp_core::sites::SiteConnect, id: ItemId) -> ConnectRequest {
+    let local_dir = site
+        .local_dir
+        .as_ref()
+        .and_then(|local| courier_ftp_core::local::local_to_remote(local.as_path()).ok());
+    ConnectRequest {
+        info: site.info,
+        path: site.remote_dir,
+        sync_browsing: site.sync_browsing,
+        compare: site.directory_comparison,
+        site: Some(id),
+        local_dir,
     }
 }
 
@@ -1570,6 +1602,9 @@ mod edit;
 #[cfg(test)]
 mod edit_tests;
 mod file_ops;
+mod launch;
+#[cfg(test)]
+mod launch_tests;
 mod search;
 mod settings;
 mod tabs;

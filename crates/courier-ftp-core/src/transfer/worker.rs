@@ -24,6 +24,7 @@ use super::{
     is_too_many_connections,
     options::check_download_target,
     progress::ProgressTracker,
+    segmented::{self, Plan, SegmentLink, Start},
 };
 use crate::{
     Error, Result,
@@ -34,7 +35,7 @@ use crate::{
     events::{EventSender, LogKind, SessionId, TransferId},
     local::local_to_remote,
     model::{Direction, Entry, EntryKind, RemotePath},
-    queue::{NewItem, QueueItem, SharedQueue, lock_queue},
+    queue::{NewItem, QueueItem, QueueServer, SharedQueue, lock_queue},
     settings::{Settings, TransferTypeChoice},
 };
 
@@ -53,6 +54,19 @@ pub(super) struct Shared {
     /// Servers already told about in the log that they can't set
     /// modification times (once per session, T42).
     pub no_mtime_noted: std::sync::Mutex<std::collections::HashSet<crate::queue::ServerKey>>,
+    /// Wakes the scheduler (a segmented transfer wants more connections).
+    pub wake: tokio::sync::Notify,
+    /// The builder's `on_queue_changed`.
+    pub on_changed: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl Shared {
+    /// The persisted queue changed.
+    pub(super) fn changed(&self) {
+        if let Some(f) = &self.on_changed {
+            f();
+        }
+    }
 }
 
 /// What a worker is given.
@@ -66,6 +80,8 @@ pub(super) struct Job {
     pub paused: watch::Receiver<bool>,
     pub settings: Arc<Settings>,
     pub shared: Arc<Shared>,
+    /// Extra connections for a segmented transfer (T41b).
+    pub link: SegmentLink,
 }
 
 /// Which side of the transfer an error came from.
@@ -85,7 +101,7 @@ pub(super) struct Failure {
 }
 
 impl Failure {
-    fn new(side: Side, error: Error) -> Self {
+    pub(super) fn new(side: Side, error: Error) -> Self {
         Self {
             error,
             side,
@@ -143,11 +159,15 @@ pub(super) struct WorkerResult {
     pub id: TransferId,
     /// The session, when it can be reused.
     pub session: Option<SessionHandle>,
+    /// Reusable extra sessions of a segmented transfer.
+    pub extra: Vec<SessionHandle>,
+    /// An extra connection was refused as one too many.
+    pub refused: Option<Error>,
     pub outcome: Outcome,
 }
 
 /// Runs `fut` with the operation timeout, failing fast on cancellation.
-async fn timed<T>(
+pub(super) async fn timed<T>(
     timeout: Duration,
     cancel: &CancellationToken,
     fut: impl Future<Output = Result<T>>,
@@ -164,45 +184,56 @@ pub(super) async fn run(mut job: Job) -> WorkerResult {
     let id = job.item.id;
     let session = match job.session.take() {
         Some(s) => s,
-        None => match connect(&job).await {
-            Ok(s) => s,
-            Err(e) => {
-                let outcome = if is_too_many_connections(&e) {
-                    Outcome::TooManyConnections(e)
-                } else {
-                    Outcome::Failed(Failure::new(Side::Remote, e))
-                };
-                return WorkerResult {
-                    id,
-                    session: None,
-                    outcome,
-                };
+        None => {
+            match connect_session(&job.shared, &job.settings, &job.item.server, &job.cancel).await {
+                Ok(s) => s,
+                Err(e) => {
+                    let outcome = if is_too_many_connections(&e) {
+                        Outcome::TooManyConnections(e)
+                    } else {
+                        Outcome::Failed(Failure::new(Side::Remote, e))
+                    };
+                    let (extra, refused) = job.link.close();
+                    return WorkerResult {
+                        id,
+                        session: None,
+                        extra,
+                        refused,
+                        outcome,
+                    };
+                }
             }
-        },
+        }
     };
     let (outcome, reusable) = execute(&job, &session).await;
     let reusable = reusable && session.lock().await.is_connected();
+    let (extra, refused) = job.link.close();
     WorkerResult {
         id,
         session: if reusable { Some(session) } else { None },
+        extra,
+        refused,
         outcome,
     }
 }
 
-/// Opens a new transfer connection.
-async fn connect(job: &Job) -> Result<SessionHandle> {
-    let shared = &job.shared;
-    let cancel = &job.cancel;
+/// Opens a new transfer connection to `server`.
+pub(super) async fn connect_session(
+    shared: &Shared,
+    settings: &Settings,
+    server: &QueueServer,
+    cancel: &CancellationToken,
+) -> Result<SessionHandle> {
     let info = tokio::select! {
         biased;
         () = cancel.cancelled() => return Err(Error::Cancelled),
-        r = shared.resolver.resolve(&job.item.server, cancel) => r?,
+        r = shared.resolver.resolve(server, cancel) => r?,
     };
     let session_id = SessionId::next();
     let backend = shared
         .factory
         .create(&info, session_id, shared.events.clone());
-    let conn = &job.settings.connection;
+    let conn = &settings.connection;
     let keepalive = conn
         .keepalive
         .then(|| Duration::from_secs(conn.keepalive_interval_secs));
@@ -295,7 +326,7 @@ async fn expand(job: &Job, remote: &mut dyn Backend, local: &mut dyn Backend) ->
 
 /// `stat` that reconnects once when the (pooled) connection turns out to be
 /// dead, like [`SessionHandle::run`].
-async fn stat_reconnecting(
+pub(super) async fn stat_reconnecting(
     backend: &mut dyn Backend,
     path: &RemotePath,
     side: Side,
@@ -399,6 +430,40 @@ async fn transfer_file(
     let (src_caps, dst_caps) = (src.capabilities(), dst.capabilities());
     let can_resume =
         transfer_type == TransferType::Binary && src_caps.resume_download && dst_caps.resume_upload;
+    // T41b: ranged reads on the source, positional writes on the target.
+    let can_segment = transfer_type == TransferType::Binary
+        && src_caps.resume_download
+        && dst_caps.write_at
+        && src_caps.parallel_connections_allowed
+        && dst_caps.parallel_connections_allowed;
+    let seg_opts = TransferOpts {
+        transfer_type,
+        preallocate_hint: None,
+        read_limit: None,
+    };
+    // An interrupted segmented transfer continues its missing ranges
+    // without asking (the target is the half-written file).
+    if let Some(missing) = &item.segments {
+        let target_size = target.as_ref().and_then(|t| t.size);
+        if let Some(total) = size
+            && can_segment
+            && segmented::can_continue(missing, total, target_size, direction)
+        {
+            let plan = Plan {
+                src_path,
+                dst_path: dst_path.clone(),
+                total,
+                opts: seg_opts,
+                start: Start::Resume(missing.clone()),
+            };
+            let (outcome, reusable) = segmented::run(job, src, dst, plan, started).await;
+            if matches!(outcome, Outcome::Done { .. }) {
+                finish_metadata(job, dst, &dst_path, &source, dst_caps, timeout).await;
+            }
+            return (outcome, reusable);
+        }
+        let _ = lock_queue(&shared.queue).set_segments(item.id, None);
+    }
     let decision = match (job.resume_from, &target) {
         (Some(offset), Some(t)) if can_resume && offset > 0 => ExistsDecision::Resume {
             offset: offset.min(t.size.unwrap_or(0)),
@@ -454,6 +519,31 @@ async fn transfer_file(
         }
     };
 
+    // Large files over several connections (T41b).
+    let seg = &settings.transfers.segmented;
+    let mib = 1024 * 1024;
+    if offset == 0
+        && can_segment
+        && seg.enabled
+        && seg.max_segments > 1
+        && let Some(total) = size
+        && total >= seg.min_file_size_mib.max(1).saturating_mul(mib)
+        && total >= seg.min_segment_size_mib.max(1).saturating_mul(2 * mib)
+    {
+        let plan = Plan {
+            src_path,
+            dst_path: dst_path.clone(),
+            total,
+            opts: seg_opts,
+            start: Start::Fresh(mode),
+        };
+        let (outcome, reusable) = segmented::run(job, src, dst, plan, started).await;
+        if matches!(outcome, Outcome::Done { .. }) {
+            finish_metadata(job, dst, &dst_path, &source, dst_caps, timeout).await;
+        }
+        return (outcome, reusable);
+    }
+
     // 3. Streams.
     let opts = TransferOpts {
         transfer_type,
@@ -462,6 +552,7 @@ async fn transfer_file(
         } else {
             None
         },
+        read_limit: None,
     };
     let mut reader = match timed(timeout, cancel, src.open_read(&src_path, offset, &opts)).await {
         Ok(r) => r,
@@ -527,26 +618,7 @@ async fn transfer_file(
             return (Outcome::Failed(failure), reusable);
         }
     }
-    if settings.transfers.preserve_timestamps
-        && dst_caps.set_mtime
-        && let Some(modified) = source.modified
-        && let Err(e) = timed(timeout, cancel, dst.set_mtime(&dst_path, modified.time)).await
-    {
-        tracing::debug!("could not preserve the modification time: {e}");
-    }
-    if settings.transfers.preserve_timestamps && !dst_caps.set_mtime && source.modified.is_some() {
-        let first = shared
-            .no_mtime_noted
-            .lock()
-            .is_ok_and(|mut noted| noted.insert(item.server.key()));
-        if first {
-            shared.events.log(
-                shared.log_session,
-                LogKind::Status,
-                "The server can't set modification times; uploaded files keep the upload time",
-            );
-        }
-    }
+    finish_metadata(job, dst, &dst_path, &source, dst_caps, timeout).await;
     shared.events.progress(tracker.report());
     (
         Outcome::Done {
@@ -556,6 +628,42 @@ async fn transfer_file(
         },
         true,
     )
+}
+
+/// `transfers.preserve_timestamps` after a complete transfer: copy the
+/// source's modification time, or note once per server that it can't be.
+async fn finish_metadata(
+    job: &Job,
+    dst: &mut dyn Backend,
+    dst_path: &RemotePath,
+    source: &Entry,
+    dst_caps: crate::backend::Capabilities,
+    timeout: Duration,
+) {
+    let shared = &job.shared;
+    if !job.settings.transfers.preserve_timestamps {
+        return;
+    }
+    if dst_caps.set_mtime {
+        if let Some(modified) = source.modified
+            && let Err(e) =
+                timed(timeout, &job.cancel, dst.set_mtime(dst_path, modified.time)).await
+        {
+            tracing::debug!("could not preserve the modification time: {e}");
+        }
+    } else if source.modified.is_some() {
+        let first = shared
+            .no_mtime_noted
+            .lock()
+            .is_ok_and(|mut noted| noted.insert(job.item.server.key()));
+        if first {
+            shared.events.log(
+                shared.log_session,
+                LogKind::Status,
+                "The server can't set modification times; uploaded files keep the upload time",
+            );
+        }
+    }
 }
 
 /// Moves the bytes: read a chunk, pass the rate limiter, write it, report

@@ -26,9 +26,18 @@ command-line options.
 
 ## Acceptance criteria
 
-- [ ] Each flag documented in `--help` and README.
-- [ ] URL/site/local combos start in the right state (integration test via `App` constructor, no real terminal).
-- [ ] Password-in-URL warning printed to stderr before TUI starts.
+- [x] Each flag documented in `--help` and README.
+- [x] URL/site/local combos start in the right state (integration test via `App` constructor, no real terminal).
+- [x] Password-in-URL warning printed to stderr before TUI starts.
+
+## Status
+
+Done. Notes: shell completions are the existing `generate completions <shell>`
+subcommand (T00), not a separate hidden `completions`; `--config-dir` /
+`--data-dir` override the directories in-process (setting the env vars is
+`unsafe` in Rust 2024) and win over them; `--log-file` is the session log
+(T71) for one run. App tests: `crates/courier-ftp/src/app/launch_tests.rs`;
+parse tests in `cli.rs`.
 
 ## Tests
 

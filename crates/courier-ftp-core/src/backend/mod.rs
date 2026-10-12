@@ -193,6 +193,10 @@ pub struct Capabilities {
     pub ascii_mode: bool,
     /// Several connections to the server are allowed at once.
     pub parallel_connections_allowed: bool,
+    /// [`WriteMode::At`] works: an existing file can be written at any
+    /// offset, so several connections can each write one byte range of it
+    /// (segmented transfers, T41b). The local disk and SFTP; not FTP.
+    pub write_at: bool,
 }
 
 /// A directory listing.
@@ -220,6 +224,13 @@ pub enum WriteMode {
     Append,
     /// Keep the first `n` bytes and write from there (resume).
     ResumeAt(u64),
+    /// Write from offset `n` of the file without truncating anything (one
+    /// segment of a segmented transfer, T41b). The file is created when
+    /// missing; writing past the end leaves a hole. A
+    /// [`TransferOpts::preallocate_hint`] extends a shorter file to that
+    /// size first and is never trimmed back. Needs
+    /// [`Capabilities::write_at`].
+    At(u64),
 }
 
 /// FTP transfer type, resolved from the settings for one file.
@@ -250,6 +261,11 @@ pub struct TransferOpts {
     pub transfer_type: TransferType,
     /// The expected size, so a writer can preallocate.
     pub preallocate_hint: Option<u64>,
+    /// A reader is read at most this many bytes from its offset (a segment's
+    /// range, T41b), so a backend that reads ahead may stop requesting
+    /// there (SFTP's pipelined reader does). `None`: up to the end. Reading
+    /// past the limit is allowed but may end early.
+    pub read_limit: Option<u64>,
 }
 
 #[cfg(test)]

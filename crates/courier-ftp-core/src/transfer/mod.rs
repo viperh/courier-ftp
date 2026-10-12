@@ -53,6 +53,36 @@
 //!   message log says so. With no other connection open it is an ordinary
 //!   failure.
 //!
+//! # Fast transfers (T41b)
+//!
+//! - **Warm-up and batching**: every eligible item gets its own worker task
+//!   at once, so the allowed connections open in parallel when the queue
+//!   starts. A worker's result wakes the scheduler immediately and the next
+//!   item of that server takes the warm, pooled session (no idle gap; FTP
+//!   skips a `TYPE` that is already set).
+//! - **Segmented transfers** (`transfers.segmented`, `segmented` and
+//!   `segments` modules): a binary file of at least `min_file_size_mib`
+//!   whose source reads from an offset (SFTP; FTP with `REST STREAM`) and
+//!   whose target writes at an offset ([`Capabilities::write_at`]: the
+//!   local disk, SFTP; never FTP uploads) is split into byte ranges. The
+//!   worker's connection starts with the whole file; the engine grants it
+//!   extra connections (pooled sessions or leave to open new ones, all at
+//!   once) while it wants them and slots are free — after every waiting
+//!   item has started, so new files win over more segments. Each extra
+//!   connection holds a global slot and a server slot ([`EngineStatus::slots`]).
+//!   Idle connections steal the second half of the range with the most
+//!   bytes left (work stealing). Downloads preallocate the local file
+//!   (sparse) and write with [`WriteMode::At`]; FTP stops a range by
+//!   aborting the rest (`ABOR`). The missing ranges are saved in
+//!   [`QueueItem::segments`](crate::queue::QueueItem::segments) every
+//!   [`SAVE_INTERVAL`], so a retry or restart transfers only those. The
+//!   target's final size is checked. Speed limits apply to the sum of all
+//!   segments (one shared [`RateLimiter`]).
+//! - **SFTP pipelining** lives in the SFTP backend (`sftp.*` settings).
+//!
+//! [`Capabilities::write_at`]: crate::backend::Capabilities::write_at
+//! [`WriteMode::At`]: crate::backend::WriteMode::At
+//!
 //! # A transfer
 //!
 //! 1. Connect (resolver + [`BackendFactory`](crate::backend::BackendFactory))
@@ -119,8 +149,8 @@
 //!   implemented by [`SpeedLimiter`] (global token buckets, see [`ratelimit`]).
 //! - **T45**: `QueueFinished { stats }`; [`completion`] picks the action
 //!   (one-shot override or `queue.on_complete`) and the command line.
-//! - **T41b**: the pool and the worker are the places to add warm-up and
-//!   segments; slots are counted per server in the engine.
+//! - **T41b**: done (see "Fast transfers"); [`Capabilities::write_at`],
+//!   `QueueItem::segments`, [`EngineStatus::slots`].
 //! - **T56/T62**: [`EngineHandle`] commands and [`EngineStatus`].
 
 pub mod completion;
@@ -131,6 +161,8 @@ mod options;
 mod progress;
 pub mod ratelimit;
 pub mod recursive;
+mod segmented;
+mod segments;
 mod worker;
 
 #[cfg(test)]
@@ -150,11 +182,12 @@ pub use hooks::{
 pub use options::{check_download_target, download_name, download_target};
 pub use progress::{ProgressTracker, REPORT_INTERVAL, SPEED_WINDOW};
 pub use ratelimit::{MIN_CHUNK, SpeedLimiter, burst_duration};
+pub use segmented::SAVE_INTERVAL;
 
 use crate::Error;
 
-/// Copy buffer size (128 KiB).
-pub const BUFFER_SIZE: usize = 128 * 1024;
+/// Copy buffer size (256 KiB, T41b §4): one read and one write per chunk.
+pub const BUFFER_SIZE: usize = 256 * 1024;
 /// Idle transfer connections close after this long.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Bound on the clean-up after a failed or cancelled transfer.
