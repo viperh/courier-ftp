@@ -2,7 +2,7 @@
 //!
 //! It serves a real directory over plain FTP on `127.0.0.1` (passive mode
 //! only), from its own thread and tokio runtime, so both async tests and the
-//! blocking [`PtyApp`](crate::PtyApp) tests can use it, and the real
+//! blocking terminal-driving tests can use it, and the real
 //! `courier-ftp` binary can connect to it from another process.
 //!
 //! Commands: `USER`/`PASS`, `SYST`, `FEAT`, `OPTS`, `PWD`, `CWD`/`CDUP`,
@@ -162,10 +162,7 @@ impl TinyFtpd {
 
     /// Every command line received so far, all connections (`PASS` masked).
     pub fn commands(&self) -> Vec<String> {
-        self.commands
-            .lock()
-            .map(|c| c.clone())
-            .unwrap_or_default()
+        self.commands.lock().map(|c| c.clone()).unwrap_or_default()
     }
 }
 
@@ -358,8 +355,16 @@ impl Session {
         }
     }
 
-    async fn command(&mut self, verb: &str, arg: &str, w: &mut OwnedWriteHalf) -> std::io::Result<()> {
-        let public = matches!(verb, "USER" | "PASS" | "FEAT" | "SYST" | "NOOP" | "OPTS" | "CLNT");
+    async fn command(
+        &mut self,
+        verb: &str,
+        arg: &str,
+        w: &mut OwnedWriteHalf,
+    ) -> std::io::Result<()> {
+        let public = matches!(
+            verb,
+            "USER" | "PASS" | "FEAT" | "SYST" | "NOOP" | "OPTS" | "CLNT"
+        );
         if !public && !self.logged_in {
             return reply(w, "530 Please log in with USER and PASS.").await;
         }
@@ -378,7 +383,7 @@ impl Session {
                 }
             }
             "SYST" => "215 UNIX Type: L8".to_owned(),
-            "FEAT" => "211-Features:\r\n EPSV\r\n PASV\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n UTF8\r\n211 End"
+            "FEAT" => "211-Features:\r\n EPSV\r\n PASV\r\n SIZE\r\n MDTM\r\n MFMT\r\n REST STREAM\r\n UTF8\r\n211 End"
                 .to_owned(),
             "NOOP" => "200 NOOP ok.".to_owned(),
             "OPTS" | "CLNT" | "MODE" | "STRU" => "200 Ok.".to_owned(),
@@ -444,6 +449,7 @@ impl Session {
                 _ => "550 Could not get file modification time.".to_owned(),
             },
             _ if self.hostile().is_some() => "550 Permission denied.".to_owned(),
+            "MFMT" => self.mfmt(arg),
             "MKD" | "XMKD" => {
                 let (v, real) = self.real(arg);
                 match std::fs::create_dir(real) {
@@ -483,6 +489,26 @@ impl Session {
             _ => "502 Command not implemented.".to_owned(),
         };
         reply(w, &answer).await
+    }
+
+    /// `MFMT YYYYMMDDHHMMSS path`: set a file's modification time (UTC).
+    fn mfmt(&self, arg: &str) -> String {
+        let Some((stamp, path)) = arg.split_once(' ') else {
+            return "501 Bad MFMT.".to_owned();
+        };
+        let format = format_description!("[year][month][day][hour][minute][second]");
+        let Ok(when) = time::PrimitiveDateTime::parse(stamp, &format) else {
+            return "501 Bad time.".to_owned();
+        };
+        let (_, real) = self.real(path);
+        let set = std::fs::File::options()
+            .write(true)
+            .open(&real)
+            .and_then(|f| f.set_modified(when.assume_utc().into()));
+        match set {
+            Ok(()) => format!("213 Modify={stamp}; {path}"),
+            Err(_) => "550 Could not set the modification time.".to_owned(),
+        }
     }
 
     #[cfg(unix)]
@@ -605,7 +631,11 @@ impl Session {
             }
         };
         let data = data
-            .get(usize::try_from(offset).unwrap_or(usize::MAX).min(data.len())..)
+            .get(
+                usize::try_from(offset)
+                    .unwrap_or(usize::MAX)
+                    .min(data.len())..,
+            )
             .unwrap_or_default();
         let data = if self.ascii {
             to_ascii(data)
@@ -615,7 +645,12 @@ impl Session {
         self.send_data(&data, w).await
     }
 
-    async fn store(&mut self, arg: &str, append: bool, w: &mut OwnedWriteHalf) -> std::io::Result<()> {
+    async fn store(
+        &mut self,
+        arg: &str,
+        append: bool,
+        w: &mut OwnedWriteHalf,
+    ) -> std::io::Result<()> {
         let offset = std::mem::take(&mut self.rest);
         let real = self.real(arg).1;
         if real.is_dir() || !real.parent().is_some_and(Path::is_dir) {

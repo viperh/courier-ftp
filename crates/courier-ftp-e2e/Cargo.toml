@@ -20,6 +20,8 @@ workspace = true
 courier-ftp-core = { workspace = true, features = ["test-util"] }
 
 testcontainers = { workspace = true }
+# TinyFtpd's `ls -l` dates (src/ftpd.rs).
+time = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]

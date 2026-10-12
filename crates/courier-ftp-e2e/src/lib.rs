@@ -35,10 +35,12 @@
 //! CI). Each test starts its own containers, so tests are parallel-safe.
 
 pub mod diag;
+pub mod ftpd;
 pub mod home;
 
 use std::{fmt, future::Future, time::Duration};
 
+pub use ftpd::{FtpdConfig, Hostile, TinyFtpd};
 pub use home::TestHome;
 
 /// The default polling timeout: 10 s locally, 20 s on CI (`CI` set).
