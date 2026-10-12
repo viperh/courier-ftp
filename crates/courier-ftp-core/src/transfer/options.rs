@@ -40,7 +40,9 @@ pub fn download_name(name: &str, settings: &TransferSettings) -> String {
     let name: String = name
         .chars()
         .map(|c| {
-            if separators.contains(&c) {
+            // Control characters too, always: a name must never carry a
+            // terminal escape sequence onto the local disk.
+            if separators.contains(&c) || c.is_control() {
                 replacement
             } else {
                 c

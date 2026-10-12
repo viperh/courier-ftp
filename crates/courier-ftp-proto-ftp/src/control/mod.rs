@@ -89,7 +89,7 @@ use std::{
 
 use courier_ftp_core::{
     Error, Result,
-    backend::{ConnectInfo, ProxyChoice, TransferType},
+    backend::{ConnectInfo, ProxyChoice, SessionPasswords, TransferType},
     events::{
         EventSender, LogKind, PromptKind, PromptResponse, SessionId, mask_command, mask_secrets,
     },
@@ -193,6 +193,9 @@ pub struct FtpOptions {
     /// Certificate trust for FTPS; `None` uses a locked in-memory store
     /// (every unknown certificate is asked about, nothing is remembered).
     pub tls: Option<Arc<TlsTrust>>,
+    /// Passwords typed at a prompt this run: a cached one is used instead of
+    /// asking again, and a typed one is stored once it logs in.
+    pub passwords: Option<SessionPasswords>,
 }
 
 impl FtpOptions {
@@ -212,6 +215,18 @@ impl FtpOptions {
             ftp_proxy,
             encryption: FtpEncryption::PlainOnly,
             tls: None,
+            passwords: None,
+        }
+    }
+
+    /// The [`SessionPasswords`] key of this login: `user@host:port`, or
+    /// `None` for a logon that never asks for a password.
+    pub fn password_key(&self) -> Option<String> {
+        match &self.logon {
+            LogonType::AskForPassword { user } | LogonType::Interactive { user } => {
+                Some(format!("{user}@{}", self.host))
+            }
+            _ => None,
         }
     }
 
@@ -293,7 +308,8 @@ impl KeepaliveCommand {
 /// SSH-only logon types, [`Error::Protocol`] for an unexpected greeting or a
 /// broken reply.
 pub async fn connect(opts: &FtpOptions, ctx: FtpContext) -> Result<ControlConnection> {
-    let password = ask_password(opts, &ctx).await?;
+    let (password, cached) = ask_password(opts, &ctx).await?;
+    let typed = password.clone().filter(|_| !cached);
     let script = opts.login_script(password)?;
     let mut conn = ControlConnection::connect_tcp(opts, ctx).await?;
     let tls = match opts.encryption {
@@ -326,7 +342,20 @@ pub async fn connect(opts: &FtpOptions, ctx: FtpContext) -> Result<ControlConnec
             format!("Logging in through the FTP proxy ({})", proxy.kind),
         );
     }
-    conn.login(&script).await?;
+    let login = conn.login(&script).await;
+    if let (Some(passwords), Some(key)) = (&opts.passwords, opts.password_key()) {
+        match &login {
+            Ok(()) => {
+                if let Some(password) = typed {
+                    passwords.put(&key, password);
+                }
+            }
+            // A remembered password that no longer works is asked again.
+            Err(Error::Auth(_)) if cached => passwords.remove(&key),
+            Err(_) => {}
+        }
+    }
+    login?;
     conn.negotiate(opts.client_name.as_deref()).await?;
     conn.protect_data(opts.encryption).await?;
     match conn.pwd().await {
@@ -340,11 +369,17 @@ pub async fn connect(opts: &FtpOptions, ctx: FtpContext) -> Result<ControlConnec
     Ok(conn)
 }
 
-/// The password for logon types that ask for it, asked before connecting.
-async fn ask_password(opts: &FtpOptions, ctx: &FtpContext) -> Result<Option<SecretString>> {
+/// The password for logon types that ask for it, asked before connecting
+/// unless one was typed for this server earlier in the run (then `true`).
+async fn ask_password(opts: &FtpOptions, ctx: &FtpContext) -> Result<(Option<SecretString>, bool)> {
     let (LogonType::AskForPassword { user } | LogonType::Interactive { user }) = &opts.logon else {
-        return Ok(None);
+        return Ok((None, false));
     };
+    if let (Some(passwords), Some(key)) = (&opts.passwords, opts.password_key())
+        && let Some(password) = passwords.get(&key)
+    {
+        return Ok((Some(password), true));
+    }
     let answer = ctx
         .events
         .ask(
@@ -356,7 +391,7 @@ async fn ask_password(opts: &FtpOptions, ctx: &FtpContext) -> Result<Option<Secr
         )
         .await?;
     match answer {
-        PromptResponse::Secret(password) => Ok(Some(password)),
+        PromptResponse::Secret(password) => Ok((Some(password), false)),
         _ => Err(Error::Cancelled),
     }
 }

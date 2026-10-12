@@ -360,6 +360,7 @@ impl Vault {
         if let Some(ftp) = &self.ftp {
             ftp.certs.replace(Arc::new(MemoryCertTrustStore::locked()));
             ftp.factory.set_ftp_proxy_password(None);
+            ftp.factory.clear_session_passwords();
         }
         self.credentials.clear();
         self.phase = Phase::Locked;

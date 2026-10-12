@@ -666,6 +666,10 @@ criteria = "safe-to-deploy"
 version = "0.15.7"
 criteria = "safe-to-deploy"
 
+[[exemptions.downcast-rs]]
+version = "1.2.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.dyn-clone]]
 version = "1.0.20"
 criteria = "safe-to-deploy"
@@ -1818,6 +1822,10 @@ criteria = "safe-to-deploy"
 version = "0.2.8"
 criteria = "safe-to-deploy"
 
+[[exemptions.portable-pty]]
+version = "0.9.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.potential_utf]]
 version = "0.1.6"
 criteria = "safe-to-deploy"
@@ -2218,6 +2226,10 @@ criteria = "safe-to-deploy"
 version = "0.4.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.serial2]]
+version = "0.2.38"
+criteria = "safe-to-deploy"
+
 [[exemptions.sha1]]
 version = "0.10.7"
 criteria = "safe-to-deploy"
@@ -2244,6 +2256,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.shake]]
 version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.shared_library]]
+version = "0.1.9"
+criteria = "safe-to-deploy"
+
+[[exemptions.shell-words]]
+version = "1.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.signal-hook]]
@@ -2646,8 +2666,16 @@ criteria = "safe-to-deploy"
 version = "0.5.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.vt100]]
+version = "0.16.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.vte]]
 version = "0.14.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.vte]]
+version = "0.15.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.vtparse]]
@@ -2880,6 +2908,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.winnow]]
 version = "1.0.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.winreg]]
+version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.wnaf]]

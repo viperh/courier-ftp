@@ -26,6 +26,7 @@ pub mod conformance;
 mod connect;
 #[cfg(any(test, feature = "test-util"))]
 mod mock;
+mod passwords;
 mod session;
 
 use std::time::Instant;
@@ -34,6 +35,7 @@ use async_trait::async_trait;
 pub use connect::{BackendFactory, ConnectInfo, KeySource, ProxyChoice, StoredSecret, VaultKey};
 #[cfg(any(test, feature = "test-util"))]
 pub use mock::{MockBackend, MockServer};
+pub use passwords::SessionPasswords;
 pub use session::SessionHandle;
 use time::OffsetDateTime;
 use tokio::io::{AsyncRead, AsyncWrite};

@@ -91,3 +91,69 @@ async fn an_ssh_server_reached_with_ftp_says_to_use_sftp() {
         "{text}"
     );
 }
+
+/// A password typed at a prompt is remembered for the run: a second
+/// connection (as the transfer engine opens) doesn't ask again. A
+/// remembered password the server rejects is forgotten.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_typed_password_is_asked_once_per_run() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use courier_ftp_core::{
+        backend::SessionPasswords,
+        events::{CoreEvent, PromptKind, PromptResponse},
+    };
+
+    let root = tempfile::tempdir().unwrap();
+    let server = TinyFtpd::start(root.path(), USER, PASSWORD).unwrap();
+    let passwords = SessionPasswords::new();
+    let trust = Arc::new(TlsTrust::with_system_verifier(
+        Arc::new(MemoryCertTrustStore::new()),
+        None,
+    ));
+    let mut settings = Settings::default();
+    settings.connection.timeout_secs = 10;
+    let factory = FtpBackendFactory::new(settings, trust).with_session_passwords(passwords.clone());
+    let mut address = ServerAddress::new(Protocol::Ftp, "127.0.0.1");
+    address.port = server.port();
+    let mut info = ConnectInfo::new(address, LogonType::AskForPassword { user: USER.into() });
+    info.encryption = Some(FtpEncryption::PlainOnly);
+
+    let asked = Arc::new(AtomicUsize::new(0));
+    let connect = |answer: &'static str| {
+        let (tx, mut rx) = events::channel(4);
+        let asked = Arc::clone(&asked);
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let CoreEvent::Prompt(req) = event
+                    && matches!(req.kind, PromptKind::Password { .. })
+                {
+                    asked.fetch_add(1, Ordering::SeqCst);
+                    let _ = req.reply.send(PromptResponse::Secret(SecretString::from(
+                        answer.to_owned(),
+                    )));
+                }
+            }
+        });
+        factory.create_ftp(&info, SessionId::next(), tx)
+    };
+
+    let mut first = connect(PASSWORD);
+    first.connect(CancellationToken::new()).await.unwrap();
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    let mut second = connect(PASSWORD);
+    second.connect(CancellationToken::new()).await.unwrap();
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "asked again");
+
+    // The server's password changes: the remembered one fails once and is
+    // forgotten, so the next connection asks.
+    passwords.put(
+        &format!("{USER}@127.0.0.1:{}", server.port()),
+        SecretString::from("stale".to_owned()),
+    );
+    let mut stale = connect(PASSWORD);
+    assert!(stale.connect(CancellationToken::new()).await.is_err());
+    let mut fresh = connect(PASSWORD);
+    fresh.connect(CancellationToken::new()).await.unwrap();
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+}

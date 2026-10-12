@@ -57,7 +57,7 @@ use courier_ftp_core::{
     Error, Result,
     backend::{
         Backend, BackendFactory, Capabilities, ConnectInfo, Listing, ReadStream, SecurityInfo,
-        SessionInfo, TransferOpts, TransferType, WriteMode, WriteStream,
+        SessionInfo, SessionPasswords, TransferOpts, TransferType, WriteMode, WriteStream,
     },
     events::{EventSender, LogKind, SessionId},
     model::{Entry, EntryKind, PathStyle, Precision, RemotePath, ServerAddress, Timestamp},
@@ -857,6 +857,8 @@ pub struct FtpBackendFactory {
     settings: Arc<Mutex<Settings>>,
     tls: Arc<TlsTrust>,
     ftp_proxy_password: Arc<Mutex<Option<SecretString>>>,
+    /// Passwords typed this run, shared by every backend created here.
+    passwords: Option<SessionPasswords>,
 }
 
 impl std::fmt::Debug for FtpBackendFactory {
@@ -874,7 +876,16 @@ impl FtpBackendFactory {
             settings: Arc::new(Mutex::new(settings)),
             tls,
             ftp_proxy_password: Arc::new(Mutex::new(None)),
+            passwords: None,
         }
+    }
+
+    /// Remember passwords typed at a prompt in `passwords`, so further
+    /// connections to the same server (transfers) don't ask again.
+    #[must_use]
+    pub fn with_session_passwords(mut self, passwords: SessionPasswords) -> Self {
+        self.passwords = Some(passwords);
+        self
     }
 
     /// Replace the settings used by backends created from now on.
@@ -889,6 +900,13 @@ impl FtpBackendFactory {
             .ftp_proxy_password
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = password;
+    }
+
+    /// Forget the passwords typed this run (the vault locked).
+    pub fn clear_session_passwords(&self) {
+        if let Some(passwords) = &self.passwords {
+            passwords.clear();
+        }
     }
 
     /// The certificate trust.
@@ -909,6 +927,7 @@ impl FtpBackendFactory {
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         let mut backend = FtpBackend::new(info, &settings, Arc::clone(&self.tls), session, events);
+        backend.options_mut().passwords.clone_from(&self.passwords);
         if let Some(password) = self
             .ftp_proxy_password
             .lock()

@@ -53,7 +53,10 @@ impl Backends {
         let certs = Arc::new(CertTrustStoreSlot::new(Arc::new(
             MemoryCertTrustStore::locked(),
         )));
-        let ftp = FtpBackendFactory::new(settings.clone(), Arc::new(TlsTrust::new(certs.clone())));
+        // Typed FTP passwords are remembered for the run, like SFTP's
+        // credential cache: transfer connections don't ask again.
+        let ftp = FtpBackendFactory::new(settings.clone(), Arc::new(TlsTrust::new(certs.clone())))
+            .with_session_passwords(courier_ftp_core::backend::SessionPasswords::new());
         Self {
             sftp,
             ftp,
