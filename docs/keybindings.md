@@ -5,7 +5,8 @@
 
 courier-ftp mixes Midnight Commander function keys (F5 copy, F6 move, F7 mkdir,
 F8 delete, Tab switches pane) with vim motions (`j`/`k`/`h`/`l`, `gg`/`G`, `/`).
-`F1` shows the keys of the current mode in the program.
+`F1` (or `?`) shows every key in the program, the ones that work right now first;
+`/` searches them.
 
 Every binding can be changed in your `config.json` (see the README): keys are
 grouped by mode, a sequence is written `<g><g>`, and `<` and `>` are spelled

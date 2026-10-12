@@ -163,12 +163,23 @@ fn help_lists_bindings_from_the_config() {
     let mut s = screen(Layout::Classic);
     s.update(&Action::Help);
     let t = text(&render(&mut s, 120, 120));
-    assert!(t.contains("Keys: FileList mode"), "{t}");
-    // Global bindings show alongside the file list's own.
-    assert!(t.contains("<Ctrl-q>") && t.contains("Quit"), "{t}");
-    assert!(t.contains("<g><g>") && t.contains("Top"), "{t}");
-    // The file list's `<j>` shadows nothing global, and Help itself is listed.
-    assert!(t.contains("<F1>") && t.contains("Help"), "{t}");
+    // The keys that work now come first, with descriptions.
+    assert!(
+        t.contains("Help · keys") && t.contains("File lists (works now)"),
+        "{t}"
+    );
+    assert!(
+        t.contains("<g><g>") && t.contains("Go to the first entry"),
+        "{t}"
+    );
+    // The global keys are listed too: search finds them.
+    s.handle_key(key(KeyCode::Char('/')));
+    for c in "quit".chars() {
+        s.handle_key(key(KeyCode::Char(c)));
+    }
+    let t = text(&render(&mut s, 120, 40));
+    assert!(t.contains("Everywhere") && t.contains("<Ctrl-q>"), "{t}");
+    assert!(!t.contains("<g><g>"), "{t}");
 }
 
 #[tokio::test]

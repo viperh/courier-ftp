@@ -10,6 +10,7 @@ mod file_list;
 pub(crate) mod file_ops;
 mod filters;
 mod focus;
+mod help;
 mod layout;
 mod log;
 mod modal;

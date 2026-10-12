@@ -26,9 +26,10 @@ use super::{
     file_list::{Effect, FileList},
     filters::FiltersDialog,
     focus::Region,
+    help::HelpOverlay,
     layout::{self, LayoutOptions, Regions, Visibility},
     log::LogPane,
-    modal::{HelpOverlay, Modal, ModalOutcome, prompt_modal},
+    modal::{Modal, ModalOutcome, prompt_modal},
     panes,
     queue::QueuePane,
     quickconnect::{QuickKey, Quickconnect},
@@ -1944,9 +1945,8 @@ impl MainScreen {
 
     fn open_help(&mut self) {
         let mode = self.mode();
-        let bindings = self.config.keybindings.describe(mode);
         self.modals.push(Box::new(
-            HelpOverlay::new(&format!("{mode:?}"), bindings)
+            HelpOverlay::new(&self.config.keybindings, mode)
                 .with_notice(self.update_notice.clone()),
         ));
     }

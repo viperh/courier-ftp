@@ -46,8 +46,9 @@ impl KeyBindings {
             .filter_map(|m| self.0.get(&m))
     }
 
-    /// Every binding visible in `mode` as (keys, action) for the help overlay
-    /// and the generated docs. Context bindings shadow global ones.
+    /// Every binding visible in `mode` as (keys, action). Context bindings
+    /// shadow global ones.
+    #[cfg(test)]
     pub(crate) fn describe(&self, mode: Mode) -> Vec<(String, String)> {
         let mut seen: HashMap<&Vec<KeyEvent>, ()> = HashMap::new();
         let mut out = Vec::new();
@@ -678,7 +679,8 @@ mod tests {
 
 courier-ftp mixes Midnight Commander function keys (F5 copy, F6 move, F7 mkdir,
 F8 delete, Tab switches pane) with vim motions (`j`/`k`/`h`/`l`, `gg`/`G`, `/`).
-`F1` shows the keys of the current mode in the program.
+`F1` (or `?`) shows every key in the program, the ones that work right now first;
+`/` searches them.
 
 Every binding can be changed in your `config.json` (see the README): keys are
 grouped by mode, a sequence is written `<g><g>`, and `<` and `>` are spelled

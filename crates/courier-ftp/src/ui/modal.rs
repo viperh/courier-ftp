@@ -1,5 +1,5 @@
-//! The modal stack's contract and the dialogs T50 needs: the help overlay and
-//! a basic prompt dialog. T52 adds the form widgets and standard dialogs; T69
+//! The modal stack's contract and a basic prompt dialog (the help overlay
+//! is in `help`). T52 adds the form widgets and standard dialogs; T69
 //! the trust prompts (in `trust`).
 
 use courier_ftp_core::events::{PromptKind, PromptRequest, PromptResponse};
@@ -7,7 +7,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::Rect,
-    text::{Line, Span},
     widgets::{Block, Clear, Paragraph, Wrap},
 };
 
@@ -46,95 +45,6 @@ pub(crate) fn centered(area: Rect, width: u16, height: u16) -> Rect {
         w,
         h,
     )
-}
-
-/// `F1`: the keybindings of the mode the user was in, generated from the
-/// config.
-pub(crate) struct HelpOverlay {
-    title: String,
-    lines: Vec<(String, String)>,
-    /// "Update available: …" above the keys (T74).
-    notice: Option<String>,
-    scroll: u16,
-}
-
-impl HelpOverlay {
-    /// `bindings` are (key sequence, action) pairs.
-    pub(crate) fn new(mode: &str, mut bindings: Vec<(String, String)>) -> Self {
-        bindings.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-        Self {
-            title: format!(" Keys: {mode} mode "),
-            lines: bindings,
-            notice: None,
-            scroll: 0,
-        }
-    }
-
-    /// Show `notice` (an available update) above the keys.
-    pub(crate) fn with_notice(mut self, notice: Option<String>) -> Self {
-        self.notice = notice;
-        self
-    }
-}
-
-impl Modal for HelpOverlay {
-    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let key_width = self.lines.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-        // "Update available: v1.3.0" and the release page on its own line
-        // (too long for one), then a blank line.
-        let notice: Vec<Line> = self
-            .notice
-            .iter()
-            .flat_map(|n| {
-                n.split(" — ")
-                    .map(|part| Line::styled(part.to_owned(), theme.key_hint))
-            })
-            .chain(self.notice.as_ref().map(|_| Line::raw("")))
-            .collect();
-        let height = u16::try_from(self.lines.len() + notice.len())
-            .unwrap_or(u16::MAX)
-            .saturating_add(3);
-        let rect = centered(area, 60, height);
-        let body: Vec<Line> = notice
-            .into_iter()
-            .chain(self.lines.iter().map(|(key, action)| {
-                Line::from(vec![
-                    Span::styled(format!("{key:<key_width$}  "), theme.key_hint),
-                    Span::raw(action.clone()),
-                ])
-            }))
-            .chain(std::iter::once(Line::styled(
-                "Esc closes · ↑/↓ scroll",
-                theme.dim,
-            )))
-            .collect();
-        frame.render_widget(Clear, rect);
-        frame.render_widget(
-            Paragraph::new(body).scroll((self.scroll, 0)).block(
-                Block::bordered()
-                    .title(self.title.as_str())
-                    .border_style(theme.focused_border),
-            ),
-            rect,
-        );
-    }
-
-    fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome {
-        match key.code {
-            KeyCode::Esc | KeyCode::Enter | KeyCode::F(1) | KeyCode::Char('q') => {
-                ModalOutcome::Close
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.scroll = self.scroll.saturating_add(1);
-                ModalOutcome::Keep
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.scroll = self.scroll.saturating_sub(1);
-                ModalOutcome::Keep
-            }
-            _ => ModalOutcome::Keep,
-        }
-    }
 }
 
 /// The dialog for a question from the core (T04). The answer goes back
