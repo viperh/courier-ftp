@@ -267,3 +267,6 @@ the section matching the tag.
   close-match suggestions for unknown paths), --local, --logontype,
   --config-dir/--data-dir, --log-file, --no-vault and --no-keyring; --version
   shows the config, data and vault paths.
+- Help overlay (F1 or ?): every key grouped by where it works (the current
+  mode first), with a description and the action name, / to search across
+  keys, descriptions and actions, and j/k, PgUp/PgDn, g/G scrolling.
