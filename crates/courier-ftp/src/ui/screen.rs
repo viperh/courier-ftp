@@ -1344,6 +1344,12 @@ impl MainScreen {
         None
     }
 
+    /// Focus the remote file list (a connection started from the command
+    /// line, like quickconnect does after a submit).
+    pub(crate) fn focus_remote_list(&mut self) {
+        self.set_focus(Region::RemoteList);
+    }
+
     fn set_focus(&mut self, region: Region) {
         self.focus = region;
         if let Some(side) = region.side() {

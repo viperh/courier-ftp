@@ -71,7 +71,12 @@ impl App {
 
     /// The vault is unlocked or was skipped: connect to the URLs.
     pub(super) fn launch_urls(&mut self) {
-        for mut request in std::mem::take(&mut self.launch.urls) {
+        let urls = std::mem::take(&mut self.launch.urls);
+        if !urls.is_empty() {
+            // As after a quickconnect: the remote list has the keys.
+            self.screen.focus_remote_list();
+        }
+        for mut request in urls {
             if let Some(dir) = &self.launch.local_dir {
                 request.local_dir = Some(dir.clone());
             }
@@ -140,6 +145,7 @@ impl App {
         if found.is_empty() {
             return;
         }
+        self.screen.focus_remote_list();
         // One task, so the connections start in command-line order.
         let slot = Arc::clone(&self.sites);
         let tx = self.action_tx.clone();
