@@ -516,6 +516,51 @@ async fn encrypted_keys_ask_for_the_passphrase() {
     }
 }
 
+#[tokio::test]
+async fn a_saved_passphrase_opens_the_key_without_asking() {
+    let (addr, _) = test_server::start(Policy {
+        authorized: vec![public("ed25519_enc.pub")],
+        ..Policy::default()
+    })
+    .await;
+    let mut s = setup(addr, normal("unused"), vec![]);
+    s.opts.key = Some(KeyInput::Text {
+        label: "vault key".into(),
+        text: SecretString::from(std::fs::read_to_string(keys_dir().join("ed25519_enc")).unwrap()),
+    });
+    s.opts.passphrase = Some(SecretString::from(PASSPHRASE.to_owned()));
+    run(&s).await.unwrap();
+    assert!(s.ui.prompts().is_empty());
+
+    // A wrong saved passphrase falls back to asking.
+    let mut s = setup(
+        addr,
+        key_file("ed25519_enc"),
+        vec![Reply::Secret(PASSPHRASE)],
+    );
+    s.opts.passphrase = Some(SecretString::from("wrong".to_owned()));
+    run(&s).await.unwrap();
+    assert_eq!(s.ui.prompts().len(), 1);
+}
+
+#[test]
+fn connect_info_carries_vault_key_passphrase_and_agent_first() {
+    use courier_ftp_core::backend::{ConnectInfo, KeySource, StoredSecret, VaultKey};
+    use courier_ftp_core::model::{Protocol, ServerAddress, item::ItemId};
+    let mut info = ConnectInfo::new(ServerAddress::new(Protocol::Sftp, "h"), normal("x"));
+    info.key = Some(KeySource::Vault(VaultKey {
+        id: ItemId::new(),
+        label: "deploy".into(),
+        private_key: StoredSecret::new(SecretString::from("KEY".to_owned())),
+    }));
+    info.key_passphrase = Some(StoredSecret::new(SecretString::from("pp".to_owned())));
+    info.try_agent_first = true;
+    let opts = SshOptions::from_connect_info(&info, &Settings::default());
+    assert!(matches!(&opts.key, Some(KeyInput::Text { label, .. }) if label == "deploy"));
+    assert!(opts.passphrase.is_some());
+    assert!(opts.try_agent_first);
+}
+
 async fn ppk_public(name: &str) -> PublicKey {
     let text = std::fs::read_to_string(keys_dir().join("ppk").join(name)).unwrap();
     let file = KeyFile::from_text(name, SecretString::from(text)).unwrap();

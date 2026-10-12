@@ -427,3 +427,217 @@ async fn works_through_factory_and_session_handle() {
     let listing = handle.list(&RemotePath::root(), &cancel).await.unwrap();
     assert_eq!(listing.entries.len(), 1);
 }
+
+/// Resolves every queue server to the in-process test server.
+struct TestResolver(u16);
+
+#[async_trait::async_trait]
+impl courier_ftp_core::transfer::ServerResolver for TestResolver {
+    async fn resolve(
+        &self,
+        _: &courier_ftp_core::queue::QueueServer,
+        _: &CancellationToken,
+    ) -> courier_ftp_core::Result<ConnectInfo> {
+        Ok(info(self.0))
+    }
+}
+
+/// The transfer engine (T41) over real SFTP connections: several files up
+/// and down in parallel, byte-identical.
+#[tokio::test]
+async fn transfer_engine_moves_files_over_sftp() {
+    use courier_ftp_core::{
+        model::{Direction, LocalPath},
+        queue::{NewItem, Queue, QueueList, QueueServer},
+        settings::TransferTypeChoice,
+        transfer::TransferEngine,
+    };
+
+    let (remote_dir, port) = server(false).await;
+    let local_dir = tempfile::tempdir().unwrap();
+    let count = 6;
+    for i in 0..count {
+        let size = 100_000 * i + 7;
+        std::fs::write(local_dir.path().join(format!("up{i}")), pattern(size)).unwrap();
+        let mut down = pattern(size + 1);
+        down.reverse();
+        std::fs::write(remote_dir.path().join(format!("down{i}")), down).unwrap();
+    }
+    let queue = Arc::new(Mutex::new(Queue::default()));
+    let quick = QueueServer::Quick {
+        address: info(port).address,
+        password: None,
+    };
+    {
+        let mut q = queue.lock().unwrap();
+        for i in 0..count {
+            for (direction, name) in [(Direction::Upload, "up"), (Direction::Download, "down")] {
+                let name = format!("{name}{i}");
+                q.add(
+                    NewItem::file(
+                        quick.clone(),
+                        direction,
+                        LocalPath::new(local_dir.path().join(&name)),
+                        RemotePath::new(format!("/{name}")),
+                        None,
+                    ),
+                    time::OffsetDateTime::UNIX_EPOCH,
+                );
+            }
+        }
+    }
+    let (tx, mut rx) = events::channel(2);
+    let mut engine_settings = settings();
+    engine_settings.transfers.max_concurrent = 3;
+    engine_settings.file_types.default_type = TransferTypeChoice::Binary;
+    let (engine, handle) = TransferEngine::builder(
+        Arc::clone(&queue),
+        Arc::new(factory()),
+        Arc::new(TestResolver(port)),
+        tx,
+    )
+    .settings(engine_settings)
+    .build();
+    let task = engine.spawn();
+    handle.start();
+    let stats = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if let Some(CoreEvent::QueueFinished { stats }) = rx.recv().await {
+                return stats;
+            }
+        }
+    })
+    .await
+    .expect("queue did not finish");
+    assert_eq!(stats.files_ok, 2 * count as u64, "{stats:?}");
+    assert_eq!(queue.lock().unwrap().count(QueueList::Failed), 0);
+    for i in 0..count {
+        let a = std::fs::read(local_dir.path().join(format!("up{i}"))).unwrap();
+        let b = std::fs::read(remote_dir.path().join(format!("up{i}"))).unwrap();
+        assert!(a == b, "upload {i} differs");
+        let a = std::fs::read(remote_dir.path().join(format!("down{i}"))).unwrap();
+        let b = std::fs::read(local_dir.path().join(format!("down{i}"))).unwrap();
+        assert!(a == b, "download {i} differs");
+    }
+    handle.shutdown();
+    task.await.unwrap();
+}
+
+/// `sftp.max_outstanding_requests` and `sftp.request_size_kib` (T41b §3)
+/// reach the streams: even one 1 KiB request at a time moves the bytes.
+#[tokio::test]
+async fn pipeline_settings_are_used() {
+    let (dir, port) = server(false).await;
+    let mut s = settings();
+    s.sftp.max_outstanding_requests = 1;
+    s.sftp.request_size_kib = 1;
+    let factory = SftpBackendFactory::new(s, Arc::new(AcceptAnyHostKey::insecure_for_tests()));
+    let (tx, mut rx) = events::channel(4);
+    let mut b = factory.create_sftp(&info(port), SessionId::next(), tx);
+    b.connect(CancellationToken::new()).await.unwrap();
+    let data = pattern(100_000);
+    let path = RemotePath::new("/small-requests.bin");
+    put(&mut b, &path, WriteMode::Create, &data).await;
+    assert!(std::fs::read(dir.path().join("small-requests.bin")).unwrap() == data);
+    assert!(get(&mut b, &path, 0).await == data);
+    b.disconnect().await.unwrap();
+    drop(b);
+    let mut logs = Vec::new();
+    while let Some(event) = rx.recv().await {
+        if let CoreEvent::Log(m) = event {
+            logs.push(m.text);
+        }
+    }
+    // The test server announces no limits: the configured size is used.
+    assert!(
+        logs.iter()
+            .any(|l| l == "SFTP request size: read 1024 bytes, write 1024 bytes, 1 in flight"),
+        "{logs:?}"
+    );
+}
+
+/// Segmented transfers (T41b) over real SFTP connections: one file down
+/// and one up, each split over several connections, byte-identical.
+#[tokio::test]
+async fn segmented_transfers_over_sftp_are_byte_identical() {
+    use courier_ftp_core::{
+        model::{Direction, LocalPath},
+        queue::{NewItem, Queue, QueueServer},
+        settings::TransferTypeChoice,
+        transfer::TransferEngine,
+    };
+
+    let (remote_dir, port) = server(false).await;
+    let local_dir = tempfile::tempdir().unwrap();
+    let mib = 1024 * 1024;
+    let down = pattern(9 * mib + 333);
+    let mut up = pattern(7 * mib + 77);
+    up.reverse();
+    std::fs::write(remote_dir.path().join("down.bin"), &down).unwrap();
+    std::fs::write(local_dir.path().join("up.bin"), &up).unwrap();
+    let queue = Arc::new(Mutex::new(Queue::default()));
+    let quick = QueueServer::Quick {
+        address: info(port).address,
+        password: None,
+    };
+    {
+        let mut q = queue.lock().unwrap();
+        for (direction, name, size) in [
+            (Direction::Download, "down.bin", down.len()),
+            (Direction::Upload, "up.bin", up.len()),
+        ] {
+            q.add(
+                NewItem::file(
+                    quick.clone(),
+                    direction,
+                    LocalPath::new(local_dir.path().join(name)),
+                    RemotePath::new(format!("/{name}")),
+                    Some(size as u64),
+                ),
+                time::OffsetDateTime::UNIX_EPOCH,
+            );
+        }
+    }
+    let (tx, mut rx) = events::channel(2);
+    let mut s = settings();
+    s.connection.keepalive = false;
+    s.transfers.max_concurrent = 8;
+    s.file_types.default_type = TransferTypeChoice::Binary;
+    s.transfers.segmented.min_file_size_mib = 1;
+    s.transfers.segmented.min_segment_size_mib = 1;
+    s.transfers.segmented.max_segments = 4;
+    let (engine, handle) = TransferEngine::builder(
+        Arc::clone(&queue),
+        Arc::new(factory()),
+        Arc::new(TestResolver(port)),
+        tx,
+    )
+    .settings(s)
+    .build();
+    let task = engine.spawn();
+    handle.start();
+    let mut peak_slots = 0;
+    let mut status = handle.watch_status();
+    let stats = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            tokio::select! {
+                event = rx.recv() => {
+                    if let Some(CoreEvent::QueueFinished { stats }) = event {
+                        return stats;
+                    }
+                }
+                Ok(()) = status.changed() => {
+                    peak_slots = peak_slots.max(status.borrow().slots);
+                }
+            }
+        }
+    })
+    .await
+    .expect("queue did not finish");
+    assert_eq!((stats.files_ok, stats.files_failed), (2, 0), "{stats:?}");
+    assert!(std::fs::read(local_dir.path().join("down.bin")).unwrap() == down);
+    assert!(std::fs::read(remote_dir.path().join("up.bin")).unwrap() == up);
+    assert!(peak_slots > 2, "segmented: {peak_slots} slots at most");
+    handle.shutdown();
+    task.await.unwrap();
+}

@@ -7,6 +7,7 @@
 //! which are highlighted), `v` starts a range, `y` copies the cursor line or
 //! range, `w` wraps long lines (otherwise `h`/`l` scroll sideways), `e` shows
 //! only errors, `t` shows every session instead of only the current tab's.
+//! `Y` copies and `S` saves ("Save log as…") every line the filters show (T71).
 
 use std::collections::{HashSet, VecDeque};
 
@@ -53,8 +54,9 @@ pub(crate) struct LogPane {
     wrap: bool,
     hscroll: usize,
     errors_only: bool,
-    /// The sessions of the current tab (T61); `None` shows everything.
-    sessions: Option<HashSet<SessionId>>,
+    /// The browsing sessions of the other tabs (T61), hidden unless "all"
+    /// is on. Everything else (local, transfers, searches) always shows.
+    hidden: HashSet<SessionId>,
     show_all: bool,
     /// Rows of the last frame, for paging.
     rows: usize,
@@ -63,14 +65,7 @@ pub(crate) struct LogPane {
 const PREFIX_WIDTH: usize = 10;
 
 fn prefix(kind: LogKind) -> &'static str {
-    match kind {
-        LogKind::Status => "Status:",
-        LogKind::Command => "Command:",
-        LogKind::Response => "Response:",
-        LogKind::Error => "Error:",
-        LogKind::ListingRaw => "Listing:",
-        LogKind::Debug(_) => "Trace:",
-    }
+    courier_ftp_core::logfile::kind_label(kind)
 }
 
 impl LogPane {
@@ -88,7 +83,7 @@ impl LogPane {
             wrap: false,
             hscroll: 0,
             errors_only: false,
-            sessions: None,
+            hidden: HashSet::new(),
             show_all: false,
             rows: 1,
         }
@@ -116,6 +111,22 @@ impl LogPane {
         }
     }
 
+    /// The settings screen changed `logging.log_lines` or
+    /// `logging.show_timestamps` (T68). A smaller capacity drops the oldest
+    /// lines.
+    pub(crate) fn configure(&mut self, capacity: usize, show_timestamps: bool) {
+        self.capacity = capacity.max(1);
+        self.show_timestamps = show_timestamps;
+        while self.lines.len() > self.capacity {
+            self.lines.pop_front();
+        }
+        if let (Some(c), Some(first)) = (self.cursor, self.lines.front())
+            && c < first.seq
+        {
+            self.cursor = Some(first.seq);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.lines.len()
@@ -126,10 +137,12 @@ impl LogPane {
         self.cursor.is_none()
     }
 
-    /// Show only these sessions (the current tab's), unless "all" is on.
-    #[cfg_attr(not(test), expect(dead_code, reason = "per-tab logs arrive with T61"))]
-    pub(crate) fn set_sessions(&mut self, sessions: Option<HashSet<SessionId>>) {
-        self.sessions = sessions;
+    /// Hide these sessions (the other tabs' connections) unless "all" is
+    /// on.
+    pub(crate) fn set_hidden(&mut self, hidden: HashSet<SessionId>) {
+        if hidden != self.hidden {
+            self.hidden = hidden;
+        }
     }
 
     pub(crate) fn is_searching(&self) -> bool {
@@ -140,10 +153,7 @@ impl LogPane {
         if self.errors_only && msg.kind != LogKind::Error {
             return false;
         }
-        match (&self.sessions, self.show_all) {
-            (Some(set), false) => set.contains(&msg.session),
-            _ => true,
-        }
+        self.show_all || !self.hidden.contains(&msg.session)
     }
 
     /// Indices (into `lines`) of the lines currently shown.
@@ -312,6 +322,17 @@ impl LogPane {
                     return Some(Action::CopyToClipboard(text));
                 }
             }
+            Action::CopyLog | Action::SaveLog => {
+                let text = self.all_text();
+                if text.is_empty() {
+                    return None;
+                }
+                return Some(if matches!(action, Action::CopyLog) {
+                    Action::CopyToClipboard(text)
+                } else {
+                    Action::SaveLogText(text)
+                });
+            }
             Action::ClearLog => {
                 self.lines.clear();
                 self.anchor = None;
@@ -328,6 +349,15 @@ impl LogPane {
             _ => {}
         }
         None
+    }
+
+    /// Every line the filters show, as copied or saved text (T71).
+    fn all_text(&self) -> String {
+        self.view()
+            .iter()
+            .map(|&i| self.format(&self.lines[i].msg))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// The cursor line, or the visual range, as copied text.
@@ -353,7 +383,7 @@ impl LogPane {
         if self.errors_only {
             title.push(Span::styled("(errors) ", theme.key_hint));
         }
-        if self.show_all && self.sessions.is_some() {
+        if self.show_all && !self.hidden.is_empty() {
             title.push(Span::styled("(all sessions) ", theme.key_hint));
         }
         if let Some(s) = &self.search {
@@ -676,6 +706,24 @@ mod tests {
     }
 
     #[test]
+    fn copy_and_save_the_whole_filtered_log() {
+        let mut p = pane();
+        assert_eq!(p.update(&Action::CopyLog), None);
+        p.push(msg(LogKind::Status, "one"));
+        p.push(msg(LogKind::Error, "two"));
+        p.push(msg(LogKind::Status, "three"));
+        let Some(Action::CopyToClipboard(text)) = p.update(&Action::CopyLog) else {
+            panic!("nothing copied");
+        };
+        assert_eq!(text.lines().count(), 3);
+        p.update(&Action::ToggleErrorsOnly);
+        let Some(Action::SaveLogText(text)) = p.update(&Action::SaveLog) else {
+            panic!("nothing to save");
+        };
+        assert_eq!(text, "12:34:56  Error:    two");
+    }
+
+    #[test]
     fn copy_line_and_range() {
         let mut p = pane();
         for t in ["one", "two", "three"] {
@@ -721,7 +769,7 @@ mod tests {
         other.session = SessionId(2);
         p.push(msg(LogKind::Status, "this tab"));
         p.push(other);
-        p.set_sessions(Some(HashSet::from([SessionId(1)])));
+        p.set_hidden(HashSet::from([SessionId(2)]));
         let shown = render(&mut p, 40, 5, &theme).backend().to_string();
         assert!(shown.contains("this tab") && !shown.contains("other tab"));
         p.update(&Action::ToggleLogAll);

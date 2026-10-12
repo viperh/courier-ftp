@@ -1,0 +1,25 @@
+---
+source: crates/courier-ftp/src/ui/bookmarks/tests.rs
+assertion_line: 114
+expression: "render(&mut menu, 90, 20)"
+---
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"      ┌ Bookmarks ─────────────────────────────────────────────────────────────────┐      "
+"      │/ to search                                                                 │      "
+"      │                                                                            │      "
+"      │Global bookmarks                                                            │      "
+"      │  Docs     local /home/me/docs                                              │      "
+"      │> Website  local /home/me/www  remote /var/www  [sync, compare]             │      "
+"      │Bookmarks of site web01                                                     │      "
+"      │  Logs     remote /var/log                                                  │      "
+"      │  Config   remote /etc/nginx  [read-only]                                   │      "
+"      │                                                                            │      "
+"      │Enter go · a add · e edit · x delete · J/K move · / search · Esc close      │      "
+"      └────────────────────────────────────────────────────────────────────────────┘      "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "

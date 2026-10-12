@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use courier_ftp_core::events::LogKind;
+use courier_ftp_core::{compare::Highlight, events::LogKind, settings::ColorScheme};
 use ratatui::style::{Color, Modifier, Style};
 
 /// The styles the UI uses.
@@ -24,6 +24,12 @@ pub(crate) struct Theme {
     pub(crate) log_response: Style,
     pub(crate) log_error: Style,
     pub(crate) log_debug: Style,
+    /// Directory comparison (T66): the entry exists on this side only.
+    pub(crate) compare_lonely: Style,
+    /// Directory comparison: this side's file is newer.
+    pub(crate) compare_newer: Style,
+    /// Directory comparison: the sizes differ.
+    pub(crate) compare_different: Style,
 }
 
 impl Default for Theme {
@@ -43,6 +49,9 @@ impl Default for Theme {
             log_response: Style::new().fg(Color::Green),
             log_error: Style::new().fg(Color::Red),
             log_debug: Style::new().fg(Color::DarkGray),
+            compare_lonely: Style::new().fg(Color::Yellow),
+            compare_newer: Style::new().fg(Color::Green),
+            compare_different: Style::new().fg(Color::Red),
         }
     }
 }
@@ -50,8 +59,22 @@ impl Default for Theme {
 impl Theme {
     /// The default theme with `overrides` applied (unknown names are ignored),
     /// made monochrome when `no_color` is set.
+    #[cfg(test)]
     pub(crate) fn new(overrides: Option<&HashMap<String, Style>>, no_color: bool) -> Self {
-        let mut theme = Self::default();
+        Self::with_scheme(ColorScheme::Default, overrides, no_color)
+    }
+
+    /// The built-in `scheme` (T68) with `overrides` applied, made monochrome
+    /// when `no_color` is set.
+    pub(crate) fn with_scheme(
+        scheme: ColorScheme,
+        overrides: Option<&HashMap<String, Style>>,
+        no_color: bool,
+    ) -> Self {
+        let mut theme = match scheme {
+            ColorScheme::Default | ColorScheme::Monochrome => Self::default(),
+            ColorScheme::HighContrast => Self::high_contrast(),
+        };
         if let Some(map) = overrides {
             for (name, style) in map {
                 if let Some(slot) = theme.slot(name) {
@@ -59,10 +82,38 @@ impl Theme {
                 }
             }
         }
-        if no_color {
+        if no_color || scheme == ColorScheme::Monochrome {
             theme.strip_colours();
         }
         theme
+    }
+
+    /// Bright colours and bold text for terminals where the default greys
+    /// are hard to read.
+    fn high_contrast() -> Self {
+        let bold = Modifier::BOLD;
+        Self {
+            border: Style::new().fg(Color::White),
+            focused_border: Style::new().fg(Color::LightYellow).add_modifier(bold),
+            title: Style::new().fg(Color::White).add_modifier(bold),
+            selection: Style::new()
+                .bg(Color::LightYellow)
+                .fg(Color::Black)
+                .add_modifier(bold),
+            dim: Style::new().fg(Color::Gray),
+            dir: Style::new().fg(Color::LightCyan).add_modifier(bold),
+            status_bar: Style::new().bg(Color::White).fg(Color::Black),
+            key_hint: Style::new().fg(Color::LightYellow).add_modifier(bold),
+            error: Style::new().fg(Color::LightRed).add_modifier(bold),
+            log_status: Style::new().fg(Color::White),
+            log_command: Style::new().fg(Color::LightCyan),
+            log_response: Style::new().fg(Color::LightGreen),
+            log_error: Style::new().fg(Color::LightRed).add_modifier(bold),
+            log_debug: Style::new().fg(Color::Gray),
+            compare_lonely: Style::new().fg(Color::LightYellow).add_modifier(bold),
+            compare_newer: Style::new().fg(Color::LightGreen).add_modifier(bold),
+            compare_different: Style::new().fg(Color::LightRed).add_modifier(bold),
+        }
     }
 
     /// Whether `NO_COLOR` asks for no colours (<https://no-color.org>: set and
@@ -87,6 +138,9 @@ impl Theme {
             "log_response" => &mut self.log_response,
             "log_error" => &mut self.log_error,
             "log_debug" => &mut self.log_debug,
+            "compare_lonely" => &mut self.compare_lonely,
+            "compare_newer" => &mut self.compare_newer,
+            "compare_different" => &mut self.compare_different,
             _ => return None,
         })
     }
@@ -113,6 +167,9 @@ impl Theme {
             "log_response",
             "log_error",
             "log_debug",
+            "compare_lonely",
+            "compare_newer",
+            "compare_different",
         ] {
             if let Some(slot) = self.slot(name) {
                 *slot = mono(*slot);
@@ -121,6 +178,22 @@ impl Theme {
         // Without colour, selection and the status bar need another cue.
         self.selection = self.selection.add_modifier(Modifier::REVERSED);
         self.status_bar = self.status_bar.add_modifier(Modifier::REVERSED);
+        // Comparison colours become text styles.
+        self.compare_lonely = self.compare_lonely.add_modifier(Modifier::ITALIC);
+        self.compare_newer = self.compare_newer.add_modifier(Modifier::BOLD);
+        self.compare_different = self
+            .compare_different
+            .add_modifier(Modifier::BOLD | Modifier::ITALIC);
+    }
+
+    /// The style of a directory comparison row (T66).
+    pub(crate) fn compare(&self, highlight: Highlight) -> Style {
+        match highlight {
+            Highlight::None => Style::new(),
+            Highlight::Lonely => self.compare_lonely,
+            Highlight::Newer => self.compare_newer,
+            Highlight::Different => self.compare_different,
+        }
     }
 
     /// The style of a message-log line.
@@ -157,6 +230,20 @@ mod tests {
         }
         assert!(t.selection.add_modifier.contains(Modifier::REVERSED));
         assert!(t.focused_border.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn schemes() {
+        let mono = Theme::with_scheme(ColorScheme::Monochrome, None, false);
+        assert_eq!(mono, Theme::new(None, true));
+        let high = Theme::with_scheme(ColorScheme::HighContrast, None, false);
+        assert_ne!(high, Theme::default());
+        assert_eq!(high.dim.fg, Some(Color::Gray));
+        // Config styles still win over the scheme.
+        let mut map = HashMap::new();
+        map.insert("dim".to_owned(), Style::new().fg(Color::Magenta));
+        let t = Theme::with_scheme(ColorScheme::HighContrast, Some(&map), false);
+        assert_eq!(t.dim.fg, Some(Color::Magenta));
     }
 
     #[test]

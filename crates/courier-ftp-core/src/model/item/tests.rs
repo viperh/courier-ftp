@@ -549,12 +549,14 @@ fn every_view_round_trips() -> Result<(), ViewError> {
             logon: LogonKind::Normal,
             user: "me".into(),
             password: Some(secret("hpw")),
+            remote_dir: Some("/var/www".into()),
             used_at: Some(UnixMillis(3)),
             read_only: false,
         },
         &mut clock,
     )?;
     assert_eq!(exposed(hist.password.as_ref()), Some("hpw"));
+    assert_eq!(hist.remote_dir.as_deref(), Some("/var/www"));
     Ok(())
 }
 

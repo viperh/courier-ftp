@@ -1,0 +1,25 @@
+---
+source: crates/courier-ftp/src/ui/file_ops/tests.rs
+assertion_line: 158
+expression: draw(&mut d)
+---
+"                                                                      "
+"                                                                      "
+"                                                                      "
+"     ┌ File attributes ─────────────────────────────────────────┐     "
+"     │Permissions of www                                        │     "
+"     │                                                          │     "
+"     │Owner permissions:  [x] Read     [x] Write    [x] Execute │     "
+"     │Group permissions:  [x] Read     [ ] Write    [x] Execute │     "
+"     │Public permissions: [x] Read     [ ] Write    [x] Execute │     "
+"     │                                                          │     "
+"     │Numeric value:      755                                   │     "
+"     │                                                          │     "
+"     │[x] Recurse into subdirectories                           │     "
+"     │    ( ) All  (•) Files only  ( ) Directories only         │     "
+"     │                                                          │     "
+"     │                   [ OK ]  [ Cancel ]                     │     "
+"     └──────────────────────────────────────────────────────────┘     "
+"                                                                      "
+"                                                                      "
+"                                                                      "

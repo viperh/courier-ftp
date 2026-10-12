@@ -513,6 +513,15 @@ impl Chain<'_> {
                 .await
                 .map_err(|e| Error::Auth(e.to_string()));
         }
+        if let Some(saved) = self.opts.passphrase.clone() {
+            match file.decode(Some(&saved)).await {
+                Ok(key) => return Ok(key),
+                Err(KeyError::WrongPassphrase) => {
+                    tracing::debug!("the saved key passphrase does not open the key");
+                }
+                Err(other) => return Err(Error::Auth(other.to_string())),
+            }
+        }
         let cache_key = CredentialCache::passphrase_key(file.label());
         if let Some(remembered) = self.cache().and_then(|c| c.get(&cache_key)) {
             match file.decode(Some(&remembered)).await {

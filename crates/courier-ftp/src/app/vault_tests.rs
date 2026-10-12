@@ -20,15 +20,16 @@ use ratatui::{Terminal, backend::TestBackend};
 use super::*;
 use crate::{ui::VaultPage, vault::VaultOpener};
 
-const STRONG: &str = "correct horse battery staple violin";
+pub(super) const STRONG: &str = "correct horse battery staple violin";
 const OTHER: &str = "purple elephant marmalade trombone";
 
-struct Rig {
-    app: App,
-    host_keys: Arc<HostKeyStoreSlot>,
+pub(super) struct Rig {
+    /// Boxed: `App` is large, and the test futures hold a `Rig`.
+    pub(super) app: Box<App>,
+    pub(super) host_keys: Arc<HostKeyStoreSlot>,
 }
 
-fn opener(dir: &Path, keyring: &MemKeyring) -> VaultOpener {
+pub(super) fn opener(dir: &Path, keyring: &MemKeyring) -> VaultOpener {
     let dir = dir.to_path_buf();
     let keyring = keyring.clone();
     Arc::new(move || {
@@ -39,7 +40,7 @@ fn opener(dir: &Path, keyring: &MemKeyring) -> VaultOpener {
     })
 }
 
-fn config() -> Config {
+pub(super) fn config() -> Config {
     let mut config = Config::builtin();
     config.settings.interface.unicode_symbols = SymbolMode::Unicode;
     config.settings.logging.show_timestamps = false;
@@ -48,7 +49,7 @@ fn config() -> Config {
 }
 
 /// A started app with a vault in `dir` (one "program run").
-async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
+pub(super) async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
     let host_keys = Arc::new(HostKeyStoreSlot::new(
         Arc::new(MemoryHostKeyStore::locked()),
     ));
@@ -57,10 +58,27 @@ async fn start(dir: &Path, keyring: &MemKeyring, config: Config) -> Rig {
         Arc::clone(&host_keys),
         CredentialCache::new(),
     );
-    let mut rig = Rig { app, host_keys };
+    let mut rig = Rig {
+        app: Box::new(app),
+        host_keys,
+    };
     rig.app.start_vault();
     rig.settle().await;
     rig
+}
+
+/// The sync screens wait for a background call (T90).
+fn sync_busy(app: &App) -> bool {
+    #[cfg(feature = "sync")]
+    return app
+        .screen
+        .sync_view()
+        .is_some_and(crate::ui::sync::SyncView::is_busy);
+    #[cfg(not(feature = "sync"))]
+    {
+        let _ = app;
+        false
+    }
 }
 
 impl Rig {
@@ -68,17 +86,26 @@ impl Rig {
     /// a moment and no vault operation is still running. Opening the store
     /// and Argon2 can take seconds on a slow CI runner, so an idle gap alone
     /// is not enough.
-    async fn settle(&mut self) {
+    pub(super) async fn settle(&mut self) {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         let app = &mut self.app;
         loop {
             tokio::select! {
                 Some(action) = app.action_rx.recv() => app.dispatch(action).unwrap(),
-                Some(event) = app.events_rx.recv() => app.screen.handle_core(event),
+                Some(event) = app.events_rx.recv() => app.core_event(event),
                 Some(msg) = app.vault_rx.recv() => app.vault_message(msg),
                 () = tokio::time::sleep(Duration::from_millis(150)) => {
                     let busy = app.screen.vault_view().is_some_and(VaultView::is_busy)
-                        || app.vault.as_ref().is_some_and(|v| v.phase == Phase::Opening);
+                        || app.vault.as_ref().is_some_and(|v| v.phase == Phase::Opening)
+                        || app
+                            .screen
+                            .site_manager()
+                            .is_some_and(crate::ui::site_manager::SiteManagerView::is_busy)
+                        || app
+                            .screen
+                            .bookmarks()
+                            .is_some_and(crate::ui::bookmarks::BookmarksMenu::is_busy)
+                        || sync_busy(app);
                     assert!(
                         tokio::time::Instant::now() < deadline,
                         "vault operation still running after 30 s"
@@ -91,26 +118,26 @@ impl Rig {
         }
     }
 
-    fn key(&mut self, code: KeyCode) {
+    pub(super) fn key(&mut self, code: KeyCode) {
         self.app
             .handle_key_event(KeyEvent::new(code, KeyModifiers::NONE))
             .unwrap();
     }
 
-    fn alt(&mut self, c: char) {
+    pub(super) fn alt(&mut self, c: char) {
         self.app
             .handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
             .unwrap();
     }
 
-    fn ctrl_x(&mut self, c: char) {
+    pub(super) fn ctrl_x(&mut self, c: char) {
         self.app
             .handle_key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL))
             .unwrap();
         self.key(KeyCode::Char(c));
     }
 
-    fn typed(&mut self, text: &str) {
+    pub(super) fn typed(&mut self, text: &str) {
         for c in text.chars() {
             self.key(KeyCode::Char(c));
         }
@@ -133,11 +160,11 @@ impl Rig {
         self.app.vault.as_ref().map(|v| v.phase)
     }
 
-    fn engine(&self) -> VaultEngine {
+    pub(super) fn engine(&self) -> VaultEngine {
         self.app.vault.as_ref().unwrap().engine().unwrap().clone()
     }
 
-    fn screen(&mut self, w: u16, h: u16) -> String {
+    pub(super) fn screen(&mut self, w: u16, h: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         terminal.draw(|f| self.app.screen.draw(f)).unwrap();
         terminal.backend().to_string()
@@ -145,7 +172,7 @@ impl Rig {
 
     /// First run: type and confirm `password`, optionally tick the keyring
     /// box, create.
-    async fn create(&mut self, password: &str, keyring: bool) {
+    pub(super) async fn create(&mut self, password: &str, keyring: bool) {
         assert_eq!(self.page(), Some(VaultPage::Create));
         self.typed(password);
         self.key(KeyCode::Tab);
@@ -157,7 +184,7 @@ impl Rig {
         self.submit().await;
     }
 
-    async fn unlock(&mut self, password: &str) {
+    pub(super) async fn unlock(&mut self, password: &str) {
         assert_eq!(self.page(), Some(VaultPage::Unlock));
         self.typed(password);
         self.submit().await;
@@ -212,7 +239,7 @@ async fn first_run_then_every_start_asks_for_the_password() {
     }
 }
 
-async fn initialised(dir: &Path, keyring: &MemKeyring, enable_keyring: bool) {
+pub(super) async fn initialised(dir: &Path, keyring: &MemKeyring, enable_keyring: bool) {
     let rig = start(dir, keyring, config()).await;
     rig.engine()
         .initialize(&secrecy::SecretString::from(STRONG), enable_keyring)
@@ -437,6 +464,10 @@ async fn continue_without_vault_then_unlock_later() {
     assert!(rig.shown());
     rig.unlock(STRONG).await;
     assert_eq!(rig.phase(), Some(Phase::Unlocked));
+    // The Site Manager the user wanted is open now.
+    assert!(rig.screen(120, 40).contains("Site Manager"));
+    rig.key(KeyCode::Esc);
+    assert!(rig.app.screen.site_manager().is_none());
 
     // <Ctrl-x><u> when already unlocked just says so.
     rig.ctrl_x('u');
@@ -466,7 +497,7 @@ async fn busy_database_offers_retry() {
         CredentialCache::new(),
     );
     let mut rig = Rig {
-        app,
+        app: Box::new(app),
         host_keys: Arc::new(HostKeyStoreSlot::new(
             Arc::new(MemoryHostKeyStore::locked()),
         )),
@@ -478,4 +509,258 @@ async fn busy_database_offers_retry() {
     fail.store(false, std::sync::atomic::Ordering::SeqCst);
     rig.submit().await;
     assert_eq!(rig.page(), Some(VaultPage::Create));
+}
+
+// ------------------------------------------------------------------ T33 history
+
+impl Rig {
+    /// Run until `done` holds (30 s cap), not just until things are idle.
+    pub(super) async fn until(&mut self, what: &str, done: impl Fn(&App) -> bool) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while !done(&self.app) {
+            assert!(tokio::time::Instant::now() < deadline, "timed out: {what}");
+            self.settle().await;
+        }
+    }
+
+    pub(super) async fn quickconnect(&mut self, url: &str) {
+        self.app.dispatch(Action::FocusQuickconnect).unwrap();
+        for c in ['e', 'u'] {
+            self.app
+                .handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+                .unwrap();
+        }
+        self.app.screen.handle_paste(url);
+        self.key(KeyCode::Enter);
+        self.settle().await;
+    }
+
+    fn history_len(app: &App) -> Option<usize> {
+        app.screen.quickconnect().history().map(<[_]>::len)
+    }
+
+    pub(super) fn connected(app: &App) -> bool {
+        app.remote.as_ref().is_some_and(|r| r.connected)
+    }
+}
+
+#[tokio::test]
+async fn quickconnect_history_is_saved_picked_and_cleared() {
+    use courier_ftp_core::{model::item::ItemKind, vault::ItemVault};
+
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    rig.create(STRONG, false).await;
+    rig.until("history loaded", |a| Rig::history_len(a) == Some(0))
+        .await;
+
+    // A successful connect is recorded, with the typed password.
+    rig.quickconnect("sftp://alice:s3cret@mock.invalid").await;
+    rig.until("history recorded", |a| Rig::history_len(a) == Some(1))
+        .await;
+    let item = rig.app.screen.quickconnect().history().unwrap()[0].clone();
+    assert_eq!(item.label, "sftp://alice@mock.invalid");
+    assert!(item.request.info.logon.password().is_some());
+    let stored = rig.engine().list(ItemKind::HistoryEntry).await.unwrap();
+    assert_eq!(stored.len(), 1);
+
+    // The dropdown lists it without the password; picking it connects.
+    rig.app.dispatch(Action::Disconnect).unwrap();
+    rig.settle().await;
+    rig.app.dispatch(Action::QuickconnectHistory).unwrap();
+    let text = rig.screen(100, 30);
+    assert!(text.contains("Connection history"), "{text}");
+    assert!(text.contains("sftp://alice@mock.invalid"), "{text}");
+    assert!(text.contains("Clear history"), "{text}");
+    assert!(!text.contains("s3cret"), "{text}");
+    rig.key(KeyCode::Enter);
+    rig.until("connected from history", Rig::connected).await;
+    assert_eq!(
+        rig.app.remote.as_ref().unwrap().info.address.host,
+        "mock.invalid"
+    );
+
+    // Locked: the history is gone from the bar.
+    rig.ctrl_x('v');
+    rig.settle().await;
+    assert_eq!(Rig::history_len(&rig.app), None);
+    rig.unlock(STRONG).await;
+    rig.until("history reloaded", |a| Rig::history_len(a) == Some(1))
+        .await;
+
+    // "Clear history" is the last entry.
+    rig.app.dispatch(Action::QuickconnectHistory).unwrap();
+    rig.key(KeyCode::Down);
+    rig.key(KeyCode::Enter);
+    rig.until("history cleared", |a| Rig::history_len(a) == Some(0))
+        .await;
+    assert!(
+        rig.engine()
+            .list(ItemKind::HistoryEntry)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn locked_vault_explains_the_missing_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    initialised(dir.path(), &keyring, false).await;
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    rig.alt('c');
+    rig.settle().await;
+    rig.app.dispatch(Action::QuickconnectHistory).unwrap();
+    let text = rig.screen(120, 40);
+    assert!(text.contains("unlock it"), "{text}");
+    // A connect while locked isn't saved anywhere.
+    rig.quickconnect("sftp://bob:pw@mock.invalid").await;
+    rig.until("connected", Rig::connected).await;
+    assert_eq!(Rig::history_len(&rig.app), None);
+}
+
+// ------------------------------------------------------------------ T56 queue
+
+impl Rig {
+    /// Queue a download from a quickconnect server, as the file lists do.
+    fn queue_item(&mut self, name: &str) {
+        use courier_ftp_core::{
+            model::{Direction, LocalPath, Protocol, RemotePath, ServerAddress},
+            queue::{NewItem, QueueServer},
+        };
+        let mut address = ServerAddress::new(Protocol::Sftp, "mock.invalid");
+        address.user = Some("alice".into());
+        let server = QueueServer::Quick {
+            address,
+            password: Some(secrecy::SecretString::from("s3cret")),
+        };
+        let item = NewItem::file(
+            server,
+            Direction::Download,
+            LocalPath::new(format!("/tmp/{name}")),
+            RemotePath::new(format!("/srv/{name}")),
+            Some(10),
+        );
+        courier_ftp_core::queue::lock_queue(&self.app.transfers.queue)
+            .add(item, time::OffsetDateTime::now_utc());
+        self.app.transfers.edited(&[], false);
+    }
+
+    fn queued(app: &App) -> usize {
+        courier_ftp_core::queue::lock_queue(&app.transfers.queue)
+            .count(courier_ftp_core::queue::QueueList::Queued)
+    }
+}
+
+#[tokio::test]
+async fn queue_is_saved_in_the_vault_and_restored_after_unlock() {
+    use courier_ftp_core::{
+        queue::{QUEUE_BLOB, QueueList, QueueServer, lock_queue},
+        vault::DeviceBlobVault,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    rig.create(STRONG, false).await;
+    rig.queue_item("a.txt");
+    rig.queue_item("b.txt");
+    // Quitting is safe: the queue is saved; the final write happens on
+    // shutdown.
+    rig.app.dispatch(Action::Quit).unwrap();
+    rig.until("quit", |a| a.should_quit).await;
+    rig.app.transfers.shutdown().await;
+    assert!(rig.engine().load_blob(QUEUE_BLOB).await.unwrap().is_some());
+    drop(rig);
+
+    // Next run, still locked: the saved queue isn't loaded, and quitting with
+    // a new item warns that it would be lost.
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    assert_eq!(Rig::queued(&rig.app), 0);
+    rig.alt('c');
+    rig.settle().await;
+    rig.queue_item("c.txt");
+    rig.app.dispatch(Action::Quit).unwrap();
+    rig.until("quit warning", |a| a.screen.has_modal()).await;
+    assert!(!rig.app.should_quit);
+    let text = rig.screen(120, 40);
+    assert!(text.contains("which is locked"), "{text}");
+    rig.key(KeyCode::Esc);
+    rig.settle().await;
+    assert!(!rig.app.should_quit);
+
+    // Unlocking merges the saved items in, not started, passwords kept.
+    rig.ctrl_x('u');
+    rig.settle().await;
+    rig.unlock(STRONG).await;
+    rig.until("queue restored", |a| Rig::queued(a) == 3).await;
+    {
+        let q = lock_queue(&rig.app.transfers.queue);
+        assert!(!q.is_processing());
+        let names: Vec<String> = q
+            .items(QueueList::Queued)
+            .map(|i| i.remote.file_name().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, ["c.txt", "a.txt", "b.txt"]);
+        assert!(q.items(QueueList::Queued).all(|i| matches!(
+            &i.server,
+            QueueServer::Quick {
+                password: Some(_),
+                ..
+            }
+        )));
+    }
+    assert!(
+        rig.screen(120, 40)
+            .contains("Restored the saved transfer queue (2 entries")
+    );
+    rig.app.transfers.shutdown().await;
+}
+
+#[tokio::test]
+async fn certificate_trust_follows_the_vault() {
+    use courier_ftp_core::trust::{
+        CertTrustStore, CertTrustStoreSlot, MemoryCertTrustStore, TrustedCertificate,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let keyring = MemKeyring::new();
+    initialised(dir.path(), &keyring, false).await;
+    let mut rig = start(dir.path(), &keyring, config()).await;
+    let certs = Arc::new(CertTrustStoreSlot::new(Arc::new(
+        MemoryCertTrustStore::locked(),
+    )));
+    let factory = courier_ftp_proto_ftp::backend::FtpBackendFactory::new(
+        courier_ftp_core::settings::Settings::default(),
+        Arc::new(courier_ftp_proto_ftp::tls::TlsTrust::with_system_verifier(
+            certs.clone(),
+            None,
+        )),
+    );
+    rig.app
+        .vault
+        .as_mut()
+        .unwrap()
+        .set_ftp(Arc::clone(&certs), factory, None);
+    assert!(!certs.can_remember().await);
+    rig.unlock(STRONG).await;
+    assert!(certs.can_remember().await);
+    let cert = TrustedCertificate::new(
+        "ftp.example.com",
+        21,
+        vec![1, 2, 3],
+        "CN=x",
+        time::OffsetDateTime::now_utc(),
+    );
+    certs.remember(cert.clone()).await.unwrap();
+    // Stored in the vault: it survives a lock and unlock.
+    rig.ctrl_x('v');
+    rig.settle().await;
+    assert!(!certs.can_remember().await);
+    assert!(certs.list().await.unwrap().is_empty());
+    rig.unlock(STRONG).await;
+    let back = certs.certs_for("ftp.example.com", 21).await.unwrap();
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].der, cert.der);
 }

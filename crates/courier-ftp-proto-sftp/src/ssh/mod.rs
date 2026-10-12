@@ -92,6 +92,19 @@ pub const KEEPALIVE_MAX: usize = 3;
 /// The SSH channel window we grant the server (16 MiB, T41b §3).
 pub const CHANNEL_WINDOW: u32 = 16 * 1024 * 1024;
 
+/// Cipher preference (T41b §3): AES-GCM first (hardware accelerated on
+/// CPUs with AES-NI or ARMv8 crypto, and the fastest in our benchmark),
+/// then ChaCha20-Poly1305, then the CTR modes. The server's list decides
+/// among the ones it accepts.
+pub const CIPHER_ORDER: &[russh::cipher::Name] = &[
+    russh::cipher::AES_128_GCM,
+    russh::cipher::AES_256_GCM,
+    russh::cipher::CHACHA20_POLY1305,
+    russh::cipher::AES_256_CTR,
+    russh::cipher::AES_192_CTR,
+    russh::cipher::AES_128_CTR,
+];
+
 /// The russh client handle of an authenticated session.
 pub type SshHandle = client::Handle<ClientHandler>;
 
@@ -133,6 +146,9 @@ pub struct SshOptions {
     /// A key that overrides [`LogonType::KeyFile`]'s path (and makes a key
     /// login of other logon types' user).
     pub key: Option<KeyInput>,
+    /// The key's saved passphrase (from the vault), tried before the
+    /// session cache and the prompt.
+    pub passphrase: Option<SecretString>,
     /// TCP options: timeout, IPv6 preference, proxy.
     pub net: NetOpts,
     /// Bound on the SSH handshake and on every authentication request
@@ -155,6 +171,7 @@ impl SshOptions {
             host,
             logon,
             key: None,
+            passphrase: None,
             net: NetOpts::from_settings(settings),
             timeout: Duration::from_secs(c.timeout_secs.max(1)),
             keepalive: c
@@ -164,15 +181,21 @@ impl SshOptions {
         }
     }
 
-    /// Options for a [`ConnectInfo`]: its address, logon, proxy choice and a
-    /// key file from [`ConnectInfo::key`]. A [`KeySource::Vault`] key must be
-    /// resolved by the caller into [`SshOptions::key`].
+    /// Options for a [`ConnectInfo`]: its address, logon, proxy choice, the
+    /// key from [`ConnectInfo::key`] (a file, or a vault key's text), the
+    /// saved key passphrase and "try agent first".
     pub fn from_connect_info(info: &ConnectInfo, settings: &Settings) -> Self {
         let mut opts = Self::new(HostPort::from(&info.address), info.logon.clone(), settings);
         opts.net = opts.net.bypass_proxy(info.proxy == ProxyChoice::Bypass);
-        if let Some(KeySource::File(path)) = &info.key {
-            opts.key = Some(KeyInput::File(path.clone()));
-        }
+        opts.key = info.key.as_ref().map(|key| match key {
+            KeySource::File(path) => KeyInput::File(path.clone()),
+            KeySource::Vault(key) => KeyInput::Text {
+                label: key.label.clone(),
+                text: key.private_key.secret().clone(),
+            },
+        });
+        opts.passphrase = info.key_passphrase.as_ref().map(|p| p.secret().clone());
+        opts.try_agent_first = info.try_agent_first;
         opts
     }
 
@@ -198,6 +221,10 @@ impl SshOptions {
             // A large channel window so it doesn't throttle pipelined SFTP
             // transfers on fast links (T41b §3).
             window_size: CHANNEL_WINDOW,
+            preferred: russh::Preferred {
+                cipher: Cow::Borrowed(CIPHER_ORDER),
+                ..russh::Preferred::default()
+            },
             ..client::Config::default()
         }
     }

@@ -18,9 +18,9 @@ FileZilla's "Directory listing filters" dialog and the filter editor.
 
 ## Acceptance criteria
 
-- [ ] Full editing round-trip persisted to config.
-- [ ] Invalid regex blocks OK with a clear error.
-- [ ] Panes update on apply.
+- [x] Full editing round-trip persisted to config.
+- [x] Invalid regex blocks OK with a clear error.
+- [x] Panes update on apply.
 
 ## Tests
 

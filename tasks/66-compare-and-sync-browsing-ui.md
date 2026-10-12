@@ -26,10 +26,17 @@ directories in lockstep.
 
 ## Acceptance criteria
 
-- [ ] Sync browsing follows enter/parent in both directions; missing-dir prompt works.
-- [ ] Comparison rows aligned and coloured correctly (snapshot tests).
-- [ ] Hide identical works.
-- [ ] Select-by-status works.
+- [x] Sync browsing follows enter/parent in both directions; missing-dir prompt works.
+- [x] Comparison rows aligned and coloured correctly (snapshot tests).
+- [x] Hide identical works.
+- [x] Select-by-status works.
+
+**Status (T66):** done. Keys: `Ctrl-y` sync browsing, `Ctrl-o` comparison,
+`<Ctrl-x><o>` comparison options, `m y` / `m g` / `m r` select yellow / green /
+red rows on the focused side. Site settings and bookmarks: `ConnectRequest`
+carries `sync_browsing` / `compare`, applied once connected; the Site Manager
+(T59) and bookmarks (T64) set them. Comparison options live for the session
+(no setting yet).
 
 ## Tests
 

@@ -50,10 +50,13 @@ password or any plaintext.
 ## Acceptance criteria
 
 - [ ] Register → login → refresh → logout works end-to-end with the in-memory and the Postgres store.
-- [ ] Refresh-token reuse revokes the family.
-- [ ] Unknown email login is indistinguishable in shape and timing class from a wrong password.
-- [ ] Wrong server secret refuses to start.
-- [ ] Rate limits return 429 with `Retry-After`.
+  *Status: verified against the in-memory store (in-process server over HTTP,
+  `tests/auth.rs`); the Postgres variants (`*_pg`) are written and run in CI's
+  `server-db` job, but could not be run locally (no PostgreSQL/Docker).*
+- [x] Refresh-token reuse revokes the family.
+- [x] Unknown email login is indistinguishable in shape and timing class from a wrong password.
+- [x] Wrong server secret refuses to start.
+- [x] Rate limits return 429 with `Retry-After`.
 
 ## Tests
 

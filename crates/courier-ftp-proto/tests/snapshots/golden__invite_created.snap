@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "id": "01900000-0000-7000-8000-000000000009",
+  "org_id": "01900000-0000-7000-8000-000000000007",
+  "role": "member",
+  "expires_at": "2026-10-10T12:00:00Z",
+  "link": "https://sync.example.test/invite/tok",
+  "emailed": false
+}

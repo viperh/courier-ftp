@@ -30,11 +30,13 @@ Login sequences (`%h` host, `%u` user, `%p` password, `%a` account, `%s` proxy u
 
 ## Acceptance criteria
 
-- [ ] Each built-in type sends exactly the documented sequence (fake server test).
-- [ ] Custom script placeholder substitution and line skipping work.
-- [ ] Secrets masked in log for every type.
-- [ ] Settings validation rejects generic + FTP proxy combined.
+- [x] Each built-in type sends exactly the documented sequence (fake server test).
+- [x] Custom script placeholder substitution and line skipping work.
+- [x] Secrets masked in log for every type.
+- [x] Settings validation rejects generic + FTP proxy combined.
 
 ## Tests
 
 - Scripted fake proxy server asserting the command sequence per type.
+
+**Status (T15):** done. `AUTH TLS` before the proxy script follows from `connect()` order (T12 inserts explicit FTPS after the greeting, before `login`); a fake-server test of that sequence belongs with T12. Reading the proxy password from the vault (`FtpProxyConfig::password_ref` → `FtpOptions::set_ftp_proxy_password`) is wired by the backend (T14).

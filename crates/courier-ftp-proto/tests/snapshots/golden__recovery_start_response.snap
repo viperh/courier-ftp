@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "user_id": "01900000-0000-7000-8000-000000000001",
+  "recovery_bundle_enc": "AgICAg",
+  "registration_response": "AwMDAw",
+  "version": 2
+}

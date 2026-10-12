@@ -1,0 +1,25 @@
+---
+source: crates/courier-ftp/src/ui/site_manager/tests.rs
+assertion_line: 664
+expression: text
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"         ┌ Connect to site ───────────────────────────────────────────┐         "
+"         │Site: db                                                    │         "
+"         │                                                            │         "
+"         │Work/Production/db01                                        │         "
+"         │Work/Production/web01                                       │         "
+"         │                                                            │         "
+"         │Enter connect · ↑/↓ choose · Esc cancel                     │         "
+"         └────────────────────────────────────────────────────────────┘         "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

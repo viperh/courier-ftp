@@ -28,6 +28,7 @@
       "<PageUp>": "PageUp",
       "<Right>": "Open",
       "<Space>": "ToggleSelect",
+      "<T>": "FocusTree",
       "<Up>": "CursorUp",
       "<[>": "HistoryBack",
       "<]>": "HistoryForward",
@@ -39,6 +40,9 @@
       "<j>": "CursorDown",
       "<k>": "CursorUp",
       "<l>": "Open",
+      "<m><g>": "SelectCompareNewer",
+      "<m><r>": "SelectCompareDifferent",
+      "<m><y>": "SelectCompareLonely",
       "<minus>": "DeselectPattern",
       "<o>": "View",
       "<s><m>": "SortModified",
@@ -72,7 +76,9 @@
       "<PageDown>": "PageDown",
       "<PageUp>": "PageUp",
       "<Right>": "ScrollRight",
+      "<S>": "SaveLog",
       "<Up>": "CursorUp",
+      "<Y>": "CopyLog",
       "<c>": "ClearLog",
       "<e>": "ToggleErrorsOnly",
       "<g><g>": "Top",
@@ -98,8 +104,14 @@
       "<Alt-8>": "Tab8",
       "<Alt-9>": "Tab9",
       "<Alt-j>": "ToggleQueue",
+      "<Alt-l>": "FocusLocal",
+      "<Alt-m>": "FocusLog",
+      "<Alt-q>": "FocusQueue",
+      "<Alt-r>": "FocusRemote",
       "<BackTab>": "FocusPrev",
       "<Ctrl-F5>": "Refresh",
+      "<Ctrl-PageDown>": "NextTab",
+      "<Ctrl-PageUp>": "PrevTab",
       "<Ctrl-b>": "Bookmarks",
       "<Ctrl-e>": "ToggleTree",
       "<Ctrl-f>": "Search",
@@ -114,15 +126,25 @@
       "<Ctrl-s>": "SiteManager",
       "<Ctrl-t>": "NewTab",
       "<Ctrl-w>": "CloseTab",
+      "<Ctrl-x><R>": "RenameTab",
+      "<Ctrl-x><T>": "DuplicateTab",
+      "<Ctrl-x><a>": "SaveAsSite",
       "<Ctrl-x><c>": "ClearLog",
       "<Ctrl-x><d>": "Disconnect",
+      "<Ctrl-x><e>": "EditedFiles",
+      "<Ctrl-x><f>": "Filters",
+      "<Ctrl-x><g>": "SitePicker",
       "<Ctrl-x><i>": "ServerInfo",
       "<Ctrl-x><l>": "ToggleSpeedLimit",
+      "<Ctrl-x><n>": "NewFile",
+      "<Ctrl-x><o>": "CompareOptions",
       "<Ctrl-x><p>": "OpenPrompt",
       "<Ctrl-x><r>": "Reconnect",
+      "<Ctrl-x><s>": "ShowRawListing",
       "<Ctrl-x><t>": "CycleTransferType",
       "<Ctrl-x><u>": "UnlockVault",
       "<Ctrl-x><v>": "LockVault",
+      "<Ctrl-x><y>": "SyncPanel",
       "<Ctrl-y>": "ToggleSyncBrowsing",
       "<Ctrl-z>": "Suspend",
       "<Delete>": "Delete",
@@ -147,24 +169,36 @@
       "<1>": "QueueTabQueued",
       "<2>": "QueueTabFailed",
       "<3>": "QueueTabSuccessful",
+      "<C>": "QueueClear",
+      "<Ctrl-a>": "SelectAll",
       "<Ctrl-d>": "HalfPageDown",
       "<Ctrl-u>": "HalfPageUp",
       "<Delete>": "RemoveItem",
       "<Down>": "CursorDown",
       "<End>": "Bottom",
+      "<Enter>": "Open",
       "<G>": "Bottom",
       "<Home>": "Top",
+      "<Insert>": "ToggleSelect",
       "<J>": "MoveItemDown",
       "<K>": "MoveItemUp",
+      "<P>": "ToggleTransfersPaused",
       "<PageDown>": "PageDown",
       "<PageUp>": "PageUp",
       "<Space>": "QueueToggleItem",
       "<Up>": "CursorUp",
+      "<a>": "QueueAfterMenu",
+      "<b>": "MoveItemBottom",
+      "<e>": "QueueExistsMenu",
       "<g><g>": "Top",
       "<j>": "CursorDown",
       "<k>": "CursorUp",
+      "<m>": "QueueMenu",
       "<minus>": "PriorityDown",
       "<r>": "Requeue",
+      "<s>": "QueueGroupByServer",
+      "<t>": "MoveItemTop",
+      "<v>": "VisualSelect",
       "<x>": "RemoveItem"
     }
   },
@@ -184,6 +218,7 @@
     "editing": {
       "associations": [],
       "editor": "auto",
+      "max_size_mib": 50,
       "watch_and_prompt_upload": true
     },
     "file_types": {
@@ -244,6 +279,7 @@
     },
     "filters": {
       "active_set": "Default",
+      "apply_to_transfers": true,
       "filters": [
         {
           "applies_to": "dirs",
@@ -354,7 +390,9 @@
       "use_mlsd": true
     },
     "interface": {
+      "check_prereleases": false,
       "check_updates": true,
+      "color_scheme": "default",
       "columns": {
         "local": [
           "name",
@@ -372,6 +410,7 @@
         ]
       },
       "confirm_delete": true,
+      "connect_in_tab": "ask",
       "date_format": "%Y-%m-%d",
       "dirs_first": true,
       "force_show_hidden_remote": false,
@@ -379,6 +418,7 @@
       "language": "auto",
       "layout": "classic",
       "natural_sort": true,
+      "restore_tabs": false,
       "show_hidden_local": false,
       "show_log": true,
       "show_queue": true,
@@ -411,10 +451,20 @@
       }
     },
     "queue": {
+      "max_successful": 1000,
       "notify": "bell",
       "on_complete": "none",
       "persist": true,
       "refresh_remote_after": true
+    },
+    "sftp": {
+      "max_outstanding_requests": 64,
+      "request_size_kib": 32
+    },
+    "sync": {
+      "history": false,
+      "poll_fallback_secs": 300,
+      "push_debounce_ms": 2000
     },
     "transfers": {
       "burst_tolerance": "normal",
@@ -430,6 +480,12 @@
       "preallocate": false,
       "preserve_timestamps": false,
       "replace_invalid_chars": true,
+      "segmented": {
+        "enabled": true,
+        "max_segments": 4,
+        "min_file_size_mib": 32,
+        "min_segment_size_mib": 8
+      },
       "speed_limit_enabled": false,
       "upload_limit_kib": 0
     },

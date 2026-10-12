@@ -19,14 +19,28 @@ workspace = true
 [dependencies]
 courier-ftp-core = { workspace = true, features = ["test-util"] }
 
+# PtyApp: the real binary in a pseudo-terminal, read through vt100.
+portable-pty = { workspace = true }
 testcontainers = { workspace = true }
+# TinyFtpd's `ls -l` dates (src/ftpd.rs).
+time = { workspace = true }
 tokio = { workspace = true }
+vt100 = { workspace = true }
 
 [dev-dependencies]
+# The engine's `ServerResolver` in the segmented transfer tests (T41b).
+async-trait = { workspace = true }
 cargo_metadata = { workspace = true }
+# The FTP control connection tests (tests/ftp_control.rs, T10).
+courier-ftp-proto-ftp = { workspace = true }
+# Self-signed certificates for the FTPS fixture (tests/ftps.rs, T12).
+rcgen = { workspace = true }
 # The OpenSSH fixture tests (tests/sftp_auth.rs, T20).
 courier-ftp-proto-sftp = { workspace = true, features = ["test-util"] }
 secrecy = { workspace = true }
 tokio-util = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 toml = { workspace = true }
+# Local targets of the segmented transfer tests (T41b).
+tempfile = { workspace = true }
+time = { workspace = true }

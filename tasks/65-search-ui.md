@@ -17,9 +17,12 @@ FileZilla's "Search remote files" dialog as a full-screen view.
 
 ## Acceptance criteria
 
-- [ ] Streaming results and cancel work with a slow mock backend.
-- [ ] Actions queue correct transfers with/without structure.
-- [ ] Snapshot tests of form and results.
+- [x] Streaming results and cancel work with a slow mock backend.
+- [x] Actions queue correct transfers with/without structure.
+- [x] Snapshot tests of form and results.
+
+**Status:** done. Edit/view of a result (§3) waits for T63 (`Action::View`/`Edit` do
+nothing yet); T63 should add `F3`/`F4` on the results page (`SearchRequest` gets a variant).
 
 ## Tests
 

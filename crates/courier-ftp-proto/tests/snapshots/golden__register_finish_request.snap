@@ -1,0 +1,30 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "email": "ada@example.test",
+  "user_id": "01900000-0000-7000-8000-000000000001",
+  "registration_upload": "CAk",
+  "account_keys": {
+    "x25519_pub": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
+    "ed25519_pub": "u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s",
+    "private_bundle_enc": "zMzMzMzMzMzMzMzM",
+    "recovery_bundle_enc": "3d3d3d3d3d3d3d3d",
+    "version": 1
+  },
+  "personal_vault": {
+    "id": "01900000-0000-7000-8000-000000000002",
+    "name_enc": "7u7u7u7u",
+    "self_grant": {
+      "wrapped_vault_key": "ERERERERERE",
+      "signature": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIg",
+      "key_version": 1
+    }
+  },
+  "device": {
+    "name": "laptop",
+    "platform": "linux"
+  },
+  "setup_token": "setup-token"
+}

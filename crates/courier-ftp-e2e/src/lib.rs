@@ -35,11 +35,15 @@
 //! CI). Each test starts its own containers, so tests are parallel-safe.
 
 pub mod diag;
+pub mod ftpd;
 pub mod home;
+pub mod pty;
 
 use std::{fmt, future::Future, time::Duration};
 
+pub use ftpd::{FtpdConfig, Hostile, TinyFtpd};
 pub use home::TestHome;
+pub use pty::{PtyApp, PtyOptions, Screen};
 
 /// The default polling timeout: 10 s locally, 20 s on CI (`CI` set).
 pub fn timeout() -> Duration {
@@ -48,6 +52,16 @@ pub fn timeout() -> Duration {
     } else {
         Duration::from_secs(10)
     }
+}
+
+/// A TCP port that is free on the host right now, for mapping a container
+/// port explicitly. Once any port is mapped with `with_mapped_port`,
+/// testcontainers no longer publishes the other exposed ports by itself.
+pub fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .unwrap_or_else(|e| panic!("no free local port: {e}"))
 }
 
 /// Whether the tests run on CI (`CI` is set to anything but `false`/`0`).

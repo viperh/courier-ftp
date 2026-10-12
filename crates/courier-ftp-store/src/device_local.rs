@@ -15,11 +15,16 @@
 //! `now`, decay the stored value to `now` with [`DeviceLocal::score_at`]; that
 //! makes rankings comparable between items last used at different times.
 
-use courier_ftp_core::model::item::ItemId;
+use std::collections::HashMap;
+
+use async_trait::async_trait;
+use courier_ftp_core::model::LocalPath;
+use courier_ftp_core::model::item::{ItemId, UnixMillis};
+use courier_ftp_core::sites::{SiteError, SiteLocal, SiteLocalStore};
 use rusqlite::{OptionalExtension, params};
 
 use crate::db::{ReadTx, Store, WriteTx};
-use crate::error::Result;
+use crate::error::{Result, StoreError};
 use crate::vaults::id16;
 
 /// Frecency half-life, in days.
@@ -50,6 +55,8 @@ pub struct DeviceLocal {
     pub frecency: f64,
     /// The site's default local directory on this device.
     pub local_dir_override: Option<String>,
+    /// The site's SSH key file on this device (T31).
+    pub key_path_override: Option<String>,
 }
 
 impl DeviceLocal {
@@ -62,19 +69,30 @@ impl DeviceLocal {
     }
 }
 
-type RawLocal = (Vec<u8>, Option<i64>, Option<f64>, Option<String>);
+type RawLocal = (
+    Vec<u8>,
+    Option<i64>,
+    Option<f64>,
+    Option<String>,
+    Option<String>,
+);
 
 fn decode(raw: RawLocal) -> Result<DeviceLocal> {
-    let (id, last_connected_at, frecency, local_dir_override) = raw;
+    let (id, last_connected_at, frecency, local_dir_override, key_path_override) = raw;
     Ok(DeviceLocal {
         item_id: ItemId::from_bytes(id16(id, "device_local.item_id")?),
         last_connected_at,
         frecency: frecency.unwrap_or(0.0),
         local_dir_override,
+        key_path_override,
     })
 }
 
-const COLS: &str = "item_id, last_connected_at, frecency, local_dir_override";
+fn raw_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RawLocal> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+}
+
+const COLS: &str = "item_id, last_connected_at, frecency, local_dir_override, key_path_override";
 
 impl ReadTx<'_> {
     /// The device-local row of an item.
@@ -84,9 +102,7 @@ impl ReadTx<'_> {
             .prepare_cached(&format!(
                 "SELECT {COLS} FROM device_local WHERE item_id = ?1"
             ))?
-            .query_row(params![item.as_bytes()], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })
+            .query_row(params![item.as_bytes()], raw_row)
             .optional()?;
         raw.map(decode).transpose()
     }
@@ -97,7 +113,7 @@ impl ReadTx<'_> {
             .conn
             .prepare_cached(&format!("SELECT {COLS} FROM device_local ORDER BY item_id"))?;
         let raws = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .query_map([], raw_row)?
             .collect::<rusqlite::Result<Vec<RawLocal>>>()?;
         raws.into_iter().map(decode).collect()
     }
@@ -133,13 +149,34 @@ impl WriteTx<'_> {
         Ok(())
     }
 
+    /// Sets (or clears) the site's local SSH key file path.
+    pub fn set_key_path_override(&self, item: ItemId, path: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO device_local (item_id, key_path_override) VALUES (?1, ?2)
+             ON CONFLICT(item_id) DO UPDATE SET key_path_override = excluded.key_path_override",
+            params![item.as_bytes(), path],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes the device-local row of `item` (a deleted site).
+    pub fn delete_device_local(&self, item: ItemId) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM device_local WHERE item_id = ?1",
+            params![item.as_bytes()],
+        )?;
+        Ok(())
+    }
+
     /// Moves the device-local row of `from` to `to` (an item re-created under a
     /// new id, e.g. imported into the account vault at login), replacing any row
     /// of `to`. A no-op when `from` has no row.
     pub fn move_device_local(&self, from: ItemId, to: ItemId) -> Result<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO device_local (item_id, last_connected_at, frecency, local_dir_override)
-             SELECT ?2, last_connected_at, frecency, local_dir_override FROM device_local WHERE item_id = ?1",
+            "INSERT OR REPLACE INTO device_local
+                (item_id, last_connected_at, frecency, local_dir_override, key_path_override)
+             SELECT ?2, last_connected_at, frecency, local_dir_override, key_path_override
+             FROM device_local WHERE item_id = ?1",
             params![from.as_bytes(), to.as_bytes()],
         )?;
         self.conn.execute(
@@ -184,6 +221,82 @@ impl DeviceLocalRepo<'_> {
         self.store
             .write(move |w| w.set_local_dir_override(item, dir.as_deref()))
             .await
+    }
+
+    /// See [`WriteTx::set_key_path_override`].
+    pub async fn set_key_path_override(&self, item: ItemId, path: Option<String>) -> Result<()> {
+        self.store
+            .write(move |w| w.set_key_path_override(item, path.as_deref()))
+            .await
+    }
+
+    /// See [`WriteTx::delete_device_local`].
+    pub async fn delete(&self, item: ItemId) -> Result<()> {
+        self.store.write(move |w| w.delete_device_local(item)).await
+    }
+}
+
+// ------------------------------------------------------------------ sites (T31)
+
+fn site_local(row: &DeviceLocal) -> SiteLocal {
+    SiteLocal {
+        default_local_dir: row.local_dir_override.as_deref().map(LocalPath::new),
+        key_path: row.key_path_override.as_deref().map(LocalPath::new),
+        last_connected_at: row.last_connected_at.map(UnixMillis),
+    }
+}
+
+fn site_err(e: StoreError) -> SiteError {
+    SiteError::Local(e.to_string())
+}
+
+fn path_text(path: Option<&LocalPath>) -> Option<String> {
+    path.map(|p| p.as_path().to_string_lossy().into_owned())
+}
+
+/// The Site Manager's device-local data (`courier_ftp_core::sites`).
+#[async_trait]
+impl SiteLocalStore for Store {
+    async fn all(&self) -> std::result::Result<HashMap<ItemId, SiteLocal>, SiteError> {
+        let rows = self.device_local().list().await.map_err(site_err)?;
+        Ok(rows.iter().map(|r| (r.item_id, site_local(r))).collect())
+    }
+
+    async fn get(&self, id: ItemId) -> std::result::Result<SiteLocal, SiteError> {
+        let row = self.device_local().get(id).await.map_err(site_err)?;
+        Ok(row.as_ref().map(site_local).unwrap_or_default())
+    }
+
+    async fn set_paths(
+        &self,
+        id: ItemId,
+        default_local_dir: Option<&LocalPath>,
+        key_path: Option<&LocalPath>,
+    ) -> std::result::Result<(), SiteError> {
+        let dir = path_text(default_local_dir);
+        let key = path_text(key_path);
+        self.write(move |w| {
+            w.set_local_dir_override(id, dir.as_deref())?;
+            w.set_key_path_override(id, key.as_deref())
+        })
+        .await
+        .map_err(site_err)
+    }
+
+    async fn touch_connected(
+        &self,
+        id: ItemId,
+        at: UnixMillis,
+    ) -> std::result::Result<(), SiteError> {
+        self.device_local()
+            .touch_connected(id, at.0)
+            .await
+            .map(|_| ())
+            .map_err(site_err)
+    }
+
+    async fn forget(&self, id: ItemId) -> std::result::Result<(), SiteError> {
+        self.device_local().delete(id).await.map_err(site_err)
     }
 }
 

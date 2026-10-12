@@ -3,7 +3,9 @@
 /// The rules of which OS to apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameRules {
-    /// `/` and NUL are invalid.
+    /// `/`, NUL and control characters are invalid. Unix file systems
+    /// accept control characters, but a name carrying a terminal escape
+    /// sequence (from a hostile server) would run it in the next `ls`.
     Unix,
     /// `\ / : * ? " < > |` and control characters are invalid, names may not
     /// end in a dot or space, and device names (`CON`, `COM1`…) are reserved.
@@ -41,7 +43,7 @@ pub fn sanitize_local_name(name: &str, replacement: char) -> String {
 /// - an empty result becomes `replacement` itself.
 pub fn sanitize_name(name: &str, replacement: char, rules: NameRules) -> String {
     let invalid = |c: char| match rules {
-        NameRules::Unix => c == '/' || c == '\0',
+        NameRules::Unix => c == '/' || c.is_control(),
         NameRules::Windows => {
             c.is_control() || matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
         }
@@ -169,9 +171,9 @@ mod tests {
                 proptest::prop_assert!(!out.is_empty());
                 proptest::prop_assert!(out != "." && out != "..", "{:?} -> {:?}", name, out);
                 proptest::prop_assert!(!out.contains('/') && !out.contains('\0'), "{:?}", out);
+                proptest::prop_assert!(!out.chars().any(char::is_control), "{:?}", out);
                 if rules == NameRules::Windows {
                     proptest::prop_assert!(!out.contains('\\') && !out.contains(':'), "{:?}", out);
-                    proptest::prop_assert!(!out.chars().any(char::is_control), "{:?}", out);
                 }
             }
             let base = std::path::Path::new("target-dir");

@@ -1,6 +1,7 @@
 //! The vault engine (T30, D3): first run, password and keyring unlock, the
 //! persisted backoff, lock, password change, keyring enrolment, recovery
-//! through the keyring, and encrypted item CRUD.
+//! through the keyring, encrypted item CRUD, and device-local blobs (the
+//! transfer queue, T40) through `courier_ftp_core::vault::DeviceBlobVault`.
 //!
 //! Adapted from sverb's `sverb-tui::services::vault::engine` (D13). The pure
 //! parts (backoff, strength, keyring seam, auto-lock, errors) live in
@@ -18,8 +19,16 @@
 //!   a read-modify-write inside one, so several processes count every failure.
 
 mod os_keyring;
+// The sync client's access to the engine (T87/T88): LMK-scoped helpers,
+// transactional commits with a state reload, recovery re-keying, and applying
+// pulled items under the state lock.
+pub mod sync;
+mod sync_apply;
 
-use std::collections::BTreeMap;
+pub use self::sync::{KeyInstall, PasswordWrap, RecoveredKey};
+pub use self::sync_apply::{ApplyMode, ApplyReport, Incoming, Outgoing, OutgoingBatch, label_of};
+
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -32,8 +41,9 @@ use courier_ftp_core::model::item::{
 };
 use courier_ftp_core::vault::backup::{self, BackupItem};
 use courier_ftp_core::vault::{
-    BackoffState, ItemVault, ItemWrite, KeyringStore, UnlockMethod, VaultError, VaultItem,
-    VaultState, VaultStatus, check_strength, keyring_account, scrub, strip_passwords,
+    BackoffState, DeviceBlobVault, ItemVault, ItemWrite, KeyringStore, UnlockMethod, VaultError,
+    VaultItem, VaultState, VaultStatus, blob_id, check_strength, keyring_account, scrub,
+    strip_passwords,
 };
 use courier_ftp_crypto::envelope::{open_item, seal_item};
 use courier_ftp_crypto::kdf::{Argon2Cost, KdfParams, argon2id};
@@ -124,6 +134,12 @@ struct Unlocked {
     clock: HlcClock,
     method: UnlockMethod,
     items: BTreeMap<ItemId, Cached>,
+    /// The device data key for device blobs (T40), unwrapped on first use.
+    device_key: Option<TrackedKey>,
+    /// Team vaults this account may only read (T89, `meta`
+    /// `vault_read_only/<id>`): their items are read-only and nothing can be
+    /// added to them.
+    read_only_vaults: HashSet<VaultId>,
 }
 
 impl Unlocked {
@@ -226,6 +242,7 @@ struct Meta {
     failures: Option<Vec<u8>>,
     next_allowed: Option<Vec<u8>>,
     db_id: Option<Vec<u8>>,
+    account: bool,
 }
 
 impl Meta {
@@ -265,6 +282,12 @@ impl VaultEngine {
         &self.inner.store
     }
 
+    /// The Argon2 cost new password wraps use; the Site Manager seals
+    /// passphrase-encrypted exports with it too (T59).
+    pub fn cost(&self) -> Argon2Cost {
+        self.inner.cost
+    }
+
     /// How many times Argon2 ran (test hook: proves backoff and tamper checks
     /// refuse before the KDF).
     pub fn kdf_runs(&self) -> usize {
@@ -293,6 +316,7 @@ impl VaultEngine {
                     failures: r.get_meta(keys::UNLOCK_FAILURES)?,
                     next_allowed: r.get_meta(keys::UNLOCK_NEXT_ALLOWED_AT)?,
                     db_id: r.get_meta(keys::DB_ID)?,
+                    account: r.get_meta(keys::ACCOUNT)?.is_some(),
                 })
             })
             .await
@@ -318,6 +342,7 @@ impl VaultEngine {
             backoff,
             retry_after: backoff.check(self.inner.store.now()).err(),
             unlock_method: method,
+            sync_account: m.account,
         })
     }
 
@@ -494,6 +519,8 @@ impl VaultEngine {
             clock,
             method: UnlockMethod::Created,
             items: BTreeMap::new(),
+            device_key: None,
+            read_only_vaults: HashSet::new(),
         });
         tracing::info!(vault = %vault_id.short(), "vault created");
         Ok(InitReport { keyring_error })
@@ -761,15 +788,45 @@ impl VaultEngine {
         method: UnlockMethod,
     ) -> Result<UnlockReport, VaultError> {
         let lmk = self.track(lmk);
-        let (rows, items, device, hlc) = self
+        let (unlocked, report) = self.load_unlocked(lmk, method, Hlc::ZERO).await?;
+        *self.inner.state.write().await = Some(unlocked);
+        tracing::info!(
+            items = report.items,
+            undecryptable = report.undecryptable,
+            read_only = report.read_only,
+            "vault unlocked"
+        );
+        Ok(report)
+    }
+
+    /// Builds the unlocked state from the store with `lmk`: unwraps every
+    /// vault key, decrypts and migrates every item, loads the device id and
+    /// the HLC (never behind `min_hlc`). Does not touch `self.inner.state`.
+    async fn load_unlocked(
+        &self,
+        lmk: TrackedKey,
+        method: UnlockMethod,
+        min_hlc: Hlc,
+    ) -> Result<(Unlocked, UnlockReport), VaultError> {
+        let (rows, items, device, hlc, read_only_vaults) = self
             .inner
             .store
             .read(|r| {
+                let rows = r.list_vaults()?;
+                let mut ro = HashSet::new();
+                for row in &rows {
+                    if row.kind == VaultKind::Shared
+                        && r.get_meta(&keys::vault_read_only(row.id))?.is_some()
+                    {
+                        ro.insert(row.id);
+                    }
+                }
                 Ok((
-                    r.list_vaults()?,
+                    rows,
                     r.list_all_items()?,
                     r.get_device_id()?,
                     r.get_hlc_last()?,
+                    ro,
                 ))
             })
             .await
@@ -801,7 +858,8 @@ impl VaultEngine {
             .ok_or_else(|| VaultError::Corrupt("the personal vault key is missing".into()))?;
         let device =
             device.ok_or_else(|| VaultError::Corrupt("meta.device_id is missing".into()))?;
-        let clock = HlcClock::new(SystemClock).with_last(hlc.unwrap_or(Hlc::ZERO));
+        let last = hlc.unwrap_or(Hlc::ZERO).max(min_hlc);
+        let clock = HlcClock::new(SystemClock).with_last(last);
         let mut unlocked = Unlocked {
             lmk,
             vaults,
@@ -810,6 +868,8 @@ impl VaultEngine {
             clock,
             method,
             items: BTreeMap::new(),
+            device_key: None,
+            read_only_vaults,
         };
         let mut report = UnlockReport {
             method,
@@ -829,12 +889,14 @@ impl VaultEngine {
                         continue;
                     }
                     report.items += 1;
+                    let read_only =
+                        outcome.read_only || unlocked.read_only_vaults.contains(&row.vault_id);
                     unlocked.items.insert(
                         row.id,
                         Cached {
                             vault_id: row.vault_id,
                             body: outcome.body,
-                            read_only: outcome.read_only,
+                            read_only,
                         },
                     );
                 }
@@ -844,14 +906,7 @@ impl VaultEngine {
                 }
             }
         }
-        *self.inner.state.write().await = Some(unlocked);
-        tracing::info!(
-            items = report.items,
-            undecryptable = report.undecryptable,
-            read_only = report.read_only,
-            "vault unlocked"
-        );
-        Ok(report)
+        Ok((unlocked, report))
     }
 
     /// Locks: drops (and zeroizes) every key and every decrypted item. Only
@@ -904,6 +959,10 @@ impl ItemVault for VaultEngine {
         VaultEngine::is_unlocked(self).await
     }
 
+    async fn personal_vault(&self) -> Option<VaultId> {
+        VaultEngine::personal_vault(self).await
+    }
+
     async fn get(&self, id: ItemId) -> Result<Option<VaultItem>, VaultError> {
         let state = self.inner.state.read().await;
         Ok(state.as_ref().ok_or(VaultError::Locked)?.item(id))
@@ -924,6 +983,9 @@ impl ItemVault for VaultEngine {
         let mut state = self.inner.state.write().await;
         let u = state.as_mut().ok_or(VaultError::Locked)?;
         let (vault, before) = match u.items.get(&write.id) {
+            Some(c) if u.read_only_vaults.contains(&c.vault_id) => {
+                return Err(VaultError::ReadOnlyVault(c.vault_id));
+            }
             Some(c) if c.read_only => return Err(VaultError::ReadOnlyItem(write.id)),
             Some(c) if c.body.kind != write.kind => {
                 return Err(VaultError::WrongKind {
@@ -940,6 +1002,9 @@ impl ItemVault for VaultEngine {
                 "vault {} is not loaded",
                 vault.short()
             )));
+        }
+        if u.read_only_vaults.contains(&vault) {
+            return Err(VaultError::ReadOnlyVault(vault));
         }
         let mut body = before
             .clone()
@@ -993,6 +1058,9 @@ impl ItemVault for VaultEngine {
         let Some(cached) = u.items.get(&id) else {
             return Ok(false);
         };
+        if u.read_only_vaults.contains(&cached.vault_id) {
+            return Err(VaultError::ReadOnlyVault(cached.vault_id));
+        }
         if cached.read_only {
             return Err(VaultError::ReadOnlyItem(id));
         }
@@ -1015,5 +1083,125 @@ impl ItemVault for VaultEngine {
         u.items.remove(&id);
         tracing::debug!(item = %id.short(), "item deleted");
         Ok(true)
+    }
+}
+
+/// Key version of every device-blob envelope (the device key is never rotated).
+const DEVICE_KEY_VERSION: u32 = 1;
+
+impl VaultEngine {
+    /// Runs `f` with the device data key and this device's id, unwrapping the
+    /// key from `meta.device_key_wrapped` on first use, or creating it there
+    /// (one transaction; a key another process stored first wins).
+    async fn with_device_key<T>(
+        &self,
+        f: impl FnOnce(&Key32, DeviceId) -> Result<T, VaultError>,
+    ) -> Result<T, VaultError> {
+        {
+            let state = self.inner.state.read().await;
+            let u = state.as_ref().ok_or(VaultError::Locked)?;
+            if let Some(k) = &u.device_key {
+                return f(&k.key, u.device);
+            }
+        }
+        let mut state = self.inner.state.write().await;
+        let u = state.as_mut().ok_or(VaultError::Locked)?;
+        if u.device_key.is_none() {
+            let mut rng = os_rng();
+            let fresh = random_key32(&mut rng);
+            let wrapped = wrap_key(
+                &u.lmk.key,
+                &WrapPurpose::Device,
+                fresh.expose_secret(),
+                &mut rng,
+            )
+            .map_err(|e| VaultError::from_crypto(e, "device key"))?;
+            drop(fresh);
+            let stored = self
+                .inner
+                .store
+                .write(move |w| {
+                    if let Some(existing) = w.as_read().get_meta(keys::DEVICE_KEY_WRAPPED)? {
+                        return Ok(existing);
+                    }
+                    w.set_meta(keys::DEVICE_KEY_WRAPPED, &wrapped)?;
+                    Ok(wrapped)
+                })
+                .await
+                .map_err(storage)?;
+            let key = unwrap_key32(&u.lmk.key, &WrapPurpose::Device, &stored)
+                .map_err(|e| VaultError::from_crypto(e, "meta.device_key_wrapped"))?;
+            u.device_key = Some(self.track(key));
+            tracing::debug!("device data key loaded");
+        }
+        match &u.device_key {
+            Some(k) => f(&k.key, u.device),
+            None => Err(VaultError::Locked),
+        }
+    }
+}
+
+/// Device blobs (T40): v1 envelopes under the LMK-wrapped device key, bound to
+/// this device's id and the blob name (see `courier_ftp_core::vault::device_blobs`).
+#[async_trait]
+impl DeviceBlobVault for VaultEngine {
+    async fn is_unlocked(&self) -> bool {
+        VaultEngine::is_unlocked(self).await
+    }
+
+    async fn load_blob(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>, VaultError> {
+        if !VaultEngine::is_unlocked(self).await {
+            return Err(VaultError::Locked);
+        }
+        let Some(envelope) = self
+            .inner
+            .store
+            .device_blobs()
+            .get(name)
+            .await
+            .map_err(storage)?
+        else {
+            return Ok(None);
+        };
+        let id = blob_id(name);
+        self.with_device_key(|key, device| {
+            let lookup = |v: u32| (v == DEVICE_KEY_VERSION).then_some(key);
+            open_item(lookup, device.as_bytes(), &id, &envelope)
+                .map(Some)
+                .map_err(|e| VaultError::from_crypto(e, "device blob"))
+        })
+        .await
+    }
+
+    async fn save_blob(&self, name: &str, plaintext: &[u8]) -> Result<(), VaultError> {
+        let id = blob_id(name);
+        let envelope = self
+            .with_device_key(|key, device| {
+                seal_item(
+                    key,
+                    device.as_bytes(),
+                    &id,
+                    DEVICE_KEY_VERSION,
+                    plaintext,
+                    &mut os_rng(),
+                )
+                .map_err(|e| VaultError::from_crypto(e, "device blob"))
+            })
+            .await?;
+        self.inner
+            .store
+            .device_blobs()
+            .put(name, envelope)
+            .await
+            .map_err(storage)
+    }
+
+    async fn delete_blob(&self, name: &str) -> Result<bool, VaultError> {
+        self.inner
+            .store
+            .device_blobs()
+            .delete(name)
+            .await
+            .map_err(storage)
     }
 }

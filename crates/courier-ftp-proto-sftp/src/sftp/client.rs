@@ -15,8 +15,6 @@ use crate::ssh::{SshSession, bounded};
 
 /// `posix-rename@openssh.com`: a rename that replaces an existing target.
 pub(crate) const POSIX_RENAME: &str = "posix-rename@openssh.com";
-/// Request size without `limits@openssh.com` (T41b §3).
-pub(crate) const DEFAULT_REQUEST: u32 = 32 * 1024;
 /// Upper bound of a read/write request when the server advertises larger
 /// limits (OpenSSH: 255 KiB).
 pub(crate) const MAX_REQUEST: u32 = 255 * 1024;
@@ -44,9 +42,11 @@ pub(crate) struct Sftp {
 impl Sftp {
     /// Open the `sftp` subsystem on `ssh` and run `INIT`/`VERSION` (and
     /// `limits@openssh.com` when announced). Every request afterwards is
-    /// bounded by `timeout` (russh-sftp's per-request timeout).
+    /// bounded by `timeout` (russh-sftp's per-request timeout). Requests
+    /// carry `request` bytes unless the server announces its limits.
     pub(crate) async fn open(
         ssh: &SshSession,
+        request: u32,
         timeout: Duration,
         cancel: &CancellationToken,
     ) -> Result<Self> {
@@ -66,8 +66,9 @@ impl Sftp {
         let announced =
             |name: &str, ver: &str| version.extensions.get(name).is_some_and(|v| v == ver);
         let posix_rename = announced(POSIX_RENAME, "1");
-        let mut read_len = DEFAULT_REQUEST;
-        let mut write_len = DEFAULT_REQUEST;
+        let request = request.clamp(1, MAX_REQUEST);
+        let mut read_len = request;
+        let mut write_len = request;
         if announced(extensions::LIMITS, "1") {
             let limits = bounded(timeout, cancel, async {
                 raw.limits()

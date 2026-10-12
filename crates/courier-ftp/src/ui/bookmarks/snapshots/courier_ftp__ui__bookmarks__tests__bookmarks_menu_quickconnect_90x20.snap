@@ -1,0 +1,25 @@
+---
+source: crates/courier-ftp/src/ui/bookmarks/tests.rs
+assertion_line: 128
+expression: text
+---
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"      ┌ Bookmarks ─────────────────────────────────────────────────────────────────┐      "
+"      │/ to search                                                                 │      "
+"      │                                                                            │      "
+"      │Global bookmarks                                                            │      "
+"      │  None yet: a adds the directories shown now                                │      "
+"      │Site bookmarks                                                              │      "
+"      │  Save this connection as a site to use site bookmarks                      │      "
+"      │                                                                            │      "
+"      │Enter go · a add · e edit · x delete · J/K move · / search · Esc close      │      "
+"      └────────────────────────────────────────────────────────────────────────────┘      "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "
+"                                                                                          "

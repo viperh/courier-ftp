@@ -1,0 +1,15 @@
+---
+source: crates/courier-ftp/src/ui/queue/tests.rs
+assertion_line: 149
+expression: text
+---
+"┌ Queued files (5) | Failed transfers (1) | Successful transfers (2) ──────────────────────────────────────────────────┐"
+"│Local file                                   Remote file                              Size       Priority Status      │"
+"│/home/alice/site/index.html               -> /var/www/index.html                      10.0 MiB   Normal   Transferring│"
+"│    [##########----------]  50%  5.0 MiB / 10.0 MiB  200.0 KiB/s  00:00:05 elapsed  00:00:30 left                     │"
+"│/home/alice/site/style.css                -> /var/www/style.css                       2.0 KiB    Normal   || Paused   │"
+"│/home/alice/site/db.sql.gz                <- /var/www/db.sql.gz                       300.0 MiB  Normal   Queued      │"
+"│/home/alice/site/notes.txt                <- /var/www/notes.txt                       1.2 KiB    Normal   Queued      │"
+"│/home/alice/site/retry.bin                <- /var/www/retry.bin                       4.0 KiB    Normal   Retry 1     │"
+"│                                                                                                                      │"
+"└ Queue: 5 files, 306.0 MiB, ~00:25:30 remaining - processing ─────────────────────────────────────────────────────────┘"

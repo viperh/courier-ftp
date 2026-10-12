@@ -1,0 +1,14 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "id": "01900000-0000-7000-8000-000000000006",
+  "org_id": "01900000-0000-7000-8000-000000000007",
+  "name_enc": "7-_v7-_v",
+  "self_grant": {
+    "wrapped_vault_key": "ERERERERERE",
+    "signature": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIg",
+    "key_version": 1
+  }
+}

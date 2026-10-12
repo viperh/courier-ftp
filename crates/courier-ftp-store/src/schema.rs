@@ -6,7 +6,10 @@
 use rusqlite_migration::{M, Migrations};
 
 /// The migrations this build knows, in order.
-pub const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
+pub const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_init.sql"),
+    include_str!("../migrations/0002_device_local_key_path.sql"),
+];
 
 /// The latest schema version (`PRAGMA user_version`) this build knows.
 #[allow(clippy::cast_possible_wrap)]

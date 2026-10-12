@@ -1,6 +1,8 @@
-//! The listing parsers never panic, whatever the server sends (T13, T91 §7).
+//! The listing parsers (T13) and the reply parser (T10) never panic, whatever
+//! the server sends (T91 §7).
 //!
-//! The same bodies run as the `listing` cargo-fuzz target in `fuzz/`.
+//! The same bodies run as the `listing` and `ftp_reply` cargo-fuzz targets in
+//! `fuzz/`.
 
 use courier_ftp_core::model::Charset;
 use courier_ftp_proto_ftp::listing::{ListCommand, ListingContext, parse_listing};
@@ -103,6 +105,54 @@ proptest! {
     #[test]
     fn listing_like_text_never_panics(text in listing_like(), offset in -1440i16..=1440) {
         parse_all(text.as_bytes(), offset);
+    }
+}
+
+/// Fragments of FTP replies, glued together at random.
+fn reply_like() -> impl Strategy<Value = Vec<u8>> {
+    let pieces = prop::sample::select(vec![
+        &b"220"[..],
+        b"220-",
+        b"220 ",
+        b"211-Features:",
+        b"211 End",
+        b" UTF8",
+        b" MLST type*;size*;",
+        b" REST STREAM",
+        b" AUTH TLS;SSL",
+        b"257 \"/a \"\"b\"\"\"",
+        b"\"",
+        b"\"\"",
+        b"123-",
+        b"123 ",
+        b"999 ",
+        b"099",
+        b"\r\n",
+        b"\n",
+        b"\r",
+        b" ",
+        b"\xff\xfe",
+        b"\xe9",
+        b"\x1b[31m",
+        b"\0",
+    ]);
+    prop::collection::vec(pieces, 0..60).prop_map(|v| v.concat())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2000))]
+
+    /// The FTP reply parser (T10) never panics, in any chunking.
+    #[test]
+    fn reply_parser_random_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..1024)) {
+        courier_ftp_proto_ftp::control::fuzz_reply_parser(&bytes);
+    }
+
+    #[test]
+    fn reply_parser_reply_like_never_panics(chunk in any::<u8>(), bytes in reply_like()) {
+        let mut data = vec![chunk];
+        data.extend_from_slice(&bytes);
+        courier_ftp_proto_ftp::control::fuzz_reply_parser(&data);
     }
 }
 

@@ -2,7 +2,8 @@
 //! slow calls (Argon2, keyring, SQLite) in background tasks that report back
 //! as [`VaultMsg`], and applies what locking and unlocking mean for the rest
 //! of the program (the host key store behind "Always trust", the session
-//! credential cache, auto-lock).
+//! credential cache, auto-lock, and with feature `sync` the sync engine:
+//! started after unlock, stopped on lock, T90).
 //!
 //! The screens are in `ui::vault`; the engine is T30's
 //! [`courier_ftp_store::vault::VaultEngine`].
@@ -14,11 +15,16 @@ use std::{
 };
 
 use courier_ftp_core::{
+    model::item::{ItemId, ProxyCredential},
     settings::VaultSettings,
-    trust::{HostKeyStoreSlot, MemoryHostKeyStore},
-    vault::{AutoLock, LockReason, VaultError, VaultHostKeyStore, VaultStatus},
+    trust::{CertTrustStoreSlot, HostKeyStoreSlot, MemoryCertTrustStore, MemoryHostKeyStore},
+    vault::{
+        AutoLock, ItemVaultExt, LockReason, VaultCertTrustStore, VaultError, VaultHostKeyStore,
+        VaultStatus,
+    },
 };
 use courier_ftp_crypto::kdf::Argon2Cost;
+use courier_ftp_proto_ftp::backend::FtpBackendFactory;
 use courier_ftp_proto_sftp::ssh::CredentialCache;
 use courier_ftp_store::{
     Store, StoreError,
@@ -88,6 +94,29 @@ pub(crate) enum Phase {
     Unlocked,
 }
 
+/// What the vault switches for FTP on unlock and lock.
+struct FtpHooks {
+    certs: Arc<CertTrustStoreSlot>,
+    factory: FtpBackendFactory,
+    proxy_password: Option<String>,
+}
+
+/// The FTP proxy password stored in the `proxy-credential` item `id`.
+async fn read_proxy_password(engine: &VaultEngine, id: &str) -> Option<SecretString> {
+    let id: ItemId = id.parse().ok()?;
+    let views = match engine.list_views::<ProxyCredential>().await {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::warn!(%err, "reading the FTP proxy password failed");
+            return None;
+        }
+    };
+    views
+        .into_iter()
+        .find(|(item, _)| item.id == id)
+        .and_then(|(_, view)| view.password)
+}
+
 /// See the module docs.
 pub(crate) struct Vault {
     open: VaultOpener,
@@ -97,6 +126,8 @@ pub(crate) struct Vault {
     host_keys: Arc<HostKeyStoreSlot>,
     /// Passwords typed at prompts this run; cleared on lock.
     credentials: CredentialCache,
+    /// FTPS certificate trust and the FTP proxy password (T12/T14).
+    ftp: Option<FtpHooks>,
     tx: UnboundedSender<VaultMsg>,
     /// The engine's `lock()` started by [`Vault::lock`]; unlocks wait for it
     /// so a quick unlock can't be undone by a late lock.
@@ -104,6 +135,9 @@ pub(crate) struct Vault {
     pub(crate) phase: Phase,
     pub(crate) auto_lock: AutoLock,
     store_passwords: bool,
+    /// Device sync (T90): the session and engine run while unlocked.
+    #[cfg(feature = "sync")]
+    pub(crate) sync: Option<crate::sync::SyncCtl>,
 }
 
 impl std::fmt::Debug for Vault {
@@ -127,15 +161,65 @@ impl Vault {
             engine: None,
             host_keys,
             credentials,
+            ftp: None,
             tx,
             pending_lock: None,
             phase: Phase::Opening,
             auto_lock: AutoLock::from_settings(settings, Instant::now()),
             store_passwords: settings.store_passwords,
+            #[cfg(feature = "sync")]
+            sync: None,
         }
     }
 
-    #[cfg(test)]
+    /// Swap the certificate store with the host key store, and give the FTP
+    /// factory the FTP proxy password from the vault item `proxy_password`
+    /// (the settings' `password_ref`) while unlocked.
+    pub(crate) fn set_ftp(
+        &mut self,
+        certs: Arc<CertTrustStoreSlot>,
+        factory: FtpBackendFactory,
+        proxy_password: Option<String>,
+    ) {
+        self.ftp = Some(FtpHooks {
+            certs,
+            factory,
+            proxy_password,
+        });
+    }
+
+    /// The vault settings changed (settings screen, T68): auto-lock and
+    /// password storage apply at once.
+    pub(crate) fn configure(&mut self, settings: &VaultSettings) {
+        self.auto_lock.configure(settings);
+        self.store_passwords = settings.store_passwords;
+        if let Some(engine) = &self.engine {
+            engine.set_store_passwords(settings.store_passwords);
+        }
+    }
+
+    /// The FTP proxy's vault item changed (settings screen, T68): forget the
+    /// old password and, while unlocked, read the new one.
+    pub(crate) fn set_ftp_proxy_ref(&mut self, id: Option<String>) {
+        let Some(ftp) = self.ftp.as_mut() else {
+            return;
+        };
+        if ftp.proxy_password == id {
+            return;
+        }
+        ftp.proxy_password = id.clone();
+        ftp.factory.set_ftp_proxy_password(None);
+        if self.phase == Phase::Unlocked
+            && let (Some(engine), Some(id)) = (self.engine.clone(), id)
+        {
+            let factory = ftp.factory.clone();
+            tokio::spawn(async move {
+                factory.set_ftp_proxy_password(read_proxy_password(&engine, &id).await);
+            });
+        }
+    }
+
+    /// The engine, once the database is open.
     pub(crate) fn engine(&self) -> Option<&VaultEngine> {
         self.engine.as_ref()
     }
@@ -248,9 +332,24 @@ impl Vault {
         if let Some(engine) = &self.engine {
             self.host_keys
                 .replace(Arc::new(VaultHostKeyStore::new(Arc::new(engine.clone()))));
+            if let Some(ftp) = &self.ftp {
+                ftp.certs
+                    .replace(Arc::new(VaultCertTrustStore::new(Arc::new(engine.clone()))));
+                if let Some(id) = ftp.proxy_password.as_deref() {
+                    let (engine, factory, id) =
+                        (engine.clone(), ftp.factory.clone(), id.to_owned());
+                    tokio::spawn(async move {
+                        factory.set_ftp_proxy_password(read_proxy_password(&engine, &id).await);
+                    });
+                }
+            }
         }
         self.phase = Phase::Unlocked;
         self.auto_lock.reset(Instant::now());
+        #[cfg(feature = "sync")]
+        if let (Some(sync), Some(engine)) = (self.sync.as_mut(), self.engine.as_ref()) {
+            sync.unlocked(engine.clone());
+        }
     }
 
     /// Lock: keys are dropped (in the background), "Always trust" becomes
@@ -258,10 +357,24 @@ impl Vault {
     pub(crate) fn lock(&mut self) {
         self.host_keys
             .replace(Arc::new(MemoryHostKeyStore::locked()));
+        if let Some(ftp) = &self.ftp {
+            ftp.certs.replace(Arc::new(MemoryCertTrustStore::locked()));
+            ftp.factory.set_ftp_proxy_password(None);
+            ftp.factory.clear_session_passwords();
+        }
         self.credentials.clear();
         self.phase = Phase::Locked;
+        // The sync engine stops before the keys go.
+        #[cfg(feature = "sync")]
+        let sync = self.sync.as_mut().and_then(crate::sync::SyncCtl::locked);
         if let Some(engine) = self.engine.clone() {
-            self.pending_lock = Some(tokio::spawn(async move { engine.lock().await }));
+            self.pending_lock = Some(tokio::spawn(async move {
+                #[cfg(feature = "sync")]
+                if let Some(sync) = sync {
+                    sync.shutdown().await;
+                }
+                engine.lock().await;
+            }));
         }
     }
 

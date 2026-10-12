@@ -309,6 +309,9 @@ pub struct FilterSettings {
     pub sets: Vec<FilterSet>,
     /// Name of the active set.
     pub active_set: String,
+    /// Whether recursive operations (transfers, delete, chmod) skip the
+    /// entries the filters hide, as FileZilla does. On by default.
+    pub apply_to_transfers: bool,
 }
 
 impl Default for FilterSettings {
@@ -321,6 +324,7 @@ impl Default for FilterSettings {
                 enabled_remote: Vec::new(),
             }],
             active_set: DEFAULT_SET.to_owned(),
+            apply_to_transfers: true,
         }
     }
 }

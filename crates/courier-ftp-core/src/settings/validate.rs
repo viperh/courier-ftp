@@ -1,6 +1,9 @@
 //! Range and consistency checks for [`Settings`].
 
-use super::{FtpSettings, Settings, TransferSettings};
+use super::{
+    FtpProxy, FtpSettings, GenericProxy, SegmentedSettings, Settings, SftpSettings,
+    TransferSettings,
+};
 
 const KEEPALIVE_COMMANDS: &[&str] = &["NOOP", "PWD", "TYPE"];
 
@@ -55,12 +58,56 @@ impl Settings {
             f.send_keepalive_command = cmd;
         }
 
+        // FileZilla: an FTP proxy and a generic proxy can't both apply (T15).
+        let p = &mut self.proxy;
+        check(
+            p.generic == GenericProxy::None || p.ftp_proxy == FtpProxy::None,
+            "proxy.ftp_proxy",
+            "can't be used together with a generic proxy (proxy.generic)",
+            &mut || p.ftp_proxy = FtpProxy::None,
+        );
+
+        let sftp = &mut self.sftp;
+        let sftp_defaults = SftpSettings::default();
+        check(
+            (1..=1024).contains(&sftp.max_outstanding_requests),
+            "sftp.max_outstanding_requests",
+            "must be between 1 and 1024",
+            &mut || sftp.max_outstanding_requests = sftp_defaults.max_outstanding_requests,
+        );
+        check(
+            (1..=255).contains(&sftp.request_size_kib),
+            "sftp.request_size_kib",
+            "must be between 1 and 255",
+            &mut || sftp.request_size_kib = sftp_defaults.request_size_kib,
+        );
+
         let t = &mut self.transfers;
         check(
-            (1..=32).contains(&t.max_concurrent),
+            (1..=16).contains(&t.max_concurrent),
             "transfers.max_concurrent",
-            "must be between 1 and 32",
+            "must be between 1 and 16",
             &mut || t.max_concurrent = TransferSettings::default().max_concurrent,
+        );
+        let seg = &mut t.segmented;
+        let seg_defaults = SegmentedSettings::default();
+        check(
+            (1..=16).contains(&seg.max_segments),
+            "transfers.segmented.max_segments",
+            "must be between 1 and 16",
+            &mut || seg.max_segments = seg_defaults.max_segments,
+        );
+        check(
+            seg.min_segment_size_mib >= 1,
+            "transfers.segmented.min_segment_size_mib",
+            "must be at least 1",
+            &mut || seg.min_segment_size_mib = seg_defaults.min_segment_size_mib,
+        );
+        check(
+            seg.min_file_size_mib >= 1,
+            "transfers.segmented.min_file_size_mib",
+            "must be at least 1",
+            &mut || seg.min_file_size_mib = seg_defaults.min_file_size_mib,
         );
         let replacement = t.invalid_char_replacement;
         check(
@@ -89,6 +136,28 @@ impl Settings {
             "vault.auto_lock_minutes",
             "must be 0-1440",
             &mut || v.auto_lock_minutes = defaults.vault.auto_lock_minutes,
+        );
+
+        let y = &mut self.sync;
+        check(
+            y.push_debounce_ms <= 60_000,
+            "sync.push_debounce_ms",
+            "must be 0-60000",
+            &mut || y.push_debounce_ms = defaults.sync.push_debounce_ms,
+        );
+        check(
+            (30..=86_400).contains(&y.poll_fallback_secs),
+            "sync.poll_fallback_secs",
+            "must be 30-86400",
+            &mut || y.poll_fallback_secs = defaults.sync.poll_fallback_secs,
+        );
+
+        let q = &mut self.queue;
+        check(
+            q.max_successful <= 1_000_000,
+            "queue.max_successful",
+            "must be 0-1000000",
+            &mut || q.max_successful = defaults.queue.max_successful,
         );
 
         warnings
@@ -147,10 +216,51 @@ mod tests {
     }
 
     #[test]
+    fn fast_transfer_settings_are_range_checked() {
+        let (s, report) = Settings::from_value(&json!({
+            "transfers": {
+                "max_concurrent": 17,
+                "segmented": {"max_segments": 0, "min_file_size_mib": 0, "min_segment_size_mib": 0}
+            },
+            "sftp": {"max_outstanding_requests": 0, "request_size_kib": 256}
+        }));
+        assert_eq!(s, Settings::default());
+        assert_eq!(report.warnings.len(), 6, "{report:?}");
+
+        let (s, report) = Settings::from_value(&json!({
+            "transfers": {"max_concurrent": 16, "segmented": {"max_segments": 16}},
+            "sftp": {"max_outstanding_requests": 1024, "request_size_kib": 255}
+        }));
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert_eq!(s.transfers.segmented.max_segments, 16);
+        assert_eq!(s.sftp.request_size_kib, 255);
+    }
+
+    #[test]
     fn keepalive_command_is_normalised() {
         let (s, report) = Settings::from_value(&json!({"ftp": {"send_keepalive_command": "pwd"}}));
         assert!(report.warnings.is_empty());
         assert_eq!(s.ftp.send_keepalive_command, "PWD");
+    }
+
+    #[test]
+    fn generic_and_ftp_proxy_together_are_rejected() {
+        let (s, report) = Settings::from_value(&json!({"proxy": {
+            "generic": {"type": "socks5", "host": "socks", "port": 1080},
+            "ftp_proxy": {"type": "site", "host": "proxy.example.com", "port": 2121},
+        }}));
+        assert_eq!(s.proxy.ftp_proxy, FtpProxy::None);
+        assert!(matches!(s.proxy.generic, GenericProxy::Socks5(_)));
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.warnings[0].starts_with("proxy.ftp_proxy:"));
+
+        let (s, report) = Settings::from_value(&json!({"proxy": {"ftp_proxy": {
+            "type": "custom",
+            "server": {"host": "proxy.example.com", "port": 2121, "user": "u"},
+            "script": "USER %u@%h\nPASS %p",
+        }}}));
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert!(matches!(s.proxy.ftp_proxy, FtpProxy::Custom { .. }));
     }
 
     #[test]

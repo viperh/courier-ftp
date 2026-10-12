@@ -30,6 +30,15 @@ test = false
 doc = false
 bench = false
 
+# FTP control connection replies (T10); same body as
+# crates/courier-ftp-proto-ftp/tests/no_panic.rs.
+[[bin]]
+name = "ftp_reply"
+path = "fuzz_targets/ftp_reply.rs"
+test = false
+doc = false
+bench = false
+
 # Item envelopes (T80).
 [[bin]]
 name = "envelope_open"
@@ -98,6 +107,14 @@ bench = false
 [[bin]]
 name = "proxy_reply"
 path = "fuzz_targets/proxy_reply.rs"
+test = false
+doc = false
+bench = false
+
+# FileZilla sitemanager.xml import (T32).
+[[bin]]
+name = "filezilla_xml"
+path = "fuzz_targets/filezilla_xml.rs"
 test = false
 doc = false
 bench = false

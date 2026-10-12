@@ -1,5 +1,5 @@
-//! The modal stack's contract and the dialogs T50 needs: the help overlay and
-//! a basic prompt dialog. T52 adds the form widgets and standard dialogs; T69
+//! The modal stack's contract and a basic prompt dialog (the help overlay
+//! is in `help`). T52 adds the form widgets and standard dialogs; T69
 //! the trust prompts (in `trust`).
 
 use courier_ftp_core::events::{PromptKind, PromptRequest, PromptResponse};
@@ -7,7 +7,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::Rect,
-    text::{Line, Span},
     widgets::{Block, Clear, Paragraph, Wrap},
 };
 
@@ -48,84 +47,13 @@ pub(crate) fn centered(area: Rect, width: u16, height: u16) -> Rect {
     )
 }
 
-/// `F1`: the keybindings of the mode the user was in, generated from the
-/// config.
-pub(crate) struct HelpOverlay {
-    title: String,
-    lines: Vec<(String, String)>,
-    scroll: u16,
-}
-
-impl HelpOverlay {
-    /// `bindings` are (key sequence, action) pairs.
-    pub(crate) fn new(mode: &str, mut bindings: Vec<(String, String)>) -> Self {
-        bindings.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-        Self {
-            title: format!(" Keys: {mode} mode "),
-            lines: bindings,
-            scroll: 0,
-        }
-    }
-}
-
-impl Modal for HelpOverlay {
-    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let key_width = self.lines.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-        let height = u16::try_from(self.lines.len())
-            .unwrap_or(u16::MAX)
-            .saturating_add(3);
-        let rect = centered(area, 60, height);
-        let body: Vec<Line> = self
-            .lines
-            .iter()
-            .map(|(key, action)| {
-                Line::from(vec![
-                    Span::styled(format!("{key:<key_width$}  "), theme.key_hint),
-                    Span::raw(action.clone()),
-                ])
-            })
-            .chain(std::iter::once(Line::styled(
-                "Esc closes · ↑/↓ scroll",
-                theme.dim,
-            )))
-            .collect();
-        frame.render_widget(Clear, rect);
-        frame.render_widget(
-            Paragraph::new(body).scroll((self.scroll, 0)).block(
-                Block::bordered()
-                    .title(self.title.as_str())
-                    .border_style(theme.focused_border),
-            ),
-            rect,
-        );
-    }
-
-    fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome {
-        match key.code {
-            KeyCode::Esc | KeyCode::Enter | KeyCode::F(1) | KeyCode::Char('q') => {
-                ModalOutcome::Close
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.scroll = self.scroll.saturating_add(1);
-                ModalOutcome::Keep
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.scroll = self.scroll.saturating_sub(1);
-                ModalOutcome::Keep
-            }
-            _ => ModalOutcome::Keep,
-        }
-    }
-}
-
 /// The dialog for a question from the core (T04). The answer goes back
 /// through the request's `reply`; closing a dialog without answering drops
-/// it, which the core treats as "cancel". File-exists prompts get their
-/// dialog in T42; until then they can only be cancelled. `unicode` picks the
-/// symbols of the trust prompts.
+/// it, which the core treats as "cancel". File-exists prompts use the T42
+/// dialog. `unicode` picks the symbols of the trust and file-exists prompts.
 pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Modal> {
     use super::{
-        dialog::{Form, FormDialog, TextInput, message, prompt_password},
+        dialog::{Form, FormDialog, TextInput, ask, message, prompt_password},
         trust::{certificate_dialog, host_key_dialog},
     };
     let PromptRequest { kind, reply, .. } = request;
@@ -135,15 +63,26 @@ pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Mod
             forward(rx, reply, |()| Some(PromptResponse::Ok));
             modal
         }
+        PromptKind::Choice {
+            title,
+            text,
+            buttons,
+            default,
+        } => {
+            let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
+            let (modal, rx) = ask(&title, &text, &labels, default);
+            forward(rx, reply, |pressed| pressed.map(PromptResponse::Choice));
+            modal
+        }
         PromptKind::Password { for_ } => {
-            let (modal, rx) = prompt_password("Password", &format!("Password for {for_}"));
+            let (modal, rx) = prompt_password(&format!("Password for {for_}"), "Password");
             forward(rx, reply, |pw| pw.map(PromptResponse::Secret));
             modal
         }
         PromptKind::KeyPassphrase { path } => {
             let (modal, rx) = prompt_password(
-                "Key passphrase",
-                &format!("Passphrase for {}", path.to_display()),
+                &format!("Key passphrase for {}", path.to_display()),
+                "Passphrase",
             );
             forward(rx, reply, |pw| pw.map(PromptResponse::Secret));
             modal
@@ -210,6 +149,15 @@ pub(crate) fn prompt_modal(request: PromptRequest, unicode: bool) -> Box<dyn Mod
             unicode,
             reply,
         )),
+        PromptKind::FileExists {
+            direction,
+            source,
+            target,
+            local,
+            remote,
+        } => Box::new(super::file_exists::FileExistsDialog::new(
+            direction, *source, *target, local, remote, unicode, reply,
+        )),
         other => Box::new(PendingPrompt { kind: other, reply }),
     }
 }
@@ -265,5 +213,39 @@ impl Modal for PendingPrompt {
     fn is_done(&self) -> bool {
         // The core stopped waiting.
         self.reply.is_closed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use courier_ftp_core::events::{PromptId, PromptKind, PromptRequest};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::prompt_modal;
+    use crate::ui::theme::Theme;
+
+    fn render(kind: PromptKind) -> String {
+        let (reply, _rx) = tokio::sync::oneshot::channel();
+        let request = PromptRequest {
+            id: PromptId::next(),
+            session: None,
+            kind,
+            reply,
+        };
+        let mut modal = prompt_modal(request, true);
+        let mut t = Terminal::new(TestBackend::new(70, 12)).unwrap();
+        let theme = Theme::new(None, true);
+        t.draw(|f| modal.draw(f, f.area(), &theme)).unwrap();
+        t.backend().to_string()
+    }
+
+    #[tokio::test]
+    async fn password_prompt() {
+        insta::assert_snapshot!(
+            "password_prompt",
+            render(PromptKind::Password {
+                for_: "bob@example.com".into()
+            })
+        );
     }
 }

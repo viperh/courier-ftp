@@ -41,12 +41,18 @@ features, keep the connection alive. RFC 959, 2389 (FEAT), 2428 (EPSV/EPRT), 365
 
 ## Acceptance criteria
 
-- [ ] Multi-line reply parsing handles the RFC example, indented continuation lines, and a code line in the middle that doesn't match the start code.
-- [ ] Login works for: normal, anonymous, `ACCT` required, `230` after USER.
-- [ ] `FEAT` parsed into `Features`; servers without FEAT (`500`) work with defaults.
-- [ ] CR/LF injection rejected.
-- [ ] `PASS` masked in log.
-- [ ] Idle timeout and `421` surface as `Error::Connection`/`Timeout`.
+- [x] Multi-line reply parsing handles the RFC example, indented continuation lines, and a code line in the middle that doesn't match the start code.
+- [x] Login works for: normal, anonymous, `ACCT` required, `230` after USER.
+- [x] `FEAT` parsed into `Features`; servers without FEAT (`500`) work with defaults.
+- [x] CR/LF injection rejected.
+- [x] `PASS` masked in log.
+- [x] Idle timeout and `421` surface as `Error::Connection`/`Timeout`.
+
+**Status:** done in `courier-ftp-proto-ftp::control`. Implicit FTPS and `AUTH TLS`
+(scope 3.1/3.3) are T12's; the hook is `ControlConnection::upgrade_stream` and the
+`// T12` marker in `control::connect`. Docker coverage: one vsftpd test
+(`courier-ftp-e2e/tests/ftp_control.rs`, image `delfer/alpine-ftp-server`); ProFTPD
+and Pure-FTPd fixtures come with T76's own images.
 
 ## Tests
 

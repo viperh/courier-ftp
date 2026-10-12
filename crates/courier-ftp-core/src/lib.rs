@@ -10,14 +10,17 @@
 
 mod error;
 
+pub mod archive;
 pub mod backend;
 pub mod cache;
 pub mod compare;
+pub mod edit;
 pub mod events;
 pub mod filters;
 pub mod hardening;
 pub mod listing;
 pub mod local;
+pub mod logfile;
 pub mod model;
 pub mod net;
 pub mod queue;

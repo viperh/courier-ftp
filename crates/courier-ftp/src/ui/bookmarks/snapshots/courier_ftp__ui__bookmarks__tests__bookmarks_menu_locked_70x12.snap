@@ -1,0 +1,17 @@
+---
+source: crates/courier-ftp/src/ui/bookmarks/tests.rs
+assertion_line: 147
+expression: "render(&mut menu, 70, 12)"
+---
+"                                                                      "
+"                                                                      "
+"                                                                      "
+" ┌ Bookmarks ───────────────────────────────────────────────────────┐ "
+" │Bookmarks are kept in the vault.                                  │ "
+" │                                                                  │ "
+" │Enter unlocks it, Esc closes.                                     │ "
+" └──────────────────────────────────────────────────────────────────┘ "
+"                                                                      "
+"                                                                      "
+"                                                                      "
+"                                                                      "

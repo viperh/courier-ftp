@@ -31,12 +31,15 @@ use std::collections::HashMap;
 pub(crate) use buttons::ButtonRow;
 pub(crate) use choice::{Checkbox, RadioGroup, Select, TriState, TriStateCheckbox};
 use crossterm::event::KeyEvent;
-pub(crate) use form::{Form, FormDialog, TabbedForm, dialog_frame_styled};
+pub(crate) use form::{
+    Form, FormDialog, FormOutcome, TabbedForm, dialog_frame, dialog_frame_styled,
+};
 pub(crate) use list::ListView;
 use ratatui::{Frame, layout::Rect};
 use secrecy::SecretString;
 pub(crate) use standard::{
-    ProgressDialog, choose, confirm, error, message, prompt_password, prompt_text,
+    ProgressDialog, ProgressHandle, ask, choose, confirm, error, message, prompt_password,
+    prompt_text,
 };
 pub(crate) use text::{Completer, LocalPathCompleter, NumberInput, PathInput, TextInput};
 

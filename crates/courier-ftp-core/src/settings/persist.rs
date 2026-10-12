@@ -39,23 +39,8 @@ impl Settings {
     /// (keybindings, styles, unknown keys) is kept. Creates the directory and the
     /// file when missing.
     pub fn save_user(&self, config_dir: &Path) -> Result<()> {
-        let path = config_dir.join("config.json");
-        let mut doc = match std::fs::read_to_string(&path) {
-            Ok(text) if !text.trim().is_empty() => serde_json::from_str::<Value>(&text)
-                .map_err(|e| Error::InvalidInput(format!("{}: {e}", path.display())))?,
-            Ok(_) => Value::Object(Map::new()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Object(Map::new()),
-            Err(e) => return Err(e.into()),
-        };
-        let Value::Object(obj) = &mut doc else {
-            return Err(Error::InvalidInput(format!(
-                "{}: the top level is not an object",
-                path.display()
-            )));
-        };
-        let current = serde_json::to_value(self)
-            .map_err(|e| Error::InvalidInput(format!("settings: {e}")))?;
-        match diff(&defaults_value(), &current) {
+        let mut obj = read_user_config(config_dir)?;
+        match self.user_value()? {
             Some(changed) => {
                 obj.insert("settings".to_owned(), changed);
             }
@@ -63,17 +48,65 @@ impl Settings {
                 obj.remove("settings");
             }
         }
-        std::fs::create_dir_all(config_dir)?;
-        let mut text = serde_json::to_string_pretty(&doc)
-            .map_err(|e| Error::InvalidInput(format!("settings: {e}")))?;
-        text.push('\n');
-        // Write to a temporary file and rename, so a crash never leaves a
-        // half-written config behind.
-        let tmp = config_dir.join(".config.json.tmp");
-        std::fs::write(&tmp, text)?;
-        std::fs::rename(&tmp, &path)?;
-        Ok(())
+        write_user_config(config_dir, &obj)
     }
+
+    /// The settings that differ from the defaults, as saved under the
+    /// `settings` key (`None` when everything is default).
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if the settings can't be encoded (they can).
+    pub fn user_value(&self) -> Result<Option<Value>> {
+        let current = serde_json::to_value(self)
+            .map_err(|e| Error::InvalidInput(format!("settings: {e}")))?;
+        Ok(diff(&defaults_value(), &current))
+    }
+}
+
+/// The top-level object of `config.json` in `config_dir` (empty when the
+/// file is missing or blank).
+///
+/// # Errors
+/// I/O errors, [`Error::InvalidInput`] when the file isn't a JSON object.
+pub fn read_user_config(config_dir: &Path) -> Result<Map<String, Value>> {
+    let path = config_dir.join("config.json");
+    let doc = match std::fs::read_to_string(&path) {
+        Ok(text) if !text.trim().is_empty() => serde_json::from_str::<Value>(&text)
+            .map_err(|e| Error::InvalidInput(format!("{}: {e}", path.display())))?,
+        Ok(_) => Value::Object(Map::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Object(Map::new()),
+        Err(e) => return Err(e.into()),
+    };
+    match doc {
+        Value::Object(obj) => Ok(obj),
+        _ => Err(Error::InvalidInput(format!(
+            "{}: the top level is not an object",
+            path.display()
+        ))),
+    }
+}
+
+/// Writes `obj` as `config.json` in `config_dir` (created when missing),
+/// through a temporary file and a rename so a crash never leaves a
+/// half-written config behind.
+///
+/// # Errors
+/// I/O errors.
+pub fn write_user_config(config_dir: &Path, obj: &Map<String, Value>) -> Result<()> {
+    std::fs::create_dir_all(config_dir)?;
+    let mut text = serde_json::to_string_pretty(obj)
+        .map_err(|e| Error::InvalidInput(format!("settings: {e}")))?;
+    text.push('\n');
+    let tmp = config_dir.join(".config.json.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, config_dir.join("config.json"))?;
+    Ok(())
+}
+
+/// Deep-merges `over` into `base`: objects merge key by key, anything else
+/// in `over` replaces.
+pub fn merge_values(base: Value, over: &Value) -> Value {
+    merge(base, over)
 }
 
 fn defaults_value() -> Value {

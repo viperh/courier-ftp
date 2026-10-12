@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "error": {
+    "code": "rate_limited",
+    "message": "too many login attempts",
+    "retry_after_s": 5
+  }
+}

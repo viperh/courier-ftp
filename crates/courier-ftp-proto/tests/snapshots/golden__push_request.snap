@@ -1,0 +1,22 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "changes": [
+    {
+      "id": "01900000-0000-7000-8000-000000000020",
+      "base_revision": 0,
+      "key_version": 1,
+      "envelope": "AQID",
+      "deleted": false
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000000021",
+      "base_revision": 41,
+      "key_version": 1,
+      "envelope": "BAUG",
+      "deleted": true
+    }
+  ]
+}

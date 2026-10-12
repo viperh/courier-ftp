@@ -1,0 +1,13 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+[
+  {
+    "id": "01900000-0000-7000-8000-000000000006",
+    "name_enc": "7-_v7-_v",
+    "key_version": 2,
+    "permission": "manage",
+    "has_key": false
+  }
+]

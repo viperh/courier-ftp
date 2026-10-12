@@ -1,0 +1,6 @@
+---
+source: crates/courier-ftp/src/ui/tabs.rs
+assertion_line: 231
+expression: "render(&bar, 60, true)"
+---
+" [1 server01 ●] [2 server02 ●] [3 server03 ●] »             "

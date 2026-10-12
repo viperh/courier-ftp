@@ -257,9 +257,12 @@ fn forgot_password_without_recovery_explains_and_offers_a_new_vault() {
         "{text}"
     );
     insta::assert_snapshot!("vault_forgot_none_80x24", text);
-    // Restore: not there yet.
+    // Restore (T73): asks to move the database aside first.
     v.handle_key(key(KeyCode::Enter), now);
-    assert!(render(&v, 80, 24, now).contains("not available in this build yet"));
+    assert_eq!(v.page(), VaultPage::NewVault);
+    assert!(render(&v, 80, 24, now).contains("Restore from a backup?"));
+    v.handle_key(key(KeyCode::Esc), now);
+    assert_eq!(v.page(), VaultPage::Forgot);
     // New vault: asks first, defaults to Back.
     v.handle_key(key(KeyCode::Down), now);
     v.handle_key(key(KeyCode::Enter), now);
@@ -313,4 +316,101 @@ fn requests_never_debug_print_secrets() {
 fn wrap_breaks_on_words() {
     assert_eq!(wrap("aa bb cc", 5), vec!["aa bb", "cc"]);
     assert_eq!(wrap("", 5), vec![String::new()]);
+}
+
+#[cfg(feature = "sync")]
+#[test]
+fn forgot_password_with_a_sync_account_resets_with_the_recovery_key() {
+    let now = Instant::now();
+    let mut v = unlock_view(
+        VaultFacts {
+            sync_account: true,
+            ..VaultFacts::default()
+        },
+        now,
+    );
+    v.set_recovery_defaults(
+        Some("https://sync.example.test".to_owned()),
+        Some("alice@example.test".to_owned()),
+    );
+    v.handle_key(alt('f'), now);
+    assert_eq!(v.page(), VaultPage::Forgot);
+    let text = render(&v, 80, 24, now);
+    assert!(text.contains("recovery key (24 words)"), "{text}");
+    // Without the words, the last resort is still there.
+    assert!(text.contains("new empty vault"), "{text}");
+    insta::assert_snapshot!("vault_forgot_sync_80x24", text);
+
+    v.handle_key(key(KeyCode::Enter), now);
+    assert_eq!(v.page(), VaultPage::Recover);
+    let text = render(&v, 80, 24, now);
+    assert!(text.contains("https://sync.example.test"), "{text}");
+    assert!(text.contains("alice@example.test"), "{text}");
+    insta::assert_snapshot!("vault_recover_80x24", text);
+
+    // Send code: only the account is needed.
+    let Some(VaultRequest::SendRecoveryCode { server, email }) = v.handle_key(alt('s'), now) else {
+        panic!("send code expected");
+    };
+    assert_eq!(
+        (server.as_str(), email.as_str()),
+        ("https://sync.example.test", "alice@example.test")
+    );
+    v.set_busy(None);
+
+    // Reset: everything is checked first.
+    assert!(v.handle_key(alt('r'), now).is_none());
+    assert!(
+        render(&v, 80, 24, now).contains("Enter the recovery code"),
+        "{}",
+        render(&v, 80, 24, now)
+    );
+    v.handle_key(key(KeyCode::Tab), now);
+    v.handle_key(key(KeyCode::Tab), now);
+    typed(&mut v, "ABCD-1234", now);
+    v.handle_key(key(KeyCode::Tab), now);
+    typed(&mut v, "one two three", now);
+    assert!(v.handle_key(alt('r'), now).is_none());
+    assert!(render(&v, 80, 24, now).contains("24 words; 3 entered"));
+    // The words shown in clear are a secret all the same.
+    v.handle_paste(&" w".repeat(21));
+    v.handle_key(key(KeyCode::Tab), now);
+    typed(&mut v, STRONG, now);
+    v.handle_key(key(KeyCode::Tab), now);
+    typed(&mut v, STRONG, now);
+    let Some(VaultRequest::Recover {
+        code,
+        words,
+        password,
+        ..
+    }) = v.handle_key(key(KeyCode::Enter), now)
+    else {
+        panic!("recover expected");
+    };
+    assert_eq!(code.expose_secret(), "ABCD-1234");
+    assert_eq!(words.expose_secret().split_whitespace().count(), 24);
+    assert_eq!(password.expose_secret(), STRONG);
+    assert!(render(&v, 80, 24, now).contains("Resetting the password"));
+    // A failure comes back on the same page.
+    v.set_error(Some("Invalid recovery key".to_owned()));
+    assert_eq!(v.page(), VaultPage::Recover);
+    v.handle_key(key(KeyCode::Esc), now);
+    assert_eq!(v.page(), VaultPage::Forgot);
+}
+
+#[cfg(not(feature = "sync"))]
+#[test]
+fn forgot_password_with_a_sync_account_in_a_build_without_sync() {
+    let now = Instant::now();
+    let mut v = unlock_view(
+        VaultFacts {
+            sync_account: true,
+            ..VaultFacts::default()
+        },
+        now,
+    );
+    v.handle_key(alt('f'), now);
+    let text = render(&v, 80, 24, now);
+    assert!(text.contains("has no sync support"), "{text}");
+    assert!(!text.contains("recovery key (24 words)"), "{text}");
 }

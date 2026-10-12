@@ -1,0 +1,28 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "vault_id": "01900000-0000-7000-8000-000000000006",
+  "org_id": "01900000-0000-7000-8000-000000000007",
+  "key_version": 2,
+  "created_by": "01900000-0000-7000-8000-000000000001",
+  "members": [
+    {
+      "user_id": "01900000-0000-7000-8000-000000000001",
+      "email": "ada@example.test",
+      "org_role": "owner",
+      "permission": "manage",
+      "has_key": true,
+      "granted_by": "01900000-0000-7000-8000-000000000001"
+    },
+    {
+      "user_id": "01900000-0000-7000-8000-000000000008",
+      "email": null,
+      "org_role": "member",
+      "permission": null,
+      "has_key": false,
+      "granted_by": null
+    }
+  ]
+}

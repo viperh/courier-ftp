@@ -87,9 +87,21 @@ impl TestHome {
         Ok(())
     }
 
-    /// The log file the binary wrote, if any.
+    /// The application log the binary wrote, if any: the newest daily file
+    /// `courier-ftp.<YYYY-MM-DD>.log` (T71).
     pub fn log(&self) -> Option<String> {
-        std::fs::read_to_string(self.data_dir().join("courier-ftp.log")).ok()
+        let mut files: Vec<_> = std::fs::read_dir(self.data_dir())
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("courier-ftp.") && n.ends_with(".log"))
+            })
+            .collect();
+        files.sort();
+        std::fs::read_to_string(files.last()?).ok()
     }
 
     /// Keep the directory after the test (for debugging).

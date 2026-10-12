@@ -95,46 +95,8 @@ impl SortOrder {
     }
 }
 
-/// Compare with runs of digits as numbers: `file2` < `file10`.
-pub(crate) fn natural_cmp(a: &str, b: &str) -> Ordering {
-    let mut a = a.chars().peekable();
-    let mut b = b.chars().peekable();
-    loop {
-        match (a.peek(), b.peek()) {
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let take = |it: &mut std::iter::Peekable<std::str::Chars>| {
-                    let mut s = String::new();
-                    while let Some(c) = it.peek().filter(|c| c.is_ascii_digit()) {
-                        s.push(*c);
-                        it.next();
-                    }
-                    s
-                };
-                let (na, nb) = (take(&mut a), take(&mut b));
-                let (ta, tb) = (na.trim_start_matches('0'), nb.trim_start_matches('0'));
-                let ord = ta
-                    .len()
-                    .cmp(&tb.len())
-                    .then_with(|| ta.cmp(tb))
-                    .then_with(|| na.len().cmp(&nb.len()));
-                if ord != Ordering::Equal {
-                    return ord;
-                }
-            }
-            (Some(x), Some(y)) => {
-                let ord = x.cmp(y);
-                if ord != Ordering::Equal {
-                    return ord;
-                }
-                a.next();
-                b.next();
-            }
-        }
-    }
-}
+/// Natural name order (`file2` < `file10`), shared with directory comparison (T48).
+pub(crate) use courier_ftp_core::compare::natural_cmp;
 
 #[cfg(test)]
 mod tests {

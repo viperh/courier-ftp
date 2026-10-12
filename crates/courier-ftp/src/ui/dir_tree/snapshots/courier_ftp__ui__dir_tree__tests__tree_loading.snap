@@ -1,0 +1,15 @@
+---
+source: crates/courier-ftp/src/ui/dir_tree/tests.rs
+assertion_line: 73
+expression: "render(&mut t, true).backend()"
+---
+"┌ Remote tree ⠋ ───────────────┐"
+"│▾ /                           │"
+"│├─▸ home                      │"
+"│└─? srv                       │"
+"│                              │"
+"│                              │"
+"│                              │"
+"│                              │"
+"│                              │"
+"└──────────────────────────────┘"

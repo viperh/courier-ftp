@@ -29,6 +29,31 @@ pub mod keys {
     /// Random id of this database (UUID text), so several data directories use
     /// distinct OS-keyring accounts.
     pub const DB_ID: &str = "db_id";
+    /// The device data key (T40) wrapped under the LMK (`WrapPurpose::Device`),
+    /// sealing the `device_blobs`. Created on first use; never synced.
+    pub const DEVICE_KEY_WRAPPED: &str = "device_key_wrapped";
+    /// The sync account this device is signed in to (T87): JSON
+    /// `{user_id, email, key_version}`, not secret. Its presence makes
+    /// `VaultStatus::sync_account` true.
+    pub const ACCOUNT: &str = "account";
+    /// The account's X25519/Ed25519 keys sealed under a key derived from the
+    /// LMK (T87), so an unlocked device can open vault grants without the
+    /// password.
+    pub const ACCOUNT_KEYS: &str = "account_keys_enc";
+    /// UNIX ms of the last sync cycle that finished without an error (T88),
+    /// as decimal text.
+    pub const SYNC_LAST_OK: &str = "sync_last_ok";
+    /// Prefix of the per-vault read-only marks (T89):
+    /// `vault_read_only/<vault uuid>` = `1` while this account has only
+    /// `read` on that team vault. Written by the sync engine from the vault
+    /// list, read by the vault engine on unlock (so the 🔒 shows offline).
+    pub const VAULT_READ_ONLY_PREFIX: &str = "vault_read_only/";
+
+    /// The read-only mark key of `vault`.
+    #[must_use]
+    pub fn vault_read_only(vault: courier_ftp_core::model::item::VaultId) -> String {
+        format!("{VAULT_READ_ONLY_PREFIX}{}", vault.uuid())
+    }
 }
 
 impl ReadTx<'_> {

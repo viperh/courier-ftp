@@ -1,0 +1,6 @@
+---
+source: crates/courier-ftp/src/ui/tabs.rs
+assertion_line: 221
+expression: "render(&states(), 80, false)"
+---
+" [1 web01 *] [2 backup -] [3 alice@files.example.com~ ~] [4 staging !]          "
