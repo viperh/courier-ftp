@@ -69,3 +69,25 @@ async fn wrong_password_is_refused() {
     let err = b.connect(CancellationToken::new()).await.unwrap_err();
     assert!(err.to_string().to_lowercase().contains("login"), "{err}");
 }
+
+/// An SFTP server reached with FTP (a port other than 22 without
+/// `sftp://`): the error says what happened instead of "malformed reply".
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ssh_server_reached_with_ftp_says_to_use_sftp() {
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        sock.write_all(b"SSH-2.0-Go\r\n").await.unwrap();
+        // Keep the socket open like an SSH server waiting for the client.
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    });
+    let mut b = backend(port, PASSWORD);
+    let err = b.connect(CancellationToken::new()).await.unwrap_err();
+    let text = err.to_string();
+    assert!(
+        text.contains("SSH server") && text.contains("sftp://"),
+        "{text}"
+    );
+}

@@ -139,6 +139,13 @@ pub enum ReplyError {
     /// a space, a dash or the end of the line.
     #[error("malformed reply line: {0:?}")]
     Malformed(String),
+    /// The server greeted with an SSH banner (`SSH-2.0-…`): it is an SSH
+    /// (SFTP) server, reached with FTP.
+    #[error(
+        "this is an SSH server ({0:?}), not FTP: connect with sftp://host:port \
+         or choose SFTP as the protocol"
+    )]
+    SshServer(String),
 }
 
 impl From<ReplyError> for Error {
@@ -274,6 +281,9 @@ impl ReplyParser {
         }
         let Some((code, sep)) = parse_code(line) else {
             let shown = charset.decode(line.get(..80).unwrap_or(line)).into_owned();
+            if line.starts_with(b"SSH-") {
+                return Err(ReplyError::SshServer(shown));
+            }
             return Err(ReplyError::Malformed(shown));
         };
         let text = charset.decode(line).into_owned();
@@ -480,6 +490,17 @@ mod tests {
             }
         ));
         assert_eq!(r(215).first_line_text(), "x");
+    }
+
+    #[test]
+    fn an_ssh_banner_says_this_is_an_ssh_server() {
+        let err = parse_all(b"SSH-2.0-Go\r\n").unwrap_err();
+        assert_eq!(err, ReplyError::SshServer("SSH-2.0-Go".to_owned()));
+        let text = Error::from(err).to_string();
+        assert!(
+            text.contains("SSH server") && text.contains("sftp://"),
+            "{text}"
+        );
     }
 
     #[test]

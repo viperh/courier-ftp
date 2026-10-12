@@ -308,7 +308,11 @@ impl PtyApp {
     /// # Errors
     /// Not within the timeout (or the app exited first); the error shows the
     /// screen.
-    pub fn wait_for_screen(&mut self, what: &str, pred: impl Fn(&Screen) -> bool) -> Result<Screen> {
+    pub fn wait_for_screen(
+        &mut self,
+        what: &str,
+        pred: impl Fn(&Screen) -> bool,
+    ) -> Result<Screen> {
         let started = Instant::now();
         loop {
             self.pump(Duration::from_millis(25));
@@ -451,7 +455,10 @@ impl Drop for PtyApp {
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
-    haystack.windows(needle.len()).filter(|w| *w == needle).count()
+    haystack
+        .windows(needle.len())
+        .filter(|w| *w == needle)
+        .count()
 }
 
 /// The bytes a terminal sends for one chord: a key name (`enter`, `esc`,
