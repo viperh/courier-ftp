@@ -1,10 +1,9 @@
 ---
 source: crates/courier-ftp/src/ui/tests.rs
-assertion_line: 86
 expression: terminal.backend()
 ---
 "┌ Quickconnect ────────────────────────────────────────────────────────────────┐"
-"│Host: host or URL      User: ________ Pass: _______ Port: ______ [Connect] [▾]│"
+"│Host: host or URL  User: _____ Pass: ____ Port: ______ Dir: ____ [Connect] [▾]│"
 "└──────────────────────────────────────────────────────────────────────────────┘"
 " [1 local ○]                                                                    "
 "┌ Message log ─────────────────────────────────────────────────────────────────┐"

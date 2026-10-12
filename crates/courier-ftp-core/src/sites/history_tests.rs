@@ -571,3 +571,27 @@ async fn deleting_a_site_deletes_its_bookmarks() {
     assert!(b.for_site(site).is_empty());
     assert_eq!(b.global().len(), 1);
 }
+
+#[tokio::test]
+async fn history_keeps_the_start_directory_and_save_as_site_uses_it() {
+    let f = Fixture::new();
+    let h = f.history();
+    let info = login(Protocol::Sftp, "dir.example.com", 22, "u", Some("pw"));
+    let dir = RemotePath::new("/var/www");
+    let entry = h.record_in(&info, Some(&dir)).await.unwrap();
+    assert_eq!(entry.remote_dir, Some(dir.clone()));
+    // Read back from the vault.
+    let listed = h.list().await.unwrap();
+    assert_eq!(listed[0].remote_dir, Some(dir.clone()));
+    // The latest login's directory wins; no directory clears it.
+    let other = RemotePath::new("/srv");
+    let entry = h.record_in(&info, Some(&other)).await.unwrap();
+    assert_eq!(entry.remote_dir, Some(other));
+    assert_eq!(h.list().await.unwrap().len(), 1);
+    let entry = h.record(&info).await.unwrap();
+    assert_eq!(entry.remote_dir, None);
+    // "Save as site" keeps it as the site's default remote directory.
+    let mut entry = HistoryEntry::from_connect_info(&info);
+    entry.remote_dir = Some(dir.clone());
+    assert_eq!(entry.to_site().default_remote_dir, Some(dir));
+}

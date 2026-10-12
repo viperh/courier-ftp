@@ -138,6 +138,9 @@ struct Remote {
     record: Option<ConnectInfo>,
     /// The Site Manager entry connected to (`None`: quickconnect).
     site: Option<ItemId>,
+    /// The remote directory the connection was asked to start in (kept in
+    /// the history and by "Save as site").
+    start_dir: Option<courier_ftp_core::model::RemotePath>,
     /// What the backend supports, once connected.
     capabilities: Option<courier_ftp_core::backend::Capabilities>,
 }
@@ -890,6 +893,7 @@ impl App {
             // Sites are not quickconnect history.
             record: request.site.is_none().then(|| request.info.clone()),
             site: request.site,
+            start_dir: request.path.clone(),
             capabilities: None,
         });
         self.last_connect = Some(request.without_password());
@@ -948,11 +952,12 @@ impl App {
                 );
                 self.diag.listing_shown(Side::Remote, &connected.listing);
                 let record = remote.record.take();
+                let start_dir = remote.start_dir.clone();
                 let site = remote.site;
                 self.screen.remote_connected(connected);
                 self.screen.connected_view(sync, compare, case_sensitive);
                 if let Some(info) = record {
-                    self.record_history(info);
+                    self.record_history(info, start_dir);
                 }
                 if let Some(id) = site {
                     let slot = Arc::clone(&self.sites);
@@ -995,13 +1000,17 @@ impl App {
 
     /// Add a successful quickconnect login to the history (vault unlocked
     /// only), then reload the dropdown.
-    fn record_history(&mut self, info: ConnectInfo) {
+    fn record_history(
+        &mut self,
+        info: ConnectInfo,
+        start_dir: Option<courier_ftp_core::model::RemotePath>,
+    ) {
         let Some(history) = self.history.clone() else {
             return;
         };
         let tx = self.action_tx.clone();
         tokio::spawn(async move {
-            if let Err(e) = history.record(&info).await {
+            if let Err(e) = history.record_in(&info, start_dir.as_ref()).await {
                 debug!(error = %e, "quickconnect history not saved");
             }
             load_history(&history, &tx).await;
@@ -1427,7 +1436,9 @@ impl App {
             self.screen.flash("This connection is already a saved site");
             return;
         }
-        let site = HistoryEntry::from_connect_info(&remote.info).to_site();
+        let mut entry = HistoryEntry::from_connect_info(&remote.info);
+        entry.remote_dir.clone_from(&remote.start_dir);
+        let site = entry.to_site();
         self.open_site_manager(Some(site));
     }
 

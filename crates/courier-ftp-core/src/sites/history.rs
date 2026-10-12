@@ -21,7 +21,7 @@ use secrecy::SecretString;
 
 use crate::backend::ConnectInfo;
 use crate::model::item::{self, ItemId, LogonKind, UnixMillis, VaultId};
-use crate::model::{LogonType, Protocol, ServerAddress};
+use crate::model::{LogonType, Protocol, RemotePath, ServerAddress};
 use crate::vault::{ItemVault, ItemVaultExt, VaultError};
 
 use super::{Site, SiteError, SiteLocal, SiteLocalStore, SiteLogon, SiteTree};
@@ -54,6 +54,9 @@ pub struct HistoryEntry {
     pub user: String,
     /// The password (Normal only, and only with `vault.store_passwords`).
     pub password: Option<SecretString>,
+    /// The remote directory the connection started in (`None`: the
+    /// server's home).
+    pub remote_dir: Option<RemotePath>,
     /// Last use.
     pub used_at: UnixMillis,
 }
@@ -69,6 +72,7 @@ impl PartialEq for HistoryEntry {
             && self.logon == other.logon
             && self.user == other.user
             && self.password.is_some() == other.password.is_some()
+            && self.remote_dir == other.remote_dir
             && self.used_at == other.used_at
     }
 }
@@ -99,6 +103,7 @@ impl HistoryEntry {
             logon,
             user,
             password,
+            remote_dir: None,
             used_at: UnixMillis::now(),
         }
     }
@@ -117,6 +122,11 @@ impl HistoryEntry {
                 .password
                 .clone()
                 .filter(|_| view.logon == LogonKind::Normal),
+            remote_dir: view
+                .remote_dir
+                .as_deref()
+                .filter(|d| !d.trim().is_empty())
+                .map(RemotePath::new),
             used_at: view.used_at.unwrap_or_default(),
         }
     }
@@ -131,6 +141,7 @@ impl HistoryEntry {
             .password
             .clone()
             .filter(|_| self.logon == LogonKind::Normal);
+        v.remote_dir = self.remote_dir.as_ref().map(|d| d.as_str().to_owned());
         v.used_at = Some(self.used_at);
         v
     }
@@ -197,6 +208,7 @@ impl HistoryEntry {
             LogonKind::Agent if self.protocol == Protocol::Sftp => SiteLogon::Agent { user },
             _ => SiteLogon::AskForPassword { user },
         };
+        site.default_remote_dir.clone_from(&self.remote_dir);
         site
     }
 }
@@ -259,10 +271,25 @@ impl History {
     /// [`SiteError::Vault`] ([`VaultError::Locked`] while locked: nothing is
     /// saved), [`SiteError::Local`].
     pub async fn record(&self, info: &ConnectInfo) -> Result<HistoryEntry, SiteError> {
+        self.record_in(info, None).await
+    }
+
+    /// Like [`record`](Self::record), also keeping the directory the
+    /// connection started in (`remote_dir`), so the history connects there
+    /// again.
+    ///
+    /// # Errors
+    /// As [`record`](Self::record).
+    pub async fn record_in(
+        &self,
+        info: &ConnectInfo,
+        remote_dir: Option<&RemotePath>,
+    ) -> Result<HistoryEntry, SiteError> {
         if !self.vault.is_unlocked().await {
             return Err(SiteError::Vault(VaultError::Locked));
         }
         let mut entry = HistoryEntry::from_connect_info(info);
+        entry.remote_dir = remote_dir.cloned();
         let (keep, _) = self.split().await?;
         if let Some(existing) = keep.iter().find(|e| e.key() == entry.key()) {
             entry.id = existing.id;

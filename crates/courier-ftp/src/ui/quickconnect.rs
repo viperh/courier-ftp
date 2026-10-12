@@ -3,7 +3,8 @@
 //!
 //! The host field also takes URLs (`sftp://alice@host:2222/var/www`): when
 //! focus leaves it, or on connect, the user, password and port move into
-//! their fields and the host field keeps the scheme, host and path. Without
+//! their fields and the host field keeps the scheme and host; the path goes
+//! into the optional Dir field, the directory to start in. Without
 //! a scheme the port picks the protocol the way FileZilla's quickconnect
 //! does: 22 is SFTP, 990 implicit FTPS, anything else FTP with explicit TLS
 //! if available.
@@ -17,7 +18,7 @@ use std::str::FromStr;
 
 use courier_ftp_core::{
     backend::ConnectInfo,
-    model::{LogonType, Protocol, ServerAddress, ServerUrl, item::ItemId},
+    model::{LogonType, Protocol, RemotePath, ServerAddress, ServerUrl, item::ItemId},
     sites::HistoryEntry,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -43,15 +44,18 @@ pub(crate) enum Part {
     User,
     Pass,
     Port,
+    /// The directory to start in (optional).
+    Dir,
     Connect,
     History,
 }
 
-const PARTS: [Part; 6] = [
+const PARTS: [Part; 7] = [
     Part::Host,
     Part::User,
     Part::Pass,
     Part::Port,
+    Part::Dir,
     Part::Connect,
     Part::History,
 ];
@@ -79,12 +83,15 @@ impl HistoryItem {
         if a.port != a.default_port() {
             label.push_str(&format!(":{}", a.port));
         }
+        if let Some(dir) = &entry.remote_dir {
+            label.push_str(dir.as_str());
+        }
         Self {
             id: entry.id,
             label,
             request: ConnectRequest {
                 info: entry.to_connect_info(),
-                path: None,
+                path: entry.remote_dir.clone(),
                 sync_browsing: false,
                 compare: false,
                 site: None,
@@ -113,6 +120,8 @@ pub(crate) struct Quickconnect {
     user: TextInput,
     pass: TextInput,
     port: TextInput,
+    /// The remote directory to start in; empty: the server's home.
+    dir: TextInput,
     focus: Part,
     /// The history (T33); `None` while the vault is locked.
     history: Option<Vec<HistoryItem>>,
@@ -133,6 +142,7 @@ impl Quickconnect {
             user: TextInput::new("User"),
             pass: TextInput::password("Pass"),
             port: TextInput::new("Port").with_max_len(5),
+            dir: TextInput::new("Dir"),
             focus: Part::Host,
             history: None,
             unicode: true,
@@ -176,6 +186,7 @@ impl Quickconnect {
             Part::User => Some(&mut self.user),
             Part::Pass => Some(&mut self.pass),
             Part::Port => Some(&mut self.port),
+            Part::Dir => Some(&mut self.dir),
             Part::Connect | Part::History => None,
         }
     }
@@ -244,11 +255,10 @@ impl Quickconnect {
     /// field is filled only when the request has one.
     pub(crate) fn fill(&mut self, request: &ConnectRequest) {
         let a = &request.info.address;
-        let mut host = format!("{}://{}", a.protocol.scheme(), bracket(&a.host));
-        if let Some(path) = &request.path {
-            host.push_str(path.as_str());
-        }
+        let host = format!("{}://{}", a.protocol.scheme(), bracket(&a.host));
         self.host.set_value(&host);
+        self.dir
+            .set_value(request.path.as_ref().map_or("", |p| p.as_str()));
         self.user.set_value(request.info.logon.user());
         self.pass.set_value(
             request
@@ -260,9 +270,10 @@ impl Quickconnect {
         self.port.set_value(&a.port.to_string());
     }
 
-    /// Move the user, password and port of a URL in the host field into
-    /// their fields. The host field keeps the scheme (if typed), host and
-    /// path. Text that doesn't parse is left alone; connecting reports it.
+    /// Move the user, password, port and path of a URL in the host field
+    /// into their fields (the path into Dir). The host field keeps the
+    /// scheme (if typed) and host. Text that doesn't parse is left alone;
+    /// connecting reports it.
     pub(crate) fn split_url(&mut self) {
         let text = self.host.text();
         let text = text.trim();
@@ -288,7 +299,7 @@ impl Quickconnect {
         }
         host.push_str(&bracket(&url.address.host));
         if let Some(path) = &url.path {
-            host.push_str(path.as_str());
+            self.dir.set_value(path.as_str());
         }
         self.host.set_value(&host);
     }
@@ -329,7 +340,11 @@ impl Quickconnect {
         };
         Ok(ConnectRequest {
             info: ConnectInfo::new(address, logon),
-            path: url.path,
+            // `split_url` moved a URL's path into the Dir field.
+            path: match self.dir.text().trim() {
+                "" => url.path,
+                dir => Some(RemotePath::new(dir)),
+            },
             sync_browsing: false,
             compare: false,
             site: None,
@@ -359,13 +374,16 @@ impl Quickconnect {
             port_l,
             port,
             _,
+            dir_l,
+            dir,
+            _,
             button,
             history,
         ] = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(6),
-                Constraint::Fill(9),
+                Constraint::Fill(12),
                 Constraint::Length(1),
                 Constraint::Length(6),
                 Constraint::Fill(5),
@@ -376,6 +394,9 @@ impl Quickconnect {
                 Constraint::Length(6),
                 Constraint::Length(6),
                 Constraint::Length(1),
+                Constraint::Length(5),
+                Constraint::Fill(4),
+                Constraint::Length(1),
                 Constraint::Length(9),
                 Constraint::Length(4),
             ])
@@ -385,6 +406,7 @@ impl Quickconnect {
             (Part::User, user_l, user, &self.user),
             (Part::Pass, pass_l, pass, &self.pass),
             (Part::Port, port_l, port, &self.port),
+            (Part::Dir, dir_l, dir, &self.dir),
         ];
         for (part, label_area, field_area, field) in parts {
             frame.render_widget(
@@ -496,7 +518,7 @@ fn has_explicit_port(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use courier_ftp_core::model::RemotePath;
+
     use pretty_assertions::assert_eq;
     use ratatui::{Terminal, backend::TestBackend};
 
@@ -511,11 +533,12 @@ mod tests {
     /// The fields as text, the password masked.
     fn state(q: &Quickconnect) -> String {
         format!(
-            "host={:?} user={:?} pass={} port={:?}",
+            "host={:?} user={:?} pass={} port={:?} dir={:?}",
             q.host.text(),
             q.user.text(),
             "•".repeat(q.pass.text().chars().count()),
-            q.port.text()
+            q.port.text(),
+            q.dir.text()
         )
     }
 
@@ -605,6 +628,33 @@ mod tests {
     }
 
     #[test]
+    fn the_dir_field_is_the_start_directory() {
+        // Typed into Dir.
+        let mut q = typed("sftp://alice@host");
+        tab(&mut q);
+        for _ in 0..3 {
+            tab(&mut q);
+        }
+        assert_eq!(q.focus(), Part::Dir);
+        q.handle_paste("/var/www");
+        let r = q.request().unwrap();
+        assert_eq!(r.path, Some(RemotePath::new("/var/www")));
+        // A URL's path lands in Dir, and Dir wins over it when both are set.
+        let mut q = typed("sftp://alice@host/srv/a");
+        q.split_url();
+        assert_eq!(q.dir.text(), "/srv/a");
+        q.dir.set_value("/srv/b");
+        assert_eq!(q.request().unwrap().path, Some(RemotePath::new("/srv/b")));
+        // Empty Dir: the server's home.
+        assert_eq!(typed("sftp://alice@host").request().unwrap().path, None);
+        // The history fills it back in.
+        let mut q = Quickconnect::new();
+        q.fill(&r);
+        assert_eq!(q.dir.text(), "/var/www");
+        assert_eq!(q.host.text(), "sftp://host");
+    }
+
+    #[test]
     fn keys_move_between_fields_and_enter_submits() {
         let mut q = Quickconnect::new();
         assert_eq!(q.focus(), Part::Host);
@@ -612,6 +662,7 @@ mod tests {
             Part::User,
             Part::Pass,
             Part::Port,
+            Part::Dir,
             Part::Connect,
             Part::History,
             Part::Host,
@@ -668,7 +719,7 @@ mod tests {
         q.fill(&stripped);
         assert_eq!(
             state(&q),
-            r#"host="sftp://host" user="alice" pass= port="22""#
+            r#"host="sftp://host" user="alice" pass= port="22" dir="""#
         );
     }
 

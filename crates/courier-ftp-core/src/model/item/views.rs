@@ -21,7 +21,7 @@
 //! | `ssh-key` | `label`, `algorithm`, `public_key`, `private_key`, `passphrase` |
 //! | `proxy-credential` | `label`, `user`, `password` |
 //! | `credential-override` | `shared_site_id`, `user`, `password`, `key_id`, `passphrase` |
-//! | `history-entry` | `protocol`, `host`, `port`, `logon.type`, `logon.user`, `logon.password`, `used_at` |
+//! | `history-entry` | `protocol`, `host`, `port`, `logon.type`, `logon.user`, `logon.password`, `remote_dir`, `used_at` |
 //!
 //! Ids are 16-byte CBOR byte strings, times are [`UnixMillis`] integers, enums are
 //! the wire strings below, secrets (`password`, `private_key`, `passphrase`) are
@@ -758,6 +758,8 @@ pub struct HistoryEntry {
     pub user: String,
     /// `logon.password` (only when `vault.store_passwords` is on).
     pub password: Option<SecretString>,
+    /// `remote_dir`: the directory the connection started in.
+    pub remote_dir: Option<String>,
     /// `used_at`
     pub used_at: Option<UnixMillis>,
     /// The body's schema is newer than this build.
@@ -774,6 +776,7 @@ impl HistoryEntry {
             logon: LogonKind::default(),
             user: String::new(),
             password: None,
+            remote_dir: None,
             used_at: None,
             read_only: false,
         }
@@ -793,6 +796,7 @@ impl ItemView for HistoryEntry {
             logon: r.enum_or_default("logon.type")?,
             user: r.str("logon.user")?,
             password: r.opt_secret("logon.password")?,
+            remote_dir: r.opt_str("remote_dir")?,
             used_at: read_time(&r, "used_at")?,
             read_only,
         })
@@ -806,6 +810,7 @@ impl ItemView for HistoryEntry {
         w.always("logon.type", self.logon.as_wire());
         w.text("logon.user", &self.user);
         w.opt_secret("logon.password", self.password.as_ref());
+        w.opt("remote_dir", self.remote_dir.clone());
         w.opt("used_at", self.used_at);
     }
 }
