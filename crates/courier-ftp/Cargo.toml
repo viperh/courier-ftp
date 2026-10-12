@@ -25,6 +25,7 @@ sync = [
 ]
 
 [dependencies]
+unicode-width = { workspace = true }
 courier-ftp-core = { workspace = true }
 courier-ftp-crypto = { workspace = true }
 courier-ftp-proto-ftp = { workspace = true }

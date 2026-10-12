@@ -572,16 +572,7 @@ impl Results {
     }
 }
 
-/// `text` cut to `width` columns (with `…`) and padded.
+/// `text` cut to `width` columns (with `…`) and padded; made safe to draw.
 fn fit(text: &str, width: usize) -> String {
-    let n = text.chars().count();
-    if n <= width {
-        return format!("{text:<width$}");
-    }
-    if width == 0 {
-        return String::new();
-    }
-    let mut s: String = text.chars().take(width - 1).collect();
-    s.push('…');
-    s
+    crate::ui::safe_text::fit_right(text, width, '…')
 }

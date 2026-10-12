@@ -209,30 +209,14 @@ const EXISTS_CHOICES: [ExistsAction; 8] = [
 ];
 
 /// `s` fitted into `width` columns: cut from the left (paths keep their
-/// file name) with an ellipsis, padded on the right.
+/// file name) with an ellipsis, padded on the right; made safe to draw.
 fn fit_left(s: &str, width: usize, unicode: bool) -> String {
-    let n = s.chars().count();
-    if n <= width {
-        return format!("{s:<width$}");
-    }
-    if width == 0 {
-        return String::new();
-    }
-    let keep: String = s.chars().skip(n - (width - 1)).collect();
-    format!("{}{keep}", if unicode { '…' } else { '<' })
+    super::safe_text::fit_left(s, width, if unicode { '…' } else { '<' })
 }
 
-/// `s` fitted into `width` columns, cut on the right.
+/// `s` fitted into `width` columns, cut on the right; made safe to draw.
 fn fit_right(s: &str, width: usize, unicode: bool) -> String {
-    let n = s.chars().count();
-    if n <= width {
-        return format!("{s:<width$}");
-    }
-    if width == 0 {
-        return String::new();
-    }
-    let keep: String = s.chars().take(width - 1).collect();
-    format!("{keep}{}", if unicode { '…' } else { '>' })
+    super::safe_text::fit_right(s, width, if unicode { '…' } else { '>' })
 }
 
 /// A column: its title and fixed width, or `None` to share what is left.

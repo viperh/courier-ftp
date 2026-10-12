@@ -619,21 +619,20 @@ impl DirTree {
                 }
                 let marker = self.marker(&row.path);
                 let lead = format!("{}{marker} ", row.guides);
-                let room = width.saturating_sub(lead.chars().count());
-                let label: String = if row.label.chars().count() > room {
-                    let mut s: String = row.label.chars().take(room.saturating_sub(1)).collect();
-                    s.push('…');
-                    s
-                } else {
-                    row.label.clone()
-                };
+                let room = width.saturating_sub(super::safe_text::width(&lead));
+                let label = super::safe_text::fit_right(&row.label, room, '…')
+                    .trim_end()
+                    .to_owned();
                 let mut spans = vec![
                     Span::styled(row.guides.clone(), theme.dim),
                     Span::raw(format!("{marker} ")),
                     Span::styled(label, name_style),
                 ];
                 if i == self.cursor {
-                    let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+                    let used: usize = spans
+                        .iter()
+                        .map(|s| super::safe_text::width(&s.content))
+                        .sum();
                     spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
                     for s in &mut spans {
                         s.style = s.style.patch(cursor_style);

@@ -6,6 +6,8 @@ use courier_ftp_core::{
 };
 use time::UtcOffset;
 
+pub(crate) use crate::ui::safe_text::{display_name, take_width, width};
+
 /// A byte count per the `size_format` setting.
 pub(crate) fn size(bytes: u64, format: SizeFormat, separators: bool) -> String {
     match format {
@@ -182,6 +184,16 @@ mod tests {
         );
         let east = UtcOffset::from_hms(2, 0, 0).unwrap();
         assert_eq!(date(&t, "%Y-%m-%d", "%H:%M", east), "2021-01-05 14:30");
+    }
+
+    #[test]
+    fn hostile_names_are_drawn_safely() {
+        assert_eq!(display_name("a\u{1b}[31mb\u{7}"), "a?[31mb?");
+        assert_eq!(display_name("photo\u{202e}gpj.exe"), "photo?gpj.exe");
+        assert_eq!(display_name("日本.txt"), "日本.txt");
+        assert_eq!(width("日本.txt"), 8);
+        assert_eq!(take_width("日本.txt", 3), "日");
+        assert_eq!(take_width("abc", 5), "abc");
     }
 
     #[test]

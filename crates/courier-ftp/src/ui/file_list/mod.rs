@@ -1211,27 +1211,28 @@ impl FileList {
         if at_cursor {
             base = base.patch(cursor_style);
         }
-        let mut name = entry.name.clone();
+        let mut name = format::display_name(&entry.name);
         if entry.is_dir_like() {
             name.push('/');
         }
         let link = match &entry.kind {
             EntryKind::Symlink {
                 target: Some(t), ..
-            } => format!(" → {t}"),
+            } => format!(" → {}", format::display_name(t)),
             _ => String::new(),
         };
         let marker = if selected { "* " } else { "  " };
         let mut spans = vec![Span::styled(marker.to_owned(), base)];
-        let name_len = name.chars().count();
+        let name_len = format::width(&name);
         if name_len >= name_width {
-            let cut: String = name.chars().take(name_width.saturating_sub(1)).collect();
-            spans.push(Span::styled(format!("{cut}…"), base));
+            let cut = format::take_width(&name, name_width.saturating_sub(1));
+            let pad = name_width.saturating_sub(1 + format::width(&cut));
+            spans.push(Span::styled(format!("{cut}…{}", " ".repeat(pad)), base));
         } else {
             spans.push(Span::styled(name, base));
             let room = name_width - name_len;
-            let link: String = link.chars().take(room).collect();
-            let pad = room - link.chars().count();
+            let link = format::take_width(&link, room);
+            let pad = room - format::width(&link);
             spans.push(Span::styled(link, base.patch(theme.dim)));
             spans.push(Span::styled(" ".repeat(pad), base));
         }

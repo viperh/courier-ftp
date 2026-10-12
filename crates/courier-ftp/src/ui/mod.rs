@@ -17,6 +17,7 @@ mod modal;
 mod panes;
 mod queue;
 mod quickconnect;
+mod safe_text;
 mod screen;
 pub(crate) mod search;
 pub(crate) mod settings;
