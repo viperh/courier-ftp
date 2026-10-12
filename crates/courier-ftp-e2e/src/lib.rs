@@ -37,11 +37,13 @@
 pub mod diag;
 pub mod ftpd;
 pub mod home;
+pub mod pty;
 
 use std::{fmt, future::Future, time::Duration};
 
 pub use ftpd::{FtpdConfig, Hostile, TinyFtpd};
 pub use home::TestHome;
+pub use pty::{PtyApp, PtyOptions, Screen};
 
 /// The default polling timeout: 10 s locally, 20 s on CI (`CI` set).
 pub fn timeout() -> Duration {
