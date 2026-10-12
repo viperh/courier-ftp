@@ -443,6 +443,8 @@ impl App {
             opts: TransferOpts {
                 transfer_type: decide_transfer_type(&name, &file_types),
                 preallocate_hint: None,
+                // An editor copy is always the whole file.
+                read_limit: None,
             },
             timeout: Duration::from_secs(self.settings.connection.timeout_secs.max(1)),
             cancel,
