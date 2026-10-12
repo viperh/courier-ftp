@@ -86,7 +86,7 @@ pub(super) struct Tabs {
     pub(super) active: usize,
     next_id: u64,
     /// The saved tabs were (or are being) restored this run.
-    restored: bool,
+    pub(super) restored: bool,
     /// Saved tabs waiting for the sites to load.
     waiting: Option<Vec<SavedTab>>,
 }
