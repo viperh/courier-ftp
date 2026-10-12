@@ -20,6 +20,9 @@ use portable_pty::{
 
 use crate::{E2eError, Result, TestHome, diag};
 
+/// The pause after a lone Esc, so the next key isn't read as Alt+key.
+const ESC_SETTLE: Duration = Duration::from_millis(150);
+
 /// How to launch the binary.
 #[derive(Debug, Clone)]
 pub struct PtyOptions {
@@ -372,6 +375,13 @@ impl PtyApp {
             let bytes = encode_chord(chord)
                 .ok_or_else(|| E2eError::new(format!("unknown key {chord:?}")))?;
             self.send_raw(&bytes)?;
+            if bytes == b"\x1b" {
+                // A lone ESC is only known to be Esc (not the start of an
+                // Alt chord or escape sequence) once nothing follows it, as
+                // in a real terminal: give the app's input parser time to
+                // decide before the next key.
+                self.pump(ESC_SETTLE);
+            }
         }
         Ok(())
     }

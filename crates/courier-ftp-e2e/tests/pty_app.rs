@@ -19,7 +19,6 @@ fn quit(app: &mut PtyApp) {
 }
 
 #[test]
-#[ignore = "work in progress (T76): the Site Manager does not close on Esc Esc in the PTY run yet"]
 fn saved_site_connects_after_restart_without_a_password_prompt() {
     let served = tempfile::tempdir().unwrap();
     std::fs::write(served.path().join("hello.txt"), "hello from tiny ftpd\n").unwrap();
