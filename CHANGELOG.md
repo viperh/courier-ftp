@@ -262,3 +262,8 @@ the section matching the tag.
   connections with work stealing and resume of missing ranges, connections are
   warmed up ahead of time, and SFTP pipelining is tuned; SFTP uploads and FTPS
   downloads are 1.4–1.7× faster with 4 segments on a 50 ms link.
+- Command-line arguments (T70): open server URLs (one tab each) or a local
+  directory at start, --site to connect to saved sites (after unlock, with
+  close-match suggestions for unknown paths), --local, --logontype,
+  --config-dir/--data-dir, --log-file, --no-vault and --no-keyring; --version
+  shows the config, data and vault paths.
