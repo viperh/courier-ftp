@@ -273,3 +273,7 @@ the section matching the tag.
 - Focus keys: Alt-q focuses the transfer queue, Alt-m the message log, Alt-l
   and Alt-r the local and remote list (the queue and log could not be focused
   from the keyboard before).
+- Start directory per connection: quickconnect has an optional Dir field (a
+  URL's path goes there), the connection history remembers each server's start
+  directory, and Save as site keeps it as the site's remote directory (sites
+  already have Remote dir and Local dir on the Site Manager's Advanced tab).

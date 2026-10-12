@@ -107,6 +107,7 @@ Smaller calls made while building, recorded so they can be revisited:
 - **T70** A password in a URL is accepted but a warning goes to stderr before the TUI starts (it is visible in shell history and the process list). `--site` waits for the vault to unlock; `--no-vault` can't be combined with `--site`. `--logontype` overrides how URL logins authenticate and ignores a password in the URL.
 - **Help** Modelled on sverb's help dialog. Sections follow the keymap modes; the one that applies right now is first and marked "works now". Every bindable action has a written description (a test enforces it). Esc clears an active search before it closes the overlay.
 - **Focus keys** `Tab` stays Midnight-Commander-style (switches between the two lists); the queue and log get their own keys. Focusing a hidden queue or log also shows it.
+- **Start directory** A history entry keeps the directory of its latest login (same server, user and port share one entry). An empty Dir field starts in the server's home.
 
 ## Phases and tasks
 
