@@ -79,3 +79,89 @@ fn saved_site_connects_after_restart_without_a_password_prompt() {
     assert_eq!(logins, 2, "{:?}", server.commands());
     quit(&mut app);
 }
+
+/// A malicious server: listings with `../`, absolute paths, escape
+/// sequences and absurd sizes. Downloading everything must keep every file
+/// inside the target folder, and nothing the server sent may reach the
+/// terminal as a raw escape sequence.
+#[test]
+fn hostile_server_names_stay_inside_the_target_and_off_the_terminal() {
+    use courier_ftp_e2e::{FtpdConfig, Hostile};
+
+    let base = tempfile::tempdir().unwrap();
+    let target = base.path().join("target");
+    let outside = base.path().join("outside");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let served = tempfile::tempdir().unwrap();
+    let line = |name: &str| {
+        format!("-rw-r--r--    1 ftp      ftp            12 Jan 01  2024 {name}").into_bytes()
+    };
+    let hostile = Hostile {
+        listing: vec![
+            line("safe.txt"),
+            line("../escape.txt"),
+            line(&format!("{}/abs.txt", outside.display())),
+            line("title\x1b]0;pwned\x07.txt"),
+            line("color\x1b[31mEVIL\x1b[0m.txt"),
+            b"-rw-r--r-- 1 ftp ftp 99999999999999999999999 Jan 01 2024 huge.txt".to_vec(),
+            b"total garbage that is no listing line".to_vec(),
+        ],
+        payload: b"hostile data".to_vec(),
+    };
+    let mut config = FtpdConfig::new(USER, PASSWORD);
+    config.hostile = Some(hostile);
+    let server = TinyFtpd::start_with(served.path(), config).unwrap();
+    let home = TestHome::new().unwrap();
+
+    let opts = PtyOptions {
+        args: vec![
+            "--no-vault".into(),
+            "--local".into(),
+            target.display().to_string(),
+            format!("ftp://{USER}@127.0.0.1:{}", server.port()),
+        ],
+        ..PtyOptions::default()
+    };
+    let mut app = PtyApp::launch(&home, opts).unwrap();
+    // The URL has no password: it is asked for.
+    app.wait_for_text("Password").unwrap();
+    app.send_text(PASSWORD).unwrap();
+    app.send_keys("enter").unwrap();
+    app.wait_for_text("safe.txt").unwrap();
+
+    // Select everything in the remote list and copy it to the local side.
+    app.send_keys("ctrl-a F5").unwrap();
+    app.wait_for_screen("safe.txt downloaded", |_| target.join("safe.txt").is_file())
+        .unwrap();
+    // Let the other transfers finish or fail.
+    app.wait_for_screen("the queue settles", |s| !s.contains("Transferring"))
+        .unwrap();
+
+    // Nothing outside the target folder.
+    let outside_entries: Vec<_> = std::fs::read_dir(&outside).unwrap().collect();
+    assert!(outside_entries.is_empty(), "{outside_entries:?}");
+    let base_entries: Vec<String> = std::fs::read_dir(base.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(base_entries.len(), 2, "{base_entries:?}");
+    for entry in std::fs::read_dir(&target).unwrap() {
+        let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+        assert!(
+            !name.contains('\x1b') && !name.contains('/') && name != ".." && name != ".",
+            "unsafe local name {name:?}"
+        );
+    }
+    // The server's escape sequences never reached the terminal.
+    let raw = String::from_utf8_lossy(app.raw_output()).into_owned();
+    assert!(
+        !raw.contains("\x1b]0;pwned"),
+        "title sequence reached the terminal"
+    );
+    assert!(
+        !raw.contains("\x1b[31mEVIL"),
+        "colour sequence reached the terminal"
+    );
+    quit(&mut app);
+}

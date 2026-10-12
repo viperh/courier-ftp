@@ -270,3 +270,6 @@ the section matching the tag.
 - Help overlay (F1 or ?): every key grouped by where it works (the current
   mode first), with a description and the action name, / to search across
   keys, descriptions and actions, and j/k, PgUp/PgDn, g/G scrolling.
+- Focus keys: Alt-q focuses the transfer queue, Alt-m the message log, Alt-l
+  and Alt-r the local and remote list (the queue and log could not be focused
+  from the keyboard before).

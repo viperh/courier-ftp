@@ -106,6 +106,7 @@ Smaller calls made while building, recorded so they can be revisited:
 - **T41b** Segmentation pays off where one connection can't fill the link (SFTP uploads, limited by OpenSSH's 2 MiB channel window, and FTPS); SFTP downloads already reach the link's TCP rate with one connection. `TransferOpts::read_limit` stops a segment's SFTP reader from requesting past its range. FTP backends don't write at offsets (`write_at: false`). The toxiproxy throttling test and full 1 Gbit/s runs are deferred to T76; the work-stealing logic is covered by a mock-backend test.
 - **T70** A password in a URL is accepted but a warning goes to stderr before the TUI starts (it is visible in shell history and the process list). `--site` waits for the vault to unlock; `--no-vault` can't be combined with `--site`. `--logontype` overrides how URL logins authenticate and ignores a password in the URL.
 - **Help** Modelled on sverb's help dialog. Sections follow the keymap modes; the one that applies right now is first and marked "works now". Every bindable action has a written description (a test enforces it). Esc clears an active search before it closes the overlay.
+- **Focus keys** `Tab` stays Midnight-Commander-style (switches between the two lists); the queue and log get their own keys. Focusing a hidden queue or log also shows it.
 
 ## Phases and tasks
 
