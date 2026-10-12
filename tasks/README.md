@@ -108,6 +108,7 @@ Smaller calls made while building, recorded so they can be revisited:
 - **Help** Modelled on sverb's help dialog. Sections follow the keymap modes; the one that applies right now is first and marked "works now". Every bindable action has a written description (a test enforces it). Esc clears an active search before it closes the overlay.
 - **Focus keys** `Tab` stays Midnight-Commander-style (switches between the two lists); the queue and log get their own keys. Focusing a hidden queue or log also shows it.
 - **Start directory** A history entry keeps the directory of its latest login (same server, user and port share one entry). An empty Dir field starts in the server's home.
+- **Session passwords** `SessionPasswords` (core) is FTP's equivalent of SFTP's credential cache: a typed password is stored only after it logs in, and a remembered one the server rejects is forgotten so the next connection asks. **Local names** Control characters are invalid on Unix too (`NameRules::Unix`), and downloads replace them even with `replace_invalid_chars` off.
 
 ## Phases and tasks
 

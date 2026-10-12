@@ -277,3 +277,7 @@ the section matching the tag.
   URL's path goes there), the connection history remembers each server's start
   directory, and Save as site keeps it as the site's remote directory (sites
   already have Remote dir and Local dir on the Site Manager's Advanced tab).
+- FTP passwords typed at a prompt are remembered for the run (cleared when the
+  vault locks), so transfer connections no longer ask again; downloaded file
+  names never keep control characters (a hostile server's escape sequences
+  can't end up in local names).
