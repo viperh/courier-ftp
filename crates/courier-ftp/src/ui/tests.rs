@@ -996,3 +996,26 @@ fn applying_a_remote_bookmark_while_disconnected_says_so() {
     let t = text(&render(&mut s, 120, 30));
     assert!(t.contains("Not connected: the remote directory"), "{t}");
 }
+
+#[test]
+fn alt_q_and_alt_m_focus_the_queue_and_the_log() {
+    let mut s = screen(Layout::Classic);
+    let bindings = Config::builtin().keybindings;
+    // The app looks keys up in the keymap of the current mode.
+    let press = |s: &mut MainScreen, c: char| {
+        let action = bindings
+            .lookup(s.mode(), &[alt(c)])
+            .unwrap_or_else(|| panic!("Alt-{c} is not bound in {:?}", s.mode()))
+            .clone();
+        s.update(&action);
+    };
+    press(&mut s, 'q');
+    assert_eq!(s.mode(), crate::app::Mode::Queue);
+    press(&mut s, 'm');
+    assert_eq!(s.mode(), crate::app::Mode::Log);
+    press(&mut s, 'r');
+    assert_eq!(s.mode(), crate::app::Mode::FileList);
+    press(&mut s, 'q');
+    press(&mut s, 'l');
+    assert_eq!(s.mode(), crate::app::Mode::FileList);
+}

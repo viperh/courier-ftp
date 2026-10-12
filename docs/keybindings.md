@@ -33,9 +33,13 @@ Active everywhere except in text fields and dialogs.
 | `<F4>` | Edit |
 | `<Ctrl-x><e>` | EditedFiles |
 | `<Ctrl-x><f>` | Filters |
+| `<Alt-l>` | FocusLocal |
+| `<Alt-m>` | FocusLog |
 | `<Tab>` | FocusNext |
 | `<BackTab>` | FocusPrev |
+| `<Alt-q>` | FocusQueue |
 | `<Ctrl-k>` | FocusQuickconnect |
+| `<Alt-r>` | FocusRemote |
 | `<?>` | Help |
 | `<F1>` | Help |
 | `<Ctrl-x><v>` | LockVault |

@@ -70,9 +70,11 @@ cargo run -p courier-ftp -- --version     # prints git info and the resolved dir
 cargo run -p courier-ftp --no-default-features   # local-only build, without sync
 ```
 
-`F1` lists the keys. `Tab` switches between the local and remote pane, `Ctrl-l`,
-`Ctrl-j` and `Ctrl-e` toggle the log, queue and directory trees, `Ctrl-q` or
-`F10` quits and `Ctrl-z` suspends. All keys are in
+`F1` lists the keys (`/` searches them). `Tab` switches between the local and
+remote pane; `Alt-q` focuses the transfer queue, `Alt-m` the message log, and
+`Alt-l` / `Alt-r` the local and remote list. `Ctrl-l`, `Ctrl-j` and `Ctrl-e`
+toggle the log, queue and directory trees, `Ctrl-q` or `F10` quits and
+`Ctrl-z` suspends. All keys are in
 [`docs/keybindings.md`](docs/keybindings.md).
 
 Each connection can have its own tab: `Ctrl-t` opens one, `Ctrl-w` closes it,
