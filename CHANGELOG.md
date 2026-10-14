@@ -55,3 +55,229 @@ the section matching the tag.
   (toggle, range, all, invert, by pattern), quick filter, filters, hidden
   files, address bar with completion, column menu, inline errors. Renders
   100 000 entries in under 5 ms.
+- Network layer (T07): IPv6 preference with Happy Eyeballs fallback, timeouts
+  and cancellation on DNS, connect and proxy handshake, TCP
+  keep-alive/NODELAY, and HTTP CONNECT, SOCKS4/4a and SOCKS5 proxies with
+  authentication.
+- Trust prompts (T69) for SSH host keys (unknown and changed, SHA-256/MD5
+  fingerprints) and TLS certificates (summary, chain details,
+  changed-certificate warning), plus a prompt queue with a status badge and
+  <Ctrl-x><p> to open the next prompt.
+- FTP directory listing parsers (T13): MLSD/MLST, Unix ls -l (shared with
+  SFTP), DOS/IIS, EPLF, VMS, MVS/z/OS, IBM i and NetWare, with year inference,
+  server time-zone offset and per-line charset fallback; listing fuzz target.
+- Crypto crate (T80, courier-ftp-crypto): XChaCha20-Poly1305 item envelopes,
+  Argon2id KDF with CBOR parameters, key wrapping, OPAQUE, account and
+  recovery keys (BIP39), HPKE vault-key grants, Ed25519 signing and safety
+  numbers, adapted from sverb.
+- SSH connection and authentication via russh (T20): password,
+  ask-for-password, keyboard-interactive/2FA, OpenSSH/PEM/PKCS#8/PuTTY PPK
+  v2/v3 key files with passphrase prompts, SSH agent and Pageant, through the
+  generic proxy, with a pluggable host key verifier.
+- SFTP host key verification (T21): unknown keys ask (Trust once / Always
+  trust / Cancel), changed keys raise a warning with old and new fingerprints,
+  trusted keys are remembered, and OpenSSH known_hosts (including hashed
+  entries and @revoked) is honoured read-only.
+- SFTP backend (T22): every file operation over russh-sftp, owner/group names
+  from longname, symlink targets resolved (links to directories can be
+  entered), pipelined resumable transfers (64 requests of up to 255 KiB in
+  flight, 90–120 % of OpenSSH sftp throughput), SftpBackendFactory and
+  scripts/bench-sftp.sh.
+- Item model (T81): UUIDv7 ids, nine item kinds with typed views, HLC-stamped
+  CBOR bodies, field-level last-writer-wins merge with tombstones and
+  clock-skew warnings, read-time schema migrations.
+- Local store (T82, courier-ftp-store): SQLite with WAL, one writer plus a
+  reader pool, migrations that refuse newer schemas, an outbox entry on every
+  write, device-local data and blobs, key pins, local approvals, in-memory
+  search labels, 0700/0600 permissions.
+- Quickconnect bar (T58): connect to SFTP servers from host, user, password
+  and port fields or a pasted URL (sftp://user@host:port/path); browse the
+  remote pane, disconnect (Ctrl-x d), reconnect (Ctrl-x r, password asked
+  again), confirm before replacing a connection; host key and password prompts
+  open automatically; new setting interface.show_quickconnect.
+- Encrypted local vault (T30): master-password unlock with Argon2id and
+  persisted brute-force backoff, optional per-device OS keyring unlock with
+  keyring-based password recovery, auto-lock (idle and suspend), password
+  change, store-passwords setting, vault-backed trusted host keys, and the
+  .cftp-backup format.
+- Vault unlock UI (T60): first-run master password setup with strength meter
+  and optional keyring unlock, unlock view with backoff countdown, silent
+  keyring unlock with password fallback, "Forgot password?" (keyring reset, or
+  a new empty vault with the old database moved aside), lock overlay with
+  <Ctrl-x><v> and auto-lock, "Continue without vault", and a database-busy
+  retry screen.
+- Security hardening (T91, M2 pass): no core dumps or same-user ptrace at
+  startup, vault keys in mlocked memory, nine new fuzz targets, cargo-vet,
+  canary fixtures for the vault and SSH, a threat model and SECURITY.md.
+- Directory comparison engine (T48): by size or modification time with a
+  threshold, precision-aware, aligned rows, case-insensitive names on
+  Windows-like sides, hide identical, warning when filters differ.
+- Sync protocol types (T83, courier-ftp-proto): auth, device, vault,
+  pull/push, org, invite, rotation and WebSocket messages with golden JSON
+  tests, version negotiation and size limits.
+- FTP control connection (T10): multi-line replies, login (normal, anonymous,
+  ACCT, proxy-ready scripts), FEAT/SYST/UTF8 negotiation, keep-alive, raw
+  commands, inactivity timeouts and cancellation.
+- Directory trees for the local and remote side (T54; Ctrl-e to show, T to
+  focus): listed lazily through the listing cache, they follow the file list,
+  with expand/collapse and Enter to open a folder in the list.
+- Site model (T31): Site Manager folder tree with every FileZilla site
+  setting, stored encrypted in the vault (passwords included), device-local
+  default directories and key paths, path lookup (Work/Production/web01), and
+  saved SSH key passphrases and vault SSH keys used when connecting.
+- Transfer queue model (T40): priorities, reorder, pause, retry and requeue,
+  server grouping, stats; persisted encrypted in the vault under a device key,
+  with JSON export/import without passwords.
+- FTP proxies (T15): USER@HOST, SITE, OPEN and custom login scripts (%h %u %p
+  %a %s %w), with every password masked in the log; can't be combined with a
+  generic HTTP/SOCKS proxy.
+- Transfer engine (T41): parallel transfers within global, per-direction and
+  per-site connection limits, pooled transfer connections, retries with
+  backoff that resume at the reached offset, pause/cancel, 10 Hz progress with
+  speed and ETA, and automatic back-off when a server refuses extra
+  connections.
+- Directory comparison (T66, Ctrl-o) with FileZilla's colours (yellow only on
+  one side, green newer, red size differs), options for size or time,
+  threshold and hide identical, and select all yellow/green/red (m y / m g / m
+  r); synchronized browsing (Ctrl-y) that follows directory changes in both
+  panes and offers to create a missing directory.
+- Bookmarks and history (T33): global and per-site bookmarks with device-local
+  local directories, a quickconnect history kept in the vault with a dropdown
+  in the quickconnect bar, and a recent servers list.
+- Site import/export (T32): import FileZilla's sitemanager.xml (folders, all
+  logon types, bookmarks, passwords) and export as courier-ftp JSON
+  (optionally passphrase-encrypted with passwords) or FileZilla XML.
+- Logging (T71): the application log rotates daily (7 days kept, 0600), new
+  --debug and --debug-level flags, optional session log file
+  (logging.log_to_file, size-rotated, masked commands), Show raw listing
+  (<Ctrl-x><s>), and copy (Y) or save (S) of the message log; nothing at info
+  and above names hosts, users or paths.
+- FTP and FTPS connections (T11, T12, T14): passive/active data connections
+  with fallback, ASCII/binary transfers with resume and abort,
+  explicit/implicit TLS with certificate trust prompts, synced trusted
+  certificates and TLS session reuse; quickconnect now connects to FTP
+  servers.
+- Sync server accounts (T84): OPAQUE registration and login (unknown emails
+  get a dummy response), rotating single-use refresh tokens with reuse
+  detection, devices, TOTP, password change, recovery codes, account deletion,
+  setup-token bootstrap and per-email/per-IP rate limits.
+- Sync server vaults (T85): vault list, paginated pull with 410 gone below the
+  GC floor, push with optimistic concurrency and gap-free revisions, storage
+  quota, tombstone GC, and /v1/ws live notifications fanned out between
+  replicas via PostgreSQL LISTEN/NOTIFY.
+- Sync server operations (T86): TOML and environment configuration, admin CLI
+  (serve, migrate, admin user/invite/registration/gc, healthcheck), /healthz
+  /readyz /metrics, distroless Docker image and compose file, and
+  docs/self-hosting.md.
+- Recursive operations (T43): recursive transfers (one directory level
+  expanded at a time in the queue, filters applied, empty-directory and
+  symlink settings, loop-safe), recursive delete, and recursive chmod with
+  files-only/dirs-only and per-bit "leave unchanged".
+- Speed limits (T44): global download and upload limits shared by all
+  transfers, with burst tolerance, and on/off and limit changes that apply
+  mid-transfer.
+- Search engine (T49): local and remote file search with FileZilla-style
+  conditions (name, size, path, date, permissions; All/Any), results streamed
+  as found, cancellable, on a dedicated connection, using and filling the
+  listing cache, with helpers to download, upload or delete results.
+- File-exists handling (T42): overwrite, if newer, if size differs, resume,
+  rename or skip, an ask dialog with apply-to-all for the current queue or the
+  session (optionally per direction or server), optional preallocation, and
+  download names that can't escape the target folder.
+- Site Manager (T59, Ctrl-s): folder tree and tabbed site editor with
+  validation and an unsaved-change guard, connect with saved credentials,
+  FileZilla and courier-ftp import/export, a fuzzy site picker (Ctrl-x g) and
+  Save as site from quickconnect (Ctrl-x a).
+- Sync client (T87): register a vault with a self-hosted courier-ftp server,
+  log in on more devices with a duplicate preview, change the password,
+  recover with the 24-word key, manage devices.
+- Sync engine (T88): a background engine keeps vaults in sync offline-first,
+  with field-level merges, conflict retries, 410 resync and live WebSocket
+  updates.
+- Queue pane (T56): queued/failed/successful tabs, server grouping, live
+  progress and full queue controls; F5/Shift-F5 transfer the selection through
+  the transfer engine, and the queue is saved in the vault and restored after
+  unlock.
+- Bookmarks menu (T64, Ctrl-b): global and site bookmarks with fuzzy search;
+  add the directories shown now, edit, delete and reorder; applying one opens
+  its directories and turns synchronized browsing or comparison on.
+- Filters dialog (T67, Ctrl-x f): per-side filter checklists, named filter
+  sets, a filter editor with live regex checking and built-in filters, and
+  Apply filters to transfers; changes re-filter both panes and are saved to
+  config.json.
+- Settings screen (T68, F9): edit every setting in FileZilla-style sections
+  with live apply, inline validation, reset section and cancel; manage stored
+  SFTP host keys and trusted TLS certificates; vault security actions (change
+  master password, keyring unlock, lock now, auto-lock); built-in colour
+  schemes (default, high contrast, monochrome).
+- Update check and splash (T74): weekly background check for new releases (opt
+  out with interface.check_updates, --no-update-check or
+  COURIER_FTP_NO_UPDATE_CHECK; interface.check_prereleases includes
+  prereleases) and an optional splash screen (interface.show_splash).
+- Teams and shared vaults (T89): organisations, members and invites (also at
+  registration), shared team vaults with signed key grants, read-only members,
+  key rotation on member removal (resumes after a crash), safety numbers with
+  key pinning, per-member credential overrides for shared sites, and copy/move
+  between vaults.
+- Sync screens (T90): sync panel (Ctrl-x y, or Settings → Sync) to register,
+  log in on another device with a duplicate preview, manage devices, change
+  the password, enable TOTP, recover and log out; sync status in the status
+  bar; vault recovery through the sync account on the Forgot-password page.
+- Search screen (T65): local and remote file search with FileZilla-style
+  conditions, live results as they are found, cancel, and result actions
+  (download or upload keeping the folder structure or flattened, delete with
+  confirmation, open the folder in the file list).
+- Network configuration wizard (T72, Settings → FTP): set up passive and
+  active mode step by step and test them against a saved site or an address,
+  with a ✔/✘ and a suggested fix for every step.
+- Settings import/export (T73): Settings → Import/Export moves a whole setup
+  between machines as an encrypted .cftp-backup (settings, sites and bookmarks
+  with optional passwords, history, trusted host keys and certificates,
+  transfer queue) or a plain settings JSON without secrets; imports can be
+  partial, and the first-run and Forgot-password screens can restore a backup.
+- File operations (T62): create folders, rename (asks before overwriting),
+  delete recursively with progress and change permissions (recursively,
+  files/folders only, per-bit) on local and remote panes, with listings and
+  directory trees kept up to date.
+- Queue completion actions (T45): show a message (with bell or desktop
+  notification), run a command (without a shell, totals in COURIER_FTP_*
+  variables), or disconnect or quit after a cancellable countdown, plus a
+  one-off override from the queue pane (a).
+- Teams UI (T90): create teams, invite people (email or link, also usable when
+  registering), verify members by safety number with a warning when a key
+  changes, share vaults with read/write/manage access, and see the audit log;
+  the Site Manager shows vault roots, locks read-only items 🔒, copies or moves
+  sites between vaults and keeps your own login for shared sites.
+- Connection tabs (T61): several connections at once, each with its own panes,
+  history, sync browsing and comparison; a tab bar with each tab's state; keys
+  to open, close, switch, rename and duplicate tabs; an open-in-new-tab or
+  replace question (rememberable) and a Site Manager New tab button; optional
+  interface.restore_tabs reopens the last run's tabs from the vault.
+- View and edit files (T63): F3/F4 open files in external programs; remote
+  files open through a private temporary copy, saved changes are offered for
+  upload (with a warning when the server copy changed meanwhile), Ctrl-x e
+  lists the files being edited, and terminal editors run with the TUI
+  suspended.
+- Fast transfers (T41b): large files are split into segments over several
+  connections with work stealing and resume of missing ranges, connections are
+  warmed up ahead of time, and SFTP pipelining is tuned; SFTP uploads and FTPS
+  downloads are 1.4–1.7× faster with 4 segments on a 50 ms link.
+- Command-line arguments (T70): open server URLs (one tab each) or a local
+  directory at start, --site to connect to saved sites (after unlock, with
+  close-match suggestions for unknown paths), --local, --logontype,
+  --config-dir/--data-dir, --log-file, --no-vault and --no-keyring; --version
+  shows the config, data and vault paths.
+- Help overlay (F1 or ?): every key grouped by where it works (the current
+  mode first), with a description and the action name, / to search across
+  keys, descriptions and actions, and j/k, PgUp/PgDn, g/G scrolling.
+- Focus keys: Alt-q focuses the transfer queue, Alt-m the message log, Alt-l
+  and Alt-r the local and remote list (the queue and log could not be focused
+  from the keyboard before).
+- Start directory per connection: quickconnect has an optional Dir field (a
+  URL's path goes there), the connection history remembers each server's start
+  directory, and Save as site keeps it as the site's remote directory (sites
+  already have Remote dir and Local dir on the Site Manager's Advanced tab).
+- FTP passwords typed at a prompt are remembered for the run (cleared when the
+  vault locks), so transfer connections no longer ask again; downloaded file
+  names never keep control characters (a hostile server's escape sequences
+  can't end up in local names).

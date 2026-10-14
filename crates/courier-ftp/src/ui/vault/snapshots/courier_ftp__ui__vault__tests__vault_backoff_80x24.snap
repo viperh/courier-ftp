@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/ui/vault/tests.rs
+assertion_line: 114
+expression: text
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ┌ Unlock vault ──────────────────────────────────────────────────────────────┐ "
+" │                                                                            │ "
+" │                                 courier-ftp                                │ "
+" │                                                                            │ "
+" │ Master password:                                                           │ "
+" │                                                                            │ "
+" │       [ Unlock ]  [ Continue without vault ]  [ Forgot password? ]         │ "
+" │                                                                            │ "
+" │                     6 failed attempts · next try in 2 s                    │ "
+" │ Wrong master password.                                                     │ "
+" └────────────────────────────────────────────────────────────────────────────┘ "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

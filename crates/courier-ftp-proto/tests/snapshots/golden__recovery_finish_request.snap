@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "email": "ada@example.test",
+  "code": "ABCD-EFGH",
+  "registration_upload": "BAQEBA",
+  "private_bundle_enc": "BQUFBQ",
+  "version": 3,
+  "signature": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBg"
+}

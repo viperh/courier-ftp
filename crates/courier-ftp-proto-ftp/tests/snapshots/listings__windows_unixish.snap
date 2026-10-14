@@ -1,0 +1,11 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Unix)
+file  "readme.txt" size=1234 mtime=2024-01-31T12:00:00.000Z/Minute perms=----------(000) owner=owner group=group
+dir   "inetpub" size=0 mtime=2024-01-31T12:00:00.000Z/Minute perms=d---------(000) owner=owner group=group
+file  "setup.exe" size=104857600 mtime=2020-02-29T00:00:00.000Z/Day perms=----------(000) owner=owner group=group
+dir   "Program Files" size=0 mtime=2024-03-01T09:00:00.000Z/Minute perms=d---------(000) owner=owner group=group
+file  "empty.log" size=0 mtime=2024-06-15T11:00:00.000Z/Minute perms=----------(000) owner=owner group=group
+file  "y2k.txt" size=512 mtime=1999-12-31T00:00:00.000Z/Day perms=-r--r--r--(444) owner=owner group=group

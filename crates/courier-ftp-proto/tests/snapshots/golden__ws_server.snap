@@ -1,0 +1,36 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+[
+  {
+    "type": "vault_changed",
+    "vault_id": "01900000-0000-7000-8000-000000000002",
+    "head_revision": 43
+  },
+  {
+    "type": "vault_access",
+    "vault_id": "01900000-0000-7000-8000-000000000006",
+    "change": "granted"
+  },
+  {
+    "type": "vault_access",
+    "vault_id": "01900000-0000-7000-8000-000000000006",
+    "change": "revoked"
+  },
+  {
+    "type": "vault_access",
+    "vault_id": "01900000-0000-7000-8000-000000000006",
+    "change": "rotated"
+  },
+  {
+    "type": "account_changed",
+    "key_version": 3
+  },
+  {
+    "type": "ping"
+  },
+  {
+    "type": "pong"
+  }
+]

@@ -32,11 +32,11 @@ This is the part of FileZilla that took years to get right — invest in tests.
 
 ## Acceptance criteria
 
-- [ ] Fixture corpus in `crates/courier-ftp-proto-ftp/tests/listings/*.txt` with expected output (snapshot via `insta`), covering every format above, at least 5 samples each.
-- [ ] Year inference correct around New Year (use injectable "now").
-- [ ] Symlink target parsing handles names containing ` -> ` (use entry type + heuristic; document limitations).
-- [ ] Filenames with leading/trailing spaces preserved for MLSD; best effort for LIST.
-- [ ] Parser never panics on arbitrary input (fuzz target with `cargo fuzz` or a proptest that feeds random lines).
+- [x] Fixture corpus in `crates/courier-ftp-proto-ftp/tests/listings/*.txt` with expected output (snapshot via `insta`), covering every format above, at least 5 samples each.
+- [x] Year inference correct around New Year (use injectable "now").
+- [x] Symlink target parsing handles names containing ` -> ` (use entry type + heuristic; document limitations).
+- [x] Filenames with leading/trailing spaces preserved for MLSD; best effort for LIST.
+- [x] Parser never panics on arbitrary input (fuzz target with `cargo fuzz` or a proptest that feeds random lines).
 
 ## Tests
 

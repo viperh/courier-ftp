@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Netware)
+dir   "login" size=512 mtime=2024-01-16T18:53:00.000Z/Minute perms=raw:[RWCEAFMS] owner=supervisor group=-
+file  "cx.exe" size=214059 mtime=2023-10-20T00:00:00.000Z/Day perms=raw:[R----F--] owner=rhesus group=-
+dir   "public" size=512 mtime=2022-01-16T00:00:00.000Z/Day perms=raw:[R----F--] owner=supervisor group=-
+file  "mail box.txt" size=1024 mtime=2024-06-15T10:00:00.000Z/Minute perms=raw:[RWCEAFMS] owner=jcampbell group=-
+file  ".dropbox" size=0 mtime=2024-02-02T07:30:00.000Z/Minute perms=raw:[-W------] owner=guest group=- hidden

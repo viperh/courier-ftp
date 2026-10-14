@@ -45,10 +45,17 @@ three lists (queued / failed / successful) and persistence across restarts.
 
 ## Acceptance criteria
 
-- [ ] All operations are unit tested.
-- [ ] Persisted queue survives restart; active items come back as queued.
-- [ ] 100 000 items: add, reorder and render-model generation each < 50 ms (benchmark test, `#[ignore]` in CI).
-- [ ] Export contains no secrets.
+- [x] All operations are unit tested.
+- [x] Persisted queue survives restart; active items come back as queued.
+- [x] 100 000 items: add, reorder and render-model generation each < 50 ms (benchmark test, `#[ignore]` in CI).
+- [x] Export contains no secrets.
+
+**Status:** core model, persistence and export done (`courier_ftp_core::queue`;
+`DeviceBlobVault` implemented by `VaultEngine`). The 100k gate is a release-only
+`#[ignore]` test run by `bench.yml`. Wiring is left to the UI tasks: creating the
+`QueuePersister` at startup, `restore()` after unlock, `changed()` after mutations
+and the quit warning dialog from `quit_check()` go with T56 (queue pane); the
+Export/Import queue menu entries with T56/T73.
 
 ## Tests
 

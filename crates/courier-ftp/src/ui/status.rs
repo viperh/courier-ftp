@@ -1,6 +1,6 @@
 //! The status bar (T57): connection security, transfer type, speed limit,
-//! filters, sync/compare, vault, queue summary, pending keys or a transient
-//! message, and key hints. Segments that don't fit are dropped, least
+//! filters, sync/compare, vault, device sync (T90), queue summary, pending
+//! keys or a transient message, and key hints. Segments that don't fit are dropped, least
 //! important first.
 
 use std::time::{Duration, Instant};
@@ -22,6 +22,20 @@ use super::theme::Theme;
 /// How long a transient message stays.
 pub(crate) const MESSAGE_TTL: Duration = Duration::from_secs(3);
 
+/// How the device sync segment reads (its colour).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(feature = "sync"), allow(dead_code))]
+pub(crate) enum SyncLevel {
+    /// `⟳ synced`.
+    Ok,
+    /// `⟳ syncing`.
+    Busy,
+    /// `⟳ offline (3)`, `⟳ login needed`.
+    Warn,
+    /// `⟳ error`.
+    Error,
+}
+
 /// Everything the status bar shows.
 #[derive(Debug, Clone)]
 pub(crate) struct StatusState {
@@ -35,10 +49,15 @@ pub(crate) struct StatusState {
     pub(crate) sync_browsing: bool,
     pub(crate) compare: bool,
     pub(crate) vault_locked: bool,
+    /// Device sync (T90): `⟳ synced`, `⟳ offline (3)`… `None` without a
+    /// sync account (or while the vault is locked).
+    pub(crate) sync: Option<(String, SyncLevel)>,
     pub(crate) queue_files: u64,
     pub(crate) queue_bytes: u64,
     pub(crate) queue_speed_bps: u64,
     pub(crate) pending_keys: String,
+    /// Prompts from the core waiting to be shown (T69).
+    pub(crate) pending_prompts: usize,
     message: Option<(String, Instant)>,
     /// Key hints, e.g. `("F5", "copy")`, from the keymap.
     pub(crate) hints: Vec<(String, String)>,
@@ -57,10 +76,12 @@ impl StatusState {
             sync_browsing: false,
             compare: false,
             vault_locked: false,
+            sync: None,
             queue_files: 0,
             queue_bytes: 0,
             queue_speed_bps: 0,
             pending_keys: String::new(),
+            pending_prompts: 0,
             message: None,
             hints: Vec::new(),
             unicode,
@@ -186,6 +207,24 @@ pub(crate) fn status_line(
 ) -> Line<'static> {
     let u = s.unicode;
     let mut segments = vec![security_segment(s, theme)];
+    if s.pending_prompts > 0 {
+        let n = s.pending_prompts;
+        let plural = if n == 1 { "" } else { "s" };
+        segments.insert(
+            0,
+            Segment {
+                spans: vec![Span::styled(
+                    if u {
+                        format!("⚠ {n} prompt{plural}")
+                    } else {
+                        format!("[! {n} prompt{plural}]")
+                    },
+                    theme.error,
+                )],
+                priority: 0,
+            },
+        );
+    }
     let tt = match s.transfer_type {
         TransferTypeChoice::Auto => "Auto",
         TransferTypeChoice::Ascii => "ASCII",
@@ -254,6 +293,22 @@ pub(crate) fn status_line(
                 theme.key_hint,
             )],
             priority: 2,
+        });
+    }
+    if let Some((text, level)) = &s.sync {
+        let text = if u {
+            text.clone()
+        } else {
+            text.replace('⟳', "sync:")
+        };
+        let style = match level {
+            SyncLevel::Ok | SyncLevel::Busy => Style::new(),
+            SyncLevel::Warn => theme.key_hint,
+            SyncLevel::Error => theme.error,
+        };
+        segments.push(Segment {
+            spans: vec![Span::styled(text, style)],
+            priority: 3,
         });
     }
     let queue = if s.queue_files == 0 {
@@ -374,10 +429,14 @@ pub(crate) fn server_info_text(info: Option<&SessionInfo>) -> String {
             certificate,
         } => {
             out.push(format!("Security:   {version}, {cipher}"));
-            if let Some(c) = certificate {
+            if let Some(c) = certificate.as_ref().and_then(|c| c.leaf()) {
                 out.push(format!("Subject:    {}", c.subject));
                 out.push(format!("Issuer:     {}", c.issuer));
-                out.push(format!("Valid:      {}", c.validity));
+                out.push(format!(
+                    "Valid:      {} to {}",
+                    super::trust::format_date(c.not_before),
+                    super::trust::format_date(c.not_after)
+                ));
                 out.push(format!("SHA-256:    {}", c.fingerprint_sha256));
             }
         }
@@ -401,11 +460,9 @@ pub(crate) fn server_info_text(info: Option<&SessionInfo>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use courier_ftp_core::{
-        events::CertificateDetails,
-        model::{Protocol, ServerAddress},
-    };
+    use courier_ftp_core::model::{CertificateDetails, CertificateInfo, Protocol, ServerAddress};
     use pretty_assertions::assert_eq;
+    use time::macros::datetime;
 
     use super::*;
 
@@ -438,6 +495,35 @@ mod tests {
             ("F8".into(), "delete".into()),
         ];
         s
+    }
+
+    #[test]
+    fn sync_segment_in_both_symbol_modes() {
+        let theme = Theme::new(None, true);
+        let now = Instant::now();
+        for (text, level) in [
+            ("⟳ synced", SyncLevel::Ok),
+            ("⟳ syncing", SyncLevel::Busy),
+            ("⟳ offline (3)", SyncLevel::Warn),
+            ("⟳ error", SyncLevel::Error),
+            ("⟳ login needed", SyncLevel::Warn),
+        ] {
+            let mut s = StatusState::new(true);
+            s.sync = Some((text.to_owned(), level));
+            let line = line_text(&status_line(&s, 120, now, &theme));
+            assert!(line.contains(&format!(" │ {text} │ ")), "{line}");
+            let mut s = StatusState::new(false);
+            s.sync = Some((text.to_owned(), level));
+            let line = line_text(&status_line(&s, 120, now, &theme));
+            let ascii = text.replace('⟳', "sync:");
+            assert!(line.contains(&format!(" | {ascii} | ")), "{line}");
+        }
+        let mut s = busy(true);
+        s.sync = Some(("⟳ offline (3)".to_owned(), SyncLevel::Warn));
+        insta::assert_snapshot!(
+            "status_120_sync",
+            line_text(&status_line(&s, 120, now, &theme))
+        );
     }
 
     #[test]
@@ -545,11 +631,22 @@ mod tests {
                 version: "TLS 1.2".into(),
                 cipher: "ECDHE-RSA-AES128-GCM-SHA256".into(),
                 certificate: Some(CertificateDetails {
-                    host: "secure.example.com".into(),
-                    subject: "CN=secure.example.com".into(),
-                    issuer: "CN=Example CA".into(),
-                    validity: "2026-01-01 to 2027-01-01".into(),
-                    fingerprint_sha256: "SHA256:xyz".into(),
+                    host: "secure.example.com:990".into(),
+                    chain: vec![CertificateInfo {
+                        subject: "CN=secure.example.com".into(),
+                        issuer: "CN=Example CA".into(),
+                        serial: "01".into(),
+                        not_before: datetime!(2026-01-01 0:00 UTC),
+                        not_after: datetime!(2027-01-01 0:00 UTC),
+                        subject_alt_names: vec![],
+                        public_key: "RSA 2048".into(),
+                        signature_algorithm: "sha256WithRSAEncryption".into(),
+                        fingerprint_sha256: "AB:CD".into(),
+                        fingerprint_sha1: "EF:01".into(),
+                    }],
+                    hostname_matches: true,
+                    tls_version: "TLS 1.2".into(),
+                    cipher: "ECDHE-RSA-AES128-GCM-SHA256".into(),
                     problem: String::new(),
                 }),
             },
@@ -559,6 +656,7 @@ mod tests {
             t.contains("FTPS (implicit)")
                 && t.contains("TLS 1.2")
                 && t.contains("CN=Example CA")
+                && t.contains("2026-01-01 00:00 UTC to 2027-01-01 00:00 UTC")
                 && t.contains("unknown"),
             "{t}"
         );

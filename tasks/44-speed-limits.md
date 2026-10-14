@@ -19,10 +19,20 @@ toggleable at runtime.
 
 ## Acceptance criteria
 
-- [ ] With a 100 KiB/s limit, measured throughput over 10 s (paused time) is within ±5 %.
-- [ ] Two concurrent transfers share the limit roughly equally (±20 %).
-- [ ] Toggling off mid-transfer removes throttling within one chunk.
+- [x] With a 100 KiB/s limit, measured throughput over 10 s (paused time) is within ±5 %.
+- [x] Two concurrent transfers share the limit roughly equally (±20 %).
+- [x] Toggling off mid-transfer removes throttling within one chunk.
 
 ## Tests
 
 - `tokio::time::pause` based deterministic tests with mock writer.
+
+**Status:** done in `courier_ftp_core::transfer::ratelimit` (`SpeedLimiter`,
+tests in the same file, bench `benches/ratelimit.rs`). Burst mapping:
+`Normal` 1 s, `High` 2 s, `VeryHigh` 5 s of the rate. The binary doesn't
+construct the `TransferEngine` yet, so the status bar's `<Ctrl-x><l>` still
+flips only its own flag: whoever wires the engine into the app (T56/T62)
+builds one `Arc<SpeedLimiter>` from `settings.transfers`, passes it to
+`EngineBuilder::rate_limiter`, makes the toggle set
+`transfers.speed_limit_enabled` and send `EngineHandle::settings_changed`,
+and reads `SpeedLimiter::limit_kib` for the indicator.

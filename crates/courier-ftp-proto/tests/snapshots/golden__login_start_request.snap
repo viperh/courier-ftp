@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "email": "ada@example.test",
+  "credential_request": "AQEBAQE"
+}

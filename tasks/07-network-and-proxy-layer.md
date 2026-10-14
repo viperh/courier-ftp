@@ -26,10 +26,10 @@ preference, timeouts, cancellation and HTTP/SOCKS proxies.
 
 ## Acceptance criteria
 
-- [ ] Plain IPv4, IPv6 and dual-stack hostnames connect.
-- [ ] Timeout and cancel both abort a hanging connect within 100 ms of the deadline/cancel.
-- [ ] HTTP CONNECT and SOCKS5 (with and without auth) work against local test proxies.
-- [ ] Proxy credentials are never logged.
+- [x] Plain IPv4, IPv6 and dual-stack hostnames connect.
+- [x] Timeout and cancel both abort a hanging connect within 100 ms of the deadline/cancel.
+- [x] HTTP CONNECT and SOCKS5 (with and without auth) work against local test proxies.
+- [x] Proxy credentials are never logged.
 
 ## Tests
 

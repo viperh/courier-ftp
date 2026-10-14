@@ -19,12 +19,9 @@ const APP_QUALIFIER: &str = "com";
 const APP_ORGANIZATION: &str = "viperh";
 
 #[derive(Clone, Debug, Deserialize, Default)]
-#[expect(
-    dead_code,
-    reason = "read by the settings screen (T68) to save the user config"
-)]
 pub(crate) struct AppConfig {
     #[serde(default)]
+    #[expect(dead_code, reason = "the app uses get_data_dir()")]
     pub(crate) data_dir: PathBuf,
     #[serde(default)]
     pub(crate) config_dir: PathBuf,
@@ -32,8 +29,8 @@ pub(crate) struct AppConfig {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub(crate) struct Config {
+    /// Where the user config lives: the settings screen saves there (T68).
     #[serde(default, flatten)]
-    #[expect(dead_code, reason = "read by the settings screen (T68)")]
     pub(crate) config: AppConfig,
     #[serde(default)]
     pub(crate) keybindings: KeyBindings,
@@ -65,6 +62,23 @@ pub(crate) static DATA_FOLDER: LazyLock<Option<PathBuf>> =
 pub(crate) static CONFIG_FOLDER: LazyLock<Option<PathBuf>> =
     LazyLock::new(|| non_empty_var(&format!("{}_CONFIG", PROJECT_NAME.clone())));
 
+/// `--config-dir` and `--data-dir` (T70): set once at startup, before
+/// anything reads a directory; they win over the environment. (Setting the
+/// environment variables themselves is `unsafe` in Rust 2024.)
+static DIR_OVERRIDES: std::sync::OnceLock<DirOverrides> = std::sync::OnceLock::new();
+
+#[derive(Debug, Default)]
+struct DirOverrides {
+    config: Option<PathBuf>,
+    data: Option<PathBuf>,
+}
+
+/// Use `config` / `data` as the config and data directories for this run
+/// (`--config-dir`, `--data-dir`). Only the first call counts.
+pub(crate) fn set_dir_overrides(config: Option<PathBuf>, data: Option<PathBuf>) {
+    let _ = DIR_OVERRIDES.set(DirOverrides { config, data });
+}
+
 fn non_empty_var(name: &str) -> Option<PathBuf> {
     env::var_os(name)
         .filter(|v| !v.is_empty())
@@ -73,10 +87,16 @@ fn non_empty_var(name: &str) -> Option<PathBuf> {
 
 impl Config {
     pub(crate) fn new() -> color_eyre::Result<Self, config::ConfigError> {
+        Self::load(&get_config_dir(), &get_data_dir())
+    }
+
+    /// The built-in config with the user files in `config_dir` on top.
+    pub(crate) fn load(
+        config_dir: &std::path::Path,
+        data_dir: &std::path::Path,
+    ) -> color_eyre::Result<Self, config::ConfigError> {
         let default_config: Config = json5::from_str(CONFIG)
             .map_err(|e| config::ConfigError::Message(format!("built-in config: {e}")))?;
-        let data_dir = get_data_dir();
-        let config_dir = get_config_dir();
         let mut builder = config::Config::builder()
             .set_default("data_dir", data_dir.to_string_lossy().into_owned())?
             .set_default("config_dir", config_dir.to_string_lossy().into_owned())?;
@@ -150,7 +170,9 @@ impl Config {
 }
 
 pub(crate) fn get_data_dir() -> PathBuf {
-    if let Some(s) = DATA_FOLDER.clone() {
+    if let Some(dir) = DIR_OVERRIDES.get().and_then(|o| o.data.clone()) {
+        dir
+    } else if let Some(s) = DATA_FOLDER.clone() {
         s
     } else if let Some(home) = HOME_FOLDER.clone() {
         home.join("data")
@@ -161,8 +183,21 @@ pub(crate) fn get_data_dir() -> PathBuf {
     }
 }
 
+/// Where temporary copies of edited files go (T63).
+pub(crate) fn get_cache_dir() -> PathBuf {
+    if let Some(home) = HOME_FOLDER.clone() {
+        home.join("cache")
+    } else if let Some(proj_dirs) = project_directory() {
+        proj_dirs.cache_dir().to_path_buf()
+    } else {
+        PathBuf::from(".").join(".cache")
+    }
+}
+
 pub(crate) fn get_config_dir() -> PathBuf {
-    if let Some(s) = CONFIG_FOLDER.clone() {
+    if let Some(dir) = DIR_OVERRIDES.get().and_then(|o| o.config.clone()) {
+        dir
+    } else if let Some(s) = CONFIG_FOLDER.clone() {
         s
     } else if let Some(home) = HOME_FOLDER.clone() {
         home.join("config")

@@ -5,7 +5,8 @@
 
 courier-ftp mixes Midnight Commander function keys (F5 copy, F6 move, F7 mkdir,
 F8 delete, Tab switches pane) with vim motions (`j`/`k`/`h`/`l`, `gg`/`G`, `/`).
-`F1` shows the keys of the current mode in the program.
+`F1` (or `?`) shows every key in the program, the ones that work right now first;
+`/` searches them.
 
 Every binding can be changed in your `config.json` (see the README): keys are
 grouped by mode, a sequence is written `<g><g>`, and `<` and `>` are spelled
@@ -22,35 +23,54 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-b>` | Bookmarks |
 | `<Ctrl-x><c>` | ClearLog |
 | `<Ctrl-w>` | CloseTab |
+| `<Ctrl-x><o>` | CompareOptions |
 | `<F5>` | Copy |
 | `<Ctrl-x><t>` | CycleTransferType |
 | `<Delete>` | Delete |
 | `<F8>` | Delete |
 | `<Ctrl-x><d>` | Disconnect |
+| `<Ctrl-x><T>` | DuplicateTab |
 | `<F4>` | Edit |
+| `<Ctrl-x><e>` | EditedFiles |
+| `<Ctrl-x><f>` | Filters |
+| `<Alt-l>` | FocusLocal |
+| `<Alt-m>` | FocusLog |
 | `<Tab>` | FocusNext |
 | `<BackTab>` | FocusPrev |
+| `<Alt-q>` | FocusQueue |
 | `<Ctrl-k>` | FocusQuickconnect |
+| `<Alt-r>` | FocusRemote |
 | `<?>` | Help |
 | `<F1>` | Help |
+| `<Ctrl-x><v>` | LockVault |
 | `<F7>` | Mkdir |
 | `<Shift-F7>` | MkdirEnter |
 | `<F6>` | Move |
+| `<Ctrl-x><n>` | NewFile |
 | `<Ctrl-t>` | NewTab |
+| `<Ctrl-PageDown>` | NextTab |
 | `<g><t>` | NextTab |
+| `<Ctrl-x><p>` | OpenPrompt |
+| `<Ctrl-PageUp>` | PrevTab |
 | `<g><T>` | PrevTab |
 | `<Ctrl-p>` | ProcessQueue |
 | `<Shift-F5>` | QueueSelection |
 | `<Ctrl-q>` | Quit |
 | `<F10>` | Quit |
+| `<Ctrl-x><r>` | Reconnect |
 | `<Ctrl-F5>` | Refresh |
 | `<Ctrl-r>` | Refresh |
 | `<F2>` | Rename |
+| `<Ctrl-x><R>` | RenameTab |
+| `<Ctrl-x><a>` | SaveAsSite |
 | `<Ctrl-f>` | Search |
 | `<Ctrl-x><i>` | ServerInfo |
 | `<F9>` | Settings |
+| `<Ctrl-x><s>` | ShowRawListing |
 | `<Ctrl-s>` | SiteManager |
+| `<Ctrl-x><g>` | SitePicker |
 | `<Ctrl-z>` | Suspend |
+| `<Ctrl-x><y>` | SyncPanel |
 | `<Alt-1>` | Tab1 |
 | `<Alt-2>` | Tab2 |
 | `<Alt-3>` | Tab3 |
@@ -68,6 +88,7 @@ Active everywhere except in text fields and dialogs.
 | `<Ctrl-x><l>` | ToggleSpeedLimit |
 | `<Ctrl-y>` | ToggleSyncBrowsing |
 | `<Ctrl-e>` | ToggleTree |
+| `<Ctrl-x><u>` | UnlockVault |
 | `<F3>` | View |
 
 ## File lists
@@ -89,6 +110,7 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<minus>` | DeselectPattern |
 | `<e>` | Edit |
 | `<a>` | EditAddress |
+| `<T>` | FocusTree |
 | `<Ctrl-d>` | HalfPageDown |
 | `<Ctrl-u>` | HalfPageUp |
 | `<Alt-Left>` | HistoryBack |
@@ -107,6 +129,9 @@ When a file list (or directory tree) has focus. Global keys work too, unless lis
 | `<h>` | ParentDir |
 | `</>` | QuickFilter |
 | `<Ctrl-a>` | SelectAll |
+| `<m><r>` | SelectCompareDifferent |
+| `<m><y>` | SelectCompareLonely |
+| `<m><g>` | SelectCompareNewer |
 | `<+>` | SelectPattern |
 | `<s><m>` | SortModified |
 | `<s><n>` | SortName |
@@ -135,12 +160,20 @@ When the transfer queue has focus.
 | `<k>` | CursorUp |
 | `<Ctrl-d>` | HalfPageDown |
 | `<Ctrl-u>` | HalfPageUp |
+| `<b>` | MoveItemBottom |
 | `<J>` | MoveItemDown |
+| `<t>` | MoveItemTop |
 | `<K>` | MoveItemUp |
+| `<Enter>` | Open |
 | `<PageDown>` | PageDown |
 | `<PageUp>` | PageUp |
 | `<minus>` | PriorityDown |
 | `<+>` | PriorityUp |
+| `<a>` | QueueAfterMenu |
+| `<C>` | QueueClear |
+| `<e>` | QueueExistsMenu |
+| `<s>` | QueueGroupByServer |
+| `<m>` | QueueMenu |
 | `<2>` | QueueTabFailed |
 | `<1>` | QueueTabQueued |
 | `<3>` | QueueTabSuccessful |
@@ -148,8 +181,12 @@ When the transfer queue has focus.
 | `<Delete>` | RemoveItem |
 | `<x>` | RemoveItem |
 | `<r>` | Requeue |
+| `<Ctrl-a>` | SelectAll |
+| `<Insert>` | ToggleSelect |
+| `<P>` | ToggleTransfersPaused |
 | `<Home>` | Top |
 | `<g><g>` | Top |
+| `<v>` | VisualSelect |
 
 ## Message log
 
@@ -160,6 +197,7 @@ When the message log has focus.
 | `<End>` | Bottom |
 | `<G>` | Bottom |
 | `<c>` | ClearLog |
+| `<Y>` | CopyLog |
 | `<y>` | CopySelection |
 | `<Down>` | CursorDown |
 | `<j>` | CursorDown |
@@ -170,6 +208,7 @@ When the message log has focus.
 | `<PageDown>` | PageDown |
 | `<PageUp>` | PageUp |
 | `</>` | QuickFilter |
+| `<S>` | SaveLog |
 | `<Left>` | ScrollLeft |
 | `<h>` | ScrollLeft |
 | `<Right>` | ScrollRight |

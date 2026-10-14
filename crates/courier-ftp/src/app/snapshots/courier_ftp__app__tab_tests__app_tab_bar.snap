@@ -1,0 +1,6 @@
+---
+source: crates/courier-ftp/src/app/tab_tests.rs
+assertion_line: 451
+expression: tab_row(&mut app)
+---
+ [1 alice@web.invalid ●] [2 bob@backup.invalid ●] [3 local ○] [4 carol@staging.invalid !]

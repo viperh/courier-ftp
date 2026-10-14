@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "user_id": "01900000-0000-7000-8000-000000000008",
+  "email": "bob@example.test",
+  "x25519_pub": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
+  "ed25519_pub": "u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s"
+}

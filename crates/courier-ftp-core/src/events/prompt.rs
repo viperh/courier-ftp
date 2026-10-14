@@ -10,7 +10,7 @@ use tokio::sync::oneshot;
 
 use super::SessionId;
 use crate::{
-    model::{Direction, Entry, LocalPath, RemotePath},
+    model::{CertificateDetails, Direction, Entry, HostKeyFingerprint, LocalPath, RemotePath},
     settings::ExistsAction,
 };
 
@@ -46,21 +46,32 @@ pub struct PromptRequest {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum PromptKind {
-    /// An SSH host key is not trusted yet (or changed).
+    /// An SSH host key is not trusted yet (T21), or differs from the trusted
+    /// one. Answered with [`PromptResponse::Trust`].
     TrustHostKey {
         /// `host:port`.
         host: String,
-        /// Key algorithm, e.g. `ssh-ed25519`.
-        key_type: String,
-        /// `SHA256:…` fingerprint of the offered key.
-        fingerprint_sha256: String,
-        /// The fingerprint trusted before, when the key changed.
-        known: Option<String>,
+        /// The key the server offered.
+        key: HostKeyFingerprint,
+        /// The key trusted before, when the server now offers a different
+        /// one (a possible man-in-the-middle attack). The UI then shows a
+        /// warning and makes *Cancel* the default.
+        known: Option<HostKeyFingerprint>,
+        /// Whether the answer can be remembered. `false` while the vault is
+        /// locked: the UI then never answers [`TrustDecision::Always`].
+        can_remember: bool,
     },
-    /// A TLS certificate is not trusted (T12, T69).
+    /// A TLS certificate is not trusted (T12), or differs from the trusted
+    /// one. Answered with [`PromptResponse::Trust`].
     TrustCertificate {
-        /// Subject, issuer, validity, fingerprints, rendered by the TLS code.
+        /// The chain, the TLS session and why verification failed.
         details: Box<CertificateDetails>,
+        /// SHA-256 fingerprint of the certificate trusted before for this
+        /// host, when it changed. The UI then shows a warning.
+        known_sha256: Option<String>,
+        /// Whether the answer can be remembered (`false` while the vault is
+        /// locked).
+        can_remember: bool,
     },
     /// A password is needed (logon type "ask for password").
     Password {
@@ -96,23 +107,18 @@ pub enum PromptKind {
     },
     /// Something to acknowledge.
     Message(String),
-}
-
-/// A certificate as shown in the trust prompt (filled in by T12).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CertificateDetails {
-    /// The host the certificate was presented for.
-    pub host: String,
-    /// Subject distinguished name.
-    pub subject: String,
-    /// Issuer distinguished name.
-    pub issuer: String,
-    /// Validity period, human readable.
-    pub validity: String,
-    /// `SHA256:…` fingerprint.
-    pub fingerprint_sha256: String,
-    /// Why verification failed (self-signed, expired, wrong host…).
-    pub problem: String,
+    /// A question with a row of buttons (T63: "File X has changed. Upload
+    /// it back to the server?"). Answered with [`PromptResponse::Choice`].
+    Choice {
+        /// The dialog title.
+        title: String,
+        /// The question.
+        text: String,
+        /// The button labels.
+        buttons: Vec<String>,
+        /// The button highlighted first.
+        default: usize,
+    },
 }
 
 /// The answer to a [`PromptKind`].
@@ -128,6 +134,8 @@ pub enum PromptResponse {
     FileExists(FileExistsAnswer),
     /// For [`PromptKind::Message`].
     Ok,
+    /// For [`PromptKind::Choice`]: the index of the button pressed.
+    Choice(usize),
 }
 
 impl fmt::Debug for PromptResponse {
@@ -138,6 +146,7 @@ impl fmt::Debug for PromptResponse {
             PromptResponse::Answers(a) => write!(f, "Answers([{} × ****])", a.len()),
             PromptResponse::FileExists(a) => f.debug_tuple("FileExists").field(a).finish(),
             PromptResponse::Ok => f.write_str("Ok"),
+            PromptResponse::Choice(i) => f.debug_tuple("Choice").field(i).finish(),
         }
     }
 }
@@ -158,19 +167,41 @@ pub enum TrustDecision {
 pub struct FileExistsAnswer {
     /// What to do. `Ask` is not a valid answer and is treated as `Skip`.
     pub action: ExistsAction,
-    /// How widely the answer applies.
+    /// How long the answer is remembered.
     pub apply_to: ApplyTo,
-    /// The new target name for [`ExistsAction::Rename`].
+    /// When remembered: only for transfers going the same direction
+    /// (FileZilla's "apply only to downloads/uploads").
+    pub same_direction_only: bool,
+    /// When remembered: only for transfers to or from the same server.
+    pub same_server_only: bool,
+    /// The new target name for [`ExistsAction::Rename`] (one component), for
+    /// this file only. `None` (and every remembered *Rename*) picks the first
+    /// free `name (1).ext`, `name (2).ext`, ….
     pub new_name: Option<String>,
 }
 
-/// How widely a [`FileExistsAnswer`] applies.
+impl FileExistsAnswer {
+    /// `action` for this file only.
+    pub fn once(action: ExistsAction) -> Self {
+        Self {
+            action,
+            apply_to: ApplyTo::Once,
+            same_direction_only: false,
+            same_server_only: false,
+            new_name: None,
+        }
+    }
+}
+
+/// How long a [`FileExistsAnswer`] is remembered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApplyTo {
     /// This file only.
     Once,
-    /// Every file in the queue.
+    /// Every later conflict of the current queue run ("apply to current
+    /// queue only"); forgotten when the queue finishes.
     AllInQueue,
-    /// Every file in the queue going the same direction.
-    AllForDirection,
+    /// Every later conflict until the program exits ("always use this
+    /// action" for the session).
+    AllInSession,
 }

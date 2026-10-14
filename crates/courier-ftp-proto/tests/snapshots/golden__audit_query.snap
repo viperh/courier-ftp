@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "before": 100,
+  "limit": 50
+}

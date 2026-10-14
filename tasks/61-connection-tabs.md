@@ -19,9 +19,26 @@ remote panes, log and settings (sync browsing, comparison, filters).
 
 ## Acceptance criteria
 
-- [ ] Two tabs connected to different servers browse independently.
-- [ ] Closing a connected tab disconnects only that tab's browsing session.
-- [ ] Snapshot tests of tab bar states and overflow.
+- [x] Two tabs connected to different servers browse independently.
+- [x] Closing a connected tab disconnects only that tab's browsing session.
+- [x] Snapshot tests of tab bar states and overflow.
+
+**Status (T61):** done. The current tab's state stays where it was (`App::remote`,
+`App::last_connect`, the screen's panes); other tabs are parked in `app/tabs.rs`
+and swapped in when shown (`MainScreen::swap_tab`). Late listings and connects
+are routed by session id (remote) or tab id (local) and applied to a background
+tab at once; what they ask for next runs when the tab is shown; results for a
+closed tab are dropped. Keys: `Ctrl-t` new, `Ctrl-w` close, `Alt-1`…`Alt-9`,
+`Ctrl-PgUp`/`Ctrl-PgDn` (and `gt`/`gT` in lists) switch, `<Ctrl-x><R>` rename,
+`<Ctrl-x><T>` duplicate. Connecting while connected asks (new tab / this tab,
+"Remember my choice" → new setting `interface.connect_in_tab`); the Site
+Manager has a *New tab* button. `interface.restore_tabs` (default off) saves the
+tabs as the device blob `tabs` when quitting and reopens them after the first
+unlock (sites reconnect with their credentials, quickconnect servers ask for the
+password again). The message log hides the other tabs' connections (`t` in the
+log shows all). T45 "Disconnect" and `vault.lock_disconnects` close every tab's
+connection. Launch intents (URL/site on the command line) are left to T70,
+which isn't built yet.
 
 ## Tests
 

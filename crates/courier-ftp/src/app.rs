@@ -1,25 +1,38 @@
 use courier_ftp_core::{
-    backend::Backend,
+    backend::{Backend, BackendFactory, ConnectInfo, Listing, SessionHandle},
     cache::ListingCache,
     events::{self, EventReceiver, EventSender, LogKind, SessionId},
     local::LocalBackend,
-    model::RemotePath,
+    model::{RemotePath, ServerAddress, item::ItemId},
+    settings::{LoggingSettings, Settings},
+    sites::{History, HistoryEntry},
 };
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{
-    action::Action,
+    action::{Action, ConnectRequest, ConnectTarget, Connected, Shared},
+    backends::Backends,
+    bookmarks::BookmarkOp,
     config::Config,
     keymap::{Feed, KeyBindings, Sequencer},
+    sites::{SiteOp, SitesSlot, Snapshot},
     tui::{Event, Tui},
-    ui::{KeyOutcome, MainScreen, Side, Theme},
+    ui::{
+        KeyOutcome, MainScreen, Side, Theme, VaultFacts, VaultRequest, VaultView,
+        bookmarks::{BookmarksMenu, MenuContext},
+        site_manager::{SiteManagerView, ViewOpts, site_paths, site_picker},
+    },
+    vault::{Phase, Vault, VaultMsg},
 };
 
 /// The application: the event loop that ties the terminal, the
@@ -45,6 +58,110 @@ pub(crate) struct App {
     local_session: SessionId,
     /// Directory listings, shared by every pane (T46).
     cache: ListingCache,
+    settings: Settings,
+    /// Creates a backend for each connection (T03).
+    backends: Arc<dyn BackendFactory>,
+    /// The remote pane's connection.
+    remote: Option<Remote>,
+    /// The last connection of this run, without its password, for
+    /// [`Action::Reconnect`].
+    last_connect: Option<ConnectRequest>,
+    /// The vault (T60); `None` in tests that don't need one.
+    vault: Option<Vault>,
+    vault_tx: mpsc::UnboundedSender<VaultMsg>,
+    vault_rx: mpsc::UnboundedReceiver<VaultMsg>,
+    /// The quickconnect history (T33); `None` while the vault is locked.
+    history: Option<History>,
+    /// The Site Manager's data (T59): loaded after unlock, dropped on lock.
+    sites: SitesSlot,
+    /// The last tree the Site Manager loaded, for the screen and the site
+    /// picker; `None` while locked or loading.
+    site_snapshot: Option<Snapshot>,
+    /// The Site Manager's vault roots (T90): empty without team vaults.
+    vault_roots: Vec<crate::sites::VaultRoot>,
+    /// Session log file and raw listings (T71).
+    diag: crate::diagnostics::Diagnostics,
+    /// Where `config.json` is saved (empty in tests: nothing is saved).
+    config_dir: std::path::PathBuf,
+    /// The transfer queue, engine and persister (T56).
+    transfers: crate::transfers::Transfers,
+    /// The production backends, told about new settings (T68); `None` in
+    /// tests with a mock server.
+    net: Option<Arc<Backends>>,
+    /// The last search started (T65), running or finished: what its
+    /// result actions need.
+    search: Option<search::SearchRun>,
+    /// The update check (T74); `None` in tests that don't set one, so they
+    /// never touch the network.
+    update: Option<crate::update::Hook>,
+    /// `--no-update-check` or `COURIER_FTP_NO_UPDATE_CHECK`.
+    update_opt_out: bool,
+    /// Stops the update check when the app quits.
+    update_cancel: CancellationToken,
+    /// The file opened by the settings screen's Import, until the user
+    /// chooses what to import (T73).
+    import_archive: Option<Box<courier_ftp_core::archive::Archive>>,
+    /// The backup opened on the first-run screen, restored once the new
+    /// vault is created (T73, T60).
+    restore_archive: Option<Box<courier_ftp_core::archive::Archive>>,
+    /// File operations in progress (T62).
+    file_ops: file_ops::FileOps,
+    /// The action after the queue finishes (T45).
+    completion: completion::Completion,
+    /// The connection tabs (T61). The current tab's connection is
+    /// [`App::remote`] and its panes are the screen's; the others are parked
+    /// here.
+    tabs: tabs::Tabs,
+    /// Files being viewed or edited externally (T63).
+    edits: edit::Edits,
+    /// What the command line asked for at start (T70).
+    launch: launch::Pending,
+    /// `--no-keyring`: no silent keyring unlock this run.
+    no_keyring: bool,
+}
+
+/// A tab's connection.
+struct Remote {
+    session: SessionId,
+    info: ConnectInfo,
+    handle: Arc<SessionHandle>,
+    /// Cancels the connection attempt, its prompts and running listings.
+    cancel: CancellationToken,
+    /// Whether `connect` finished; listings wait for it.
+    connected: bool,
+    /// Turn synchronized browsing / directory comparison on once connected.
+    sync_browsing: bool,
+    compare: bool,
+    /// The login to add to the quickconnect history once connected (with
+    /// the typed password; the vault drops it unless
+    /// `vault.store_passwords`).
+    record: Option<ConnectInfo>,
+    /// The Site Manager entry connected to (`None`: quickconnect).
+    site: Option<ItemId>,
+    /// The remote directory the connection was asked to start in (kept in
+    /// the history and by "Save as site").
+    start_dir: Option<courier_ftp_core::model::RemotePath>,
+    /// What the backend supports, once connected.
+    capabilities: Option<courier_ftp_core::backend::Capabilities>,
+}
+
+/// `alice@host` (with the port when it isn't the protocol's default), for
+/// titles and dialogs.
+fn server_label(a: &ServerAddress) -> String {
+    let mut out = String::new();
+    if let Some(user) = &a.user {
+        out.push_str(user);
+        out.push('@');
+    }
+    if a.host.contains(':') {
+        out.push_str(&format!("[{}]", a.host));
+    } else {
+        out.push_str(&a.host);
+    }
+    if a.port != a.default_port() {
+        out.push_str(&format!(":{}", a.port));
+    }
+    out
 }
 
 /// Input modes. Keybindings and styles in `config/default.json` are keyed by
@@ -76,12 +193,81 @@ impl Mode {
 }
 
 impl App {
-    pub(crate) fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
+    /// The production app. `no_vault` (`--no-vault`): no vault this run,
+    /// quickconnect only and nothing saved in it.
+    pub(crate) fn new(tick_rate: f64, frame_rate: f64, no_vault: bool) -> color_eyre::Result<Self> {
         let config = Config::new()?;
+        let backends = Backends::new(&config.settings);
+        // Kept before the factory moves into the app: the vault swaps the
+        // host key store and clears the credential cache.
+        let host_keys = Arc::clone(&backends.host_keys);
+        let credentials = backends.credentials.clone();
+        let certs = Arc::clone(&backends.certs);
+        let ftp = backends.ftp.clone();
+        let proxy_password = match &config.settings.proxy.ftp_proxy {
+            courier_ftp_core::settings::FtpProxy::None => None,
+            courier_ftp_core::settings::FtpProxy::UserAtHost(p)
+            | courier_ftp_core::settings::FtpProxy::Site(p)
+            | courier_ftp_core::settings::FtpProxy::Open(p)
+            | courier_ftp_core::settings::FtpProxy::Custom { server: p, .. } => {
+                p.password_ref.clone()
+            }
+        };
+        let backends = Arc::new(backends);
+        let mut app = Self::with_backends(config, backends.clone(), tick_rate, frame_rate);
+        app.net = Some(backends);
+        app.update = Some(crate::update::Hook::github(crate::config::get_data_dir()));
+        app.edits = edit::Edits::from_environment();
+        if no_vault {
+            return Ok(app);
+        }
+        let opener = crate::vault::opener(crate::config::get_data_dir());
+        let mut app = app.with_vault(opener, host_keys, credentials);
+        if let Some(vault) = app.vault.as_mut() {
+            vault.set_ftp(certs, ftp, proxy_password);
+        }
+        Ok(app)
+    }
+
+    /// Give the app a vault: it starts locked, the panes covered by the
+    /// vault view until the vault is unlocked or skipped.
+    pub(crate) fn with_vault(
+        mut self,
+        opener: crate::vault::VaultOpener,
+        host_keys: Arc<courier_ftp_core::trust::HostKeyStoreSlot>,
+        credentials: courier_ftp_proto_sftp::ssh::CredentialCache,
+    ) -> Self {
+        self.vault = Some(Vault::new(
+            opener,
+            host_keys,
+            credentials,
+            &self.settings.vault,
+            self.vault_tx.clone(),
+        ));
+        #[cfg(feature = "sync")]
+        if let Some(vault) = self.vault.as_mut() {
+            vault.sync = Some(crate::sync::SyncCtl::new(
+                self.action_tx.clone(),
+                &self.settings,
+            ));
+        }
+        let unicode = crate::ui::unicode_symbols(&self.settings);
+        self.screen.set_vault_view(VaultView::opening(unicode));
+        self.screen.set_vault_locked(true);
+        self
+    }
+
+    /// An app using `backends` for connections (tests pass a mock server).
+    pub(crate) fn with_backends(
+        config: Config,
+        backends: Arc<dyn BackendFactory>,
+        tick_rate: f64,
+        frame_rate: f64,
+    ) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let (events_tx, events_rx) = events::channel(config.settings.logging.level);
-        events_tx.set_raw_listing(config.settings.logging.show_raw_listing);
-        let theme = Theme::new(
+        let theme = Theme::with_scheme(
+            config.settings.interface.color_scheme,
             config.styles.0.get(&Mode::Normal),
             Theme::no_color_requested(),
         );
@@ -95,7 +281,17 @@ impl App {
         }
         let mut screen = MainScreen::new(config.clone(), theme);
         screen.set_action_tx(action_tx.clone());
-        Ok(Self {
+        let (vault_tx, vault_rx) = mpsc::unbounded_channel();
+        let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+        let transfers = crate::transfers::Transfers::start(
+            screen.queue_shared().clone(),
+            Arc::clone(&backends),
+            events_tx.clone(),
+            cache.clone(),
+            &config.settings,
+        );
+        screen.set_engine_status(transfers.engine.watch_status());
+        let mut app = Self {
             keybindings: config.keybindings.clone(),
             tick_rate,
             frame_rate,
@@ -109,7 +305,69 @@ impl App {
             events_rx,
             local_session,
             cache,
-        })
+            settings: config.settings.clone(),
+            backends,
+            remote: None,
+            last_connect: None,
+            vault: None,
+            vault_tx,
+            vault_rx,
+            history: None,
+            sites: Arc::new(tokio::sync::Mutex::new(None)),
+            site_snapshot: None,
+            vault_roots: Vec::new(),
+            diag: crate::diagnostics::Diagnostics::new(offset),
+            config_dir: config.config.config_dir.clone(),
+            transfers,
+            net: None,
+            search: None,
+            update: None,
+            update_opt_out: false,
+            update_cancel: CancellationToken::new(),
+            import_archive: None,
+            restore_archive: None,
+            file_ops: file_ops::FileOps::default(),
+            completion: completion::Completion::default(),
+            tabs: tabs::Tabs::default(),
+            edits: edit::Edits::default(),
+            launch: launch::Pending::default(),
+            no_keyring: false,
+        };
+        app.apply_logging(&config.settings.logging);
+        app
+    }
+
+    /// Apply the `logging.*` settings (at start, and when the settings
+    /// screen changes them, T68): debug level, raw listings, session log.
+    pub(crate) fn apply_logging(&mut self, logging: &LoggingSettings) {
+        self.events_tx.set_log_level(logging.level);
+        self.events_tx.set_raw_listing(logging.show_raw_listing);
+        if let Some(problem) = self.diag.apply(logging, &crate::config::get_data_dir()) {
+            self.events_tx
+                .log(self.local_session, LogKind::Error, problem);
+        }
+        self.settings.logging = logging.clone();
+    }
+
+    /// `--debug-level`: this run's debug level (0–4), not saved.
+    pub(crate) fn set_debug_level(&mut self, level: u8) {
+        let mut logging = self.settings.logging.clone();
+        logging.level = level.min(4);
+        self.apply_logging(&logging);
+    }
+
+    /// `--log-file`: write the message log to `path` this run (not saved).
+    pub(crate) fn set_log_file(&mut self, path: std::path::PathBuf) {
+        let mut logging = self.settings.logging.clone();
+        logging.log_to_file = true;
+        logging.log_file = Some(path);
+        self.apply_logging(&logging);
+    }
+
+    /// A status line in the message log (startup warnings).
+    pub(crate) fn log_status(&self, text: &str) {
+        self.events_tx
+            .log(self.local_session, LogKind::Status, text);
     }
 
     pub(crate) async fn run(&mut self) -> color_eyre::Result<()> {
@@ -123,7 +381,12 @@ impl App {
             LogKind::Status,
             format!("courier-ftp {} ready", env!("CARGO_PKG_VERSION")),
         );
-        self.list(Side::Local, None, false);
+        if self.settings.interface.show_splash {
+            self.screen
+                .show_splash(env!("CARGO_PKG_VERSION"), Instant::now());
+        }
+        self.begin();
+        self.start_update_check();
 
         loop {
             tokio::select! {
@@ -134,7 +397,8 @@ impl App {
                 Some(action) = self.action_rx.recv() => {
                     self.handle_action(&mut tui, action)?;
                 }
-                Some(event) = self.events_rx.recv() => self.screen.handle_core(event),
+                Some(event) = self.events_rx.recv() => self.core_event(event),
+                Some(msg) = self.vault_rx.recv() => self.vault_message(msg),
             }
             while let Ok(action) = self.action_rx.try_recv() {
                 self.handle_action(&mut tui, action)?;
@@ -150,6 +414,13 @@ impl App {
             }
         }
         tui.exit()?;
+        self.save_tabs().await;
+        self.cleanup_edits();
+        self.update_cancel.cancel();
+        self.transfers.shutdown().await;
+        if let Some(log) = self.diag.session_log() {
+            log.flush_timeout(Duration::from_secs(1));
+        }
         Ok(())
     }
 
@@ -171,8 +442,16 @@ impl App {
     /// doesn't take goes through the sequence matcher and the keymap of the
     /// current mode.
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
+        if let Some(vault) = &mut self.vault {
+            vault.on_input();
+        }
         if self.screen.handle_key(key) == KeyOutcome::Consumed {
             self.sequencer.reset();
+            for request in self.screen.take_vault_requests() {
+                self.vault_request(request);
+            }
+            #[cfg(feature = "sync")]
+            self.drain_sync_requests();
             for next in self.screen.take_actions() {
                 self.action_tx.send(next)?;
             }
@@ -183,7 +462,7 @@ impl App {
                 .feed(&self.keybindings, mode, key, Instant::now())
             {
                 Feed::Action(action) => {
-                    info!("Got action: {action:?}");
+                    debug!("Got action: {action:?}");
                     self.action_tx.send(action)?;
                 }
                 Feed::Pending | Feed::Unbound => {}
@@ -195,36 +474,259 @@ impl App {
     }
 
     fn handle_action(&mut self, tui: &mut Tui, action: Action) -> color_eyre::Result<()> {
-        if !matches!(action, Action::Tick | Action::Render) {
-            debug!("{action}");
+        if let Action::RunForeground(job) = &action {
+            return self.run_in_terminal(tui, &job.0);
         }
         match &action {
-            Action::Tick => {
-                self.sequencer.expire(Instant::now());
-                self.screen
-                    .set_pending_keys(self.sequencer.pending_display());
-            }
-            // No transfers exist yet, so nothing needs confirming (T41 adds the
-            // "transfers are running, quit anyway?" dialog).
-            Action::Quit => self.should_quit = true,
-            Action::Suspend => self.should_suspend = true,
-            Action::Resume => self.should_suspend = false,
-            Action::ClearScreen => tui.terminal.clear()?,
+            Action::ClearScreen => tui.force_redraw()?,
             Action::Resize(w, h) => {
                 tui.resize(Rect::new(0, 0, *w, *h))?;
                 self.render(tui)?;
             }
             Action::Render => self.render(tui)?,
-            Action::ListDir { side, dir, force } => {
-                self.list(*side, Some(dir.clone()), *force);
+            _ => {}
+        }
+        self.dispatch(action)
+    }
+
+    /// Apply an action that doesn't need the terminal.
+    fn dispatch(&mut self, action: Action) -> color_eyre::Result<()> {
+        if !matches!(action, Action::Tick | Action::Render) {
+            debug!("{action}");
+        }
+        self.transfer_action(&action);
+        self.file_op_action(&action);
+        self.completion_action(&action);
+        self.tab_action(&action);
+        self.edit_action(&action);
+        self.launch_action(&action);
+        match &action {
+            Action::Tick => {
+                self.expire_splash(Instant::now());
+                self.sequencer.expire(Instant::now());
+                self.screen
+                    .set_pending_keys(self.sequencer.pending_display());
+                if let Some(reason) = self.vault.as_mut().and_then(Vault::tick) {
+                    self.lock_vault(Some(reason));
+                }
             }
+            Action::LockVault => match self.vault.as_ref().map(|v| v.phase) {
+                None => self.screen.flash("No vault"),
+                Some(Phase::Unlocked) => self.lock_vault(None),
+                Some(Phase::Opening) => {}
+                Some(_) => self.screen.show_vault(true),
+            },
+            Action::UnlockVault => match self.vault.as_ref().map(|v| v.phase) {
+                None => self.screen.flash("No vault"),
+                Some(Phase::Unlocked) => self.screen.flash("The vault is already unlocked"),
+                Some(_) => self.screen.show_vault(true),
+            },
+            Action::SiteManager | Action::Bookmarks | Action::SitePicker | Action::SaveAsSite
+                if self
+                    .vault
+                    .as_ref()
+                    .is_some_and(|v| v.phase != Phase::Unlocked) =>
+            {
+                if matches!(action, Action::SiteManager) {
+                    // "Unlock the vault to view sites" stays if the user
+                    // says no (T59 §7).
+                    self.screen
+                        .open_site_manager(SiteManagerView::locked(self.site_view_opts()));
+                }
+                if matches!(action, Action::Bookmarks) {
+                    // Bookmarks hidden; the menu offers to unlock (T64 §5).
+                    self.screen
+                        .open_bookmarks(BookmarksMenu::locked(self.bookmark_context()));
+                }
+                self.offer_unlock(match action {
+                    Action::SiteManager => "the Site Manager",
+                    Action::Bookmarks => "bookmarks",
+                    _ => "saved sites",
+                });
+            }
+            Action::SiteManager => self.open_site_manager(None),
+            #[cfg(feature = "sync")]
+            Action::SyncPanel => self.open_sync_panel(),
+            #[cfg(not(feature = "sync"))]
+            Action::SyncPanel => self
+                .screen
+                .flash("This build of courier-ftp has no sync support"),
+            #[cfg(feature = "sync")]
+            Action::Sync(msg) => {
+                if let Some(msg) = msg.0.take() {
+                    self.sync_message(msg);
+                }
+            }
+            Action::Bookmarks => self.open_bookmarks(),
+            Action::BookmarkOp(op) => self.bookmark_op((*op.0).clone()),
+            Action::BookmarksReply(reply) => {
+                if let Some(snapshot) = &reply.0.sites {
+                    self.site_snapshot = Some(snapshot.clone());
+                }
+            }
+            Action::UpdateAvailable(info) => self.update_available(info),
+            Action::Settings => self.open_settings(),
+            Action::SettingsRequest(request) => self.settings_request(&request.0),
+            Action::SearchRequest(request) => self.search_request(&request.0),
+            Action::SearchUpdate { run, update } => self.search_update(*run, &update.0),
+            Action::Archive(msg) => self.archive_message(&msg.0),
+            Action::SaveAsSite => self.save_as_site(),
+            Action::SitePicker => self.site_picker(),
+            Action::SiteOp(op) => self.site_op((*op.0).clone()),
+            Action::SitesReply(reply) => {
+                if let Some(snapshot) = &reply.0.snapshot {
+                    self.site_snapshot = Some(snapshot.clone());
+                }
+                // A menu opened while the sites loaded reads the bookmarks
+                // now (or reports why it can't).
+                if let Some(menu) = self.screen.bookmarks_mut() {
+                    menu.sites_ready();
+                    for op in menu.take_requests() {
+                        self.bookmark_op(op);
+                    }
+                }
+            }
+            Action::Quit => self.request_quit(),
+            Action::QuitNow => self.should_quit = true,
+            Action::Suspend => self.should_suspend = true,
+            Action::Resume => self.should_suspend = false,
+            Action::Connect { request, target } => {
+                self.connect((**request).clone(), *target);
+            }
+            Action::Connected { session, result } => {
+                // A late result for a closed tab (or a replaced attempt) is
+                // dropped.
+                if let Some(i) = self.tab_of_session(*session) {
+                    self.with_tab(i, |app| app.connected(*session, result));
+                }
+            }
+            Action::RemoteListingLoaded {
+                session,
+                dir,
+                tree,
+                result,
+            } => {
+                if let Some(i) = self.tab_of_session(*session) {
+                    self.deliver_to_tab(
+                        i,
+                        if *tree {
+                            Action::TreeListingLoaded {
+                                side: Side::Remote,
+                                dir: dir.clone(),
+                                result: result.clone(),
+                            }
+                        } else {
+                            Action::ListingLoaded {
+                                side: Side::Remote,
+                                result: result.clone(),
+                            }
+                        },
+                    );
+                }
+            }
+            Action::LocalListingLoaded {
+                tab,
+                tree_dir,
+                result,
+            } => {
+                if let Some(i) = self.tab_index(*tab) {
+                    self.deliver_to_tab(
+                        i,
+                        match tree_dir {
+                            Some(dir) => Action::TreeListingLoaded {
+                                side: Side::Local,
+                                dir: dir.clone(),
+                                result: result.clone(),
+                            },
+                            None => Action::ListingLoaded {
+                                side: Side::Local,
+                                result: result.clone(),
+                            },
+                        },
+                    );
+                }
+            }
+            Action::Disconnect => {
+                if self.remote.is_some() {
+                    self.disconnect();
+                } else {
+                    self.screen.flash("Not connected");
+                }
+            }
+            Action::Reconnect => match self.last_connect.clone().or_else(|| {
+                // Nothing this run: the most recent history entry.
+                let history = self.screen.quickconnect_mut().history()?;
+                history.first().map(|item| item.request.clone())
+            }) {
+                // A site: its saved credentials, read again.
+                Some(ConnectRequest { site: Some(id), .. }) => {
+                    self.connect_site(id, ConnectTarget::Current);
+                }
+                Some(request) => self.start_connect(request),
+                None => self.screen.flash("No server to reconnect to"),
+            },
+            Action::QuickconnectHistory => self.show_history(),
+            Action::HistoryPicked(request) => {
+                self.screen.quickconnect_mut().fill(request);
+                self.connect((**request).clone(), ConnectTarget::Ask);
+            }
+            Action::ClearHistory => self.clear_history(),
+            Action::HistoryLoaded(items) => {
+                if self.history.is_some() {
+                    self.screen
+                        .quickconnect_mut()
+                        .set_history(Some(items.clone()));
+                }
+            }
+            Action::ListDir { side, dir, force } => {
+                self.list(*side, Some(dir.clone()), *force, false);
+            }
+            Action::TreeListDir { side, dir } => self.list(*side, Some(dir.clone()), false, true),
             Action::CopyToClipboard(text) => {
                 if let Err(e) = crate::clipboard::copy(text) {
                     tracing::warn!("clipboard: {e}");
                 }
             }
+            Action::ListingLoaded {
+                side,
+                result: Ok(listing),
+            } => self.diag.listing_shown(*side, listing),
+            Action::ShowRawListing => match self.diag.raw_listing_viewer(self.screen.active_side())
+            {
+                Ok(viewer) => self.screen.push_modal(Box::new(viewer)),
+                Err(why) => self.screen.flash(why),
+            },
+            Action::SaveLogText(text) => {
+                let suggested = crate::diagnostics::default_save_path(
+                    &crate::config::get_data_dir(),
+                    time::OffsetDateTime::now_utc(),
+                );
+                let modal = crate::diagnostics::save_log_dialog(
+                    text.clone(),
+                    &suggested,
+                    self.action_tx.clone(),
+                );
+                self.screen.push_modal(modal);
+            }
+            Action::LogSaved { path, result } => {
+                let (kind, text) = match result {
+                    Ok(()) => (LogKind::Status, format!("Log saved to {}", path.display())),
+                    Err(e) => (
+                        LogKind::Error,
+                        format!("Could not save the log to {}: {e}", path.display()),
+                    ),
+                };
+                self.events_tx.log(self.local_session, kind, text.clone());
+                self.screen.flash(&text);
+            }
+            Action::SetFilters(filters) => {
+                self.settings.filters = (**filters).clone();
+                self.transfers.filters_changed(&self.settings);
+                self.save_settings();
+            }
             Action::Error(err) => {
-                tracing::error!(?err);
+                // Errors name paths and hosts: debug only (T91 §4).
+                tracing::debug!(error = %err, "action failed");
                 self.events_tx
                     .log(self.local_session, LogKind::Error, err.clone());
             }
@@ -236,22 +738,47 @@ impl App {
         for next in self.screen.take_actions() {
             self.action_tx.send(next)?;
         }
+        self.refresh_tabs();
         Ok(())
     }
 
-    /// List `dir` (the home directory when `None`) in the background, through
-    /// the listing cache unless `force`; the pane shows a spinner until
-    /// [`Action::ListingLoaded`] arrives.
-    fn list(&mut self, side: Side, dir: Option<RemotePath>, force: bool) {
-        if side == Side::Remote {
-            return; // remote sessions arrive with T14/T22 and T58/T61
+    /// Write the settings that differ from the defaults to `config.json`
+    /// (T05 `save_user`); a failure goes to the message log.
+    fn save_settings(&mut self) {
+        if self.config_dir.as_os_str().is_empty() {
+            return;
         }
-        self.screen.pane_mut(side).busy = true;
+        if let Err(e) = self.settings.save_user(&self.config_dir) {
+            tracing::debug!(error = %e, "saving the settings failed");
+            self.events_tx.log(
+                self.local_session,
+                LogKind::Error,
+                format!("Could not save the settings: {e}"),
+            );
+        }
+    }
+
+    /// List `dir` (the home directory when `None`) in the background, through
+    /// the listing cache unless `force`. For the file list (the pane shows a
+    /// spinner until [`Action::ListingLoaded`] arrives) or, with `tree`, for
+    /// the directory tree ([`Action::TreeListingLoaded`]).
+    fn list(&mut self, side: Side, dir: Option<RemotePath>, force: bool, tree: bool) {
+        if side == Side::Remote {
+            if let Some(dir) = dir {
+                self.list_remote(dir, force, tree);
+            }
+            return;
+        }
+        if !tree {
+            self.screen.pane_mut(side).busy = true;
+        }
         let tx = self.action_tx.clone();
         let cache = self.cache.clone();
+        let tab = self.tabs.current_id();
         tokio::spawn(async move {
             let mut backend = LocalBackend::new();
             let cancel = CancellationToken::new();
+            let requested = dir.clone();
             let result = async {
                 backend.connect(cancel.clone()).await?;
                 let dir = match dir {
@@ -262,7 +789,776 @@ impl App {
             }
             .await
             .map_err(|e| e.to_string());
-            let _ = tx.send(Action::ListingLoaded { side, result });
+            let _ = tx.send(Action::LocalListingLoaded {
+                tab,
+                tree_dir: requested.filter(|_| tree),
+                result,
+            });
+        });
+    }
+
+    fn current_session(&self) -> Option<SessionId> {
+        self.remote.as_ref().map(|r| r.session)
+    }
+
+    /// List `dir` on the remote connection, through the cache unless
+    /// `force`, for the file list or (with `tree`) the directory tree.
+    fn list_remote(&mut self, dir: RemotePath, force: bool, tree: bool) {
+        let Some(remote) = self.remote.as_ref().filter(|r| r.connected) else {
+            if tree {
+                self.screen
+                    .tree_mut(Side::Remote)
+                    .loaded(&dir, &Err("Not connected".to_owned()));
+            } else {
+                self.screen.pane_mut(Side::Remote).busy = false;
+            }
+            return;
+        };
+        let session = remote.session;
+        let handle = Arc::clone(&remote.handle);
+        let cancel = remote.cancel.clone();
+        let server = remote.info.address.clone();
+        let cache = self.cache.clone();
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let result = match cache.get(Some(&server), &dir).filter(|_| !force) {
+                Some(hit) => Ok(hit),
+                None => handle
+                    .list(&dir, &cancel)
+                    .await
+                    .inspect(|listing| cache.put(Some(&server), listing.clone())),
+            }
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Action::RemoteListingLoaded {
+                session,
+                dir,
+                tree,
+                result,
+            });
+        });
+    }
+
+    /// Something from the core's event bus. A patched cached listing (T46)
+    /// also refreshes the directory tree of its side.
+    pub(crate) fn core_event(&mut self, event: events::CoreEvent) {
+        if let events::CoreEvent::Log(msg) = &event {
+            self.diag.record(msg);
+        }
+        if let events::CoreEvent::ListingUpdated { session, dir } = &event {
+            let side = match self.tab_of_session(*session) {
+                // A background tab catches up from the cache when shown.
+                Some(i) if i != self.tabs.active => None,
+                Some(_) => Some(Side::Remote),
+                None => Some(Side::Local),
+            };
+            if let Some(side) = side {
+                self.screen.tree_mut(side).invalidate(dir);
+                self.listing_patched(side, dir);
+            }
+        }
+        self.file_op_event(&event);
+        self.transfer_event(&event);
+        self.screen.handle_core(event);
+    }
+
+    /// Close any connection and open one for `request` in the background;
+    /// [`Action::Connected`] reports the result.
+    fn start_connect(&mut self, request: ConnectRequest) {
+        if self.remote.is_some() {
+            self.disconnect();
+        }
+        if let Some(dir) = request.local_dir.clone() {
+            self.list(Side::Local, Some(dir), false, false);
+        }
+        let session = SessionId::next();
+        self.tabs.connecting(session);
+        let c = &self.settings.connection;
+        let keepalive = c
+            .keepalive
+            .then(|| Duration::from_secs(c.keepalive_interval_secs.max(1)));
+        self.transfers.resolver.remember(&request.info);
+        let backend = self
+            .backends
+            .create(&request.info, session, self.events_tx.clone());
+        let handle = Arc::new(SessionHandle::new(backend, keepalive));
+        let cancel = CancellationToken::new();
+        self.remote = Some(Remote {
+            session,
+            info: request.info.clone(),
+            handle: Arc::clone(&handle),
+            cancel: cancel.clone(),
+            connected: false,
+            sync_browsing: request.sync_browsing,
+            compare: request.compare,
+            // Sites are not quickconnect history.
+            record: request.site.is_none().then(|| request.info.clone()),
+            site: request.site,
+            start_dir: request.path.clone(),
+            capabilities: None,
+        });
+        self.last_connect = Some(request.without_password());
+        self.screen
+            .remote_connecting(server_label(&request.info.address));
+
+        let tx = self.action_tx.clone();
+        let events = self.events_tx.clone();
+        let cache = self.cache.clone();
+        let server = request.info.address.clone();
+        let start = request.path;
+        tokio::spawn(async move {
+            let result = async {
+                handle.connect(cancel.clone()).await?;
+                let (info, capabilities) = {
+                    let backend = handle.lock().await;
+                    (backend.session_info(), backend.capabilities())
+                };
+                let listing = match start {
+                    Some(dir) => match handle.list(&dir, &cancel).await {
+                        Ok(listing) => listing,
+                        Err(e) => {
+                            events.log(session, LogKind::Error, format!("{dir}: {e}"));
+                            first_listing(&handle, &cancel).await?
+                        }
+                    },
+                    None => first_listing(&handle, &cancel).await?,
+                };
+                cache.put(Some(&server), listing.clone());
+                Ok::<_, courier_ftp_core::Error>(Box::new(Connected {
+                    info,
+                    listing,
+                    capabilities,
+                }))
+            }
+            .await
+            .map_err(|e| e.to_string());
+            let _ = tx.send(Action::Connected { session, result });
+        });
+    }
+
+    /// A connection attempt finished; results of replaced attempts are
+    /// dropped.
+    fn connected(&mut self, session: SessionId, result: &Result<Box<Connected>, String>) {
+        let Some(remote) = self.remote.as_mut().filter(|r| r.session == session) else {
+            return;
+        };
+        match result {
+            Ok(connected) => {
+                remote.connected = true;
+                remote.capabilities = Some(connected.capabilities);
+                let (sync, compare) = (remote.sync_browsing, remote.compare);
+                let case_sensitive = courier_ftp_core::compare::names_case_sensitive(
+                    remote.info.server_type.unwrap_or_default(),
+                    courier_ftp_core::model::item::ServerType::default(),
+                );
+                self.diag.listing_shown(Side::Remote, &connected.listing);
+                let record = remote.record.take();
+                let start_dir = remote.start_dir.clone();
+                let site = remote.site;
+                self.screen.remote_connected(connected);
+                self.screen.connected_view(sync, compare, case_sensitive);
+                if let Some(info) = record {
+                    self.record_history(info, start_dir);
+                }
+                if let Some(id) = site {
+                    let slot = Arc::clone(&self.sites);
+                    tokio::spawn(async move { crate::sites::record_connected(&slot, id).await });
+                }
+            }
+            Err(e) => {
+                self.tabs.failed();
+                let label = server_label(&remote.info.address);
+                self.events_tx.log(
+                    session,
+                    LogKind::Error,
+                    format!("Could not connect to {label}"),
+                );
+                self.remote = None;
+                self.screen.remote_disconnected(Some(e.clone()));
+            }
+        }
+    }
+
+    /// Close the remote connection (in the background) and empty the pane.
+    fn disconnect(&mut self) {
+        let Some(remote) = self.remote.take() else {
+            return;
+        };
+        remote.cancel.cancel();
+        self.diag.forget(Side::Remote);
+        self.cache.clear_server(Some(&remote.info.address));
+        self.events_tx.log(
+            remote.session,
+            LogKind::Status,
+            format!("Disconnected from {}", server_label(&remote.info.address)),
+        );
+        let handle = remote.handle;
+        tokio::spawn(async move {
+            let _ = handle.disconnect().await;
+        });
+        self.screen.remote_disconnected(None);
+    }
+
+    /// Add a successful quickconnect login to the history (vault unlocked
+    /// only), then reload the dropdown.
+    fn record_history(
+        &mut self,
+        info: ConnectInfo,
+        start_dir: Option<courier_ftp_core::model::RemotePath>,
+    ) {
+        let Some(history) = self.history.clone() else {
+            return;
+        };
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = history.record_in(&info, start_dir.as_ref()).await {
+                debug!(error = %e, "quickconnect history not saved");
+            }
+            load_history(&history, &tx).await;
+        });
+    }
+
+    /// The `[▾]` button: pick a history entry or clear the history.
+    fn show_history(&mut self) {
+        let Some(items) = self.screen.quickconnect_mut().history().map(<[_]>::to_vec) else {
+            self.screen.flash(
+                "The connection history is kept in the vault: unlock it (<Ctrl-x><u>) to see it",
+            );
+            return;
+        };
+        if items.is_empty() {
+            self.screen.flash("No connection history yet");
+            return;
+        }
+        let mut options: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
+        options.push("Clear history".to_owned());
+        let (modal, rx) = crate::ui::dialog::choose("Connection history", options);
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(Some(i)) = rx.await {
+                let _ = tx.send(match items.get(i) {
+                    Some(item) => Action::HistoryPicked(Box::new(item.request.clone())),
+                    None => Action::ClearHistory,
+                });
+            }
+        });
+    }
+
+    /// "Clear history" in the history dropdown.
+    fn clear_history(&mut self) {
+        let Some(history) = self.history.clone() else {
+            return;
+        };
+        let tx = self.action_tx.clone();
+        let events = self.events_tx.clone();
+        let session = self.local_session;
+        tokio::spawn(async move {
+            match history.clear().await {
+                Ok(_) => events.log(session, LogKind::Status, "Connection history cleared"),
+                Err(e) => events.log(
+                    session,
+                    LogKind::Error,
+                    format!("Could not clear the connection history: {e}"),
+                ),
+            }
+            load_history(&history, &tx).await;
+        });
+    }
+
+    /// Open the vault database (at start).
+    pub(crate) fn start_vault(&mut self) {
+        if let Some(vault) = &mut self.vault {
+            vault.open(false);
+        }
+    }
+
+    fn vault_facts(&mut self) -> VaultFacts {
+        self.screen
+            .vault_view_mut()
+            .map(|v| v.facts())
+            .unwrap_or_default()
+    }
+
+    /// The vault view asked for something.
+    fn vault_request(&mut self, request: VaultRequest) {
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        match request {
+            VaultRequest::Create { password, keyring } => vault.create(password, keyring),
+            VaultRequest::Unlock(password) => vault.unlock(password),
+            VaultRequest::Reset(password) => vault.reset_with_keyring(password),
+            VaultRequest::Retry => {
+                vault.open(false);
+                if let Some(view) = self.screen.vault_view_mut() {
+                    view.set_busy(Some("Opening the vault…"));
+                }
+            }
+            VaultRequest::NewVault => vault.open(true),
+            VaultRequest::OpenBackup { path, passphrase } => {
+                self.open_import(crate::archive::Origin::FirstRun, path, Some(passphrase));
+            }
+            VaultRequest::Skip => {
+                self.screen.show_vault(false);
+                self.events_tx.log(
+                    self.local_session,
+                    LogKind::Status,
+                    "Continuing without the vault: quickconnect only, nothing is saved. \
+                     Unlock with <Ctrl-x><u>.",
+                );
+                self.launch_urls();
+                self.launch_sites_unavailable(
+                    "--site needs the vault (unlock with <Ctrl-x><u> to connect)",
+                );
+            }
+            VaultRequest::Quit => self.should_quit = true,
+            #[cfg(feature = "sync")]
+            request @ (VaultRequest::SendRecoveryCode { .. } | VaultRequest::Recover { .. }) => {
+                self.vault_sync_request(request);
+            }
+            #[cfg(not(feature = "sync"))]
+            VaultRequest::SendRecoveryCode { .. } | VaultRequest::Recover { .. } => {}
+        }
+    }
+
+    /// A background vault call finished.
+    pub(crate) fn vault_message(&mut self, msg: VaultMsg) {
+        use courier_ftp_core::vault::VaultState;
+        let now = Instant::now();
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        match msg {
+            VaultMsg::Opened(Ok(opened)) => {
+                let crate::vault::Opened {
+                    engine,
+                    status,
+                    keyring_available,
+                    moved_aside,
+                } = *opened;
+                vault.opened(engine);
+                let facts = VaultFacts {
+                    keyring_enabled: status.keyring_enabled,
+                    keyring_available,
+                    sync_account: status.sync_account,
+                };
+                let keyring_first = status.state == VaultState::Locked
+                    && status.keyring_enabled
+                    && !self.no_keyring;
+                match status.state {
+                    VaultState::Uninitialised => vault.phase = Phase::Uninitialised,
+                    VaultState::Locked => vault.phase = Phase::Locked,
+                    VaultState::Unlocked => vault.on_unlocked(),
+                }
+                if keyring_first {
+                    vault.unlock_with_keyring();
+                }
+                #[cfg(feature = "sync")]
+                if status.sync_account && status.state == VaultState::Locked {
+                    self.sync_recovery_defaults();
+                }
+                if status.state == VaultState::Unlocked {
+                    self.vault_unlocked(None);
+                    return;
+                }
+                let Some(view) = self.screen.vault_view_mut() else {
+                    return;
+                };
+                if status.state == VaultState::Uninitialised {
+                    view.show_create(facts);
+                } else {
+                    view.show_unlock(facts, status.backoff.failures, status.retry_after, now);
+                }
+                view.set_note(
+                    moved_aside.map(|p| format!("The old database was moved to {}.", p.display())),
+                );
+                if keyring_first {
+                    view.set_busy(Some("Unlocking with the system keyring…"));
+                }
+            }
+            VaultMsg::Opened(Err(e)) => {
+                vault.phase = Phase::Unavailable;
+                // The error may name the database path: details at debug (T91 §4).
+                tracing::warn!("vault unavailable");
+                tracing::debug!(error = %e, "vault unavailable");
+                if let Some(view) = self.screen.vault_view_mut() {
+                    view.show_unavailable(e.to_string());
+                }
+            }
+            VaultMsg::Created(result) => match result {
+                Ok(report) => {
+                    vault.on_unlocked();
+                    if let Some(reason) = report.keyring_error {
+                        self.events_tx.log(
+                            self.local_session,
+                            LogKind::Error,
+                            format!("Keyring unlock could not be enabled: {reason}"),
+                        );
+                    }
+                    self.vault_unlocked(Some("Vault created"));
+                    self.restore_after_create();
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_error(Some(e.to_string()));
+                    }
+                }
+            },
+            VaultMsg::Unlocked { keyring, result } => match result {
+                Ok(report) => {
+                    vault.on_unlocked();
+                    if report.undecryptable > 0 {
+                        self.events_tx.log(
+                            self.local_session,
+                            LogKind::Error,
+                            format!(
+                                "{} vault items could not be decrypted and were skipped",
+                                report.undecryptable
+                            ),
+                        );
+                    }
+                    self.vault_unlocked(Some(if keyring {
+                        "Vault unlocked with the system keyring"
+                    } else {
+                        "Vault unlocked"
+                    }));
+                }
+                Err(e) if keyring => {
+                    tracing::info!(error = %e, "keyring unlock failed; asking for the password");
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_busy(None);
+                        view.set_note(Some(format!(
+                            "Keyring unavailable ({e}); enter the master password."
+                        )));
+                    }
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.unlock_failed(&e, now);
+                    }
+                }
+            },
+            VaultMsg::Reset(result) => match result {
+                Ok(_) => {
+                    vault.on_unlocked();
+                    self.vault_unlocked(Some("New master password set; vault unlocked"));
+                }
+                Err(e) => {
+                    if let Some(view) = self.screen.vault_view_mut() {
+                        view.set_error(Some(e.to_string()));
+                    }
+                }
+            },
+        }
+    }
+
+    /// The vault is unlocked: hide the view, update the status bar, load
+    /// the history and the Site Manager.
+    fn vault_unlocked(&mut self, message: Option<&str>) {
+        if let Some(engine) = self.vault.as_ref().and_then(Vault::engine) {
+            let history = History::new(Arc::new(engine.clone()), Arc::new(engine.store().clone()));
+            let tx = self.action_tx.clone();
+            let loader = history.clone();
+            tokio::spawn(async move { load_history(&loader, &tx).await });
+            self.history = Some(history);
+            self.load_sites(engine.clone());
+        }
+        if let Some(view) = self.screen.site_manager_mut()
+            && view.is_locked()
+        {
+            view.unlocked(self.site_snapshot.clone());
+        }
+        self.restore_queue();
+        self.restore_tabs();
+        if let Some(menu) = self.screen.bookmarks_mut() {
+            menu.unlocked();
+        }
+        self.screen.show_vault(false);
+        self.screen.set_vault_locked(false);
+        if let Some(view) = self.screen.vault_view_mut() {
+            view.set_busy(None);
+            view.set_note(None);
+        }
+        if let Some(message) = message {
+            self.events_tx
+                .log(self.local_session, LogKind::Status, message);
+            self.screen.flash(message);
+        }
+        self.launch_urls();
+    }
+
+    /// Lock the vault (`<Ctrl-x><v>` or auto-lock): the unlock view covers
+    /// the panes; with `vault.lock_disconnects` the connection closes too.
+    fn lock_vault(&mut self, reason: Option<courier_ftp_core::vault::LockReason>) {
+        use courier_ftp_core::vault::LockReason;
+        let Some(vault) = &mut self.vault else {
+            return;
+        };
+        vault.lock();
+        #[cfg(feature = "sync")]
+        self.sync_locked();
+        self.transfers.resolver.forget_passwords();
+        self.edits.forget_passwords();
+        self.history = None;
+        self.site_snapshot = None;
+        self.vault_roots.clear();
+        self.screen.close_site_manager();
+        self.screen.close_bookmarks();
+        let slot = Arc::clone(&self.sites);
+        tokio::spawn(async move { *slot.lock().await = None });
+        self.screen.quickconnect_mut().set_history(None);
+        let facts = self.vault_facts();
+        let now = Instant::now();
+        let note = reason.map(|r| match r {
+            LockReason::Idle => format!(
+                "Locked after {} minutes without input.",
+                self.settings.vault.auto_lock_minutes
+            ),
+            LockReason::Suspend => "Locked because the system was suspended.".to_owned(),
+        });
+        if let Some(view) = self.screen.vault_view_mut() {
+            view.show_unlock(facts, 0, None, now);
+            view.set_note(note);
+        }
+        self.screen.show_vault(true);
+        self.screen.set_vault_locked(true);
+        self.events_tx
+            .log(self.local_session, LogKind::Status, "Vault locked");
+        self.screen.flash("Vault locked");
+        if self.settings.vault.lock_disconnects {
+            self.disconnect_all();
+        }
+    }
+
+    /// Site Manager, bookmarks and history need the vault: offer to unlock.
+    fn offer_unlock(&mut self, what: &str) {
+        let (modal, rx) = crate::ui::dialog::confirm(
+            "Vault locked",
+            &format!("The vault is locked. Unlock it to use {what}?"),
+            true,
+        );
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(true) = rx.await {
+                let _ = tx.send(Action::UnlockVault);
+            }
+        });
+    }
+
+    /// Load the Site Manager over the unlocked vault; the tree arrives as
+    /// [`Action::SitesReply`].
+    fn load_sites(&mut self, engine: courier_ftp_store::vault::VaultEngine) {
+        // The team vault roots (T90), next to the tree.
+        #[cfg(feature = "sync")]
+        {
+            let engine = engine.clone();
+            let tx = self.action_tx.clone();
+            tokio::spawn(async move {
+                let roots = crate::sites::vault_roots(&engine).await;
+                let _ = tx.send(crate::sync::action(crate::sync::SyncMsg::VaultRoots(roots)));
+            });
+        }
+        let slot = Arc::clone(&self.sites);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let reply = match crate::sites::load(&engine).await {
+                Ok(sites) => {
+                    let snapshot = crate::sites::snapshot(&sites).await;
+                    *slot.lock().await = Some(sites);
+                    crate::sites::SitesReply {
+                        snapshot: Some(snapshot),
+                        outcome: crate::sites::SiteOutcome::Loaded,
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "sites not loaded");
+                    crate::sites::SitesReply {
+                        snapshot: None,
+                        outcome: crate::sites::SiteOutcome::Failed(format!(
+                            "Could not load the sites: {e}"
+                        )),
+                    }
+                }
+            };
+            let _ = tx.send(Action::SitesReply(Shared::new(reply)));
+        });
+    }
+
+    /// What the Site Manager screen needs from the settings and the system.
+    fn site_view_opts(&self) -> ViewOpts {
+        let home = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+        let appdata = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
+        let candidates =
+            courier_ftp_core::sites::import::filezilla_locations(home.clone(), appdata);
+        let import_default = candidates
+            .iter()
+            .find(|p| p.exists())
+            .or(candidates.first())
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let export_default = home
+            .map(|h| h.join("courier-ftp-sites.json"))
+            .unwrap_or_else(|| std::path::PathBuf::from("courier-ftp-sites.json"))
+            .display()
+            .to_string();
+        ViewOpts {
+            unicode: crate::ui::unicode_symbols(&self.settings),
+            store_passwords: self.settings.vault.store_passwords,
+            import_default,
+            export_default,
+        }
+    }
+
+    /// `<Ctrl-s>`: open the Site Manager (vault unlocked), optionally with a
+    /// new site to fill in.
+    fn open_site_manager(&mut self, new_site: Option<courier_ftp_core::sites::Site>) {
+        if self.vault.is_none() {
+            self.screen.flash("The Site Manager needs the vault");
+            return;
+        }
+        let mut view = SiteManagerView::new(self.site_snapshot.clone(), self.site_view_opts());
+        view.set_vaults(self.vault_roots.clone());
+        if let Some(site) = new_site {
+            view = view.with_new_site(site);
+        }
+        self.screen.open_site_manager(view);
+    }
+
+    /// "Save as site": the current quickconnect connection, password
+    /// included, as a new site in the Site Manager.
+    fn save_as_site(&mut self) {
+        let Some(remote) = self.remote.as_ref() else {
+            self.screen.flash("Not connected");
+            return;
+        };
+        if remote.site.is_some() {
+            self.screen.flash("This connection is already a saved site");
+            return;
+        }
+        let mut entry = HistoryEntry::from_connect_info(&remote.info);
+        entry.remote_dir.clone_from(&remote.start_dir);
+        let site = entry.to_site();
+        self.open_site_manager(Some(site));
+    }
+
+    /// The site picker: type part of a name, Enter connects.
+    fn site_picker(&mut self) {
+        let sites = self
+            .site_snapshot
+            .as_ref()
+            .map(|s| site_paths(&s.tree))
+            .unwrap_or_default();
+        if sites.is_empty() {
+            self.screen
+                .flash("No saved sites yet: create one in the Site Manager (<Ctrl-s>)");
+            return;
+        }
+        let (modal, rx) = site_picker(sites);
+        self.screen.push_modal(modal);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(Some(id)) = rx.await {
+                let _ = tx.send(Action::SiteOp(Shared::new(SiteOp::Connect(id))));
+            }
+        });
+    }
+
+    /// Run a Site Manager operation in the background.
+    fn site_op(&mut self, op: SiteOp) {
+        match op {
+            SiteOp::Connect(id) => return self.connect_site(id, ConnectTarget::Ask),
+            SiteOp::ConnectInNewTab(id) => return self.connect_site(id, ConnectTarget::NewTab),
+            _ => {}
+        }
+        let slot = Arc::clone(&self.sites);
+        let cost = self
+            .vault
+            .as_ref()
+            .and_then(Vault::engine)
+            .map_or(courier_ftp_crypto::kdf::Argon2Cost::DEFAULT, |e| e.cost());
+        let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+        let today = time::OffsetDateTime::now_utc().to_offset(offset).date();
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let reply = crate::sites::run(&slot, op, cost, today).await;
+            let _ = tx.send(Action::SitesReply(Shared::new(reply)));
+        });
+    }
+
+    /// What the bookmarks menu needs: the saved site connected to (or
+    /// whether this is a quickconnect session) and the directories shown.
+    fn bookmark_context(&self) -> MenuContext {
+        let remote = self.remote.as_ref().filter(|r| r.connected);
+        let site = remote.and_then(|r| r.site).map(|id| {
+            let name = self
+                .site_snapshot
+                .as_ref()
+                .and_then(|s| s.tree.site(id))
+                .map_or_else(|| "this site".to_owned(), |s| s.name.clone());
+            (id, name)
+        });
+        MenuContext {
+            quickconnect: remote.is_some() && site.is_none(),
+            site,
+            local_dir: self
+                .screen
+                .local
+                .dir
+                .as_ref()
+                .map(courier_ftp_core::local::display_native),
+            remote_dir: remote
+                .and(self.screen.remote.dir.as_ref())
+                .map(ToString::to_string),
+        }
+    }
+
+    /// `<Ctrl-b>`: the bookmarks menu (vault unlocked).
+    fn open_bookmarks(&mut self) {
+        if self.vault.is_none() {
+            self.screen.flash("Bookmarks need the vault");
+            return;
+        }
+        let ctx = self.bookmark_context();
+        // Right after unlocking the sites may still be loading.
+        let menu = if self.site_snapshot.is_some() {
+            BookmarksMenu::new(ctx)
+        } else {
+            BookmarksMenu::waiting(ctx)
+        };
+        self.screen.open_bookmarks(menu);
+    }
+
+    /// Run a bookmarks operation in the background.
+    fn bookmark_op(&mut self, op: BookmarkOp) {
+        let slot = Arc::clone(&self.sites);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            let reply = crate::bookmarks::run(&slot, op).await;
+            let _ = tx.send(Action::BookmarksReply(Shared::new(reply)));
+        });
+    }
+
+    /// Connect a tab (as `target` says) to a saved site: its default local
+    /// directory opens first, then the connection with its remote
+    /// directory, and synchronized browsing / comparison once connected
+    /// (T66).
+    fn connect_site(&mut self, id: ItemId, target: ConnectTarget) {
+        self.screen.close_site_manager();
+        let slot = Arc::clone(&self.sites);
+        let tx = self.action_tx.clone();
+        tokio::spawn(async move {
+            match crate::sites::connect(&slot, id).await {
+                Ok(site) => {
+                    let _ = tx.send(Action::Connect {
+                        request: Box::new(site_request(site, id)),
+                        target,
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(Action::Error(format!("Could not connect to the site: {e}")));
+                }
+            }
         });
     }
 
@@ -271,3 +1567,93 @@ impl App {
         Ok(())
     }
 }
+
+/// The connection for saved site `id`, with its default local and remote
+/// directories.
+fn site_request(site: courier_ftp_core::sites::SiteConnect, id: ItemId) -> ConnectRequest {
+    let local_dir = site
+        .local_dir
+        .as_ref()
+        .and_then(|local| courier_ftp_core::local::local_to_remote(local.as_path()).ok());
+    ConnectRequest {
+        info: site.info,
+        path: site.remote_dir,
+        sync_browsing: site.sync_browsing,
+        compare: site.directory_comparison,
+        site: Some(id),
+        local_dir,
+    }
+}
+
+/// Read the history and hand it to the quickconnect bar.
+async fn load_history(history: &History, tx: &mpsc::UnboundedSender<Action>) {
+    match history.list().await {
+        Ok(entries) => {
+            let items = entries.iter().map(crate::ui::HistoryItem::new).collect();
+            let _ = tx.send(Action::HistoryLoaded(items));
+        }
+        Err(e) => debug!(error = %e, "quickconnect history not loaded"),
+    }
+}
+
+/// The home directory's listing.
+async fn first_listing(
+    handle: &SessionHandle,
+    cancel: &CancellationToken,
+) -> courier_ftp_core::Result<Listing> {
+    let home = handle.home_dir(cancel).await?;
+    handle.list(&home, cancel).await
+}
+
+mod archive;
+#[cfg(test)]
+mod archive_tests;
+mod completion;
+mod edit;
+#[cfg(test)]
+mod edit_tests;
+mod file_ops;
+mod launch;
+#[cfg(test)]
+mod launch_tests;
+mod search;
+mod settings;
+mod tabs;
+pub(crate) use edit::EditMsg;
+pub(crate) use file_ops::FileOpMsg;
+pub(crate) use tabs::SavedTab;
+
+#[cfg(test)]
+mod bookmark_tests;
+#[cfg(test)]
+mod completion_tests;
+#[cfg(test)]
+mod file_op_tests;
+#[cfg(test)]
+mod filter_tests;
+#[cfg(test)]
+mod log_tests;
+#[cfg(test)]
+mod search_tests;
+mod transfers;
+mod update;
+#[cfg(test)]
+mod update_tests;
+mod wizard;
+
+#[cfg(test)]
+mod settings_tests;
+#[cfg(test)]
+mod site_tests;
+#[cfg(test)]
+mod sync_tests;
+#[cfg(feature = "sync")]
+mod sync_ui;
+#[cfg(test)]
+mod tab_tests;
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod transfer_tests;
+#[cfg(test)]
+mod vault_tests;

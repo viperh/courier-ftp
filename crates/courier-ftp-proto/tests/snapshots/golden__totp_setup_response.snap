@@ -1,0 +1,8 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+{
+  "otpauth_uri": "otpauth://totp/courier-ftp:ada@example.test?secret=JBSWY3DPEHPK3PXP",
+  "secret_base32": "JBSWY3DPEHPK3PXP"
+}

@@ -1,0 +1,14 @@
+-rw-r--r--   1 hans     users        1234 Jän 31 12:00 oesterreich.txt
+-rw-r--r--   1 hans     users        1234 Mär  3  2023 deutsch.txt
+-rw-r--r--   1 hans     users        1234 31. Dez  2022 datum-vorn.txt
+-rw-r--r--   1 pierre   users        1234 févr. 14 09:15 francais.txt
+-rw-r--r--   1 pierre   users        1234 31 janv. 12:00 jour-avant.txt
+-rw-r--r--   1 pierre   users        1234 août  8  2021 ete.txt
+-rw-r--r--   1 juan     users        1234 ene 15 10:00 espanol.txt
+-rw-r--r--   1 juan     users        1234 dic 31  2022 nochevieja.txt
+-rw-r--r--   1 luigi    users        1234 mag 20 16:45 italiano.txt
+-rw-r--r--   1 jan      users        1234 mrt 11 11:11 nederlands.txt
+-rw-r--r--   1 joao     users        1234 out  5  2020 portugues.txt
+-rw-r--r--   1 taro     users        1234 1月 5日 09:15 nihongo.txt
+-rw-r--r--   1 taro     users        1234 12月 24  2023 kurisumasu.txt
+-rw-r--r--   1 minsu    users        1234 3월 1일 08:00 hangul.txt

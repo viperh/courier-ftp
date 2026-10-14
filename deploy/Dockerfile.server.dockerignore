@@ -1,0 +1,8 @@
+# Build context exclusions for deploy/Dockerfile.server (BuildKit reads
+# <Dockerfile>.dockerignore next to the Dockerfile).
+target
+**/target
+.git
+.claude
+fuzz/target
+*.log

@@ -34,9 +34,31 @@ Screens for everything sync-related, plus status and notifications.
 
 ## Acceptance criteria
 
-- [ ] Full register → second device login → team invite flow usable by keyboard only.
-- [ ] Recovery words never logged or kept in memory after the screen closes.
-- [ ] Snapshot tests for every screen.
+- [x] Full register → second device login → team invite flow usable by keyboard only.
+  *Status:* register → second device login (duplicate preview) → live sync, devices,
+  revoke, password change and re-login, TOTP, recovery and logout are keyboard-only and
+  tested against the in-process server (`app/sync_tests.rs`). Teams (§5): create a team,
+  invite by email (link shown without SMTP), a second account registers with the invite
+  link as its token (joins at once) and joins another team with a pasted link, a shared
+  vault is created and the member given read access, the member sees the shared site with
+  🔒 and can't edit, delete or save it, safety numbers match on both sides and are marked
+  verified, a server-side key swap shows "⚠ key changed" and the key-change warning (a
+  grant is refused until the new key is accepted), removing the member rotates the vault
+  key with toasts and the vault leaves their device
+  (`teams_share_a_vault_read_only_verify_keys_and_remove_a_member`). Site Manager (§6):
+  vault roots `Personal` / `Team: <name>` (only when a team vault is on the device),
+  🔒 items with disabled fields, `c`/`m` copy/move to vault, `o` the member's own login
+  (credential override). The panel opens with `<Ctrl-x><y>` (`SyncPanel`) or from
+  Settings → Sync. A first-run "log in to a sync server" shortcut isn't offered: create
+  the local vault, then log in from the panel.
+- [x] Recovery words never logged or kept in memory after the screen closes.
+  (Held in `Zeroizing` strings only while the words/check pages are open; confirm inputs
+  are zeroizing `TextInput::sensitive` fields; `SyncRequest`/`SyncMsg` `Debug` print names
+  only. The terminal back buffer keeps the drawn cells until the next redraw.)
+- [x] Snapshot tests for every screen.
+  (`ui/sync/snapshots/`: every sync and teams page incl. the key-change warning; the
+  vault recovery pages and the status bar segment; `ui/site_manager/snapshots/`: vault
+  roots, a read-only site, copy to vault, the credential override editor.)
 
 ## Tests
 

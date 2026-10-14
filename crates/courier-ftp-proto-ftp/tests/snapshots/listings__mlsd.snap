@@ -1,0 +1,16 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: None
+file  "notes.txt" size=1234 mtime=2024-01-31T12:00:00.000Z/Second perms=-rw-r--r--(644) owner=alice group=staff
+dir   "public_html" size=4096 mtime=2024-01-05T12:30:00.000Z/Second perms=drwxr-xr-x(755) owner=- group=-
+link(-> "/var/www/html") "www" size=12 mtime=2024-05-30T17:45:00.000Z/Second perms=- owner=- group=-
+link(-> ?) "latest" size=7 mtime=2024-05-30T17:45:00.000Z/Second perms=- owner=- group=-
+file  ".hidden" size=0 mtime=2024-06-15T08:30:12.345Z/Millis perms=- owner=- group=- hidden
+file  "name; with; semicolons" size=42 mtime=2024-01-31T12:00:00.000Z/Second perms=- owner=- group=-
+file  " leading space" size=1 mtime=2024-01-31T12:00:00.000Z/Second perms=- owner=- group=-
+file  "trailing space  " size=2 mtime=2024-01-31T12:00:00.000Z/Second perms=- owner=- group=-
+other "null" size=- mtime=2024-06-01T09:00:00.000Z/Second perms=- owner=- group=-
+file  "no-type-fact" size=99 mtime=2024-01-31T12:00:00.000Z/Second perms=raw:r owner=- group=-
+file  "setuid" size=10 mtime=2024-01-31T12:00:00.000Z/Second perms=-rwsr-xr-x(4755) owner=0 group=0

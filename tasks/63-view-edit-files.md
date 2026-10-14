@@ -24,9 +24,25 @@ them back — FileZilla's View/Edit feature, adapted to a terminal.
 ## Acceptance criteria
 
 - [ ] Terminal editor round-trip: TUI restored correctly after the editor exits (including on Windows).
-- [ ] GUI editor save triggers upload prompt.
-- [ ] Associations matched by glob, first match wins.
-- [ ] Temp files cleaned up.
+- [x] GUI editor save triggers upload prompt.
+- [x] Associations matched by glob, first match wins.
+- [x] Temp files cleaned up.
+
+**Status:** the terminal round trip is verified on Linux in a real PTY (pyte
+driver: F4 on a local file and on an SFTP file with a fake `$VISUAL`, TUI
+redrawn, prompt, upload, copies gone after quit); macOS and Windows still need
+the manual check below. Changes are noticed by polling (size/mtime every
+second, then SHA-256) instead of the `notify` crate: no new dependency, same
+behaviour on every OS, and a save with unchanged content is not a change.
+
+Manual check per OS (Linux done; macOS, Windows open):
+1. Set `$VISUAL` (Windows: `editing.editor` = `notepad`, or an association
+   with `[terminal]` for a console editor), connect to a server, F4 a file.
+2. A terminal editor takes over the screen; quit it: the panes come back
+   intact, keys work, no stray characters.
+3. Save a change: "File changed" asks; *Yes* uploads it.
+4. `<Ctrl-x><e>` lists the file; quit: no warning when uploaded; the
+   `edit/` copy directory under the cache directory is gone.
 
 ## Tests
 

@@ -1,0 +1,12 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Eplf)
+dir   "dev" size=- mtime=1996-02-13T23:58:22.000Z/Second perms=- owner=- group=-
+file  "RFCEPLF" size=10376 mtime=1996-08-13T17:19:43.000Z/Second perms=- owner=- group=-
+file  "djb.html" size=280 mtime=1996-03-01T22:15:03.000Z/Second perms=- owner=- group=-
+dir   "514" size=- mtime=1996-02-13T23:58:27.000Z/Second perms=- owner=- group=-
+file  ".profile" size=612 mtime=1996-02-13T23:14:30.000Z/Second perms=- owner=- group=- hidden
+file  "empty file.txt" size=0 mtime=2024-01-31T12:00:00.000Z/Second perms=-rw-r--r--(644) owner=- group=-
+dir   "public" size=- mtime=2024-06-15T08:50:00.000Z/Second perms=-rwxr-xr-x(755) owner=- group=-

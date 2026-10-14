@@ -1,0 +1,25 @@
+---
+source: crates/courier-ftp/src/ui/site_manager/tests.rs
+assertion_line: 611
+expression: text
+---
+"┌ Site Manager ────────────────────────────────────────────────────────────────────────────────────┐"
+"│                                                                                                  │"
+"│                                  Unlock the vault to view sites.                                 │"
+"│                                                                                                  │"
+"│                    Sites are kept in the vault. Enter unlocks it, Esc closes.                    │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"│                                                                                                  │"
+"└──────────────────────────────────────────────────────────────────────────────────────────────────┘"

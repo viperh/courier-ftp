@@ -10,14 +10,37 @@ rust-version.workspace = true
 
 # Keep this crate UI-agnostic: no ratatui, no crossterm, no clap.
 # Everything here should be testable without a terminal.
+[features]
+# `ssh::agent::InProcessAgent` (an in-memory SSH agent) for other crates' tests.
+test-util = []
+
 [dependencies]
 courier-ftp-core = { workspace = true }
 
+async-trait = { workspace = true }
+futures = { workspace = true }
+# SSH transport and authentication (D2, T20). All russh API usage stays in
+# `src/ssh/`; the SFTP protocol (`russh-sftp`, T22) in `src/sftp/`.
+russh = { workspace = true }
+russh-sftp = { workspace = true }
+secrecy = { workspace = true }
 thiserror = { workspace = true }
+# `added_at` of trusted host keys (T21), SFTP timestamps (T22).
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+courier-ftp-core = { workspace = true, features = ["test-util"] }
 pretty_assertions = { workspace = true }
+# Fuzz bodies as property tests (T91 §7).
+proptest = { workspace = true }
+# The canary test writes a trace-level log for scripts/canary-scan.sh (T91 §5).
+tracing-subscriber = { workspace = true }
+tracing-log = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

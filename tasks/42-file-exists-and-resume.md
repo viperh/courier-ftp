@@ -25,12 +25,35 @@ Everything that decides *how* a single file is transferred once the engine picks
 
 ## Acceptance criteria
 
-- [ ] `decide` table-tested for every action × {dst missing, smaller, equal, larger, older, newer, unknown size, unknown time}.
-- [ ] Ask flow with "apply to all" works across concurrent workers (only one prompt shown, later items use the answer).
-- [ ] Rename never overwrites an existing file.
-- [ ] Resume of a 5 GiB sparse file at offset > 4 GiB correct (mock backend).
+- [x] `decide` table-tested for every action × {dst missing, smaller, equal, larger, older, newer, unknown size, unknown time}.
+- [x] Ask flow with "apply to all" works across concurrent workers (only one prompt shown, later items use the answer).
+- [x] Rename never overwrites an existing file.
+- [x] Resume of a 5 GiB sparse file at offset > 4 GiB correct (mock backend).
 
 ## Tests
 
 - Pure unit tests for `decide` (aim for exhaustive table).
 - Engine-level tests with mock backend for ask + apply-to-all.
+
+## Status
+
+Built in `transfer::exists` (`decide`, `FileExistsPolicy`, `first_free_name`),
+`transfer::options` (download name safety), `local::prealloc` and the binary's
+`ui/file_exists.rs` dialog (snapshots `ui/file_exists/snapshots/`).
+
+- `decide(source, target, action, can_resume)`: the spec's `precision`
+  argument became `can_resume`; precision comes from each `Timestamp`
+  (`cmp_coarse`). A needed time or size that is unknown means overwrite for
+  the *overwrite if…* actions (FileZilla), ask for *Resume*.
+- Answer scopes: `ApplyTo::{Once, AllInQueue, AllInSession}` plus
+  `same_direction_only` / `same_server_only`. Precedence: the item's
+  `on_exists` (unless `Ask`), then the newest matching remembered answer,
+  then the per-direction setting.
+- Transfer type (4) was already per file in the T41 worker
+  (`file_types.is_ascii`, there is no separate `decide_transfer_type`).
+- Preallocation reserves with `set_len` (no `fallocate`, no unsafe) and trims
+  back to the written length on shutdown or drop, so an interrupted file is
+  a valid resume offset.
+- Not wired into the binary yet: building the engine with
+  `FileExistsPolicy` is part of the engine/queue UI integration (T56/T62);
+  the dialog is reachable through `prompt_modal` as soon as a policy asks.

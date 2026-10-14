@@ -8,12 +8,60 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# Must never depend on ratatui/crossterm/clap-based client crates or the client's
-# storage (scripts/check-layering.py); its heavy dependencies must not leak into
-# the client build.
+[[bin]]
+name = "courier-ftp-server"
+path = "src/main.rs"
+
+# Server-side only (scripts/check-layering.py): no client crates (core, store,
+# proto-ftp/-sftp, sync, the binary), no ratatui/crossterm/clap, no russh, no
+# rusqlite. Its heavy dependencies must not leak into the client build.
 [dependencies]
 courier-ftp-crypto = { workspace = true }
 courier-ftp-proto = { workspace = true }
+
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+uuid = { workspace = true }
+zeroize = { workspace = true }
+# Secrets in config (hex or base64) and tokens (base64url).
+base64ct = { workspace = true }
+# DeviceSummary timestamps on the wire are `time`; the server keeps chrono.
+time = { workspace = true }
+
+# Server stack. sqlx-core + sqlx-postgres instead of the `sqlx` facade (see
+# the workspace comment); `ws` for /v1/ws.
+axum = { workspace = true, features = ["ws"] }
+axum-server = { workspace = true }
+chrono = { workspace = true }
+governor = { workspace = true }
+ipnet = { workspace = true }
+lettre = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+rustls = { workspace = true }
+sqlx-core = { workspace = true }
+sqlx-postgres = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+# TOTP second factor (RFC 6238).
+totp-rs = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+# Cheap client KSF for the test suites (courier_ftp_crypto::opaque).
+courier-ftp-crypto = { workspace = true, features = ["insecure-test-ksf"] }
+# The in-process server is driven over real HTTP and WebSocket.
+reqwest = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

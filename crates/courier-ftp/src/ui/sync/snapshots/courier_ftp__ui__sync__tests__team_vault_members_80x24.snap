@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/ui/sync/tests.rs
+assertion_line: 736
+expression: "render(&v, 80, 24)"
+---
+"┌ Sync: vault access ──────────────────────────────────────────────────────────┐"
+"│                                                                              │"
+"│ Who can use “Ops servers”                                                    │"
+"│                                                                              │"
+"│   Member                             Team     Access                         │"
+"│ › alice@example.test                 owner    ‹ manage ›                     │"
+"│   bob@example.test                   member   ‹ read ›                       │"
+"│   carol@example.test                 member   ‹ no access ›                  │"
+"│                                                                              │"
+"│ read: use the sites (🔒 in the Site Manager) · write: edit them · manage:    │" Hidden by multi-width symbols: [(24, " ")]
+"│ also give and take access. Taking access away rotates the vault key.         │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│ ←/→ access · x revoke · Enter safety number · r refresh · Esc back           │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

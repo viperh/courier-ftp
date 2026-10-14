@@ -1,0 +1,19 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Unix)
+file  "numeric-owner.txt" size=1234 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=1000 group=1000
+file  "no-group.txt" size=2048 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=ftp group=-
+file  "no-links.txt" size=4096 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=ftp group=ftp
+file  "iso-date.txt" size=100 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=user group=group
+file  "full-time.txt" size=200 mtime=2024-01-31T11:00:59.123Z/Millis perms=-rw-r--r--(644) owner=user group=group
+file  "seconds-year.txt" size=300 mtime=2023-01-31T12:00:05.000Z/Second perms=-rw-r--r--(644) owner=user group=group
+file  " leading space.txt" size=400 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=user group=group
+file  "trailing space  " size=500 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=user group=group
+file  "a -> b.txt" size=600 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=user group=group
+link(-> "target -> with arrow") "link" size=5 mtime=2024-01-31T12:00:00.000Z/Minute perms=lrwxrwxrwx(777) owner=user group=group
+dir   "leap-day" size=4096 mtime=2024-02-29T08:00:00.000Z/Minute perms=drwxr-xr-x(755) owner=user group=group
+file  "tomorrow.txt" size=700 mtime=2024-06-16T09:00:00.000Z/Minute perms=-rw-r--r--(644) owner=user group=group
+file  "day-after-tomorrow.txt" size=800 mtime=2023-06-17T09:00:00.000Z/Minute perms=-rw-r--r--(644) owner=user group=group
+file  "name with   inner   spaces" size=900 mtime=2024-01-31T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=user group=group

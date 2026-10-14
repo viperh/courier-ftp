@@ -20,7 +20,7 @@ Settings dialog, saving to the user config file.
    - **Transfers**: concurrency limits, speed limits + burst tolerance, preallocate, preserve timestamps, invalid char replacement, empty dirs, follow symlinks.
      - **File types**: default type, ASCII extension list editor, dotfiles/no-extension ASCII.
      - **File exists action**: download/upload defaults.
-   - **Interface**: layout, swap panes, show tree/log/queue/quickconnect, unicode symbols, confirm delete/transfer, restore tabs, language (T75), splash, update check (T74).
+   - **Interface**: layout, swap panes, show tree/log/queue/quickconnect, unicode symbols, confirm delete/transfer, restore tabs, splash, update check (T74).
      - **File lists**: size format, thousands separator, date/time format (live preview), dirs first, sort case sensitivity, natural sort, columns.
      - **Theme**: pick from built-in colour schemes (default, high contrast, monochrome); note that fine-grained styles live in config.
      - **Keybindings**: read-only list with "open config file" hint (full rebinding UI is out of scope v1).
@@ -37,10 +37,18 @@ Settings dialog, saving to the user config file.
 
 ## Acceptance criteria
 
-- [ ] Every T05 setting editable, validated and persisted.
-- [ ] Live-apply settings take effect without restart.
-- [ ] Host key/cert stores manageable.
-- [ ] Snapshot tests per section.
+- [x] Every T05 setting editable, validated and persisted.
+- [x] Live-apply settings take effect without restart.
+- [x] Host key/cert stores manageable.
+- [x] Snapshot tests per section.
+
+**Status (T68):** done except: the Sync page (with the `sync.*` settings and a button to the
+sync panel) was added by T90, its teams part waits for T89;
+Import/Export buttons → T73; the Security page's local approvals list with revoke → T91
+(nothing writes `local_approvals` yet and `VaultEngine` exposes no API for it). Path filters
+stay in the filters dialog (T67), not the settings screen. The update-check toggle is
+editable; the check itself is T74. No language option (T75 dropped): the unused
+`interface.language` setting is not shown.
 
 ## Tests
 

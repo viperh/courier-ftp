@@ -110,17 +110,79 @@ Use a `scripts/bench-transfer.sh` that runs against the Docker servers from T76 
 | 10 000 × 4 KiB files, FTP download | same |
 | CPU use during 1 Gbit/s SFTP | report per-core usage; no single core pegged at 100 % when ≥ 4 connections |
 
+### Results (2026-10-11)
+
+Measured with `scripts/bench-transfer.sh` (no Docker locally: an unprivileged
+network namespace whose loopback has MTU 1500, `tc netem` 25 ms each way =
+50 ms RTT, 1 Gbit/s, TCP buffers up to 32 MiB; OpenSSH 10 `sshd`, pyftpdlib
+for FTP/FTPS). Laptop, 12 threads; other agents were compiling in parallel
+for most runs, so treat the numbers as ±30 %. netem costs CPU per packet,
+so the emulated link never delivers 1 Gbit/s: the raw TCP baseline is what
+"link speed" means below.
+
+| Measurement | Result |
+|---|---|
+| Raw TCP baseline, 1 / 4 connections | 63–86 / 69–77 MiB/s |
+| SFTP download 512 MiB (tmpfs), 1 segment, 3 runs | 58, 67, 56 MiB/s |
+| SFTP download 512 MiB (tmpfs), 4 segments, 3 runs | 55, 68, 59 MiB/s (at the link's limit already with 1) |
+| SFTP upload 512 MiB (tmpfs), 1 → 4 segments, 3 runs | 34 → 58, 35 → 53, 34 → 46 MiB/s (**1.4–1.7×**) |
+| SFTP 2 GiB on disk, loaded machine: down 1 / 4, up 1 / 4 | 29.8 / 24.0, 30.4 / 18.4 MiB/s (disk-bound, CPU idle) |
+| FTPS download 2 GiB, 1 → 4 segments (pyftpdlib) | 25.5 → 40.2 MiB/s (**1.6×**) |
+| OpenSSH `sftp` CLI, same link, 1 connection | 27–29 MiB/s (256 MiB), 10 MiB/s for 2 GiB on the loaded machine |
+| 2 000 × 4 KiB SFTP upload, 4 (default) vs 2 connections | 13 vs 7 files/s (`sftp` CLI: 5 files/s) |
+| 2 000 × 4 KiB FTP download, 4 (default) vs 2 connections | 18 vs 9 files/s (lftp `mirror --parallel=1/2/4`: 3 / 12 / 25 files/s) |
+| Client CPU during transfers | ≤ 18 % of one core in total, no thread above 5 % |
+
+- **Segmentation** pays off where one connection can't fill the link: SFTP
+  uploads (OpenSSH grants only a 2 MiB channel window, so one upload
+  connection tops out near 40 MiB/s at 50 ms) and FTPS. SFTP downloads with
+  our 16 MiB window and 64 × 255 KiB requests in flight already reach the
+  emulated link's TCP rate with one connection (≈ 80–90 % of the raw TCP
+  baseline, ~2× the `sftp` CLI).
+- **Small files**: default settings are ~2× FileZilla's default concurrency
+  (FileZilla itself wasn't measured: no GUI here; its 2 connections stand
+  in for it). Each file still costs ~6 round trips per connection (SFTP:
+  `STAT`, `OPEN`, `WRITE`, `CLOSE`, `SETSTAT`…); reaching 3× needs fewer
+  round trips per file, not more connections.
+- Found while measuring: on loopback's default 64 KiB MTU, Linux's receive
+  buffer autotuning sometimes never grows on one of several connections
+  (`rcv_space` stuck at 64 KiB, `rwnd_limited` 90 %), so that segment crawls
+  at ~1.5 MiB/s; the benchmark therefore sets MTU 1500. Before this, a
+  segment's SFTP reader also requested past the end of its range (up to
+  16 MiB wasted per range); `TransferOpts::read_limit` fixes that.
+
+**Not met / deferred:** ≥ 90 % of 1 Gbit/s and the 10 000-file runs (2 000
+files were run; the rate is the result) need a real 1 Gbit/s link — T76's
+Docker setup in CI or a manual run; the toxiproxy throttling test is T76's
+(the mock-backend test `work_stealing_shortens_the_tail_of_a_throttled_connection`
+covers the logic); ≥ 80 % of link speed with one SFTP connection holds for
+downloads against the emulated link but not for uploads (server window).
+FTP data socket buffers are left to the OS (setting `SO_RCVBUF` disables
+Linux autotuning, which grows past 4 MiB on its own); no double-buffered
+FTP data path and no `HASH`/`check-file` verification yet (size check only).
+
 ## Acceptance criteria
 
-- [ ] Segmented download produces byte-identical files (hash check) for FTP and SFTP, including when segments fail and are retried.
+- [x] Segmented download produces byte-identical files (hash check) for FTP and SFTP, including when segments fail and are retried.
 - [ ] Work stealing measurably shortens the tail when one connection is throttled (test with toxiproxy on one connection).
-- [ ] Resume of a segmented transfer after a crash continues only the missing ranges.
+- [x] Resume of a segmented transfer after a crash continues only the missing ranges.
 - [ ] SFTP pipelining reaches ≥ 80 % of link speed on a 50 ms RTT link with one connection.
-- [ ] Benchmarks recorded above.
-- [ ] Every new setting documented and editable in Settings (T68).
+- [x] Benchmarks recorded above.
+- [x] Every new setting documented and editable in Settings (T68).
 
 ## Tests
 
 - Unit: range splitting and work-stealing logic (pure functions).
 - Mock backend with per-connection artificial latency and bandwidth to test scheduling.
 - Integration (T76): hash-verified segmented transfers against vsftpd and OpenSSH.
+
+**Status:** done in `courier_ftp_core::transfer` (`segmented`, `segments`,
+engine grants and warm-up), the SFTP backend (pipelining settings, cipher
+order, `read_limit`) and the FTP backend (`write_at: false`). Tests: unit
+tests in `transfer/segments.rs`, mock-backend tests in
+`transfer/tests/segmented.rs` (failures, throttled connection, resume,
+connection limits, speed limit across segments, warm-up), in-process FTP
+and SFTP segmented tests, and Docker e2e tests in
+`crates/courier-ftp-e2e/tests/segmented.rs` (vsftpd and OpenSSH, byte
+compared; written, run in CI only). Deferred: see "Not met / deferred"
+above (toxiproxy test and full-speed runs to T76).

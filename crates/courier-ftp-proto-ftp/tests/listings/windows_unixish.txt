@@ -1,0 +1,6 @@
+----------   1 owner    group           1234 Jan 31 12:00 readme.txt
+d---------   1 owner    group              0 Jan 31 12:00 inetpub
+----------   1 owner    group      104857600 Feb 29  2020 setup.exe
+d---------   1 owner    group              0 Mar  1 09:00 Program Files
+----------   1 owner    group              0 Jun 15 11:00 empty.log
+-r--r--r--   1 owner    group            512 Dec 31  1999 y2k.txt

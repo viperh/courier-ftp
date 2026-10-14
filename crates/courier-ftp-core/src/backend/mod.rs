@@ -26,14 +26,16 @@ pub mod conformance;
 mod connect;
 #[cfg(any(test, feature = "test-util"))]
 mod mock;
+mod passwords;
 mod session;
 
 use std::time::Instant;
 
 use async_trait::async_trait;
-pub use connect::{BackendFactory, ConnectInfo, KeySource, ProxyChoice};
+pub use connect::{BackendFactory, ConnectInfo, KeySource, ProxyChoice, StoredSecret, VaultKey};
 #[cfg(any(test, feature = "test-util"))]
 pub use mock::{MockBackend, MockServer};
+pub use passwords::SessionPasswords;
 pub use session::SessionHandle;
 use time::OffsetDateTime;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -41,8 +43,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     Result,
-    events::CertificateDetails,
-    model::{Entry, RemotePath, ServerAddress},
+    model::{CertificateDetails, Entry, RemotePath, ServerAddress},
+    settings::FileTypeSettings,
 };
 
 /// A boxed reader returned by [`Backend::open_read`].
@@ -193,6 +195,10 @@ pub struct Capabilities {
     pub ascii_mode: bool,
     /// Several connections to the server are allowed at once.
     pub parallel_connections_allowed: bool,
+    /// [`WriteMode::At`] works: an existing file can be written at any
+    /// offset, so several connections can each write one byte range of it
+    /// (segmented transfers, T41b). The local disk and SFTP; not FTP.
+    pub write_at: bool,
 }
 
 /// A directory listing.
@@ -220,6 +226,13 @@ pub enum WriteMode {
     Append,
     /// Keep the first `n` bytes and write from there (resume).
     ResumeAt(u64),
+    /// Write from offset `n` of the file without truncating anything (one
+    /// segment of a segmented transfer, T41b). The file is created when
+    /// missing; writing past the end leaves a hole. A
+    /// [`TransferOpts::preallocate_hint`] extends a shorter file to that
+    /// size first and is never trimmed back. Needs
+    /// [`Capabilities::write_at`].
+    At(u64),
 }
 
 /// FTP transfer type, resolved from the settings for one file.
@@ -232,6 +245,17 @@ pub enum TransferType {
     Binary,
 }
 
+/// The transfer type for `file_name` (T11): `settings.default_type` when it
+/// is ASCII or binary, otherwise decided from the extension, dotfile and
+/// no-extension rules ([`FileTypeSettings::is_ascii`]).
+pub fn decide_transfer_type(file_name: &str, settings: &FileTypeSettings) -> TransferType {
+    if settings.is_ascii(file_name) {
+        TransferType::Ascii
+    } else {
+        TransferType::Binary
+    }
+}
+
 /// Per-transfer options.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct TransferOpts {
@@ -239,4 +263,32 @@ pub struct TransferOpts {
     pub transfer_type: TransferType,
     /// The expected size, so a writer can preallocate.
     pub preallocate_hint: Option<u64>,
+    /// A reader is read at most this many bytes from its offset (a segment's
+    /// range, T41b), so a backend that reads ahead may stop requesting
+    /// there (SFTP's pipelined reader does). `None`: up to the end. Reading
+    /// past the limit is allowed but may end early.
+    pub read_limit: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::TransferTypeChoice;
+
+    #[test]
+    fn transfer_type_follows_the_file_type_settings() {
+        let auto = FileTypeSettings::default();
+        assert_eq!(decide_transfer_type("a.txt", &auto), TransferType::Ascii);
+        assert_eq!(decide_transfer_type("a.zip", &auto), TransferType::Binary);
+        let binary = FileTypeSettings {
+            default_type: TransferTypeChoice::Binary,
+            ..FileTypeSettings::default()
+        };
+        assert_eq!(decide_transfer_type("a.txt", &binary), TransferType::Binary);
+        let ascii = FileTypeSettings {
+            default_type: TransferTypeChoice::Ascii,
+            ..FileTypeSettings::default()
+        };
+        assert_eq!(decide_transfer_type("a.zip", &ascii), TransferType::Ascii);
+    }
 }

@@ -24,10 +24,10 @@ answer, and warn loudly if a key changes.
 
 ## Acceptance criteria
 
-- [ ] First connect prompts; "always" persists; second connect silent.
-- [ ] Changed key prompts with old/new fingerprints.
-- [ ] Hashed known_hosts entries match.
-- [ ] Revoked keys rejected.
+- [x] First connect prompts; "always" persists; second connect silent.
+- [x] Changed key prompts with old/new fingerprints.
+- [x] Hashed known_hosts entries match.
+- [x] Revoked keys rejected.
 
 ## Tests
 

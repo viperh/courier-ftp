@@ -1,0 +1,6 @@
+QSYS            77824 02/23/00 15:09:55 *DIR       QDOC/
+QSYS            12288 06/14/24 08:00:00 *LIB       QGPL.LIB/
+QPGMR           36864 18.09.06 14:21:38 *FILE      QPGMR/QWOBJ.FILE
+QSYS                                    *MEM       QGPL/QCLSRC.FILE/UNITTEST.MBR
+QSECOFR          4096 2024/01/31 12:00:00 *STMF     /home/qsecofr/report final.txt
+QSYS                0 00/00/00 00:00:00 *DDIR      /dev/

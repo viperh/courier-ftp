@@ -1,0 +1,29 @@
+---
+source: crates/courier-ftp/src/ui/site_manager/tests.rs
+assertion_line: 794
+expression: "render(view, 100, 24)"
+---
+"┌ Site Manager ────────────────────────────────────────────────────────────────────────────────────┐"
+"│┌ My Sites ──────────────────────┐┌ Site ────────────────────────────────────────────────────────┐│"
+"││▾ Personal                      ││Personal                                                      ││"
+"││  ● mine                        ││                                                              ││"
+"││▾ Team: Dev                     ││Your own sites: only your devices see them.                   ││"
+"││▾ Team: Ops 🔒                  ││n adds a site here, f a folder; c/m copy or move a site to    ││" Hidden by multi-width symbols: [(15, " ")]
+"││  ● shared 🔒                   ││another vault.                                                ││" Hidden by multi-width symbols: [(14, " ")]
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"││                                ││                                                              ││"
+"│└────────────────────────────────┘└──────────────────────────────────────────────────────────────┘│"
+"│             [ Connect ]  [ New tab ]  [ Save ]  [ Import… ]  [ Export… ]  [ Close ]              │"
+"│n new · f folder · x delete · c/m copy/move to vault · o my login · Enter connect · Esc close     │"
+"└──────────────────────────────────────────────────────────────────────────────────────────────────┘"

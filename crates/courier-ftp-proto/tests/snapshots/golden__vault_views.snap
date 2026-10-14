@@ -1,0 +1,52 @@
+---
+source: crates/courier-ftp-proto/tests/golden.rs
+expression: json
+---
+[
+  {
+    "id": "01900000-0000-7000-8000-000000000002",
+    "kind": "personal",
+    "org_id": null,
+    "name_enc": "7u7u7u7u",
+    "key_version": 1,
+    "head_revision": 42,
+    "permission": "manage",
+    "grants": [
+      {
+        "key_version": 1,
+        "wrapped_vault_key": "ERERERERERE",
+        "wrapped_by": "01900000-0000-7000-8000-000000000001",
+        "signature": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIg"
+      }
+    ]
+  },
+  {
+    "id": "01900000-0000-7000-8000-000000000006",
+    "kind": "shared",
+    "org_id": "01900000-0000-7000-8000-000000000007",
+    "name_enc": "7-_v7-_v",
+    "key_version": 2,
+    "head_revision": 7,
+    "permission": "read",
+    "grants": [
+      {
+        "key_version": 2,
+        "wrapped_vault_key": "MzMzMzMzMzM",
+        "wrapped_by": "01900000-0000-7000-8000-000000000008",
+        "signature": "RERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERA"
+      },
+      {
+        "key_version": 3,
+        "wrapped_vault_key": "VVVVVVVVVVU",
+        "wrapped_by": "01900000-0000-7000-8000-000000000008",
+        "signature": "ZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZg"
+      }
+    ],
+    "rotation": {
+      "new_key_version": 3,
+      "by": "01900000-0000-7000-8000-000000000008",
+      "started_at": "2026-10-10T12:34:56.5Z",
+      "abandoned": false
+    }
+  }
+]

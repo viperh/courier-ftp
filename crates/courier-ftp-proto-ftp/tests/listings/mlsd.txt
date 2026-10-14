@@ -1,0 +1,13 @@
+type=cdir;sizd=4096;modify=20240601091200;perm=flcdmpe; .
+type=pdir;sizd=4096;modify=20230210000000;perm=flcdmpe; ..
+type=file;size=1234;modify=20240131120000;perm=adfrw;UNIX.mode=0644;UNIX.owner=1000;UNIX.group=1000;UNIX.ownername=alice;UNIX.groupname=staff;unique=fd01g1b4c; notes.txt
+type=dir;sizd=4096;modify=20240105123000;perm=flcdmpe;UNIX.mode=0755;unique=fd01g1b4d; public_html
+Type=OS.unix=slink:/var/www/html;Size=12;Modify=20240530174500; www
+type=OS.unix=symlink;size=7;modify=20240530174500; latest
+type=file;size=0;modify=20240615083012.345; .hidden
+type=file;size=42;modify=20240131120000; name; with; semicolons
+type=file;size=1;modify=20240131120000;  leading space
+type=file;size=2;modify=20240131120000; trailing space  
+type=OS.unix=chr-1/3;modify=20240601090000; null
+modify=20240131120000;perm=r;size=99; no-type-fact
+type=file;size=10;modify=20240131120000;UNIX.uid=0;UNIX.gid=0;UNIX.mode=4755; setuid

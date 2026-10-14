@@ -12,7 +12,9 @@ This script fails when:
   inside `cfg_attr`) in any `.rs` file outside that path;
 * a crate manifest overrides `unsafe_code` in its own `[lints]` table, or a crate
   does not inherit the workspace lints;
-* the workspace level is not `deny` or `forbid`.
+* the workspace level is not `deny` or `forbid`;
+* an `unsafe` block, fn or impl in the allowed modules has no `// SAFETY:`
+  comment on its line or in the comment block right above it.
 
 Only the Python standard library is used.
 
@@ -65,6 +67,41 @@ def scan_sources(root: pathlib.Path) -> list[str]:
     return problems
 
 
+# An `unsafe` block, function or impl (after strings and comments are stripped).
+UNSAFE_USE = re.compile(r"\bunsafe\s*(\{|fn\b|impl\b)")
+
+
+def scan_safety_comments(root: pathlib.Path) -> list[str]:
+    """Every `unsafe` use in the allowed modules has a `SAFETY:` comment on the
+    same line or in the comment block right above it (T91 §2)."""
+    problems = []
+    crates = root / "crates"
+    for path in sorted(crates.rglob("*.rs")):
+        rel = path.relative_to(root).as_posix()
+        if "/target/" in f"/{rel}" or not allowed(rel):
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue  # reported by scan_sources
+        for index, line in enumerate(lines):
+            code = LINE_COMMENT.sub("", STRING.sub('""', line))
+            if not UNSAFE_USE.search(code) or "SAFETY:" in line:
+                continue
+            above = index - 1
+            documented = False
+            while above >= 0 and lines[above].strip().startswith("//"):
+                if "SAFETY:" in lines[above]:
+                    documented = True
+                    break
+                above -= 1
+            if not documented:
+                problems.append(
+                    f"{rel}:{index + 1}: `unsafe` without a `// SAFETY:` comment: {line.strip()}"
+                )
+    return problems
+
+
 def scan_manifests(root: pathlib.Path) -> list[str]:
     problems = []
     workspace = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
@@ -96,7 +133,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     root = args.root.resolve()
-    problems = scan_manifests(root) + scan_sources(root)
+    problems = scan_manifests(root) + scan_sources(root) + scan_safety_comments(root)
     if problems:
         print("unsafe confinement check FAILED:", file=sys.stderr)
         for p in problems:

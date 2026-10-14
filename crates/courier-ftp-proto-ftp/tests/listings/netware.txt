@@ -1,0 +1,5 @@
+d [RWCEAFMS] supervisor            512       Jan 16 18:53    login
+- [R----F--] rhesus             214059       Oct 20  2023    cx.exe
+d [R----F--] supervisor            512       Jan 16  2022    public
+- [RWCEAFMS] jcampbell            1024       Jun 15 10:00    mail box.txt
+- [-W------] guest                   0       Feb  2 07:30    .dropbox

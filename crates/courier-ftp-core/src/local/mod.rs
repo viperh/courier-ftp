@@ -8,6 +8,7 @@
 //! [`display_native`].
 
 mod paths;
+mod prealloc;
 mod sanitize;
 
 use std::{
@@ -55,6 +56,16 @@ impl LocalBackend {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+/// Write buffer of local files (T41b §5): the disk sees 1 MiB writes, and
+/// nothing is synced before the end of the file.
+const WRITE_BUFFER: usize = 1024 * 1024;
+
+/// `w` behind a [`WRITE_BUFFER`]-sized buffer (flushed by `flush` and
+/// `shutdown`).
+fn buffered(w: impl tokio::io::AsyncWrite + Send + Unpin + 'static) -> WriteStream {
+    Box::new(tokio::io::BufWriter::with_capacity(WRITE_BUFFER, w))
 }
 
 /// Map an I/O error on `path` to the shared error vocabulary.
@@ -208,6 +219,7 @@ impl Backend for LocalBackend {
             server_side_rename_across_dirs: true,
             ascii_mode: false,
             parallel_connections_allowed: true,
+            write_at: true,
         }
     }
 
@@ -339,7 +351,7 @@ impl Backend for LocalBackend {
         &mut self,
         path: &RemotePath,
         mode: WriteMode,
-        _opts: &TransferOpts,
+        opts: &TransferOpts,
     ) -> Result<WriteStream> {
         let native_path = native(path)?;
         let mut options = tokio::fs::OpenOptions::new();
@@ -347,7 +359,9 @@ impl Backend for LocalBackend {
             WriteMode::Create => options.write(true).create_new(true),
             WriteMode::Truncate => options.write(true).create(true).truncate(true),
             WriteMode::Append => options.append(true).create(true),
-            WriteMode::ResumeAt(_) => options.write(true).create(true).truncate(false),
+            WriteMode::ResumeAt(_) | WriteMode::At(_) => {
+                options.write(true).create(true).truncate(false)
+            }
         };
         let mut file = options
             .open(&native_path)
@@ -359,7 +373,38 @@ impl Backend for LocalBackend {
                 .await
                 .map_err(|e| io_error(e, path))?;
         }
-        Ok(Box::new(file))
+        if let WriteMode::At(n) = mode {
+            // A segment (T41b): extend the file to its final size once (a
+            // sparse file is fine), never trim it, write from `n`.
+            if let Some(size) = opts.preallocate_hint {
+                let len = file.metadata().await.map_err(|e| io_error(e, path))?.len();
+                if len < size
+                    && let Err(e) = file.set_len(size).await
+                {
+                    tracing::debug!("preallocation failed, writing without: {e}");
+                }
+            }
+            file.seek(SeekFrom::Start(n))
+                .await
+                .map_err(|e| io_error(e, path))?;
+            return Ok(buffered(file));
+        }
+        // `transfers.preallocate` (T42): reserve the final size up front.
+        if let (Some(size), WriteMode::Create | WriteMode::Truncate | WriteMode::ResumeAt(_)) =
+            (opts.preallocate_hint, mode)
+        {
+            let start = match mode {
+                WriteMode::ResumeAt(n) => n,
+                _ => 0,
+            };
+            return Ok(
+                match prealloc::Preallocated::reserve(file, start, size).await {
+                    Ok(reserved) => buffered(reserved),
+                    Err(file) => buffered(file),
+                },
+            );
+        }
+        Ok(buffered(file))
     }
 
     async fn finish_transfer(&mut self) -> Result<()> {

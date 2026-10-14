@@ -27,6 +27,9 @@ pub(crate) struct TextInput {
     chars: Vec<char>,
     cursor: usize,
     masked: bool,
+    /// Shown in clear but treated like a password: zeroized on clear and
+    /// drop, its value a secret (recovery words, TOTP codes).
+    sensitive: bool,
     placeholder: String,
     max_len: Option<usize>,
     validator: Option<Validator>,
@@ -41,6 +44,7 @@ impl TextInput {
             chars: Vec::new(),
             cursor: 0,
             masked: false,
+            sensitive: false,
             placeholder: String::new(),
             max_len: None,
             validator: None,
@@ -48,12 +52,48 @@ impl TextInput {
         }
     }
 
-    /// A password field: shows `•` per character.
+    /// A password field: shows `•` per character. Its characters are zeroized
+    /// when cleared and when the field is dropped.
     pub(crate) fn password(label: impl Into<String>) -> Self {
-        Self {
-            masked: true,
-            ..Self::new(label)
-        }
+        let mut input = Self::new(label);
+        input.masked = true;
+        // Room for a long passphrase up front, so typing doesn't reallocate
+        // (and leave copies of the text behind) in the common case.
+        input.chars.reserve(256);
+        input
+    }
+
+    /// A field shown in clear whose text is a secret (recovery words, a
+    /// TOTP code): zeroized when cleared and dropped, collected as a secret.
+    pub(crate) fn sensitive(label: impl Into<String>) -> Self {
+        let mut input = Self::new(label);
+        input.sensitive = true;
+        input.chars.reserve(256);
+        input
+    }
+
+    /// The text as a secret (for password fields), without an intermediate
+    /// copy that outlives the call.
+    pub(crate) fn secret(&self) -> SecretString {
+        SecretString::from(self.text())
+    }
+
+    /// Run `f` on the text in a buffer that is zeroized afterwards (strength
+    /// meters).
+    pub(crate) fn with_text<T>(&self, f: impl FnOnce(&str) -> T) -> T {
+        let text = zeroize::Zeroizing::new(self.text());
+        f(&text)
+    }
+
+    /// Whether the field is empty.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.chars.is_empty()
+    }
+
+    /// Empty the field, zeroizing what it held.
+    pub(crate) fn clear(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.chars);
+        self.cursor = 0;
     }
 
     pub(crate) fn with_value(mut self, value: &str) -> Self {
@@ -158,6 +198,14 @@ impl TextInput {
     }
 }
 
+impl Drop for TextInput {
+    fn drop(&mut self) {
+        if self.masked || self.sensitive {
+            zeroize::Zeroize::zeroize(&mut self.chars);
+        }
+    }
+}
+
 impl Field for TextInput {
     fn label(&self) -> &str {
         &self.label
@@ -252,7 +300,7 @@ impl Field for TextInput {
     }
 
     fn value(&self) -> FieldValue {
-        if self.masked {
+        if self.masked || self.sensitive {
             FieldValue::Secret(SecretString::from(self.text()))
         } else {
             FieldValue::Text(self.text())

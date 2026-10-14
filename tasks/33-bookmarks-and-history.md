@@ -26,9 +26,9 @@ all stored in the vault.
 
 ## Acceptance criteria
 
-- [ ] History dedup and cap of 10 enforced.
-- [ ] Deleting a site removes it from recent servers.
-- [ ] Bookmarks round-trip through the vault.
+- [x] History dedup and cap of 10 enforced.
+- [x] Deleting a site removes it from recent servers.
+- [x] Bookmarks round-trip through the vault.
 
 ## Tests
 

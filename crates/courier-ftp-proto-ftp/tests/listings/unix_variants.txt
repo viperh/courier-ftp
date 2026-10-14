@@ -1,0 +1,14 @@
+-rw-r--r--   1 1000     1000         1234 Jan 31 12:00 numeric-owner.txt
+-rw-r--r--   1 ftp          2048 Jan 31 12:00 no-group.txt
+-rw-r--r--   ftp      ftp          4096 Jan 31 12:00 no-links.txt
+-rw-r--r-- 1 user group 100 2024-01-31 12:00 iso-date.txt
+-rw-r--r-- 1 user group 200 2024-01-31 12:00:59.123456789 +0100 full-time.txt
+-rw-r--r-- 1 user group 300 Jan 31 12:00:05 2023 seconds-year.txt
+-rw-r--r--   1 user     group         400 Jan 31 12:00  leading space.txt
+-rw-r--r--   1 user     group         500 Jan 31 12:00 trailing space  
+-rw-r--r--   1 user     group         600 Jan 31 12:00 a -> b.txt
+lrwxrwxrwx   1 user     group           5 Jan 31 12:00 link -> target -> with arrow
+drwxr-xr-x   2 user     group        4096 Feb 29 08:00 leap-day
+-rw-r--r--   1 user     group         700 Jun 16 09:00 tomorrow.txt
+-rw-r--r--   1 user     group         800 Jun 17 09:00 day-after-tomorrow.txt
+-rw-r--r--   1 user     group         900 Jan 31 12:00 name with   inner   spaces

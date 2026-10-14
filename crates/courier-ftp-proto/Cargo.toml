@@ -8,14 +8,25 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# Shared by the client (courier-ftp-sync) and the server; no UI, no storage.
+# Shared by the client (courier-ftp-sync) and the server; serde only, no I/O:
+# no tokio, axum, reqwest, storage or UI (scripts/check-layering.py).
 [dependencies]
+# `GrantUpload` <-> `grant::Grant`.
 courier-ftp-crypto = { workspace = true }
 
 serde = { workspace = true }
+# Audit event metadata is free-form JSON.
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+# Binary fields: base64url without padding (constant-time codec).
+base64ct = { workspace = true }
+# Ids on the wire (the same UUIDs as the `courier_ftp_core::model::item` ids).
+uuid = { workspace = true }
+# RFC 3339 timestamps.
+time = { workspace = true }
 
 [dev-dependencies]
+insta = { workspace = true }
 pretty_assertions = { workspace = true }
 
 [lints]

@@ -9,7 +9,7 @@
 //! reported and replaced by its default. [`Settings::save_user`] writes back only
 //! the values that differ from the defaults.
 //!
-//! Later tasks add their own sections and fields here (vault T30, sync T88,
+//! Later tasks add their own sections and fields here (sync T88,
 //! segmented transfers T41b, more interface options T50–T62).
 
 mod persist;
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::filters::FilterSettings;
 
-pub use persist::LoadReport;
+pub use persist::{LoadReport, merge_values, read_user_config, write_user_config};
 
 /// All settings, grouped like FileZilla's Settings dialog.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -31,6 +31,8 @@ pub struct Settings {
     pub connection: ConnectionSettings,
     /// FTP specifics (FileZilla: Connection → FTP, Active/Passive mode).
     pub ftp: FtpSettings,
+    /// SFTP request pipelining (T41b §3).
+    pub sftp: SftpSettings,
     /// Generic and FTP proxies (FileZilla: Connection → Generic proxy, FTP proxy).
     pub proxy: ProxySettings,
     /// Concurrency, speed limits, file-exists actions (FileZilla: Transfers).
@@ -49,6 +51,10 @@ pub struct Settings {
     pub cache: CacheSettings,
     /// Filename filters and filter sets (T47).
     pub filters: FilterSettings,
+    /// The encrypted vault: auto-lock and password storage (T30).
+    pub vault: VaultSettings,
+    /// Device sync timers and what syncs (T88; used with feature `sync`).
+    pub sync: SyncSettings,
 }
 
 /// Timeouts, retries and keep-alive.
@@ -79,6 +85,30 @@ impl Default for ConnectionSettings {
             keepalive: true,
             keepalive_interval_secs: 30,
             prefer_ipv6: false,
+        }
+    }
+}
+
+/// SFTP-only settings: request pipelining (T41b §3).
+///
+/// Each open file keeps up to `max_outstanding_requests` `READ` or `WRITE`
+/// requests in flight, so one connection isn't limited by the round-trip
+/// time. A request carries `request_size_kib` KiB, or the larger size a
+/// server announces with `limits@openssh.com` (OpenSSH: 255 KiB).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SftpSettings {
+    /// Requests in flight per file (1–1024).
+    pub max_outstanding_requests: u32,
+    /// Bytes per request (KiB, 1–255) when the server announces no limits.
+    pub request_size_kib: u32,
+}
+
+impl Default for SftpSettings {
+    fn default() -> Self {
+        Self {
+            max_outstanding_requests: 64,
+            request_size_kib: 32,
         }
     }
 }
@@ -150,7 +180,8 @@ pub enum ExternalIp {
 pub struct ProxySettings {
     /// HTTP CONNECT or SOCKS proxy for every protocol.
     pub generic: GenericProxy,
-    /// FTP-level proxy (FTP only).
+    /// FTP-level proxy (FTP and FTPS only, T15). Can't be combined with a
+    /// generic proxy: validation turns it off when both are set.
     pub ftp_proxy: FtpProxy,
 }
 
@@ -197,7 +228,8 @@ pub enum FtpProxy {
     Site(ProxyServer),
     /// `OPEN host`.
     Open(ProxyServer),
-    /// A custom login script (`%h`, `%u`, `%p`, `%s`, `%w` placeholders, T15).
+    /// A custom login script (`%h`, `%u`, `%p`, `%a`, `%s`, `%w` placeholders,
+    /// T15).
     Custom {
         /// The proxy.
         server: ProxyServer,
@@ -210,7 +242,8 @@ pub enum FtpProxy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TransferSettings {
-    /// Maximum simultaneous transfers (1–32). Default 4 (D11).
+    /// Maximum simultaneous transfers (1–16), counting each segment of a
+    /// segmented transfer. Default 4 (D11; FileZilla: 2).
     pub max_concurrent: u32,
     /// Maximum simultaneous downloads within `max_concurrent`; 0 = no extra limit.
     pub max_downloads: u32,
@@ -240,6 +273,42 @@ pub struct TransferSettings {
     pub empty_dirs: EmptyDirs,
     /// Follow symlinks during recursive operations.
     pub follow_symlinks: bool,
+    /// Large files split into byte ranges over several connections (T41b).
+    pub segmented: SegmentedSettings,
+}
+
+/// Segmented (multi-connection) transfers of one large file (T41b, D11).
+///
+/// A binary transfer of a file of at least `min_file_size_mib` is split
+/// into byte ranges, each moved on its own connection, when the source can
+/// read from an offset (SFTP; FTP with `REST STREAM`) and the target can
+/// write at an offset (the local disk; SFTP). FTP uploads are never
+/// segmented: `REST` + `STOR` at arbitrary offsets is not widely supported.
+/// Segments count against `max_concurrent` and the site's connection limit;
+/// new files are started before an active file gets more segments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SegmentedSettings {
+    /// Whether large files are segmented at all.
+    pub enabled: bool,
+    /// Smallest file (MiB) that is segmented.
+    pub min_file_size_mib: u64,
+    /// Most connections one file uses (1–16).
+    pub max_segments: u32,
+    /// Smallest range (MiB) a segment is split into: an idle connection only
+    /// takes over half of a range at least twice this long.
+    pub min_segment_size_mib: u64,
+}
+
+impl Default for SegmentedSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_file_size_mib: 32,
+            max_segments: 4,
+            min_segment_size_mib: 8,
+        }
+    }
 }
 
 impl Default for TransferSettings {
@@ -260,6 +329,7 @@ impl Default for TransferSettings {
             on_exists_upload: ExistsAction::Ask,
             empty_dirs: EmptyDirs::Create,
             follow_symlinks: false,
+            segmented: SegmentedSettings::default(),
         }
     }
 }
@@ -399,6 +469,8 @@ pub struct InterfaceSettings {
     pub show_log: bool,
     /// Show the transfer queue.
     pub show_queue: bool,
+    /// Show the quickconnect bar.
+    pub show_quickconnect: bool,
     /// How file sizes are shown.
     pub size_format: SizeFormat,
     /// Group digits in byte counts (`1,234,567`).
@@ -419,8 +491,10 @@ pub struct InterfaceSettings {
     pub confirm_delete: bool,
     /// Show the splash screen at startup (T74).
     pub show_splash: bool,
-    /// Check for new releases (T74).
+    /// Check for new releases (T74), at most once every 7 days.
     pub check_updates: bool,
+    /// Count prereleases as updates (T74).
+    pub check_prereleases: bool,
     /// UI language, or `auto` for the system locale (T75).
     pub language: String,
     /// Milliseconds allowed between the keys of a sequence like `gg` (T51).
@@ -431,6 +505,41 @@ pub struct InterfaceSettings {
     pub natural_sort: bool,
     /// Which file list columns are shown, in order (T53).
     pub columns: ColumnSettings,
+    /// The built-in colour scheme; the `styles` config section refines it
+    /// (T68).
+    pub color_scheme: ColorScheme,
+    /// Reopen the last run's tabs (their sites and directories) at start
+    /// (T61). The tabs are kept in the vault.
+    pub restore_tabs: bool,
+    /// Connecting while the current tab has a connection: ask, open a new
+    /// tab, or replace the connection (T61).
+    pub connect_in_tab: TabConnect,
+}
+
+/// What connecting does while the current tab is connected (T61).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabConnect {
+    /// Ask each time (open in a new tab or replace).
+    #[default]
+    Ask,
+    /// Open the connection in a new tab.
+    NewTab,
+    /// Close the current connection and connect in its place.
+    Replace,
+}
+
+/// A built-in colour scheme (T68).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorScheme {
+    /// The standard colours.
+    #[default]
+    Default,
+    /// Bright colours and bold text for low-contrast terminals.
+    HighContrast,
+    /// No colours: bold, reverse and italic only.
+    Monochrome,
 }
 
 /// A file list column.
@@ -498,6 +607,7 @@ impl Default for InterfaceSettings {
             show_tree: false,
             show_log: true,
             show_queue: true,
+            show_quickconnect: true,
             size_format: SizeFormat::Iec,
             thousands_separator: true,
             date_format: "%Y-%m-%d".to_owned(),
@@ -509,11 +619,15 @@ impl Default for InterfaceSettings {
             confirm_delete: true,
             show_splash: false,
             check_updates: true,
+            check_prereleases: false,
             language: "auto".to_owned(),
             key_sequence_timeout_ms: 1000,
             unicode_symbols: SymbolMode::Auto,
             natural_sort: true,
             columns: ColumnSettings::default(),
+            color_scheme: ColorScheme::Default,
+            restore_tabs: false,
+            connect_in_tab: TabConnect::Ask,
         }
     }
 }
@@ -591,6 +705,9 @@ pub struct EditingSettings {
     pub associations: Vec<FileAssociation>,
     /// Watch edited files and offer to upload them when they change.
     pub watch_and_prompt_upload: bool,
+    /// Ask before downloading a remote file larger than this (MiB) to view
+    /// or edit it; 0 never asks.
+    pub max_size_mib: u64,
 }
 
 impl Default for EditingSettings {
@@ -599,6 +716,7 @@ impl Default for EditingSettings {
             editor: EditorChoice::Auto,
             associations: Vec::new(),
             watch_and_prompt_upload: true,
+            max_size_mib: 50,
         }
     }
 }
@@ -634,10 +752,13 @@ pub struct QueueSettings {
     pub on_complete: OnComplete,
     /// How to notify when the queue finishes (T45).
     pub notify: NotifyMethod,
-    /// Save the queue on exit and restore it at startup.
+    /// Save the queue (encrypted in the vault, T40) and restore it at startup.
     pub persist: bool,
     /// Refresh the remote listing after the queue finishes.
     pub refresh_remote_after: bool,
+    /// Most entries kept in the successful-transfers list (T40); the oldest
+    /// drop off.
+    pub max_successful: usize,
 }
 
 impl Default for QueueSettings {
@@ -647,6 +768,7 @@ impl Default for QueueSettings {
             notify: NotifyMethod::Bell,
             persist: true,
             refresh_remote_after: true,
+            max_successful: crate::queue::DEFAULT_MAX_SUCCESSFUL,
         }
     }
 }
@@ -660,7 +782,8 @@ pub enum OnComplete {
     None,
     /// Show a summary message.
     ShowMessage,
-    /// Run a shell command.
+    /// Run a command: split into words and started directly, never through
+    /// a shell (see [`crate::transfer::completion::command_line`]).
     RunCommand(String),
     /// Disconnect from the server.
     Disconnect,
@@ -696,6 +819,60 @@ impl Default for CacheSettings {
         Self {
             listing_cache: true,
             listing_cache_ttl_secs: 0,
+        }
+    }
+}
+
+/// Vault settings (T30). Keyring unlock is per device and lives in the
+/// vault's own database, not here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VaultSettings {
+    /// Lock the vault after this many minutes without input; 0 = never
+    /// (0–1440).
+    pub auto_lock_minutes: u32,
+    /// Lock when a system suspend/resume is detected.
+    pub lock_on_suspend: bool,
+    /// Close connections when the vault locks (otherwise they keep running;
+    /// transfers that need a secret wait for the unlock).
+    pub lock_disconnects: bool,
+    /// Save site passwords, account and key passphrases in the vault. When
+    /// off, password fields are never written (FileZilla's "do not save
+    /// passwords").
+    pub store_passwords: bool,
+}
+
+impl Default for VaultSettings {
+    fn default() -> Self {
+        Self {
+            auto_lock_minutes: 15,
+            lock_on_suspend: true,
+            lock_disconnects: false,
+            store_passwords: true,
+        }
+    }
+}
+
+/// Device sync settings (T88). The account itself lives in the vault's
+/// database, not here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncSettings {
+    /// Push this many milliseconds after the last local change (0–60000).
+    pub push_debounce_ms: u32,
+    /// Pull every vault this often even without live notifications
+    /// (30–86400 seconds).
+    pub poll_fallback_secs: u32,
+    /// Also sync the quickconnect history between devices.
+    pub history: bool,
+}
+
+impl Default for SyncSettings {
+    fn default() -> Self {
+        Self {
+            push_debounce_ms: 2000,
+            poll_fallback_secs: 300,
+            history: false,
         }
     }
 }

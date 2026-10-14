@@ -1,0 +1,10 @@
+---
+source: crates/courier-ftp-proto-ftp/tests/listings.rs
+expression: render(&parsed)
+---
+format: Some(Unix)
+file  "Größe.txt" size=1234 mtime=2024-06-01T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=hans group=users
+file  "grüße-utf8.txt" size=1234 mtime=2024-06-01T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=hans group=users
+file  "café.txt" size=1234 mtime=2024-06-01T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=hans group=users
+file  "naïve.txt" size=1234 mtime=2024-06-01T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=hans group=users
+file  "€uro.txt" size=1234 mtime=2024-06-01T12:00:00.000Z/Minute perms=-rw-r--r--(644) owner=hans group=users
