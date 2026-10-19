@@ -1,7 +1,7 @@
 name: Benchmarks
 
 # T00 §4: performance targets. Not run on every PR (shared runners are noisy):
-# nightly and on demand.
+# on every push to master and on demand.
 #
 # * Hard gates, CI-adjusted (2x): scripts/bench-gates.toml (filled in as the
 #   benchmarks land: listing parsers T13, file list render T53, merge T81,
@@ -12,8 +12,9 @@ name: Benchmarks
 #   < 200 ms) is added with the vault unlock UI (T60).
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:

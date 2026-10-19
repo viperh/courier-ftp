@@ -269,8 +269,8 @@ jobs:
       - name: Crypto crates (warns while they are exempted)
         run: python3 scripts/check-vet-crypto.py
 
-  # T91 §7: every cargo-fuzz target for 30 s (the nightly fuzz.yml runs them
-  # 10 minutes each). Targets are read from `cargo fuzz list`.
+  # T91 §7: every cargo-fuzz target for 30 s (fuzz.yml runs them 10 minutes
+  # each on release tags). Targets are read from `cargo fuzz list`.
   fuzz:
     name: Fuzz (30 s per target)
     runs-on: ubuntu-latest
