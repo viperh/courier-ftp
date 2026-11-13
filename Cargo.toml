@@ -209,7 +209,7 @@ tokio-test = "0.4.6"
 # rustls everywhere with `ring` as the provider (static musl build). None of these
 # may reach the client build (scripts/check-layering.py).
 axum = { version = "0.8.9", features = ["macros"] }
-axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
+axum-server = { version = "0.9.0", features = ["tls-rustls-no-provider"] }
 governor = "0.10.4"
 lettre = { version = "0.11.23", default-features = false, features = [
     "builder",
