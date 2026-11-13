@@ -241,7 +241,7 @@ sqlx-postgres = { version = "0.8.6", default-features = false, features = [
 ] }
 totp-rs = { version = "5.7.0", default-features = false }
 tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.6.11", features = [
+tower-http = { version = "0.7.1", features = [
     "compression-gzip",
     "cors",
     "limit",
